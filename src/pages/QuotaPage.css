@@ -65,7 +65,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 12px;
-  align-items: stretch;
+  align-items: start;
 }
 .quota-page .real-quota-card {
   display: flex;
@@ -113,3 +113,18 @@
 .quota-page .quota-card-message, .quota-page .quota-card-error { min-height: 36px; flex-wrap: wrap; }
 .quota-page .quota-card-error > span { display: grid; gap: 4px; min-width: 0; }
 .quota-page .quota-card-error small { overflow-wrap: anywhere; font-size: 11px; }
+
+.quota-page .quota-compact-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-size-label); cursor: pointer; }
+.quota-page .quota-compact-toggle input { accent-color: var(--ui-accent); }
+.quota-page .quota-card-compact { gap: 8px; padding: 10px; }
+.quota-page .quota-card-compact .real-quota-card-header { gap: 6px 10px; }
+.quota-page .quota-card-compact .quota-plan > span:empty { display: none; }
+.quota-page .quota-preview > .real-quota-row > div:first-child > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quota-page .quota-preview small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quota-page .quota-exhausted-summary { order: 1; overflow-wrap: anywhere; }
+.quota-page .quota-card-details { order: 2; min-width: 0; }
+.quota-page .quota-card-details > summary { padding: 4px 0; color: var(--text-secondary); font-size: var(--font-size-meta); cursor: pointer; }
+.quota-page .quota-card-details > summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; border-radius: 3px; }
+.quota-page .quota-card-details-body { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
+.quota-page .quota-detail-metadata { display: grid; gap: 4px; color: var(--text-tertiary); font-size: var(--font-size-meta); overflow-wrap: anywhere; }
+.quota-page .quota-card-empty { color: var(--text-secondary); font-size: var(--font-size-meta); }
