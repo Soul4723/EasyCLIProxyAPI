@@ -219,7 +219,13 @@ pub(crate) fn export_core_connection(
     }
     let document = serde_json::to_vec_pretty(&PortableConnectionFile::from_connection(&config.core_connection, include_secrets))
         .map_err(|error| format!("Failed to create connection export: {error}"))?;
-    let temporary = path.with_extension(format!("{}{}.tmp", path.extension().and_then(|v| v.to_str()).map(|v| format!("{v}.")).unwrap_or_default(), std::process::id()));
+    write_portable_connection(&path, &document)
+}
+
+fn write_portable_connection(path: &Path, document: &[u8]) -> Result<(), String> {
+    portable_path(path.to_str().ok_or("Invalid connection export path")?)?;
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "System clock is unavailable")?.as_nanos();
+    let temporary = path.with_extension(format!("{}.{}.tmp", std::process::id(), nonce));
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -227,28 +233,17 @@ pub(crate) fn export_core_connection(
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let write_result = options.open(&temporary).and_then(|mut file| {
-        file.write_all(&[document.as_slice(), b"\n"].concat())?;
-        file.sync_all()
-    });
+    let mut file = options.open(&temporary).map_err(|error| format!("Failed to create connection export: {error}"))?;
+    let write_result = file.write_all(&[document, b"\n"].concat()).and_then(|_| file.sync_all());
+    drop(file);
     if let Err(error) = write_result {
         let _ = fs::remove_file(&temporary);
         return Err(format!("Failed to write connection export: {error}"));
     }
-    let backup = path.with_extension(format!("{}{}.bak", path.extension().and_then(|v| v.to_str()).map(|v| format!("{v}.")).unwrap_or_default(), std::process::id()));
-    if let Ok(metadata) = fs::symlink_metadata(&backup) {
-        if !metadata.file_type().is_file() { let _ = fs::remove_file(&temporary); return Err("Connection export recovery path is not a regular file".to_string()); }
-    }
-    let had_existing = path.exists();
-    if had_existing { let _ = fs::remove_file(&backup); fs::rename(&path, &backup).map_err(|error| { let _ = fs::remove_file(&temporary); format!("Failed to prepare connection export: {error}") })?; }
-    if let Err(error) = fs::rename(&temporary, &path) {
-        if had_existing && fs::rename(&backup, &path).is_err() {
-            return Err(format!("Failed to finalize connection export and restore previous file: {error}"));
-        }
+    if let Err(error) = replace_file_atomically(&temporary, &path) {
         let _ = fs::remove_file(&temporary);
         return Err(format!("Failed to finalize connection export: {error}"));
     }
-    if had_existing { let _ = fs::remove_file(&backup); }
     Ok(())
 }
 
@@ -257,7 +252,10 @@ pub(crate) fn import_core_connection(path: String) -> Result<CoreConnection, Str
     let path = portable_path(&path)?;
     let size = fs::metadata(&path).map_err(|error| format!("Failed to read connection export: {error}"))?.len();
     if size > MAX_PORTABLE_FILE_BYTES { return Err("Connection export is too large".to_string()); }
-    let content = fs::read_to_string(path).map_err(|error| format!("Failed to read connection export: {error}"))?;
+    let mut content = String::new();
+    File::open(path).and_then(|file| file.take(MAX_PORTABLE_FILE_BYTES + 1).read_to_string(&mut content))
+        .map_err(|_| "Failed to read connection export".to_string())?;
+    if content.len() as u64 > MAX_PORTABLE_FILE_BYTES { return Err("Connection export is too large".to_string()); }
     let export: PortableConnectionFile = serde_json::from_str(&content).map_err(|_| "Connection export is invalid or corrupted".to_string())?;
     export.into_connection()
 }
@@ -383,6 +381,27 @@ fn remote_status_value(connection: &CoreConnection, ready: bool, version: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn portable_file_overwrite_is_atomic_and_private() {
+        let directory = env::temp_dir().join(format!("easycli-portable-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("connection.json");
+        write_portable_connection(&path, b"first").unwrap();
+        write_portable_connection(&path, b"second").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"second\n");
+        assert!(write_portable_connection(&directory, b"invalid").is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{symlink, PermissionsExt};
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            let link = directory.join("link.json");
+            symlink(&path, &link).unwrap();
+            assert!(write_portable_connection(&link, b"invalid").is_err());
+            assert_eq!(fs::read(&path).unwrap(), b"second\n");
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn portable_connection_export_excludes_secrets_by_default_and_round_trips_when_present() {

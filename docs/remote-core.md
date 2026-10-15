@@ -49,8 +49,13 @@ only remote management and client API targets; local client files, executable pa
 backups, and other GUI settings are never copied. Secret keys are excluded by default.
 Select **Include API keys** only when the exported file can be handled as a secret, then
 delete it after transfer. Imported settings are shown for review and are not applied
-until Save; an export without keys requires entering the management key before saving.
+until Save; an export without keys requires entering the management key and, when a
+client origin is set, the client API key before saving. Save edits before exporting.
 Invalid or unsupported files are rejected without changing the current configuration.
+Import only files you trust. Review both origins on each machine: loopback names refer
+to that machine, and network addresses or client keys may need to differ. After saving,
+use Agent Configuration on that machine to apply the target to its installed clients;
+importing connection settings alone does not modify client files.
 
 Beginner Mode remains Local-only. DeepSeek Harness configuration and model
 editing can use the remote API, but its managed launch, status, stop and restart
