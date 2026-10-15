@@ -80,7 +80,6 @@ impl PortableConnectionFile {
         }
         if !connection.client_api_origin.trim().is_empty() {
             connection.client_api_origin = normalize_origin(&connection.client_api_origin)?;
-            if connection.client_api_key.is_empty() { return Err("Connection export has a client origin without a client key".to_string()); }
         } else if !connection.client_api_key.is_empty() {
             return Err("Connection export has a client key without a client origin".to_string());
         }
@@ -376,6 +375,7 @@ mod tests {
         let without = PortableConnectionFile::from_connection(&connection, false).into_connection().unwrap();
         assert!(without.remote_management_key.is_empty());
         assert!(without.client_api_key.is_empty());
+        assert_eq!(without.client_api_origin, connection.client_api_origin);
         let with = PortableConnectionFile::from_connection(&connection, true).into_connection().unwrap();
         assert_eq!(with, connection);
     }
