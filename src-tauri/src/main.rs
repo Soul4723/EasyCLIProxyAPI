@@ -316,6 +316,7 @@ struct CoreProcessState {
     starting: AtomicBool,
     shutting_down: AtomicBool,
     shutdown_complete: AtomicBool,
+    supervisor_started: AtomicBool,
     supervision: Mutex<ChildSupervision>,
     crash_restart_attempts: AtomicU32,
 }
@@ -1934,6 +1935,7 @@ impl CoreProcessState {
             starting: AtomicBool::new(starting),
             shutting_down: AtomicBool::new(false),
             shutdown_complete: AtomicBool::new(false),
+            supervisor_started: AtomicBool::new(false),
             supervision: Mutex::new(ChildSupervision::Idle),
             crash_restart_attempts: AtomicU32::new(0),
         }
@@ -1978,6 +1980,11 @@ impl CoreProcessState {
         if let Ok(mut supervision) = self.supervision.lock() {
             *supervision = ChildSupervision::Idle;
         }
+    }
+
+    fn disarm_supervision(&self) {
+        self.clear_supervision();
+        self.reset_crash_restart_attempts();
     }
 
     fn finish_recovery_pass(&self) {
@@ -2066,8 +2073,7 @@ impl CoreProcessState {
 
     fn take_child(&self) -> Option<CoreChild> {
         let taken = self.child.lock().ok().and_then(|mut child| child.take());
-        self.clear_supervision();
-        self.reset_crash_restart_attempts();
+        self.disarm_supervision();
         taken
     }
 
@@ -2855,7 +2861,9 @@ fn main() {
                 {
                     emit_core_status(&core_app, &status);
                 }
-                start_core_crash_supervisor(core_app.clone());
+                if process_state.is_supervising() {
+                    start_core_crash_supervisor(core_app.clone());
+                }
             });
 
             if let Some(ack_path) = portable_update_ack.as_ref() {

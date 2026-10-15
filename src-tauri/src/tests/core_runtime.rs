@@ -1555,3 +1555,20 @@ fn core_crash_supervisor_retry_limit_preserves_supervision_of_manually_started_c
     assert!(check_and_recover_crashed_core(&state, |_| Ok(())).is_err());
     assert!(!state.is_supervising());
 }
+
+#[test]
+fn disarming_supervision_prevents_recovery_after_crashed_child_is_removed() {
+    let state = CoreProcessState::new(false);
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let _ = child.kill();
+    let _ = child.wait();
+    state.store_child(child).unwrap();
+
+    state.disarm_supervision();
+
+    assert!(!state.is_supervising());
+    assert!(!check_and_recover_crashed_core(&state, |_| {
+        panic!("disarmed supervision must not restart a crashed child")
+    })
+    .unwrap());
+}
