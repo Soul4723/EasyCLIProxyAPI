@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicU64;
 
 const PORTABLE_CONNECTION_FORMAT: &str = "easycli-proxy-connection";
 const PORTABLE_CONNECTION_VERSION: u8 = 1;
+const MAX_PORTABLE_FILE_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -197,6 +198,11 @@ fn portable_path(path: &str) -> Result<PathBuf, String> {
     if !path.is_absolute() || path.components().any(|component| matches!(component, Component::ParentDir)) || path.file_name().is_none() {
         return Err("Connection export path must be an absolute file path".to_string());
     }
+    if let Ok(metadata) = fs::symlink_metadata(&path) {
+        if !metadata.file_type().is_file() { return Err("Connection export path must name a regular file".to_string()); }
+    }
+    let parent = path.parent().ok_or("Connection export path has no parent")?;
+    if !parent.is_dir() { return Err("Connection export directory does not exist".to_string()); }
     Ok(path)
 }
 
@@ -214,15 +220,31 @@ pub(crate) fn export_core_connection(
     let document = serde_json::to_vec_pretty(&PortableConnectionFile::from_connection(&config.core_connection, include_secrets))
         .map_err(|error| format!("Failed to create connection export: {error}"))?;
     let temporary = path.with_extension(format!("{}{}.tmp", path.extension().and_then(|v| v.to_str()).map(|v| format!("{v}.")).unwrap_or_default(), std::process::id()));
-    if let Err(error) = fs::write(&temporary, [document.as_slice(), b"\n"].concat()) {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let write_result = options.open(&temporary).and_then(|mut file| {
+        file.write_all(&[document.as_slice(), b"\n"].concat())?;
+        file.sync_all()
+    });
+    if let Err(error) = write_result {
         let _ = fs::remove_file(&temporary);
         return Err(format!("Failed to write connection export: {error}"));
     }
     let backup = path.with_extension(format!("{}{}.bak", path.extension().and_then(|v| v.to_str()).map(|v| format!("{v}.")).unwrap_or_default(), std::process::id()));
+    if let Ok(metadata) = fs::symlink_metadata(&backup) {
+        if !metadata.file_type().is_file() { let _ = fs::remove_file(&temporary); return Err("Connection export recovery path is not a regular file".to_string()); }
+    }
     let had_existing = path.exists();
     if had_existing { let _ = fs::remove_file(&backup); fs::rename(&path, &backup).map_err(|error| { let _ = fs::remove_file(&temporary); format!("Failed to prepare connection export: {error}") })?; }
     if let Err(error) = fs::rename(&temporary, &path) {
-        if had_existing { let _ = fs::rename(&backup, &path); }
+        if had_existing && fs::rename(&backup, &path).is_err() {
+            return Err(format!("Failed to finalize connection export and restore previous file: {error}"));
+        }
         let _ = fs::remove_file(&temporary);
         return Err(format!("Failed to finalize connection export: {error}"));
     }
@@ -233,6 +255,8 @@ pub(crate) fn export_core_connection(
 #[tauri::command]
 pub(crate) fn import_core_connection(path: String) -> Result<CoreConnection, String> {
     let path = portable_path(&path)?;
+    let size = fs::metadata(&path).map_err(|error| format!("Failed to read connection export: {error}"))?.len();
+    if size > MAX_PORTABLE_FILE_BYTES { return Err("Connection export is too large".to_string()); }
     let content = fs::read_to_string(path).map_err(|error| format!("Failed to read connection export: {error}"))?;
     let export: PortableConnectionFile = serde_json::from_str(&content).map_err(|_| "Connection export is invalid or corrupted".to_string())?;
     export.into_connection()

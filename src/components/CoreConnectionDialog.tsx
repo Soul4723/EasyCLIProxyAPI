@@ -17,6 +17,7 @@ export function CoreConnectionDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
   const [includeSecrets, setIncludeSecrets] = useState(false);
+  const draftDirty = JSON.stringify(draft) !== JSON.stringify(connection);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const ref = useDialogFocusTrap<HTMLElement>({ onEscape: busy ? undefined : onClose, preventEscape: busy });
@@ -81,7 +82,7 @@ export function CoreConnectionDialog({ onClose }: { onClose: () => void }) {
       {result ? <p role="status">{result}</p> : null}
       <p className="core-connection-portable-hint">{t('connection.portableHint')}</p>
       <label className="core-connection-secret-export"><input type="checkbox" checked={includeSecrets} disabled={busy} onChange={event => setIncludeSecrets(event.currentTarget.checked)} /> {t('connection.includeSecrets')}</label>
-      <div className="button-row"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>{t('connection.back')}</button><button type="button" className="secondary-button" disabled={busy} onClick={() => void importSettings()}><Upload size={15} />{t('connection.import')}</button><button type="button" className="secondary-button" disabled={busy} onClick={() => void exportSettings()}><Download size={15} />{t('connection.export')}</button>{draft.mode === 'remote' ? <button type="button" className="secondary-button" disabled={busy} onClick={() => void run(false)}>{t('connection.test')}</button> : null}<button type="submit" className="primary-button" disabled={busy}>{t(busy ? 'common.processing' : 'common.save')}</button></div>
+      <div className="button-row"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>{t('connection.back')}</button><button type="button" className="secondary-button" disabled={busy} onClick={() => void importSettings()}><Upload size={15} />{t('connection.import')}</button><button type="button" className="secondary-button" disabled={busy || draftDirty} onClick={() => void exportSettings()}><Download size={15} />{t('connection.export')}</button>{draft.mode === 'remote' ? <button type="button" className="secondary-button" disabled={busy} onClick={() => void run(false)}>{t('connection.test')}</button> : null}<button type="submit" className="primary-button" disabled={busy}>{t(busy ? 'common.processing' : 'common.save')}</button></div>
     </form>
   </section></div>;
 }
