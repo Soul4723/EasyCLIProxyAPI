@@ -1,9 +1,11 @@
+import { remoteMachinesEn } from '../remoteMachines';
 import type { MessageKey } from './zh-CN';
 import { easyModeEn } from '../easyMode';
 import { homeEn } from '../home';
 import { authFileListEn } from '../authFileList';
 
 export const en: Record<MessageKey, string> = {
+  ...remoteMachinesEn,
   "connection.restartHint": "Restart the remote core on its server if required.",
   "connection.stopLocal": "Stop this app’s running local core before attaching remotely. Choose Back, then Stop on Home, and reopen connection settings.",
   "connection.serverOnly": "Change this setting on the remote core server. Local file browsing and automatic restart are unavailable.",

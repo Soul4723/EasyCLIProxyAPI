@@ -1,8 +1,10 @@
+import { remoteMachinesZhCN } from '../remoteMachines';
 import { easyModeZhCN } from '../easyMode';
 import { homeZhCN } from '../home';
 import { authFileListZhCN } from '../authFileList';
 
 export const zhCN = {
+  ...remoteMachinesZhCN,
   "connection.restartHint": "如需重启，请在服务器上重启远程核心。",
   "connection.stopLocal": "连接远程核心前，请先停止此应用管理的本地核心。选择“返回”，在首页点击“停止”，然后重新打开连接设置。",
   "connection.serverOnly": "请在远程核心服务器上修改此设置。不支持本机文件浏览和自动重启。",

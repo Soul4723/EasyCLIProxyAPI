@@ -142,6 +142,7 @@ pub(crate) fn refresh_agent_config_status_cache(
     cache: &AgentConfigStatusCache,
 ) -> Result<Vec<AgentConfigStatus>, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let _refresh_guard = cache
         .refresh_lock
         .lock()
@@ -159,6 +160,7 @@ pub(crate) async fn get_agent_config_statuses(
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<Vec<AgentConfigStatus>, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     tauri::async_runtime::spawn_blocking(move || {
         let _connection_guard = _connection_guard;
         let gui_config_state = app.state::<GuiConfigState>();
@@ -190,6 +192,7 @@ pub(crate) async fn refresh_agent_config_statuses(
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<Vec<AgentConfigStatus>, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     tauri::async_runtime::spawn_blocking(move || {
         let _connection_guard = _connection_guard;
         let gui_config_state = app.state::<GuiConfigState>();
@@ -210,6 +213,7 @@ pub(crate) async fn get_agent_models(
     client: String,
 ) -> Result<Vec<AgentModelOption>, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     if client.trim().eq_ignore_ascii_case(PI_AGENT_ID) {
         let config = gui_config_state.snapshot()?;
         return fetch_agent_models(agent_target(&config)?, effective_agent_api_key(&config)).await;
@@ -238,6 +242,7 @@ pub(crate) async fn check_pi_provider_update(
     app: tauri::AppHandle,
 ) -> Result<PiProviderUpdateStatus, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -269,6 +274,7 @@ pub(crate) async fn install_pi_provider(
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -314,6 +320,7 @@ pub(crate) async fn update_pi_provider(
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -344,6 +351,7 @@ pub(crate) async fn repair_pi_provider(
     model: String,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -370,6 +378,7 @@ pub(crate) async fn uninstall_pi_provider(
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -389,6 +398,7 @@ pub(crate) async fn uninstall_pi_provider(
 #[tauri::command]
 pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -401,6 +411,7 @@ pub(crate) async fn update_codex_model_catalog(
     app: tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     update_codex_model_catalog_inner(&app).await
 }
 
@@ -408,6 +419,7 @@ pub(crate) async fn update_codex_model_catalog_inner(
     app: &tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let _update_guard = CODEX_CATALOG_UPDATE_LOCK.lock().await;
     let proxy_url = app.state::<GuiConfigState>().snapshot()?.proxy_url;
     let client = build_http_client_with_proxy(
@@ -514,6 +526,7 @@ pub(crate) async fn get_codex_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<codex_catalog::CatalogEditorSnapshot, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
@@ -534,6 +547,7 @@ pub(crate) async fn save_codex_model_catalog_editor(
     request: codex_catalog::CatalogEditorRequest,
 ) -> Result<CodexCatalogEditorSaveResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
@@ -564,7 +578,11 @@ pub(crate) async fn get_thinking_aliases(
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
-    let content = fetch_management_config_yaml(&config).await?;
+    read_core_thinking_aliases(&config).await
+}
+
+pub(crate) async fn read_core_thinking_aliases(config: &GuiConfigFile) -> Result<Vec<ThinkingAliasEntry>, String> {
+    let content = fetch_management_config_yaml(config).await?;
     thinking_aliases_from_yaml(&content)
 }
 
@@ -1039,6 +1057,7 @@ pub(crate) async fn refresh_applied_codex_model_catalog(
     config: &GuiConfigFile,
 ) -> Result<bool, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     crate::core_connection::ensure_current(config)?;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let runtime_models = fetch_codex_catalog_runtime_models(config).await?;
@@ -1068,6 +1087,7 @@ pub(crate) fn start_codex_model_catalog_sync(app: tauri::AppHandle) {
                 continue;
             };
             let Ok(_connection_guard) = crate::core_connection::target_operation() else { continue; };
+            let Ok(_machine_guard) = crate::remote_machines::local_agent_operation() else { continue; };
             let Ok(target) = agent_target(&config) else { continue; };
             let paths = agent_config_paths(AgentClient::Codex, &home);
             if !matches!(
@@ -1239,6 +1259,7 @@ pub(crate) async fn apply_agent_config(
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let client = AgentClient::parse(&client)?;
     let home = app
         .path()
@@ -1291,6 +1312,7 @@ pub(crate) async fn apply_agent_config(
 #[tauri::command]
 pub(crate) fn clear_codex_config(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -1315,6 +1337,7 @@ pub(crate) async fn set_agent_config_enabled(
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let client = AgentClient::parse(&client)?;
     let home = app
         .path()
@@ -1391,6 +1414,7 @@ pub(crate) async fn update_agent_config(
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     apply_agent_config(
         app,
         gui_config_state,

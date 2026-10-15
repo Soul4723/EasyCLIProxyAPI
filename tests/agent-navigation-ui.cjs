@@ -14,6 +14,8 @@ const assert = require('node:assert/strict');
     const tab = name => page.getByRole('tab', { name, exact: true });
     const button = name => page.getByRole('button', { name, exact: true });
     const client = name => ({ click: async () => {
+      // Let responsive capacity/page corrections settle after changing subpages.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const row = page.locator('.agent-list-items button').filter({ has: page.getByText(name, { exact: true }) });
       const previous = button('上一页客户端');
       while (await previous.isEnabled()) await previous.click();

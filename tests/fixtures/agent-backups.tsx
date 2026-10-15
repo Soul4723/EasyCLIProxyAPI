@@ -41,6 +41,8 @@ let embedded=params.has('embedded');
 (window as any).fixtureSessionIds=Array.from({length:61},(_,index)=>`session-${index+1}`);
 mockIPC(async (cmd,args:any) => {
  calls.push({cmd,args});
+ if(cmd==='list_remote_machines')return [];
+ if(cmd==='select_agent_machine')return {machineId:args.machineId,revision:1,coreRevision:0};
  if(cmd==='get_codex_cli_daemon_running') {
    if(params.has('daemon-error'))throw new Error('Codex daemon probe failed');
    return !params.has('daemon-stopped');

@@ -75,6 +75,10 @@ pub(crate) struct BackupPreview {
 }
 
 pub(crate) fn agent_data_directory(paths: &[PathBuf]) -> Result<PathBuf, String> {
+    if let Some(directory) = crate::remote_machines::helper_data_directory() {
+        crate::remote_machines::validate_helper_write_path(&directory.join(".path-check"))?;
+        return Ok(directory);
+    }
     #[cfg(test)]
     {
         let temp = std::env::temp_dir();
@@ -108,10 +112,12 @@ fn backup_directory(client: &str, paths: &[PathBuf]) -> Result<PathBuf, String> 
     if client != PI_AGENT_ID {
         AgentClient::parse(client)?;
     }
-    Ok(agent_data_directory(paths)?
+    let directory = agent_data_directory(paths)?
         .join("backups/agents")
         .join(client)
-        .join(path_identity(paths)))
+        .join(path_identity(paths));
+    crate::remote_machines::validate_helper_write_path(&directory.join(".path-check"))?;
+    Ok(directory)
 }
 
 fn valid_version_id(id: &str) -> bool {
@@ -122,7 +128,9 @@ fn version_path(client: &str, paths: &[PathBuf], id: &str) -> Result<PathBuf, St
     if !valid_version_id(id) {
         return Err("Invalid backup version number".into());
     }
-    Ok(backup_directory(client, paths)?.join(format!("{id}.json")))
+    let path = backup_directory(client, paths)?.join(format!("{id}.json"));
+    crate::remote_machines::validate_helper_write_path(&path)?;
+    Ok(path)
 }
 
 fn make_version(client: &str, paths: &[PathBuf], images: &Images) -> BackupVersion {
@@ -178,6 +186,7 @@ fn write_version(paths: &[PathBuf], version: &BackupVersion) -> Result<(), Strin
         checksum: sha256_bytes(&payload),
     };
     let bytes = serde_json::to_vec(&package).map_err(|_| "Failed to generate backup")?;
+    crate::remote_machines::validate_helper_write_path(&path)?;
     let mut file = options
         .open(&path)
         .map_err(|_| "Failed to create manual backup. Check backup directory permissions")?;
@@ -187,11 +196,14 @@ fn write_version(paths: &[PathBuf], version: &BackupVersion) -> Result<(), Strin
         .is_err()
     {
         drop(file);
+        crate::remote_machines::validate_helper_write_path(&path)?;
         let _ = fs::remove_file(&path);
         return Err("Failed to save manual backup".into());
     }
     drop(file);
+    crate::remote_machines::validate_helper_write_path(&path)?;
     if fs::read(&path).ok().as_deref() != Some(bytes.as_slice()) {
+        crate::remote_machines::validate_helper_write_path(&path)?;
         let _ = fs::remove_file(&path);
         return Err("Manual backup post-write verification failed".into());
     }
@@ -329,6 +341,7 @@ pub(crate) fn delete_backup(client: &str, home: &Path, id: &str) -> Result<(), S
     let paths = config_paths(client, home)?;
     let path = version_path(client, &paths, id)?;
     validate_config_path(&path.parent().ok_or("Invalid backup directory")?.join(".path-check"))?;
+    crate::remote_machines::validate_helper_write_path(&path)?;
     fs::remove_file(&path).map_err(|_| "Failed to delete manual backup. Refresh the list and try again".to_string())
 }
 
@@ -470,6 +483,7 @@ pub(crate) fn create_agent_config_backup(
     client: String,
 ) -> Result<BackupSummary, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -483,6 +497,7 @@ pub(crate) fn list_agent_config_backups(
     client: String,
 ) -> Result<BackupList, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -497,6 +512,7 @@ pub(crate) fn delete_agent_config_backup(
     id: String,
 ) -> Result<(), String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()

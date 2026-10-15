@@ -546,6 +546,9 @@ pub(crate) fn write_agent_configuration_file(
     path: &Path,
     content: &[u8],
 ) -> Result<(), String> {
+    if crate::remote_machines::helper_data_directory().is_some() {
+        return write_codex_private_file(path, content);
+    }
     if client == AgentClient::Codex
         && matches!(path.file_name().and_then(|name| name.to_str()), Some(CODEX_NATIVE_OAUTH_STATE_FILE | "auth.json"))
     {

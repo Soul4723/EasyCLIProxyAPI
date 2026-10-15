@@ -5,11 +5,13 @@ mod tests;
 
 pub(crate) const CODEX_NATIVE_OAUTH_STATE_FILE: &str = "cpa-native-oauth.json";
 pub(crate) fn write_codex_private_file(path: &Path, content: &[u8]) -> Result<(), String> {
+    crate::remote_machines::validate_helper_write_path(path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         fs::create_dir_all(path.parent().ok_or("Invalid Codex credentials path")?)
             .map_err(|_| "Failed to create Codex credentials directory")?;
+        crate::remote_machines::validate_helper_write_path(path)?;
         let file = fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -300,6 +302,7 @@ pub(crate) fn close_codex_config_modification(
     app: tauri::AppHandle,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -520,6 +523,7 @@ pub(crate) fn restore_codex_official_config(
     app: tauri::AppHandle,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()

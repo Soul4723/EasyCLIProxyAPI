@@ -1,0 +1,12 @@
+.machine-workspace { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.machine-selector, .remote-machine-panel { padding: 20px; min-width: 0; }
+.machine-selector label, .machine-fields label { display: grid; gap: 6px; font-weight: 600; }
+.machine-selector select, .machine-fields input, .machine-fields select { width: 100%; min-width: 0; padding: 9px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); color: inherit; font: inherit; }
+.machine-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; padding: 16px; margin: 16px 0; border: 1px solid var(--border-color); border-radius: 10px; min-width: 0; }
+.remote-machine-panel p, .machine-selector p { line-height: 1.6; }
+.remote-machine-panel code, .remote-machine-panel li, .remote-machine-panel [role=alert] { overflow-wrap: anywhere; }
+.remote-machine-panel .button-row { flex-wrap: wrap; }
+.machine-capabilities { margin-block: 16px; }
+.remote-machine-panel li { margin-block: 8px; }
+@media (max-width: 600px) { .machine-selector, .remote-machine-panel { padding: 12px; } }
+.app-shell:has(.agents-page:not(.agents-page-embedded)) .machine-workspace { flex: 1 1 auto; min-height: 0; }

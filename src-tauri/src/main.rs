@@ -9,6 +9,7 @@ mod codex_sessions;
 mod configuration_watcher;
 mod core_config;
 mod core_connection;
+mod remote_machines;
 mod core_runtime;
 mod desktop_theme;
 mod instance_lock;
@@ -2441,6 +2442,13 @@ struct GithubAsset {
 
 fn main() {
     let helper_args = env::args_os().collect::<Vec<_>>();
+    if helper_args.get(1).is_some_and(|a| a == "--remote-machine-helper-v1") {
+        if remote_machines::run_helper().is_err() {
+            eprintln!("Remote helper failed; check protocol, platform, paths and permissions");
+            std::process::exit(1);
+        }
+        return;
+    }
     if helper_args.get(1).is_some_and(|a| a == "--cpa-copilot-cli") {
         let code = run_copilot_helper(&helper_args).unwrap_or_else(|error| { eprintln!("{error}"); 1 });
         std::process::exit(code);
@@ -2728,6 +2736,12 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            remote_machines::list_remote_machines,
+            remote_machines::probe_remote_machine,
+            remote_machines::save_remote_machine,
+            remote_machines::remove_remote_machine,
+            remote_machines::select_agent_machine,
+            remote_machines::remote_machine_request,
             core_connection::get_core_connection,
             core_connection::save_core_connection,
             core_connection::test_core_connection,

@@ -74,6 +74,12 @@ pub(crate) fn has_recorded_agent_integration(client: &str, paths: &[PathBuf]) ->
     Ok(parse_integration_state(client, paths, bytes.as_deref())?.is_some())
 }
 
+pub(crate) fn recorded_agent_integration_revision(client: &str, paths: &[PathBuf]) -> Result<String, String> {
+    let bytes = read_agent_bytes(&integration_state_path(client, paths)?)?;
+    parse_integration_state(client, paths, bytes.as_deref())?;
+    Ok(image_hash(bytes.as_deref()))
+}
+
 fn integration_state_bytes(state: &AgentIntegrationState) -> Result<Vec<u8>, String> {
     serde_json::to_vec(state).map_err(|_| "Failed to generate access configuration merge state".to_string())
 }
@@ -267,8 +273,10 @@ pub(crate) fn validate_config_path(path: &Path) -> Result<(), String> {
     for ancestor in path.ancestors() {
         match fs::symlink_metadata(ancestor) {
             Ok(meta) => {
+                // Local may relocate roots; helper reads and writes must reject every link.
                 if path_has_reparse_point(ancestor, &meta)
-                    && !relocated_configuration_root_allowed(ancestor)
+                    && (crate::remote_machines::helper_data_directory().is_some()
+                        || !relocated_configuration_root_allowed(ancestor))
                 {
                     return Err(format!(
                         "Configuration path cannot contain symbolic links: {}",
@@ -448,6 +456,7 @@ pub(crate) fn image_revision(images: &Images) -> String {
 
 pub(crate) fn write_config_images(client: &str, images: &Images) -> Result<(), String> {
     for (path, bytes) in images {
+        crate::remote_machines::validate_helper_write_path(path)?;
         if read_agent_bytes(path)? == *bytes {
             continue;
         }
