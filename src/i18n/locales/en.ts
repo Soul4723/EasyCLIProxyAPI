@@ -36,6 +36,12 @@ export const en: Record<MessageKey, string> = {
   "connection.oauth": "Remote OAuth: the browser runs on this computer. A loopback callback (localhost / 127.0.0.1) may show a connection error here. Copy the complete callback URL from the browser address bar, including code and state, and paste it below to forward it to the remote core. Wait for the core to confirm completion; opening the browser or submitting the URL alone does not mean login succeeded. Device-code flows keep their own instructions.",
   "connection.restart": "Saved. If a restart is required, restart the remote core on its server.",
   "connection.back": "Back",
+  "connection.export": "Export settings",
+  "connection.import": "Import settings",
+  "connection.includeSecrets": "Include API keys (handle exported file as secret)",
+  "connection.portableHint": "Export contains only core targets. Machine-local client files and paths stay here. Secrets are excluded unless selected.",
+  "connection.imported": "Settings loaded. Review targets and save to apply.",
+  "connection.exported": "Settings exported.",
 
   'app.nav.plugins': 'Plugins',
   'oauth.vertex.title': 'Vertex JSON Login',

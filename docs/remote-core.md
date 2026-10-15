@@ -41,6 +41,17 @@ selected client API. Home displays its protocol URLs and explicit client key;
 the GUI to clear old requests, dialogs and cached results. Connection errors can
 be repaired from Home or Agent Configuration without switching to Local.
 
+## Portable settings for another machine
+
+Use **Core connection → Export settings** on a machine already attached to the remote
+core, then **Import settings** in the local GUI on another machine. The export contains
+only remote management and client API targets; local client files, executable paths,
+backups, and other GUI settings are never copied. Secret keys are excluded by default.
+Select **Include API keys** only when the exported file can be handled as a secret, then
+delete it after transfer. Imported settings are shown for review and are not applied
+until Save; an export without keys requires entering the management key before saving.
+Invalid or unsupported files are rejected without changing the current configuration.
+
 Beginner Mode remains Local-only. DeepSeek Harness configuration and model
 editing can use the remote API, but its managed launch, status, stop and restart
 remain Local-only. No client files on the core server are edited.

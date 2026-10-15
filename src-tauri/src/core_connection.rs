@@ -1,6 +1,9 @@
 use super::*;
 use std::sync::atomic::AtomicU64;
 
+const PORTABLE_CONNECTION_FORMAT: &str = "easycli-proxy-connection";
+const PORTABLE_CONNECTION_VERSION: u8 = 1;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum ConnectionMode {
@@ -17,6 +20,72 @@ pub(crate) struct CoreConnection {
     pub(crate) remote_management_key: String,
     pub(crate) client_api_origin: String,
     pub(crate) client_api_key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortableConnectionFile {
+    format: String,
+    version: u8,
+    connection: PortableConnection,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortableConnection {
+    mode: ConnectionMode,
+    remote_management_origin: String,
+    client_api_origin: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_management_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_api_key: Option<String>,
+}
+
+impl PortableConnectionFile {
+    fn from_connection(connection: &CoreConnection, include_secrets: bool) -> Self {
+        Self {
+            format: PORTABLE_CONNECTION_FORMAT.to_string(),
+            version: PORTABLE_CONNECTION_VERSION,
+            connection: PortableConnection {
+                mode: connection.mode,
+                remote_management_origin: connection.remote_management_origin.clone(),
+                client_api_origin: connection.client_api_origin.clone(),
+                remote_management_key: include_secrets.then(|| connection.remote_management_key.clone()),
+                client_api_key: include_secrets.then(|| connection.client_api_key.clone()),
+            },
+        }
+    }
+
+    fn into_connection(self) -> Result<CoreConnection, String> {
+        if self.format != PORTABLE_CONNECTION_FORMAT || self.version != PORTABLE_CONNECTION_VERSION {
+            return Err("Unsupported connection export format".to_string());
+        }
+        let mut connection = CoreConnection {
+            mode: self.connection.mode,
+            remote_management_origin: self.connection.remote_management_origin,
+            remote_management_key: self.connection.remote_management_key.unwrap_or_default(),
+            client_api_origin: self.connection.client_api_origin,
+            client_api_key: self.connection.client_api_key.unwrap_or_default(),
+        };
+        if connection.mode != ConnectionMode::Remote {
+            return Err("Portable connection exports must target a remote core".to_string());
+        }
+        connection.remote_management_origin = normalize_origin(&connection.remote_management_origin)?;
+        if connection.remote_management_key.chars().any(char::is_control) {
+            return Err("Connection export contains invalid management credentials".to_string());
+        }
+        if connection.client_api_origin.chars().any(char::is_control) || connection.client_api_key.chars().any(char::is_control) {
+            return Err("Connection export contains invalid client credentials".to_string());
+        }
+        if !connection.client_api_origin.trim().is_empty() {
+            connection.client_api_origin = normalize_origin(&connection.client_api_origin)?;
+            if connection.client_api_key.is_empty() { return Err("Connection export has a client origin without a client key".to_string()); }
+        } else if !connection.client_api_key.is_empty() {
+            return Err("Connection export has a client key without a client origin".to_string());
+        }
+        Ok(connection)
+    }
 }
 
 static TARGET: Mutex<Option<CoreConnection>> = Mutex::new(None);
@@ -118,6 +187,56 @@ impl CoreConnection {
 #[tauri::command]
 pub(crate) fn get_core_connection(gui_config_state: tauri::State<'_, GuiConfigState>) -> Result<CoreConnection, String> {
     Ok(gui_config_state.snapshot()?.core_connection)
+}
+
+fn portable_path(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err("Connection export path is invalid".to_string());
+    }
+    let path = PathBuf::from(trimmed);
+    if !path.is_absolute() || path.components().any(|component| matches!(component, Component::ParentDir)) || path.file_name().is_none() {
+        return Err("Connection export path must be an absolute file path".to_string());
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+pub(crate) fn export_core_connection(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+    path: String,
+    include_secrets: bool,
+) -> Result<(), String> {
+    let path = portable_path(&path)?;
+    let config = gui_config_state.snapshot()?;
+    if !config.core_connection.is_remote() {
+        return Err("Switch to Remote mode before exporting connection settings".to_string());
+    }
+    let document = serde_json::to_vec_pretty(&PortableConnectionFile::from_connection(&config.core_connection, include_secrets))
+        .map_err(|error| format!("Failed to create connection export: {error}"))?;
+    let temporary = path.with_extension(format!("{}{}.tmp", path.extension().and_then(|v| v.to_str()).map(|v| format!("{v}.")).unwrap_or_default(), std::process::id()));
+    if let Err(error) = fs::write(&temporary, [document.as_slice(), b"\n"].concat()) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("Failed to write connection export: {error}"));
+    }
+    let backup = path.with_extension(format!("{}{}.bak", path.extension().and_then(|v| v.to_str()).map(|v| format!("{v}.")).unwrap_or_default(), std::process::id()));
+    let had_existing = path.exists();
+    if had_existing { let _ = fs::remove_file(&backup); fs::rename(&path, &backup).map_err(|error| { let _ = fs::remove_file(&temporary); format!("Failed to prepare connection export: {error}") })?; }
+    if let Err(error) = fs::rename(&temporary, &path) {
+        if had_existing { let _ = fs::rename(&backup, &path); }
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("Failed to finalize connection export: {error}"));
+    }
+    if had_existing { let _ = fs::remove_file(&backup); }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn import_core_connection(path: String) -> Result<CoreConnection, String> {
+    let path = portable_path(&path)?;
+    let content = fs::read_to_string(path).map_err(|error| format!("Failed to read connection export: {error}"))?;
+    let export: PortableConnectionFile = serde_json::from_str(&content).map_err(|_| "Connection export is invalid or corrupted".to_string())?;
+    export.into_connection()
 }
 
 fn validate_owned_local_children(core_running: bool, harness_running: bool) -> Result<(), String> {
@@ -241,6 +360,34 @@ fn remote_status_value(connection: &CoreConnection, ready: bool, version: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn portable_connection_export_excludes_secrets_by_default_and_round_trips_when_present() {
+        let connection = CoreConnection {
+            mode: ConnectionMode::Remote,
+            remote_management_origin: "https://core.example".into(),
+            remote_management_key: "management-secret".into(),
+            client_api_origin: "https://client.example".into(),
+            client_api_key: "client-secret".into(),
+        };
+        let safe = serde_json::to_string(&PortableConnectionFile::from_connection(&connection, false)).unwrap();
+        assert!(!safe.contains("management-secret"));
+        assert!(!safe.contains("client-secret"));
+        let without = PortableConnectionFile::from_connection(&connection, false).into_connection().unwrap();
+        assert!(without.remote_management_key.is_empty());
+        assert!(without.client_api_key.is_empty());
+        let with = PortableConnectionFile::from_connection(&connection, true).into_connection().unwrap();
+        assert_eq!(with, connection);
+    }
+
+    #[test]
+    fn portable_connection_rejects_unknown_format_and_relative_paths() {
+        let bad = r#"{"format":"other","version":1,"connection":{"mode":"remote","remoteManagementOrigin":"https://core.example","clientApiOrigin":""}}"#;
+        let parsed: PortableConnectionFile = serde_json::from_str(bad).unwrap();
+        assert!(parsed.into_connection().is_err());
+        assert!(portable_path("connection.json").is_err());
+        assert!(portable_path("/tmp/../connection.json").is_err());
+    }
 
     #[test]
     fn connection_validation_and_storage_keep_targets_separate() {

@@ -2731,6 +2731,8 @@ fn main() {
             core_connection::get_core_connection,
             core_connection::save_core_connection,
             core_connection::test_core_connection,
+            core_connection::export_core_connection,
+            core_connection::import_core_connection,
             desktop_theme::get_linux_system_theme,
             desktop_theme::get_theme_selection,
             desktop_theme::save_theme_selection,

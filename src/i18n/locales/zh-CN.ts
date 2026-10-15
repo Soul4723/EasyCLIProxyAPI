@@ -35,6 +35,12 @@ export const zhCN = {
   "connection.oauth": "远程 OAuth：浏览器运行于此电脑。回调到 localhost / 127.0.0.1 时可能显示连接错误。请从浏览器地址栏复制完整回调 URL（包含 code 和 state），粘贴到下方并转发至远程核心。等待核心确认完成；打开浏览器或提交 URL 不代表登录成功。设备码流程请遵循各自说明。",
   "connection.restart": "已保存。如需重启，请在服务器上重启远程核心。",
   "connection.back": "返回",
+  "connection.export": "导出设置",
+  "connection.import": "导入设置",
+  "connection.includeSecrets": "包含 API 密钥（将导出文件视为机密）",
+  "connection.portableHint": "导出仅包含核心目标。本机客户端文件和路径保留在此处。除非选择，否则不会包含密钥。",
+  "connection.imported": "设置已载入。检查目标后保存以应用。",
+  "connection.exported": "设置已导出。",
 
   'app.nav.plugins': '插件',
   'oauth.vertex.title': 'Vertex JSON 登录',
