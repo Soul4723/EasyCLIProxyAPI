@@ -1071,6 +1071,11 @@ export function createBrowserMockRuntime(
       case 'import_core_connection':
         if (!portableConnection) throw new Error('Connection export is invalid or corrupted');
         return clone(portableConnection);
+      case 'list_remote_machines': return [];
+      case 'select_agent_machine':
+        if (payload.machineId !== null) throw new Error('Browser Mock: remote machine is not enrolled');
+        return { machineId: null, revision: 1, coreRevision: 0 };
+      case 'probe_remote_machine': throw new Error('Browser Mock: SSH is unavailable in browser preview; use the remote machine test fixture.');
       case 'get_core_connection': return clone(connection);
       case 'test_core_connection': {
         const candidate = normalizedCoreConnection(asObject(payload.connection) as CoreConnection);

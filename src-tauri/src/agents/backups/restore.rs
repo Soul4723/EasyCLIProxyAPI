@@ -248,6 +248,7 @@ pub(crate) async fn preview_agent_config_backup(
     id: String,
 ) -> Result<BackupPreview, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;
     Ok(prepare_restore_plan(&config, &client, &home, &id)
@@ -263,6 +264,7 @@ pub(crate) async fn restore_agent_config_backup(
     revision: String,
 ) -> Result<AgentConfigActionResult, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;
     let plan = prepare_restore_plan(&config, &client, &home, &id).await?;

@@ -1,3 +1,4 @@
+import { MachineWorkspace } from './RemoteMachines';
 import { useCoreConnection } from '../coreConnection';
 import { CoreConnectionDialog } from '../components/CoreConnectionDialog';
 import { CopilotPluginStatus } from '../components/copilot/CopilotPluginStatus';
@@ -591,7 +592,11 @@ type AgentsPageProps = {
   onConfigurationApplied?: () => void;
 };
 
-export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsPageProps = {}) {
+export function AgentsPage(props: AgentsPageProps = {}) {
+  return <MachineWorkspace><LocalAgentsPage {...props} /></MachineWorkspace>;
+}
+
+function LocalAgentsPage({ embedded = false, onConfigurationApplied }: AgentsPageProps = {}) {
   const { connection } = useCoreConnection();
   const [connectionOpen, setConnectionOpen] = useState(false);
   const { t } = useI18n();

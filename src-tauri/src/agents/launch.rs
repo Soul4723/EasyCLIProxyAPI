@@ -131,6 +131,7 @@ pub(crate) fn launch_agent(
     deepseek_harness_options: Option<DeepSeekHarnessLaunchOptions>,
 ) -> Result<(), String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -405,6 +406,7 @@ pub(crate) fn get_deepseek_harness_process_status(
     process_state: tauri::State<'_, DeepSeekHarnessProcessState>,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
     let _connection_guard = crate::core_connection::local_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     process_state.status()
 }
 
@@ -413,6 +415,7 @@ pub(crate) fn stop_deepseek_harness_process(
     process_state: tauri::State<'_, DeepSeekHarnessProcessState>,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
     let _connection_guard = crate::core_connection::local_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     stop_managed_deepseek_harness(process_state.inner())?;
     process_state.status()
 }
@@ -465,6 +468,7 @@ pub(crate) async fn restart_deepseek_harness_process(
     app: tauri::AppHandle,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
     let _connection_guard = crate::core_connection::local_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     tauri::async_runtime::spawn_blocking(move || {
         let _connection_guard = _connection_guard;
         restart_managed_deepseek_harness(app.state::<DeepSeekHarnessProcessState>().inner())
@@ -735,12 +739,14 @@ fn validate_deepseek_harness_argument(value: &str, label: &str) -> Result<String
 #[tauri::command]
 pub(crate) async fn restart_codex_app(app: tauri::AppHandle) -> Result<(), String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     restart_agent_app(app, "codex".to_string(), None).await
 }
 
 #[tauri::command]
 pub(crate) async fn restart_opencode_app(app: tauri::AppHandle) -> Result<(), String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     restart_agent_app(app, "opencode".to_string(), None).await
 }
 
@@ -751,6 +757,7 @@ pub(crate) async fn restart_agent_app(
     executable_path: Option<String>,
 ) -> Result<(), String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let client = AgentClient::parse(&client)?;
     if !matches!(
         client,
@@ -807,6 +814,7 @@ pub(crate) async fn get_codex_cli_daemon_running(
     executable_path: Option<String>,
 ) -> Result<bool, String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -844,6 +852,7 @@ pub(crate) async fn restart_codex_cli_daemon(
     executable_path: Option<String>,
 ) -> Result<(), String> {
     let _connection_guard = crate::core_connection::target_operation()?;
+    let _machine_guard = crate::remote_machines::local_agent_operation()?;
     let home = app
         .path()
         .home_dir()

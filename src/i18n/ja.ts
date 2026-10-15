@@ -1,9 +1,11 @@
+import { remoteMachinesJa } from './remoteMachines';
 import type { MessageKey } from './locales/zh-CN';
 import { easyModeJa } from './easyMode';
 import { homeJa } from './home';
 import { authFileListJa } from './authFileList';
 
 export const jaOverrides = {
+  ...remoteMachinesJa,
   "connection.restartHint": "Restart the remote core on its server if required.",
   "connection.stopLocal": "Stop this app’s running local core before attaching remotely. Choose Back, then Stop on Home, and reopen connection settings.",
   "connection.serverOnly": "Change this setting on the remote core server. Local file browsing and automatic restart are unavailable.",
