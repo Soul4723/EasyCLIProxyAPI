@@ -28,6 +28,7 @@ export const zhCN = {
   "connection.unreachable": "无法连接或认证失败",
   "connection.remoteHint": "远程核心：状态表示认证连接是否可用。启动、停止、重启和安装核心需在服务器上操作。",
   "connection.phase2": "第一阶段不支持远程核心的代理客户端配置和简易模式。本机客户端设置保持不变。",
+  "connection.appUpdates": "切换到本地模式后检查或安装应用更新。仍可打开发布页面。",
   "connection.updates": "远程核心更新需在服务器上完成。",
   "connection.localOnly": "此操作管理本机文件或进程，连接远程核心时不可用。",
   "connection.oauth": "远程 OAuth：浏览器运行于此电脑。回调到 localhost / 127.0.0.1 时可能显示连接错误。请从浏览器地址栏复制完整回调 URL（包含 code 和 state），粘贴到下方并转发至远程核心。等待核心确认完成；打开浏览器或提交 URL 不代表登录成功。设备码流程请遵循各自说明。",

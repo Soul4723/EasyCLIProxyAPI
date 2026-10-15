@@ -29,6 +29,7 @@ export const jaOverrides = {
   "connection.unreachable": "Unreachable or authentication failed",
   "connection.remoteHint": "Remote core: status shows authenticated reachability. Start, stop, restart and core installation require access to the server.",
   "connection.phase2": "Agent configuration and Easy Mode for remote cores are not available in Phase 1. Local client settings are unchanged.",
+  "connection.appUpdates": "Switch to Local to check for or install app updates. You can still open the release page.",
   "connection.updates": "Remote core updates must be performed on the server.",
   "connection.localOnly": "This operation manages files or processes on this computer and is unavailable while attached remotely.",
   "connection.oauth": "Remote OAuth: the browser runs on this computer. A loopback callback (localhost / 127.0.0.1) may show a connection error here. Copy the complete callback URL from the browser address bar, including code and state, and paste it below to forward it to the remote core. Wait for the core to confirm completion; opening the browser or submitting the URL alone does not mean login succeeded. Device-code flows keep their own instructions.",

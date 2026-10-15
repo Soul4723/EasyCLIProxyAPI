@@ -151,6 +151,9 @@ pub(crate) async fn save_core_connection(
             app.state::<DeepSeekHarnessProcessState>().inner(),
         )?;
     }
+    // Prepare the selected database before either persisted or active target changes.
+    // A failed migration must leave the old target available.
+    usage::initialize_usage_storage_for_connection(&connection)?;
     let mut next = current.clone();
     next.core_connection = connection.clone();
     write_gui_config(&next)?;

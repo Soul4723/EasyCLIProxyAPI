@@ -581,8 +581,14 @@ impl UsageCollectorState {
 }
 
 pub(crate) fn initialize_usage_storage() -> Result<(), String> {
-    let root = usage_root_dir()?;
-    if !crate::core_connection::active_connection().is_remote() {
+    initialize_usage_storage_for_connection(&crate::core_connection::active_connection())
+}
+
+pub(crate) fn initialize_usage_storage_for_connection(
+    connection: &crate::core_connection::CoreConnection,
+) -> Result<(), String> {
+    let root = usage_root_for_connection(&core_base_dir()?.join(USAGE_DIR_NAME), connection);
+    if !connection.is_remote() {
         migrate_legacy_usage_storage(&root)?;
     }
     initialize_usage_storage_at(&root)
@@ -1856,6 +1862,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut next_inbox_recovery_at = tokio::time::Instant::now();
     let mut next_core_check_at = tokio::time::Instant::now();
     let mut core_ready = false;
+    let mut storage_revision = None;
     loop {
         if token.is_cancelled() {
             return;
@@ -1877,32 +1884,17 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 continue;
             }
         };
-        if config.core_connection.is_remote() {
-            // Remote cores have no local RESP socket or process. HTTP POP is
-            // destructive: retain the target lease until this batch is durable.
-            subscription = None;
-            subscription_config = None;
-            redis_queue = RedisUsageQueueSource::default();
-            core_ready = false;
-            next_core_check_at = tokio::time::Instant::now();
-            let result = fetch_usage_queue_raw(&config).await.and_then(|messages| {
-                persist_raw_usage_messages_from_source(&root, HTTP_USAGE_QUEUE_SOURCE, messages, &config)
-            });
-            match result {
-                Ok(outcome) => publish_collected_records(&app, outcome, "Collecting remote usage over HTTP"),
-                Err(error) => set_collector_error(&app, error),
+        // No destructive queue read until this target's schema is ready.
+        if storage_revision != Some(config.target_revision) {
+            if let Err(error) = initialize_usage_storage_at(&root) {
+                set_collector_error(&app, error);
+                drop(_connection_guard);
+                wait_or_cancel(&token, retry_seconds).await;
+                continue;
             }
-            drop(_connection_guard);
-            wait_or_cancel(&token, 1).await;
-            continue;
-        }
-        if subscription_config.as_ref().is_some_and(|(port, secret)| {
-            *port != config.port || secret != &config.management_secret_key
-        }) {
-            subscription = None;
-            subscription_config = None;
-            redis_queue = RedisUsageQueueSource::default();
-            subscribe_retry_at = tokio::time::Instant::now();
+            storage_revision = Some(config.target_revision);
+            next_inbox_cleanup_at = tokio::time::Instant::now();
+            next_inbox_recovery_at = tokio::time::Instant::now();
         }
         if tokio::time::Instant::now() >= next_inbox_cleanup_at {
             if let Err(error) = open_usage_database_at(&root)
@@ -1941,6 +1933,33 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                     continue;
                 }
             }
+        }
+        if config.core_connection.is_remote() {
+            // Remote cores have no local RESP socket or process. HTTP POP is
+            // destructive: retain the target lease until this batch is durable.
+            subscription = None;
+            subscription_config = None;
+            redis_queue = RedisUsageQueueSource::default();
+            core_ready = false;
+            next_core_check_at = tokio::time::Instant::now();
+            let result = fetch_usage_queue_raw(&config).await.and_then(|messages| {
+                persist_raw_usage_messages_from_source(&root, HTTP_USAGE_QUEUE_SOURCE, messages, &config)
+            });
+            match result {
+                Ok(outcome) => publish_collected_records(&app, outcome, "Collecting remote usage over HTTP"),
+                Err(error) => set_collector_error(&app, error),
+            }
+            drop(_connection_guard);
+            wait_or_cancel(&token, 1).await;
+            continue;
+        }
+        if subscription_config.as_ref().is_some_and(|(port, secret)| {
+            *port != config.port || secret != &config.management_secret_key
+        }) {
+            subscription = None;
+            subscription_config = None;
+            redis_queue = RedisUsageQueueSource::default();
+            subscribe_retry_at = tokio::time::Instant::now();
         }
         if tokio::time::Instant::now() >= next_core_check_at {
             let process_state = app.state::<CoreProcessState>();
@@ -4683,10 +4702,14 @@ fn query_window_minutes(query: &UsageQuery, first: Option<i64>, last: Option<i64
 
 fn usage_root_dir() -> Result<PathBuf, String> {
     let root = core_base_dir()?.join(USAGE_DIR_NAME);
-    Ok(match crate::core_connection::active_connection().usage_namespace() {
+    Ok(usage_root_for_connection(&root, &crate::core_connection::active_connection()))
+}
+
+fn usage_root_for_connection(root: &Path, connection: &crate::core_connection::CoreConnection) -> PathBuf {
+    match connection.usage_namespace() {
         Some(namespace) => root.join("remote").join(namespace),
-        None => root,
-    })
+        None => root.to_path_buf(),
+    }
 }
 
 fn record_local_hour(record: &UsageRecord) -> String {
@@ -5149,6 +5172,56 @@ mod tests {
     fn open_test_database(root: &Path) -> Connection {
         initialize_usage_storage_at(root).unwrap();
         open_usage_database_at(root).unwrap()
+    }
+
+    #[test]
+    fn first_remote_target_storage_is_ready_before_usage_persistence() {
+        let base = test_root("first-remote-target");
+        let mut config = GuiConfigFile::default();
+        config.core_connection.mode = crate::core_connection::ConnectionMode::Remote;
+        config.core_connection.remote_management_origin = "https://new-core.example".into();
+        let root = usage_root_for_connection(&base, &config.core_connection);
+        assert!(!root.exists());
+        initialize_usage_storage_at(&root).unwrap();
+        let outcome = persist_raw_usage_messages_from_source(
+            &root,
+            HTTP_USAGE_QUEUE_SOURCE,
+            vec![serde_json::json!({
+                "request_id": "first-remote-record",
+                "provider": "codex",
+                "model": "gpt-test"
+            }).to_string()],
+            &config,
+        ).unwrap();
+        assert_eq!(outcome.inserted, 1);
+        let database = open_usage_database_at(&root).unwrap();
+        for table in ["usage_inbox", "usage_events"] {
+            let count: i64 = database.query_row(
+                &format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0),
+            ).unwrap();
+            assert_eq!(count, 1);
+        }
+        assert!(!base.join(USAGE_DATABASE_FILE).exists());
+        drop(database);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn failed_remote_target_storage_initialization_preserves_existing_storage() {
+        let base = test_root("failed-remote-target");
+        let local = open_test_database(&base);
+        save_usage_database_limit(&local, 128).unwrap();
+        let mut connection = crate::core_connection::CoreConnection::default();
+        connection.mode = crate::core_connection::ConnectionMode::Remote;
+        connection.remote_management_origin = "https://unusable-core.example".into();
+        // An unusable parent must fail before the switch command saves its target.
+        fs::write(base.join("remote"), b"not a directory").unwrap();
+        let root = usage_root_for_connection(&base, &connection);
+        assert!(initialize_usage_storage_at(&root).is_err());
+        assert!(!root.join(USAGE_DATABASE_FILE).exists());
+        assert_eq!(load_usage_database_limit(&local).unwrap(), 128);
+        drop(local);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -6869,6 +6942,53 @@ mod tests {
 
         assert_eq!(statuses, vec!["pending", "decode_failed"]);
         drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn remote_offline_inbox_recovers_pending_and_cleans_expired_rows() {
+        let root = test_root("remote-offline-inbox");
+        let mut database = open_test_database(&root);
+        let mut config = GuiConfigFile::default();
+        config.core_connection.mode = crate::core_connection::ConnectionMode::Remote;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        config.core_connection.remote_management_origin =
+            format!("http://{}", listener.local_addr().unwrap());
+        config.core_connection.remote_management_key = "remote-management-test-key".into();
+        drop(listener);
+        enqueue_usage_queue_items(
+            &mut database,
+            HTTP_USAGE_QUEUE_SOURCE,
+            vec![serde_json::json!({
+                "request_id": "offline-pending",
+                "model": "gpt-test",
+                "tokens": { "input_tokens": 10, "output_tokens": 20 }
+            })],
+        ).unwrap();
+        let expired = (Local::now() - chrono::Duration::days(2)).to_rfc3339();
+        database.execute(
+            "INSERT INTO usage_inbox (source, message_hash, raw_message, status, attempt_count,
+                received_at, processed_at, created_at, updated_at)
+             VALUES ('test', 'expired', '{}', 'processed', 0, ?1, ?1, ?1, ?1)",
+            params![expired],
+        ).unwrap();
+        // Simulate reopening durable inbox after a crash, before any HTTP fetch.
+        drop(database);
+        let mut database = open_usage_database_at(&root).unwrap();
+        cleanup_usage_inbox(&database, Local::now()).unwrap();
+        let outcome = process_usage_inbox(&mut database, &config).unwrap();
+        assert_eq!(outcome.inserted, 1);
+        assert!(fetch_usage_queue_raw(&config).await.is_err());
+        let remaining: (i64, i64) = database.query_row(
+            "SELECT COUNT(*), SUM(status = 'processed') FROM usage_inbox", [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(remaining, (1, 1));
+        let events: i64 = database.query_row(
+            "SELECT COUNT(*) FROM usage_events", [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(events, 1);
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 

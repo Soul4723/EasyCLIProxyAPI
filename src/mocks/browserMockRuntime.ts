@@ -996,6 +996,7 @@ export function createBrowserMockRuntime(
 
     if (connection.mode === 'remote' && [
       'start_core_process', 'stop_core_process', 'restart_core_process',
+      'check_app_update', 'start_app_update',
       'install_bundled_core', 'install_latest_core', 'open_core_logs_directory',
       'open_auth_files_directory', 'launch_agent', 'configure_agent',
     ].includes(command)) throw new Error('Browser Mock: operation requires Local mode');
