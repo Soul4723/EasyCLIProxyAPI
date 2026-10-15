@@ -59,6 +59,14 @@ pub(crate) fn inspect_agent_config_statuses_with_overrides(
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
+    inspect_agent_config_statuses_at_home(&home, config, executable_overrides)
+}
+
+pub(crate) fn inspect_agent_config_statuses_at_home(
+    home: &Path,
+    config: &GuiConfigFile,
+    executable_overrides: &HashMap<String, String>,
+) -> Result<Vec<AgentConfigStatus>, String> {
     let api_key = effective_agent_api_key(config);
     let targets = [
         AgentStatusDetectionTarget::Client(AgentClient::ClaudeCode),
@@ -99,11 +107,11 @@ pub(crate) fn inspect_agent_config_statuses_with_overrides(
                         AgentStatusDetectionTarget::Client(client) => {
                             let (executable_override, desktop_override) =
                                 agent_executable_overrides(executable_overrides, client);
-                            inspect_agent_config_with_executables(client, home, config.port, api_key,
+                            inspect_agent_config_with_executables(client, home, config, api_key,
                                 executable_override, desktop_override)
                         }
                         AgentStatusDetectionTarget::PiProvider => {
-                            inspect_pi_provider_status_with_executable(home, config.port, api_key,
+                            inspect_pi_provider_status_with_executable(home, config, api_key,
                                 executable_overrides.get(PI_AGENT_ID).map(Path::new))
                         }
                     };
@@ -133,16 +141,15 @@ pub(crate) fn refresh_agent_config_status_cache(
     gui_config_state: &GuiConfigState,
     cache: &AgentConfigStatusCache,
 ) -> Result<Vec<AgentConfigStatus>, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let _refresh_guard = cache
         .refresh_lock
         .lock()
         .map_err(|_| "Agent configuration status refresh lock is poisoned".to_string())?;
     let config = gui_config_state.snapshot()?;
-    let port = config.port;
     let api_key = effective_agent_api_key(&config);
     let statuses = inspect_agent_config_statuses(app, &config)?;
-    cache.replace(port, api_key, statuses.clone())?;
+    cache.replace(&config, api_key, statuses.clone())?;
     Ok(statuses)
 }
 
@@ -151,8 +158,9 @@ pub(crate) async fn get_agent_config_statuses(
     app: tauri::AppHandle,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<Vec<AgentConfigStatus>, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = _connection_guard;
         let gui_config_state = app.state::<GuiConfigState>();
         let cache = app.state::<AgentConfigStatusCache>();
         {
@@ -161,16 +169,15 @@ pub(crate) async fn get_agent_config_statuses(
                 .lock()
                 .map_err(|_| "Agent configuration status refresh lock is poisoned".to_string())?;
             let config = gui_config_state.snapshot()?;
-            let port = config.port;
             if executable_overrides.as_ref().is_none_or(HashMap::is_empty) {
-              if let Some(statuses) = cache.get(port, effective_agent_api_key(&config))? {
-                return Ok(statuses);
-              }
+                if let Some(statuses) = cache.get(&config, effective_agent_api_key(&config))? {
+                    return Ok(statuses);
+                }
             }
         }
         let config = gui_config_state.snapshot()?;
         let statuses = inspect_agent_config_statuses_with_overrides(&app, &config, &executable_overrides.unwrap_or_default())?;
-        cache.replace(config.port, effective_agent_api_key(&config), statuses.clone())?;
+        cache.replace(&config, effective_agent_api_key(&config), statuses.clone())?;
         Ok(statuses)
     })
     .await
@@ -182,13 +189,14 @@ pub(crate) async fn refresh_agent_config_statuses(
     app: tauri::AppHandle,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<Vec<AgentConfigStatus>, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = _connection_guard;
         let gui_config_state = app.state::<GuiConfigState>();
         let cache = app.state::<AgentConfigStatusCache>();
         let config = gui_config_state.snapshot()?;
         let statuses = inspect_agent_config_statuses_with_overrides(&app, &config, &executable_overrides.unwrap_or_default())?;
-        cache.replace(config.port, effective_agent_api_key(&config), statuses.clone())?;
+        cache.replace(&config, effective_agent_api_key(&config), statuses.clone())?;
         Ok(statuses)
     })
     .await
@@ -201,10 +209,10 @@ pub(crate) async fn get_agent_models(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     client: String,
 ) -> Result<Vec<AgentModelOption>, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     if client.trim().eq_ignore_ascii_case(PI_AGENT_ID) {
         let config = gui_config_state.snapshot()?;
-        return fetch_agent_models(config.port, effective_agent_api_key(&config)).await;
+        return fetch_agent_models(agent_target(&config)?, effective_agent_api_key(&config)).await;
     }
     let client = AgentClient::parse(&client)?;
     let _sync_guard = if client == AgentClient::Codex {
@@ -221,7 +229,7 @@ pub(crate) async fn resolve_pi_default_model(
     config: &GuiConfigFile,
     model: &str,
 ) -> Result<String, String> {
-    let models = fetch_agent_models(config.port, effective_agent_api_key(config)).await?;
+    let models = fetch_agent_models(agent_target(&config)?, effective_agent_api_key(config)).await?;
     resolve_available_agent_model(&models, &validate_agent_model(model)?)
 }
 
@@ -229,7 +237,7 @@ pub(crate) async fn resolve_pi_default_model(
 pub(crate) async fn check_pi_provider_update(
     app: tauri::AppHandle,
 ) -> Result<PiProviderUpdateStatus, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -260,7 +268,7 @@ pub(crate) async fn install_pi_provider(
     model: String,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -270,7 +278,7 @@ pub(crate) async fn install_pi_provider(
     if executable.is_none()
         && !inspect_pi_provider_status_with_executable(
             &home,
-            config.port,
+            agent_target(&config)?,
             effective_agent_api_key(&config),
             pi_executable_override(executable_overrides.as_ref()),
         )
@@ -279,10 +287,12 @@ pub(crate) async fn install_pi_provider(
         return Err("Pi CLI and Pi configuration file were not detected".to_string());
     }
     let model = resolve_pi_default_model(&config, &model).await?;
-    let port = config.port;
+    agent_target(&config)?;
     let api_key = effective_agent_api_key(&config).to_string();
     let proxy_url = config.proxy_url.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = _connection_guard;
+        let port = agent_target(&config)?;
         if let Some(executable) = executable {
             install_pi_provider_inner(&home, &executable, port, &api_key, &model, &proxy_url)
         } else {
@@ -303,7 +313,7 @@ pub(crate) async fn update_pi_provider(
     model: String,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -312,10 +322,12 @@ pub(crate) async fn update_pi_provider(
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref())
         .ok_or_else(|| "Pi CLI was not detected. Install Pi and ensure the pi command is in PATH".to_string())?;
     let model = resolve_pi_default_model(&config, &model).await?;
-    let port = config.port;
+    agent_target(&config)?;
     let api_key = effective_agent_api_key(&config).to_string();
     let proxy_url = config.proxy_url.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = _connection_guard;
+        let port = agent_target(&config)?;
         update_pi_provider_inner(&home, &executable, port, &api_key, &model, &proxy_url)
     })
     .await
@@ -331,16 +343,18 @@ pub(crate) async fn repair_pi_provider(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     model: String,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
     let model = resolve_pi_default_model(&config, &model).await?;
-    let port = config.port;
+    agent_target(&config)?;
     let api_key = effective_agent_api_key(&config).to_string();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = _connection_guard;
+        let port = agent_target(&config)?;
         repair_pi_provider_inner(&home, port, &api_key, &model)
     })
     .await
@@ -355,7 +369,7 @@ pub(crate) async fn uninstall_pi_provider(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -363,6 +377,7 @@ pub(crate) async fn uninstall_pi_provider(
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref())
         .ok_or_else(|| "Pi CLI was not detected. Install Pi first".to_string())?;
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = _connection_guard;
         uninstall_pi_provider_inner(&home, &executable)
     })
     .await
@@ -373,7 +388,7 @@ pub(crate) async fn uninstall_pi_provider(
 
 #[tauri::command]
 pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -385,14 +400,14 @@ pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), Strin
 pub(crate) async fn update_codex_model_catalog(
     app: tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     update_codex_model_catalog_inner(&app).await
 }
 
 pub(crate) async fn update_codex_model_catalog_inner(
     app: &tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let _update_guard = CODEX_CATALOG_UPDATE_LOCK.lock().await;
     let proxy_url = app.state::<GuiConfigState>().snapshot()?.proxy_url;
     let client = build_http_client_with_proxy(
@@ -498,7 +513,7 @@ pub(crate) fn load_codex_model_customizations(app: &tauri::AppHandle) -> Result<
 pub(crate) async fn get_codex_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<codex_catalog::CatalogEditorSnapshot, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
@@ -518,7 +533,7 @@ pub(crate) async fn save_codex_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: codex_catalog::CatalogEditorRequest,
 ) -> Result<CodexCatalogEditorSaveResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
@@ -537,12 +552,10 @@ pub(crate) async fn save_codex_model_catalog_editor(
 }
 
 async fn fetch_alias_models(config: &GuiConfigFile) -> Result<Vec<AgentModelOption>, String> {
-    if config.core_connection.is_remote() {
-        // Management definitions and explicitly configured models remain usable.
-        // Client API discovery belongs to remote agent targeting in phase 2.
-        return Ok(Vec::new());
-    }
-    fetch_agent_models(config.port, effective_agent_api_key(config)).await
+    // Management-only attachment still supports configured alias definitions.
+    if config.core_connection.is_remote() && (config.core_connection.client_api_origin.trim().is_empty()
+        || config.core_connection.client_api_key.trim().is_empty()) { return Ok(Vec::new()); }
+    fetch_agent_models(agent_target(&config)?, effective_agent_api_key(config)).await
 }
 
 #[tauri::command]
@@ -801,7 +814,7 @@ pub(crate) async fn delete_speed_alias(
 }
 
 pub(crate) async fn fetch_agent_models(
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
 ) -> Result<Vec<AgentModelOption>, String> {
     let payload = fetch_agent_model_payload(port, api_key).await?;
@@ -809,21 +822,23 @@ pub(crate) async fn fetch_agent_models(
 }
 
 pub(crate) async fn fetch_agent_model_payload(
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
 ) -> Result<serde_json::Value, String> {
-    if port == 0 {
+    if !port.valid() {
         return Err("Invalid kernel port".to_string());
     }
-    let tls_enabled = managed_core_tls_enabled();
+    validate_agent_api_key(api_key)?;
+    let tls_enabled = port.local_tls();
     let client = reqwest::Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(15))
         .danger_accept_invalid_certs(tls_enabled)
         .build()
         .map_err(|error| format!("Failed to create model list client: {error}"))?;
-    let base_url = managed_core_loopback_origin(port);
+    let base_url = port.origin();
     let endpoints = [
         format!("{base_url}/v1/models"),
         format!("{base_url}/models"),
@@ -837,17 +852,17 @@ pub(crate) async fn fetch_agent_model_payload(
             .header(reqwest::header::USER_AGENT, USER_AGENT)
             .send()
             .await
-            .map_err(|error| format!("Failed to request local model list: {error}"))?;
+            .map_err(|error| format_management_request_error("Failed to request model list", &error))?;
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|error| format!("Failed to read local model list: {error}"))?;
+            .map_err(|error| format!("Failed to read core model list: {error}"))?;
         if status.is_success() {
             let payload = serde_json::from_str::<serde_json::Value>(&body).map_err(|error| {
                 format!(
-                    "Failed to parse local model list: {error}; body={}",
-                    truncate_for_error(&body)
+                    "Failed to parse core model list: {error}; body={}",
+                    truncate_for_error(&body).replace(api_key, "[redacted]")
                 )
             })?;
             return Ok(payload);
@@ -855,29 +870,31 @@ pub(crate) async fn fetch_agent_model_payload(
 
         let can_try_legacy_path = index == 0 && matches!(status.as_u16(), 404 | 405);
         if !can_try_legacy_path {
-            return Err(format_agent_models_error(status.as_u16(), &body));
+            return Err(format_agent_models_error(status.as_u16(), &body).replace(api_key, "[redacted]"));
         }
     }
 
-    Err("Local kernel does not support the model list endpoint".to_string())
+    Err("Selected core does not support the model list endpoint".to_string())
 }
 
 pub(crate) async fn fetch_codex_runtime_models(
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
 ) -> Result<Vec<codex_catalog::CodexRuntimeModel>, String> {
-    if port == 0 {
+    if !port.valid() {
         return Err("Invalid kernel port".to_string());
     }
-    let tls_enabled = managed_core_tls_enabled();
+    validate_agent_api_key(api_key)?;
+    let tls_enabled = port.local_tls();
     let client = reqwest::Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(15))
         .danger_accept_invalid_certs(tls_enabled)
         .build()
         .map_err(|error| format!("Failed to create Codex model list client: {error}"))?;
-    let base_url = managed_core_loopback_origin(port);
+    let base_url = port.origin();
     let endpoints = [
         format!("{base_url}/v1/models"),
         format!("{base_url}/models"),
@@ -892,17 +909,17 @@ pub(crate) async fn fetch_codex_runtime_models(
             .header(reqwest::header::USER_AGENT, USER_AGENT)
             .send()
             .await
-            .map_err(|error| format!("Failed to request local Codex model list: {error}"))?;
+            .map_err(|error| format_management_request_error("Failed to request Codex model list", &error))?;
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|error| format!("Failed to read local Codex model list: {error}"))?;
+            .map_err(|error| format!("Failed to read core Codex model list: {error}"))?;
         if status.is_success() {
             let payload = serde_json::from_str::<serde_json::Value>(&body).map_err(|error| {
                 format!(
-                    "Failed to parse local Codex model list: {error}; body={}",
-                    truncate_for_error(&body)
+                    "Failed to parse core Codex model list: {error}; body={}",
+                    truncate_for_error(&body).replace(api_key, "[redacted]")
                 )
             })?;
             return codex_catalog::parse_runtime_models(&payload);
@@ -910,18 +927,18 @@ pub(crate) async fn fetch_codex_runtime_models(
 
         let can_try_legacy_path = index == 0 && matches!(status.as_u16(), 404 | 405);
         if !can_try_legacy_path {
-            return Err(format_agent_models_error(status.as_u16(), &body));
+            return Err(format_agent_models_error(status.as_u16(), &body).replace(api_key, "[redacted]"));
         }
     }
 
-    Err("Local kernel does not support the Codex model list endpoint".to_string())
+    Err("Selected core does not support the Codex model list endpoint".to_string())
 }
 
 pub(crate) async fn fetch_codex_catalog_runtime_models(
     config: &GuiConfigFile,
 ) -> Result<Vec<codex_catalog::CodexRuntimeModel>, String> {
     let (runtime, content) = tokio::join!(
-        fetch_agent_model_payload(config.port, effective_agent_api_key(config)),
+        fetch_agent_model_payload(agent_target(&config)?, effective_agent_api_key(config)),
         fetch_management_config_yaml(config),
     );
     // Codex selection and its written catalog must use the public /v1/models
@@ -943,13 +960,13 @@ pub(crate) async fn fetch_prepared_agent_models(
         let mut models = if client == AgentClient::DeepSeekHarness {
             fetch_deepseek_harness_models(config).await?
         } else {
-            fetch_agent_models(config.port, api_key).await?
+            fetch_agent_models(agent_target(&config)?, api_key).await?
         };
         if client == AgentClient::VscodeCopilot {
             // The public model list may contain IDs only. Request the Codex
             // metadata explicitly, but keep the public IDs for configuration.
             let (runtime_models, content) = tokio::join!(
-                fetch_codex_runtime_models(config.port, api_key),
+                fetch_codex_runtime_models(agent_target(&config)?, api_key),
                 fetch_management_config_yaml(config),
             );
             let mut runtime_models = runtime_models?;
@@ -957,7 +974,7 @@ pub(crate) async fn fetch_prepared_agent_models(
             copilot::enrich_vscode_context_windows(&mut models, &runtime_models)?;
         }
         if agent_uses_cpa_runtime_context_windows(client) {
-            let runtime_models = fetch_codex_runtime_models(config.port, api_key).await?;
+            let runtime_models = fetch_codex_runtime_models(agent_target(&config)?, api_key).await?;
             codex_catalog::merge_runtime_context_windows(&mut models, &runtime_models);
         }
         if matches!(client, AgentClient::ClaudeCode | AgentClient::ClaudeDesktop) {
@@ -996,7 +1013,7 @@ fn sync_prepared_codex_model_catalog(
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let changed = sync_codex_model_catalog_if_configured(
         &home,
-        config.port,
+        agent_target(&config)?,
         effective_agent_api_key(config),
         &prepared.models,
         catalog,
@@ -1021,7 +1038,7 @@ pub(crate) async fn refresh_applied_codex_model_catalog(
     app: &tauri::AppHandle,
     config: &GuiConfigFile,
 ) -> Result<bool, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     crate::core_connection::ensure_current(config)?;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let runtime_models = fetch_codex_catalog_runtime_models(config).await?;
@@ -1050,21 +1067,22 @@ pub(crate) fn start_codex_model_catalog_sync(app: tauri::AppHandle) {
             let Ok(config) = app.state::<GuiConfigState>().snapshot() else {
                 continue;
             };
-            let Ok(_connection_guard) = crate::core_connection::local_operation() else { continue; };
+            let Ok(_connection_guard) = crate::core_connection::target_operation() else { continue; };
+            let Ok(target) = agent_target(&config) else { continue; };
             let paths = agent_config_paths(AgentClient::Codex, &home);
             if !matches!(
                 inspect_agent_managed_config(
                     AgentClient::Codex,
                     &paths,
-                    config.port,
+                    target,
                     effective_agent_api_key(&config),
                 ),
                 Ok((true, _, _))
             ) {
                 continue;
             }
-            if let Err(error) = refresh_applied_codex_model_catalog(&app, &config).await {
-                eprintln!("Failed to synchronize Codex model catalog in the background; keeping the existing configuration: {error}");
+            if refresh_applied_codex_model_catalog(&app, &config).await.is_err() {
+                eprintln!("Failed to synchronize Codex model catalog in the background; keeping the existing configuration");
             }
         }
     });
@@ -1220,7 +1238,7 @@ pub(crate) async fn apply_agent_config(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let client = AgentClient::parse(&client)?;
     let home = app
         .path()
@@ -1231,7 +1249,7 @@ pub(crate) async fn apply_agent_config(
     if client == AgentClient::Codex && oauth_configuration {
         validate_codex_oauth_login(&home)?;
     }
-    validate_agent_can_enable(client, &home, config.port, api_key, executable_overrides.as_ref())?;
+    validate_agent_can_enable(client, &home, agent_target(&config)?, api_key, executable_overrides.as_ref())?;
     let prepared = fetch_prepared_agent_models(client, &config).await?;
     let model = resolve_agent_configuration_model(
         client, &prepared.models, &model, claude_desktop_model_mappings.as_ref(),
@@ -1256,7 +1274,7 @@ pub(crate) async fn apply_agent_config(
         apply_agent_configuration_with_oauth(
             client,
             &home,
-            config.port,
+            agent_target(&config)?,
             api_key,
             &model,
             AgentConfigurationOptions {
@@ -1272,7 +1290,7 @@ pub(crate) async fn apply_agent_config(
 
 #[tauri::command]
 pub(crate) fn clear_codex_config(app: tauri::AppHandle) -> Result<Vec<String>, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -1296,7 +1314,7 @@ pub(crate) async fn set_agent_config_enabled(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let client = AgentClient::parse(&client)?;
     let home = app
         .path()
@@ -1304,7 +1322,7 @@ pub(crate) async fn set_agent_config_enabled(
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     if enabled {
         let config = gui_config_state.snapshot()?;
-        let port = config.port;
+        let port = agent_target(&config)?;
         let api_key = effective_agent_api_key(&config);
         validate_agent_can_enable(client, &home, port, api_key, executable_overrides.as_ref())?;
         let prepared = fetch_prepared_agent_models(client, &config).await?;
@@ -1354,7 +1372,7 @@ pub(crate) async fn set_agent_config_enabled(
             .lock()
             .map_err(|_| "Agent configuration file lock is poisoned".to_string())?;
         let _ = force_restore;
-        let result = clear_agent_managed_configuration(client, &home, config.port)?;
+        let result = clear_agent_managed_configuration(client, &home, &config)?;
         app.state::<AgentConfigStatusCache>().clear()?;
         Ok(result)
     }
@@ -1372,7 +1390,7 @@ pub(crate) async fn update_agent_config(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     apply_agent_config(
         app,
         gui_config_state,
@@ -1388,7 +1406,7 @@ pub(crate) async fn update_agent_config(
 pub(crate) fn validate_agent_can_enable(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     executable_overrides: Option<&HashMap<String, String>>,
 ) -> Result<(), String> {
@@ -1454,7 +1472,7 @@ pub(crate) fn parse_agent_model_options(
         .or_else(|| payload.get("data").and_then(serde_json::Value::as_array))
         .or_else(|| payload.get("models").and_then(serde_json::Value::as_array))
         .or(object_models.as_ref())
-        .ok_or_else(|| "Local model list response is missing a data array or models catalog".to_string())?;
+        .ok_or_else(|| "Core model list response is missing a data array or models catalog".to_string())?;
     let mut models = Vec::new();
     for item in source {
         let name = if let Some(name) = item.as_str() {
@@ -1732,15 +1750,15 @@ pub(crate) fn format_agent_models_error(status: u16, body: &str) -> String {
             .map(str::trim)
             .filter(|message| !message.is_empty());
         if let Some(message) = message {
-            return format!("Failed to get local model list ({status}): {message}");
+            return format!("Failed to get core model list ({status}): {message}");
         }
     }
     let body = body.trim();
     if body.is_empty() {
-        format!("Failed to get local model list ({status})")
+        format!("Failed to get core model list ({status})")
     } else {
         format!(
-            "Failed to get local model list ({status}): {}",
+            "Failed to get core model list ({status}): {}",
             truncate_for_error(body)
         )
     }

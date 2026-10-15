@@ -13,10 +13,11 @@ describe('core attachment', () => {
   test('accepts HTTP, HTTPS and IPv6 origins without mixing client credentials', () => {
     expect(normalizedCoreConnection(remote)).toEqual({ ...remote, remoteManagementOrigin: 'http://100.64.0.1:8317', remoteManagementKey: 'management-only' });
     expect(normalizedCoreConnection({ ...remote, remoteManagementOrigin: 'https://[::1]:8317' }).remoteManagementOrigin).toBe('https://[::1]:8317');
-    for (const url of ['file:///tmp/core', 'https://user:secret@host', 'https://host/v1', 'https://host/?key=secret', 'https://host/#key', 'invalid']) {
+    for (const url of ['file:///tmp/core', 'https://user:secret@host', 'https://host/v1', 'https://host/?key=secret', 'https://host/#key', 'invalid', 'https://exa\nmple.test', 'https://host/\t', 'https://host/v1/..', 'https://host/?', 'https://host/#', 'http://host:0', 'https:\\host']) {
       expect(() => normalizedCoreConnection({ ...remote, remoteManagementOrigin: url })).toThrow();
     }
-    expect(() => normalizedCoreConnection({ ...remote, remoteManagementKey: ' ' })).toThrow();
+    for (const key of [' ', 'key\nother', 'key\u0000other']) expect(() => normalizedCoreConnection({ ...remote, remoteManagementKey: key })).toThrow();
+    expect(() => normalizedCoreConnection({ ...remote, clientApiOrigin: 'https://clients.example', clientApiKey: 'key\r\nother' })).toThrow();
     expect(normalizedCoreConnection({ ...remote, mode: 'local', remoteManagementOrigin: '' }).mode).toBe('local');
     expect(normalizedCoreConnection({ ...remote, clientApiOrigin: ' https://client.example:8317/ ', clientApiKey: ' client-key ' })).toMatchObject({ clientApiOrigin: 'https://client.example:8317', clientApiKey: 'client-key' });
     expect(() => normalizedCoreConnection({ ...remote, clientApiOrigin: 'https://client.example:8317', clientApiKey: '' })).toThrow('client key');
@@ -75,4 +76,43 @@ describe('core attachment', () => {
     expect(await runtime.invoke('get_core_status')).toMatchObject({ connectionMode: 'local', installed: true, ready: false, running: false, processId: null });
     expect(await runtime.invoke('start_core_process')).toMatchObject({ ready: true, managed: true });
   });
+});
+
+
+test('remote client mocks reject missing credentials, client auth failures and unreachable clients independently of management', async () => {
+  const runtime = createBrowserMockRuntime('stopped');
+  const commands = ['get_agent_models', 'get_core_models', 'core_health_probe', 'launch_agent', 'update_agent_config'];
+  await runtime.invoke('save_core_connection', { connection: remote });
+  for (const command of commands) await expect(runtime.invoke(command)).rejects.toThrow('set client API');
+  for (const failure of [
+    { clientApiOrigin: 'http://offline.example', clientApiKey: 'client-secret', error: 'client API unreachable' },
+    { clientApiOrigin: 'https://client.example', clientApiKey: 'invalid', error: 'client authentication failed' },
+  ]) {
+    await runtime.invoke('save_core_connection', { connection: { ...remote, ...failure } });
+    expect(await runtime.invoke('get_core_status')).toMatchObject({ ready: true });
+    for (const command of commands) await expect(runtime.invoke(command)).rejects.toThrow(failure.error);
+  }
+  await runtime.invoke('save_core_connection', { connection: { ...remote, clientApiOrigin: 'https://client.example', clientApiKey: 'client-secret' } });
+  expect(await runtime.invoke('get_agent_models')).toBeArray();
+  await expect(runtime.invoke('launch_agent', { client: 'opencode' })).rejects.toThrow('does not match');
+  expect(await runtime.invoke('update_agent_config', { client: 'opencode', model: 'gpt-5.2-codex' })).toHaveProperty('outcome');
+  expect(await runtime.invoke('launch_agent', { client: 'opencode' })).toBeNull();
+});
+
+
+test('remote inspection preserves local recovery info but binds configured status and launch to client origin/key', async () => {
+  const runtime = createBrowserMockRuntime('stopped');
+  const target = { ...remote, clientApiOrigin: 'https://client.example', clientApiKey: 'client-key' };
+  const status = async () => (await runtime.invoke('get_agent_config_statuses') as Array<Record<string, unknown>>).find(item => item.id === 'opencode');
+  await runtime.invoke('save_core_connection', { connection: target });
+  expect(await status()).toMatchObject({ installed: true, configValid: true, backupAvailable: true, configured: false, connectionState: 'needs-update' });
+  await runtime.invoke('update_agent_config', { client: 'opencode', model: 'client-model' });
+  expect(await status()).toMatchObject({ configured: true, configurationSynchronized: true });
+  for (const switched of [{ ...target, clientApiOrigin: 'https://other.example' }, { ...target, clientApiKey: 'other-key' }, remote]) {
+    await runtime.invoke('save_core_connection', { connection: switched });
+    expect(await status()).toMatchObject({ installed: true, configValid: true, backupAvailable: true, configured: false, configurationSynchronized: false, connectionState: 'needs-update', modificationState: 'applied' });
+    await expect(runtime.invoke('launch_agent', { client: 'opencode' })).rejects.toThrow();
+  }
+  await runtime.invoke('set_agent_config_enabled', { client: 'opencode', enabled: false });
+  expect(await status()).toMatchObject({ installed: true, configValid: true, backupAvailable: true, configured: false, modificationEnabled: false, modificationState: 'unconfigured', connectionState: 'not-configured' });
 });

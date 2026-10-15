@@ -3,7 +3,9 @@
 Run `bun run dev` and open the Vite URL in a regular browser. Mock IPC is installed
 only in browser development builds; Tauri and production builds use the real backend.
 No backend or upstream account is required. Data is fictional and mutations are
-in memory, isolated per page load. Reload to reset changes.
+in memory, isolated per page load. Connection selection and fictional client
+configuration persist in session storage across reloads so target switching and
+recovery can be exercised; close the tab to reset those. Other changes reset on reload.
 
 Use the bottom toolbar or query parameters:
 

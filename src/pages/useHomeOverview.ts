@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { loadHomeOverview, type HomeOverviewSnapshot } from '../services/homeOverview';
 
-export function useHomeOverview(coreReady: boolean, contextKey: string) {
+export function useHomeOverview(coreReady: boolean, contextKey: string, clientReady = coreReady) {
   const [state, setState] = useState<{ scope: string; snapshot: HomeOverviewSnapshot } | null>(null);
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
-  const scope = `${coreReady}:${contextKey}`;
+  const scope = `${coreReady}:${clientReady}:${contextKey}`;
 
   useEffect(() => {
     let active = true;
@@ -15,7 +15,7 @@ export function useHomeOverview(coreReady: boolean, contextKey: string) {
       inFlight = true;
       if (showLoading) setLoading(true);
       try {
-        const snapshot = await loadHomeOverview(coreReady);
+        const snapshot = await loadHomeOverview(coreReady, Date.now(), clientReady);
         if (active) setState((previous) => ({
           scope,
           snapshot: {
@@ -34,7 +34,7 @@ export function useHomeOverview(coreReady: boolean, contextKey: string) {
       if (!document.hidden) void load();
     }, 60_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [coreReady, scope, revision]);
+  }, [coreReady, clientReady, scope, revision]);
 
   return {
     snapshot: state?.scope === scope ? state.snapshot : null,

@@ -1,3 +1,4 @@
+import { LocalConnectionFixture } from './local-connection';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -151,12 +152,12 @@ mockIPC(async (cmd,args:any) => {
 let root=createRoot(document.getElementById('root')!);
 const render=()=>{
  const agents=<AgentsPage embedded={embedded} onConfigurationApplied={()=>{document.documentElement.dataset.fixtureApplied=String(++appliedCount);}}/>;
- root.render(<I18nProvider>{params.has('shell')?(
+ root.render(<I18nProvider><LocalConnectionFixture>{params.has('shell')?(
   <div className="app-shell">
    <aside className="sidebar" aria-hidden="true" />
    <div className="workspace"><main className="content">{agents}</main></div>
   </div>
- ):agents}</I18nProvider>);
+ ):agents}</LocalConnectionFixture></I18nProvider>);
 };
 (window as any).fixtureRemount=(nextEmbedded=embedded)=>{embedded=nextEmbedded;root.unmount();root=createRoot(document.getElementById('root')!);render();};
 render();

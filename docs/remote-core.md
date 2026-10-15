@@ -2,7 +2,7 @@
 
 Open **Home → Runtime Control → Core connection**. Choose **Remote**, enter the
 core's HTTP or HTTPS origin (for example `http://core.example:8317`) and management
-key, then use **Test Connection** and save. The core must already be running and
+key, then use **Test Connection** to check management access and save. The core must already be running and
 allow remote management. Enter an origin, without `/v8/management` or another path.
 Choose **Local** in the same dialog to return to the saved local setup.
 If this app currently owns a running local core or agent harness, stop it in
@@ -11,8 +11,8 @@ when attaching to a remote core.
 
 Management credentials and client API credentials are separate. This prototype
 stores one connection using the app's existing GUI configuration persistence;
-the management key is stored as plaintext, like the existing local management
-key. Keep that configuration private. HTTP is supported; use a trusted network
+management and client keys are stored as plaintext, like the existing local
+management key. Keep that configuration private. HTTP is supported; use a trusted network
 when sending credentials over HTTP. HTTPS requires a certificate trusted by the
 app's TLS client; certificate verification is not disabled for remote attachment.
 Management requests connect directly, bypassing system and provider proxies.
@@ -21,10 +21,29 @@ Provider proxy settings belong to the core and are not copied from the GUI machi
 Remote status reports authenticated management reachability and the core version
 header. It does not report a local process ID or installation. Starting, stopping,
 restarting and updating a remote process require host control outside this app.
-Local core and agent configuration actions are unavailable while attached remotely.
+Local core lifecycle actions are unavailable while attached remotely.
 Switch to Local before using the app's automatic updater, which also refreshes
 local agent model catalogs.
-Configuring agents on the GUI machine to use the remote client API is a later step.
+
+## Clients on this computer
+
+Set **Client API origin** and **Client API key** in Core connection. Use the root
+origin (for example `https://clients.example:8317`), without `/v1`. These can differ
+from the management origin and key. Both client fields are required for remote
+client actions; leave both empty for management only. The management key never
+substitutes for a client API key.
+
+**Agent Configuration** inspects and configures supported installed clients on
+the GUI computer to use this target, preserving existing backup and restore
+behavior. Model fetching, client launch checks and Home model health use the
+selected client API. Home displays its protocol URLs and explicit client key;
+**Manage Keys** opens connection settings to change them. Saving a target reloads
+the GUI to clear old requests, dialogs and cached results. Connection errors can
+be repaired from Home or Agent Configuration without switching to Local.
+
+Beginner Mode remains Local-only. DeepSeek Harness configuration and model
+editing can use the remote API, but its managed launch, status, stop and restart
+remain Local-only. No client files on the core server are edited.
 
 Usage history stays on the GUI machine, separated by remote origin from local
 history and other remote targets. Remote collection uses the core's HTTP usage

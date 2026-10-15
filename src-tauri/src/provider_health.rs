@@ -1,6 +1,6 @@
-use super::{
+use super::{agent_target, AgentEndpoint,
     build_http_client_with_proxy, effective_agent_api_key, fetch_agent_model_payload, is_loopback_host,
-    managed_core_loopback_origin, managed_core_tls_enabled, usage, validate_agent_model,
+    usage, validate_agent_model,
     GuiConfigFile, GuiConfigState, APP_USER_AGENT,
 };
 use chrono::Local;
@@ -329,9 +329,9 @@ pub(crate) fn provider_health_content_type_is_streaming(content_type: &str) -> b
 pub(crate) async fn get_core_models(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<CoreHealthModel>, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
-    fetch_core_models(config.port, effective_agent_api_key(&config)).await
+    fetch_core_models(agent_target(&config)?, effective_agent_api_key(&config)).await
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -342,7 +342,7 @@ pub(crate) struct CoreHealthModel {
     display_name: Option<String>,
 }
 
-async fn fetch_core_models(port: u16, api_key: &str) -> Result<Vec<CoreHealthModel>, String> {
+async fn fetch_core_models(port: impl AgentEndpoint, api_key: &str) -> Result<Vec<CoreHealthModel>, String> {
     let payload = fetch_agent_model_payload(port, api_key).await?;
     parse_core_models(&payload)
 }
@@ -390,7 +390,7 @@ pub(crate) async fn core_health_probe(
     model: String,
     timeout_ms: Option<u64>,
 ) -> Result<ProviderHealthProbeResponse, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     probe_core_model(&config, &model, timeout_ms).await
 }
@@ -401,10 +401,8 @@ async fn probe_core_model(
     timeout_ms: Option<u64>,
 ) -> Result<ProviderHealthProbeResponse, String> {
     let model = validate_agent_model(model)?;
-    if config.port == 0 {
-        return Err("Invalid kernel port".to_string());
-    }
-    let tls_enabled = managed_core_tls_enabled();
+    let target = agent_target(config)?;
+    let tls_enabled = target.local_tls();
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -414,7 +412,7 @@ async fn probe_core_model(
         .build()
         .map_err(|error| format!("Failed to create kernel health check client: {error}"))?;
     let request = ProviderHealthProbeRequest {
-        url: format!("{}/v1/chat/completions", managed_core_loopback_origin(config.port)),
+        url: format!("{}/v1/chat/completions", target.origin()),
         header: HashMap::from([
             ("Authorization".to_string(), format!("Bearer {}", effective_agent_api_key(config))),
             ("Content-Type".to_string(), "application/json".to_string()),
@@ -437,6 +435,7 @@ async fn probe_core_model(
     // The kernel records these requests itself. Only direct upstream probes need a
     // desktop usage event, otherwise one health check appears twice in usage.
     execute_health_probe(None, client, request).await
+        .map_err(|error| error.replace(effective_agent_api_key(config), "[redacted]"))
 }
 
 fn health_probe_timeout(timeout_ms: Option<u64>) -> Duration {

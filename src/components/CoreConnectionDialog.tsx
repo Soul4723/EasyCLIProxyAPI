@@ -41,14 +41,14 @@ export function CoreConnectionDialog({ onClose }: { onClose: () => void }) {
       <fieldset disabled={busy} className="core-connection-fields"><legend>{t('connection.mode')}</legend>
         <div className="button-row">{(['local', 'remote'] as const).map(mode => <label key={mode}><input type="radio" name="core-mode" checked={draft.mode === mode} onChange={() => { setDraft({ ...draft, mode }); setResult(''); setError(''); }} /> {t(`connection.${mode}`)}</label>)}</div>
         {draft.mode === 'remote' ? <>
-          <label>{t('connection.origin')}<input className="config-dialog-text-input" type="url" required value={draft.remoteManagementOrigin} onChange={event => { setDraft({ ...draft, remoteManagementOrigin: event.currentTarget.value }); setResult(''); }} /></label>
-          <label>{t('connection.key')}<input className="config-dialog-text-input" type="password" required autoComplete="off" value={draft.remoteManagementKey} onChange={event => { setDraft({ ...draft, remoteManagementKey: event.currentTarget.value }); setResult(''); }} /></label>
-          <details>
-            <summary>{t('connection.clientTarget')}</summary>
+          <label>{t('connection.origin')}<input className="config-dialog-text-input" type="url" required value={draft.remoteManagementOrigin} onChange={event => { setDraft({ ...draft, remoteManagementOrigin: event.currentTarget.value }); setResult(''); setError(''); }} /></label>
+          <label>{t('connection.key')}<input className="config-dialog-text-input" type="password" required autoComplete="off" value={draft.remoteManagementKey} onChange={event => { setDraft({ ...draft, remoteManagementKey: event.currentTarget.value }); setResult(''); setError(''); }} /></label>
+          <fieldset className="core-connection-fields">
+            <legend>{t('connection.clientTarget')}</legend>
             <p>{t('connection.clientTargetHint')}</p>
-            <label>{t('connection.clientOrigin')}<input className="config-dialog-text-input" type="url" value={draft.clientApiOrigin} onChange={event => { setDraft({ ...draft, clientApiOrigin: event.currentTarget.value }); setResult(''); }} /></label>
-            <label>{t('connection.clientKey')}<input className="config-dialog-text-input" type="password" autoComplete="off" value={draft.clientApiKey} onChange={event => { setDraft({ ...draft, clientApiKey: event.currentTarget.value }); setResult(''); }} /></label>
-          </details>
+            <label>{t('connection.clientOrigin')}<input className="config-dialog-text-input" type="url" value={draft.clientApiOrigin} onChange={event => { setDraft({ ...draft, clientApiOrigin: event.currentTarget.value }); setResult(''); setError(''); }} /></label>
+            <label>{t('connection.clientKey')}<input className="config-dialog-text-input" type="password" autoComplete="off" value={draft.clientApiKey} onChange={event => { setDraft({ ...draft, clientApiKey: event.currentTarget.value }); setResult(''); setError(''); }} /></label>
+          </fieldset>
           <p>{t('connection.hint')}</p>
           {connection.mode === 'local' && status?.managed && status.running ? <p role="status">{t('connection.stopLocal')}</p> : null}
         </> : <p>{t('connection.localHint')}</p>}

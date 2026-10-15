@@ -107,6 +107,22 @@ describe('home overview loading', () => {
     expect(calls).toEqual(['get_usage_overview']);
   });
 
+  it('loads remote client models independently of management reachability', async () => {
+    const calls: string[] = [];
+    mockIPC(command => {
+      calls.push(command);
+      if (command === 'get_usage_overview') return usage;
+      if (command === 'get_core_models') return [{ name: 'client-model' }];
+      throw new Error('Management must not be contacted');
+    });
+    const overview = await loadHomeOverview(false, Date.now(), true);
+    expect(overview.models).toEqual([{ name: 'client-model' }]);
+    expect(overview.credentials).toBeNull();
+    expect(overview.providerKeys).toBeNull();
+    expect(overview.errors).toEqual({});
+    expect(calls.sort()).toEqual(['get_core_models', 'get_usage_overview']);
+  });
+
   it('uses the credential and raw provider config endpoints plus the dedicated core model command', async () => {
     const requests: string[] = [];
     mockIPC((command, args) => {

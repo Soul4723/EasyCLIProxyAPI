@@ -172,7 +172,7 @@ function AppContent() {
   const { status } = useCoreRuntime();
   const { connection } = useCoreConnection();
   const remote = connection.mode === 'remote';
-  const remoteBlocked = (id: string) => remote && ['agents', 'easy'].includes(id);
+  const remoteBlocked = (id: string) => remote && id === 'easy';
   const coreReady = Boolean(status?.ready);
   const activePage = pages.find((page) => page.id === active) ?? pages[0];
   const ActivePage = activePage.component;

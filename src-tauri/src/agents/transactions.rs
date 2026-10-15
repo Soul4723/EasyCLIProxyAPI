@@ -69,6 +69,11 @@ fn parse_integration_state(
     Ok(Some(state))
 }
 
+pub(crate) fn has_recorded_agent_integration(client: &str, paths: &[PathBuf]) -> Result<bool, String> {
+    let bytes = read_agent_bytes(&integration_state_path(client, paths)?)?;
+    Ok(parse_integration_state(client, paths, bytes.as_deref())?.is_some())
+}
+
 fn integration_state_bytes(state: &AgentIntegrationState) -> Result<Vec<u8>, String> {
     serde_json::to_vec(state).map_err(|_| "Failed to generate access configuration merge state".to_string())
 }

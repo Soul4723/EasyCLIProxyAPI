@@ -1,3 +1,5 @@
+import { useCoreConnection } from '../coreConnection';
+import { CoreConnectionDialog } from '../components/CoreConnectionDialog';
 import { CopilotPluginStatus } from '../components/copilot/CopilotPluginStatus';
 import type { MessageKey } from '../i18n/resources';
 import { ClaudeCodeRoleRows } from '../components/claude-code/ClaudeCodeRoleRows';
@@ -590,6 +592,8 @@ type AgentsPageProps = {
 };
 
 export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsPageProps = {}) {
+  const { connection } = useCoreConnection();
+  const [connectionOpen, setConnectionOpen] = useState(false);
   const { t } = useI18n();
   const [selected, setSelected] = useState<AgentClientId>(readSelectedAgentClient);
   const [viewStateByClient, setViewStateByClient] = useState(() => agentViewStateCache);
@@ -760,9 +764,10 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
   }, []);
 
   const loadDeepSeekHarnessProcessStatus = useCallback(async () => {
+    if (connection.mode === 'remote') return;
     const status = await invoke<DeepSeekHarnessProcessStatus>('get_deepseek_harness_process_status');
     setDeepSeekHarnessProcessStatus(status);
-  }, []);
+  }, [connection.mode]);
 
   const loadModels = useCallback(async (client: AgentClientId, preferredModel = '', background = false) => {
     const requestId = modelRequestRef.current + 1;
@@ -1062,7 +1067,8 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
   );
   const activeLaunchTargets = activeStatus?.launchTargets ?? [];
   const launchEnabled = Boolean(
-    activeStatus?.supportedPlatform
+    !(connection.mode === 'remote' && isDeepSeekHarnessClient)
+      && activeStatus?.supportedPlatform
       && activeStatus.installed,
   );
   const activeLaunchDirectoryHistory = launchDirectoryHistory[selected] ?? [];
@@ -1942,6 +1948,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
         </header>
       ) : null}
 
+      {connectionOpen ? <CoreConnectionDialog onClose={() => setConnectionOpen(false)} /> : null}
       <div className="agent-workbench">
         <AgentClientList clients={agentDefinitions.map((agent) => {
           const status = statuses.find((item) => item.id === agent.id);
@@ -1991,6 +1998,14 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
           </div>
           ) : null}
           <div className="agent-config-scroll-region">
+          {connection.mode === 'remote' ? <div className="agent-core-setting-section">
+            <div className="agent-section-heading">
+              <div><strong>{t('connection.clientTarget')}</strong><code className="agent-path-value">{connection.clientApiOrigin || t('common.unavailable')}</code></div>
+              <button type="button" className="secondary-button" disabled={busy} onClick={() => setConnectionOpen(true)}>{t('connection.title')}</button>
+            </div>
+            {!connection.clientApiOrigin ? <small>{t('connection.clientTargetHint')}</small> : null}
+          </div> : null}
+
           {embedded && selected === 'vscode-copilot' && activeSubpage === 'core' && activeStatus ? (
             <CopilotPluginStatus installed={activeStatus.pluginInstalled} version={activeStatus.pluginVersion} />
           ) : null}
@@ -2394,7 +2409,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
             harness={isDeepSeekHarnessClient ? deepSeekHarnessProcessStatus : null}
             onLaunch={(target) => void launchAgent(target)} onRestart={() => void restartDesktopApp()}
             onRestartCli={() => void restartCodexCliService()}
-            onStop={() => void stopDeepSeekHarness()} onRestartWeb={() => void restartDeepSeekHarness()} error={launchError} onErrorDismiss={() => setLaunchError('')} /> : null}
+            onStop={() => void stopDeepSeekHarness()} onRestartWeb={() => void restartDeepSeekHarness()} error={connection.mode === 'remote' && isDeepSeekHarnessClient ? t('connection.harnessLocal') : launchError} onErrorDismiss={connection.mode === 'remote' && isDeepSeekHarnessClient ? undefined : () => setLaunchError('')} /> : null}
           </div>
         </section>
       </div>

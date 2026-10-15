@@ -332,7 +332,7 @@ pub(crate) fn workbuddy_has_managed_marker(path: &Path) -> Result<bool, String> 
 
 pub(crate) fn inspect_workbuddy_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     let root = parse_workbuddy_config(read_optional_text(path)?.as_deref())?;
@@ -355,7 +355,7 @@ pub(crate) fn inspect_workbuddy_agent_config(
                 || a.iter()
                     .any(|v| v.as_str().map(workbuddy_request_model) == model)
         });
-    let expected_url = format!("{}/v1/chat/completions", managed_core_loopback_origin(port));
+    let expected_url = format!("{}/v1/chat/completions", port.origin());
     let configured = visible
         && managed.iter().all(|entry| {
             entry.get("url").and_then(Value::as_str) == Some(&expected_url)
