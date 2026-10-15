@@ -21,8 +21,8 @@ pub(crate) struct CoreConnection {
 
 static TARGET: Mutex<Option<CoreConnection>> = Mutex::new(None);
 static REVISION: AtomicU64 = AtomicU64::new(0);
-// Local mutations hold a read lease. Switching waits for their completion, so
-// an old local operation cannot write files after remote mode becomes active.
+// Target operations hold a read lease. Switching waits for their completion, so
+// an old operation cannot write client files after another target becomes active.
 static OPERATIONS: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
 
 pub(crate) fn initialize(connection: &CoreConnection) {
@@ -64,12 +64,21 @@ fn ensure_same_target(config: &GuiConfigFile, revision: u64, connection: &CoreCo
 }
 
 pub(crate) fn normalize_origin(value: &str) -> Result<String, String> {
+    if value.chars().any(char::is_control) { return Err("Core origin cannot contain control characters".into()); }
     let value = value.trim();
+    // Check raw syntax before URL parsing can erase paths, dot segments or backslashes.
+    let (scheme, authority) = value.split_once("://").ok_or("Core origin must start with http:// or https://")?;
+    let authority = authority.strip_suffix('/').unwrap_or(authority);
+    if !["http", "https"].iter().any(|allowed| scheme.eq_ignore_ascii_case(allowed))
+        || authority.is_empty() || authority.contains(['/', '?', '#', '\\', '@', ' '])
+    {
+        return Err("Core origin must be HTTP or HTTPS without credentials, path, query, or fragment".into());
+    }
     let url = reqwest::Url::parse(value).map_err(|_| "Invalid core origin; use http://host:port or https://host:port".to_string())?;
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
         || !url.username().is_empty() || url.password().is_some()
         || !matches!(url.path(), "" | "/") || url.query().is_some() || url.fragment().is_some()
-        || value.chars().any(char::is_control)
+        || url.port() == Some(0)
     {
         return Err("Core origin must be HTTP or HTTPS without credentials, path, query, or fragment".to_string());
     }
@@ -83,16 +92,19 @@ impl CoreConnection {
         if self.is_remote() || !self.remote_management_origin.trim().is_empty() {
             self.remote_management_origin = normalize_origin(&self.remote_management_origin)?;
         }
+        if self.client_api_origin.chars().any(char::is_control) {
+            return Err("Client API origin cannot contain control characters".into());
+        }
         if !self.client_api_origin.trim().is_empty() {
             self.client_api_origin = normalize_origin(&self.client_api_origin)?;
         }
+        if self.client_api_key.chars().any(char::is_control) {
+            return Err("Client API key cannot contain control characters".into());
+        }
+        validate_management_secret_key(&self.remote_management_key)?;
         self.remote_management_key = self.remote_management_key.trim().to_string();
         self.client_api_key = self.client_api_key.trim().to_string();
-        validate_management_secret_key(&self.remote_management_key)?;
         if self.is_remote() { validate_strong_management_secret_key(&self.remote_management_key)?; }
-        if self.client_api_key.chars().any(char::is_control) {
-            return Err("Client API key cannot contain control characters".to_string());
-        }
         Ok(self)
     }
 
@@ -232,12 +244,17 @@ mod tests {
 
     #[test]
     fn connection_validation_and_storage_keep_targets_separate() {
-        for origin in ["http://host:8317", "https://host", "http://[::1]:8317/"] {
+        for origin in ["http://host:8317", "https://host", "http://[::1]:8317/", " HTTP://HOST:8317/ "] {
             assert!(normalize_origin(origin).is_ok());
         }
-        for origin in ["ftp://host", "https://u:p@host", "https://host/path", "https://host?q=1", "https://host/#key"] {
+        for origin in ["ftp://host", "https://u:p@host", "https://host/path", "https://host?q=1", "https://host/#key", "https://host/v1/..", "https://host/%2e", "https://host?", "https://host#", "https://host/?", "https://host/#", r"https://host\", r"https:\host", r"https://host\v1\..", "https://@host", "https://host:0"] {
             assert!(normalize_origin(origin).is_err(), "{origin}");
         }
+        for origin in ["https://host/v1/..", "https://host?", "https://host#", r"https://host\", "\n"] {
+            let connection = CoreConnection { client_api_origin: origin.into(), ..CoreConnection::default() };
+            assert!(connection.normalize().is_err(), "client origin {origin:?}");
+        }
+        assert!(CoreConnection { remote_management_key: "\nsecret".into(), ..CoreConnection::default() }.normalize().is_err());
         let connection = CoreConnection {
             mode: ConnectionMode::Remote,
             remote_management_origin: "https://example.com/".into(),

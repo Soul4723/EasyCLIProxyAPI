@@ -1341,3 +1341,34 @@ fn nested_model_options_and_third_party_providers_survive_all_updates() {
             .is_empty());
     }
 }
+
+#[tokio::test]
+async fn remote_management_only_backup_recovery_works_offline_and_rejects_old_target_preview() {
+    let home = Home::new();
+    let paths = config_paths("codex", &home.0).unwrap();
+    template(&home.0, AgentClient::Codex).unwrap();
+    let original = config_images(&paths).unwrap();
+    let backup = create_backup("codex", &home.0).unwrap();
+    save(&paths[0], "external='keep'");
+    let changed = config_images(&paths).unwrap();
+    let mut config = GuiConfigFile::default();
+    config.target_revision = 7;
+    config.core_connection = crate::core_connection::CoreConnection {
+        mode: crate::core_connection::ConnectionMode::Remote,
+        remote_management_origin: "https://offline.invalid".into(),
+        remote_management_key: "management-secret".into(),
+        client_api_origin: String::new(),
+        client_api_key: String::new(),
+    };
+    assert!(agent_target(&config).is_err());
+    let old = prepare_restore_plan(&config, "codex", &home.0, &backup.id).await.unwrap();
+    let old_revision = old.preview.revision;
+    config.target_revision += 1;
+    let plan = prepare_restore_plan(&config, "codex", &home.0, &backup.id).await.unwrap();
+    assert!(execute_restore_plan(&config, plan, &old_revision).await.is_err());
+    assert_eq!(config_images(&paths).unwrap(), changed);
+    let plan = prepare_restore_plan(&config, "codex", &home.0, &backup.id).await.unwrap();
+    let revision = plan.preview.revision.clone();
+    execute_restore_plan(&config, plan, &revision).await.unwrap();
+    assert_eq!(config_images(&paths).unwrap(), original);
+}

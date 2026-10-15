@@ -92,7 +92,8 @@ fn handle_configuration_file_changes(
     changed_paths: Vec<PathBuf>,
     tracked_paths: &[PathBuf],
 ) {
-    let Ok(_connection_guard) = super::core_connection::local_operation() else { return; };
+    let Ok(_connection_guard) = super::core_connection::target_operation() else { return; };
+    let remote = super::core_connection::active_connection().is_remote();
     let gui_path = gui_config_path().ok();
     let core_path = core_install_dir()
         .ok()
@@ -134,7 +135,7 @@ fn handle_configuration_file_changes(
 
     if tracked_changes
         .iter()
-        .any(|path| is_gui_path(path) || is_core_path(path))
+        .any(|path| is_gui_path(path) || is_core_path(path)) && !remote
     {
         refresh_agents = true;
         let mut preserve_invalid_gui_file = false;

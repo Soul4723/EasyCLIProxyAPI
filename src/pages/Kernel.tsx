@@ -77,10 +77,9 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     void listen('config-files-changed', () => {
       if (disposed) return;
       setConfigRevision((value) => value + 1);
-      void loadGuiSettings();
-      void loadTlsSettings();
+      if (!remote) { void loadGuiSettings(); void loadTlsSettings(); }
       void refreshStatus();
-      void loadHomeApiKey();
+      if (!remote) void loadHomeApiKey();
     }).then((stop) => {
       if (disposed) stop();
       else unlistenConfig = stop;
@@ -210,9 +209,11 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
       : savedPortRef.current,
     tlsEnabled,
     listenHost,
+    connection,
   );
-  const healthContext = [listenHost, customPort, tlsEnabled, coreStatus?.processId, configRevision].join(':');
-  const overview = useHomeOverview(coreReady, healthContext);
+  const clientReady = remote ? Boolean(connection.clientApiOrigin && connection.clientApiKey) : coreReady;
+  const healthContext = [connection.mode, connection.clientApiOrigin, listenHost, customPort, tlsEnabled, coreStatus?.processId, configRevision].join(':');
+  const overview = useHomeOverview(coreReady, healthContext, clientReady);
 
   return (
     <section className="page kernel-page home-page home-dashboard">
@@ -220,8 +221,8 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
       <header className="home-masthead">
         <h1>{t('app.nav.home')}</h1>
       </header>
-      <HomeOverviewCards snapshot={overview.snapshot} loading={overview.loading} coreReady={coreReady} onRefresh={overview.refresh} actions={remote ? null : <CoreHealthPanel compact
-        coreReady={coreReady} models={overview.snapshot?.models ?? []}
+      <HomeOverviewCards snapshot={overview.snapshot} loading={overview.loading} coreReady={coreReady} onRefresh={overview.refresh} actions={<CoreHealthPanel compact
+        coreReady={clientReady} models={overview.snapshot?.models ?? []}
         modelsLoading={overview.loading}
         modelsError={overview.snapshot?.errors.models ?? ''}
         onRefreshModels={overview.refresh} contextKey={healthContext}
@@ -299,8 +300,8 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
           </div> : null}
           <FloatingNotice key={processFeedback.revision} notice={processFeedback.notice} onDismiss={processFeedback.clearNotice} />
         </div>
-        {remote ? <div className="panel"><p>{t('connection.phase2')}</p></div> : <HomeAccessPanel
-          profiles={apiProfiles} apiKey={homeApiKey} keyError={homeApiKeyError}
+        {remote && !apiProfiles.length ? <div className="panel"><p>{t('connection.clientTargetHint')}</p><button type="button" className="secondary-button" onClick={() => setConnectionOpen(true)}>{t('connection.clientTarget')}</button></div> : <HomeAccessPanel
+          profiles={apiProfiles} apiKey={remote ? connection.clientApiKey : homeApiKey} keyError={!remote && homeApiKeyError} onEdit={remote ? () => setConnectionOpen(true) : undefined}
           ready={coreReady} copiedField={copiedApiField} onCopy={copyApiValue}
         />}
       </div>

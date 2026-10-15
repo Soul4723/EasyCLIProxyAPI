@@ -186,11 +186,11 @@ pub(crate) fn antigravity_has_marker(
 pub(crate) fn inspect_antigravity_config(
     _client: AgentClient,
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     let settings = parse(&paths[0], read_optional_text(&paths[0])?.as_deref())?;
-    let origin = managed_core_loopback_origin(port);
+    let origin = port.origin();
     let path = paths.get(1).ok_or("Antigravity CLI configuration path is missing")?;
     let connection = parse(path, read_optional_text(path)?.as_deref())?;
     let model = connection
@@ -268,11 +268,14 @@ fn antigravity_helper_command(args: &[std::ffi::OsString]) -> Result<Command, St
         .and_then(Value::as_str)
         .filter(|s| !s.trim().is_empty())
         .ok_or("Antigravity CLI address is missing")?;
+    validate_agent_base_url(url, false)?;
+    validate_agent_api_key(key)?;
     let model = connection
         .get("model")
         .and_then(Value::as_str)
         .filter(|s| !s.trim().is_empty())
         .ok_or("Antigravity CLI model is missing")?;
+    validate_agent_model(model)?;
     let settings = parse(&paths[0], read_optional_text(&paths[0])?.as_deref())?;
     if settings.get("modelProvider").and_then(Value::as_str) != Some("gemini")
         || field(

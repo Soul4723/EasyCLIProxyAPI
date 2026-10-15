@@ -220,6 +220,7 @@ function createAgentStatuses() {
     ['pi', 'Pi'],
   ] as const;
   const claudeMappings = {
+    fable: '', fable1m: false, manageDefaultModel: true, manageSubagentModel: false, startupModel: 'opus', subagentModel: '',
     opus: 'claude-opus-4-6',
     sonnet: 'claude-sonnet-4-6',
     haiku: 'claude-haiku-4-5',
@@ -953,6 +954,7 @@ export function createBrowserMockRuntime(
   const state = createState(scenario);
   let connection: CoreConnection = { mode: 'local', remoteManagementOrigin: '', remoteManagementKey: '', clientApiOrigin: '', clientApiKey: '' };
   let localStatus = clone(state.coreStatus);
+  const agentTargets: Record<string, string> = Object.fromEntries(state.agentStatuses.filter(status => status.configured).map(status => [status.id, 'local']));
   if (scenario === 'empty') {
     state.usageEvents = [];
     state.usagePrices = [];
@@ -971,6 +973,11 @@ export function createBrowserMockRuntime(
       const parsed = JSON.parse(saved);
       connection = normalizedCoreConnection(parsed.connection);
       if (parsed.localStatus) localStatus = parsed.localStatus;
+      for (const status of state.agentStatuses) {
+        const savedStatus = parsed.agentStatuses?.find((item: { id: string }) => item.id === status.id);
+        if (savedStatus) Object.assign(status, savedStatus);
+      }
+      if (parsed.agentTargets) Object.assign(agentTargets, parsed.agentTargets);
       if (connection.mode === 'remote') Object.assign(state.coreStatus, {
         connectionMode: 'remote', remoteOrigin: connection.remoteManagementOrigin,
         installed: false, managed: false, processId: null, installDir: '', binaryPath: null,
@@ -983,6 +990,16 @@ export function createBrowserMockRuntime(
     }
   } catch {}
   const emit = (event: string, payload: unknown) => emitEvent(event, clone(payload));
+  const selectedAgentTarget = () => connection.mode === 'local' ? 'local'
+    : connection.clientApiOrigin && connection.clientApiKey ? JSON.stringify([connection.clientApiOrigin, connection.clientApiKey]) : null;
+  const inspectAgentStatuses = () => state.agentStatuses.map(status => {
+    const configured = status.configured && selectedAgentTarget() !== null && agentTargets[status.id] === selectedAgentTarget();
+    return { ...status, configured, configurationSynchronized: configured,
+      connectionState: !status.configValid ? 'invalid' : configured ? 'configured' : status.configured ? 'needs-update' : 'not-configured' };
+  });
+  const persistConnection = () => {
+    try { globalThis.sessionStorage?.setItem('easycli.mock-core-connection', JSON.stringify({ connection, localStatus, agentStatuses: state.agentStatuses, agentTargets })); } catch {}
+  };
 
   const invoke = async (command: string, rawPayload?: unknown): Promise<unknown> => {
     await sleep(delayMs);
@@ -998,8 +1015,20 @@ export function createBrowserMockRuntime(
       'start_core_process', 'stop_core_process', 'restart_core_process',
       'check_app_update', 'start_app_update',
       'install_bundled_core', 'install_latest_core', 'open_core_logs_directory',
-      'open_auth_files_directory', 'launch_agent', 'configure_agent',
+      'open_auth_files_directory',
     ].includes(command)) throw new Error('Browser Mock: operation requires Local mode');
+    if (connection.mode === 'remote' && [
+      'get_agent_models', 'get_core_models', 'core_health_probe', 'launch_agent',
+      'update_agent_config', 'apply_agent_config_template', 'set_agent_config_enabled',
+    ].includes(command) && !(command === 'set_agent_config_enabled' && payload.enabled === false)) {
+      if (!connection.clientApiOrigin || !connection.clientApiKey) throw new Error('Browser Mock: set client API origin and key in Core connection');
+      if (new URL(connection.clientApiOrigin).hostname === 'offline.example') throw new Error('Browser Mock: client API unreachable');
+      if (connection.clientApiKey === 'invalid') throw new Error('Browser Mock: client authentication failed (401)');
+    }
+    if (connection.mode === 'remote' && command === 'launch_agent'
+      && !inspectAgentStatuses().find(status => status.id === payload.client)?.configured) {
+      throw new Error('Browser Mock: client configuration does not match the selected remote target; apply configuration first');
+    }
     switch (command) {
       case 'plugin:app|version': return '0.2.97-mock';
       case 'plugin:app|name': return 'EasyCLIProxyAPI Browser Mock';
@@ -1054,7 +1083,7 @@ export function createBrowserMockRuntime(
         });
         state.coreStatus.ready = state.coreStatus.running;
         if (!state.coreStatus.ready) state.coreStatus.currentVersion = null;
-        try { globalThis.sessionStorage?.setItem('easycli.mock-core-connection', JSON.stringify({ connection, localStatus })); } catch {}
+        persistConnection();
         emit('core-connection-changed', connection);
         return clone(connection);
       }
@@ -1262,7 +1291,7 @@ export function createBrowserMockRuntime(
       case 'save_api_access_remark': return null;
       case 'provider_health_probe': return { firstTokenLatencyMs: 184, responseLatencyMs: 642 };
       case 'core_health_probe': {
-        if (!state.coreStatus.ready) throw new Error('Browser Mock: the core is not ready');
+        if (connection.mode !== 'remote' && !state.coreStatus.ready) throw new Error('Browser Mock: the core is not ready');
         if (!readString(payload.model).trim()) throw new Error('Select a model first');
         return { firstTokenLatencyMs: 184, responseLatencyMs: 642 };
       }
@@ -1386,9 +1415,9 @@ export function createBrowserMockRuntime(
       case 'apply_usage_model_prices': return { imported: asArray(payload.prices).length };
 
       case 'get_agent_config_statuses':
-      case 'refresh_agent_config_statuses': return clone(state.agentStatuses);
+      case 'refresh_agent_config_statuses': return clone(inspectAgentStatuses());
       case 'get_core_models': {
-        if (!state.coreStatus.ready) throw new Error('Browser Mock: the core is not ready');
+        if (connection.mode !== 'remote' && !state.coreStatus.ready) throw new Error('Browser Mock: the core is not ready');
         return invoke('get_agent_models', {});
       }
       case 'get_agent_models': return [
@@ -1399,12 +1428,23 @@ export function createBrowserMockRuntime(
         { name: 'gemini-3-pro', displayName: 'Gemini 3 Pro', contextWindow: 1_000_000, inputModalities: ['text', 'image'] },
         { name: 'deepseek-chat', displayName: 'DeepSeek Chat', contextWindow: 64_000, inputModalities: ['text'] },
       ];
-      case 'update_agent_config':
+      case 'set_agent_config_enabled':
+      case 'update_agent_config': {
+        const enabled = payload.enabled !== false;
+        const result = createActionResult(payload);
+        const status = state.agentStatuses.find(item => item.id === payload.client);
+        if (status) {
+          Object.assign(status, { currentModel: enabled ? result.model : '', appliedModel: enabled ? result.model : '',
+            configured: enabled, modificationEnabled: enabled, modificationState: enabled ? 'applied' : 'unconfigured' });
+          if (enabled) agentTargets[status.id] = selectedAgentTarget()!; else delete agentTargets[status.id];
+        }
+        persistConnection();
+        return { ...result, enabled, model: enabled ? result.model : null };
+      }
       case 'apply_agent_config_template':
       case 'install_pi_provider':
       case 'update_pi_provider':
       case 'repair_pi_provider':
-      case 'set_agent_config_enabled':
       case 'close_codex_config_modification': return createActionResult(payload);
       case 'uninstall_pi_provider': return { ...createActionResult(payload), enabled: false, model: null };
       case 'check_pi_provider_update': return { installedVersion: '0.4.2', latestVersion: '0.4.3', updateAvailable: true };

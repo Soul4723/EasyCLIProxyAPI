@@ -257,3 +257,33 @@ fn antigravity_removal_without_history_keeps_unmanaged_settings() {
     assert_eq!(restored, json!({"externalSetting": 42}));
     assert!(removals[1].1.is_none());
 }
+
+#[test]
+fn remote_antigravity_helper_passes_validated_client_target_without_key_arguments() {
+    let home = Home::new();
+    let client = AgentClient::AntigravityCli;
+    for update in build_antigravity_updates(client, &home.0, "https://remote.invalid", "remote-client-key", "remote-model", false).unwrap() {
+        fs::create_dir_all(update.path.parent().unwrap()).unwrap();
+        fs::write(update.path, update.after).unwrap();
+    }
+    let binary = if cfg!(windows) { home.0.join("AppData/Local/agy/bin/agy.exe") } else { home.0.join(".local/bin/agy") };
+    fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    fs::write(&binary, []).unwrap();
+    #[cfg(unix)] {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let args = ["cpa".into(), "--cpa-antigravity-cli".into(), home.0.clone().into_os_string()];
+    let command = antigravity_helper_command(&args).unwrap();
+    let environment = command.get_envs().collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(environment[std::ffi::OsStr::new("GEMINI_API_KEY")], Some(std::ffi::OsStr::new("remote-client-key")));
+    assert_eq!(environment[std::ffi::OsStr::new("GOOGLE_GEMINI_BASE_URL")], Some(std::ffi::OsStr::new("https://remote.invalid")));
+    assert!(!command.get_args().any(|arg| arg.to_string_lossy().contains("remote-client-key")));
+    let paths = antigravity_config_paths(client, &home.0);
+    let mut connection: Value = serde_json::from_str(&fs::read_to_string(&paths[1]).unwrap()).unwrap();
+    for url in ["https://user:secret@remote.invalid", "https://remote.invalid/v1", "file:///tmp/core"] {
+        connection["baseUrl"] = json!(url);
+        home.save(&paths[1], &connection);
+        assert!(antigravity_helper_command(&args).is_err());
+    }
+}

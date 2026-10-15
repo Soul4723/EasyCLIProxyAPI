@@ -41,18 +41,18 @@ pub(crate) fn build_codex_template_auth(home: &Path) -> Result<AgentFileUpdate, 
 
 pub(crate) fn build_pi_template_updates(
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     model: &str,
 ) -> Result<Vec<AgentFileUpdate>, String> {
-    if port == 0 || api_key.trim().is_empty() {
+    if !port.valid() || api_key.trim().is_empty() {
         return Err("Invalid CPA address or key".into());
     }
     let settings = serde_json::json!({"packages": [PI_CLIPROXYAPI_PACKAGE]}).to_string();
     Ok(vec![
         AgentFileUpdate {
             path: pi_provider_config_path(home),
-            after: build_pi_provider_config(None, &managed_core_loopback_origin(port), api_key)?,
+            after: build_pi_provider_config(None, &port.origin(), api_key)?,
         },
         AgentFileUpdate {
             path: pi_provider_settings_path(home),
@@ -154,7 +154,7 @@ async fn prepare_template_plan(
             .lock()
             .map_err(|_| "Configuration file lock is poisoned")?;
         let before = config_images(&paths)?;
-        let updates = build_pi_template_updates(home, config.port, api_key, &model)?;
+        let updates = build_pi_template_updates(home, agent_target(&config)?, api_key, &model)?;
         let after = prepare_config_updates(client, &paths, &before, &updates, true)?;
         (model, None, before, after, None)
     } else {
@@ -188,7 +188,7 @@ async fn prepare_template_plan(
         let updates = build_agent_template_updates(AgentDefaultConfiguration {
             client: parsed,
             home,
-            port: config.port,
+            port: agent_target(&config)?,
             api_key,
             model: &model,
             models: &prepared.models,
@@ -212,6 +212,7 @@ async fn prepare_template_plan(
         .transpose()?;
     let revision = sha256_bytes(
         &serde_json::to_vec(&(
+            config.target_revision,
             image_revision(&before),
             image_revision(&after),
             &mapping_revision,
@@ -281,7 +282,7 @@ pub(crate) async fn preview_agent_config_template(
     claude_code_model_mappings: Option<ClaudeDesktopModelMappings>,
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
 ) -> Result<TemplatePreview, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let config = app.state::<GuiConfigState>().snapshot()?;
     Ok(prepare_template_plan(
@@ -307,7 +308,7 @@ pub(crate) async fn apply_agent_config_template(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     revision: String,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let config = app.state::<GuiConfigState>().snapshot()?;
     let plan = prepare_template_plan(

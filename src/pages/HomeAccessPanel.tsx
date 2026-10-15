@@ -9,6 +9,7 @@ import { useI18n } from '../i18n';
 
 type Props = {
   profiles: ClientApiProfile[];
+  onEdit?: () => void;
   apiKey: string | null | undefined;
   keyError: boolean;
   ready: boolean;
@@ -18,7 +19,7 @@ type Props = {
 
 const icons = { openai: openaiIcon, claude: claudeIcon, gemini: geminiIcon };
 
-export function HomeAccessPanel({ profiles, apiKey, keyError, ready, copiedField, onCopy }: Props) {
+export function HomeAccessPanel({ profiles, apiKey, keyError, ready, copiedField, onCopy, onEdit }: Props) {
   const { t } = useI18n();
   const [active, setActive] = useState<ClientApiProfile['id']>('openai');
   const [showKey, setShowKey] = useState(false);
@@ -31,8 +32,8 @@ export function HomeAccessPanel({ profiles, apiKey, keyError, ready, copiedField
     <section className="panel home-access-panel" aria-labelledby="home-access-title">
       <div className="home-panel-heading">
         <div><h2 id="home-access-title">{t('home.access.title')}</h2><p>{t('home.access.description')}</p></div>
-        <span className={`home-connection-state ${ready ? 'ready' : ''}`}>
-          <span aria-hidden="true" />{t(ready ? 'kernel.access.connectable' : 'kernel.access.waiting')}
+        <span className={`home-connection-state ${ready && !onEdit ? 'ready' : ''}`}>
+          <span aria-hidden="true" />{t(onEdit ? 'connection.remote' : ready ? 'kernel.access.connectable' : 'kernel.access.waiting')}
         </span>
       </div>
       <div className="home-protocol-tabs" role="tablist" aria-label={t('home.access.protocol')}>
@@ -60,7 +61,7 @@ export function HomeAccessPanel({ profiles, apiKey, keyError, ready, copiedField
       <div className="home-access-key">
         <div className="home-field-label">
           <span>{t('home.access.key')}</span>
-          <button type="button" className="home-inline-link" onClick={() => window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'config' }))}>
+          <button type="button" className="home-inline-link" onClick={() => onEdit ? onEdit() : window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'config' }))}>
             {t('home.access.manage')}<ArrowUpRight size={13} aria-hidden="true" />
           </button>
         </div>

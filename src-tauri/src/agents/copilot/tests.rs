@@ -404,3 +404,20 @@ fn copilot_vscode_uses_codex_context_parameters_and_reserves_output_budget() {
         assert!(output > 0 && output < expected);
     }
 }
+
+#[test]
+fn remote_copilot_helper_passes_selected_client_target_and_rejects_invalid_paths() {
+    let home = Home::new();
+    let path = copilot_config_paths(AgentClient::CopilotCli, &home.0).remove(0);
+    home.save(&path, &json!({"provider":MANAGED_AGENT_PROVIDER_ID, "baseUrl":"http://100.64.0.2:8317/v1", "apiKey":"remote-client-key", "model":"remote-model"}));
+    let args = ["cpa".into(), "--cpa-copilot-cli".into(), path.clone().into_os_string(), env::current_exe().unwrap().into_os_string()];
+    let command = copilot_helper_command(&args).unwrap();
+    let environment = command.get_envs().collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(environment[std::ffi::OsStr::new("COPILOT_PROVIDER_API_KEY")], Some(std::ffi::OsStr::new("remote-client-key")));
+    assert_eq!(environment[std::ffi::OsStr::new("COPILOT_PROVIDER_BASE_URL")], Some(std::ffi::OsStr::new("http://100.64.0.2:8317/v1")));
+    assert!(!command.get_args().any(|arg| arg.to_string_lossy().contains("remote-client-key")));
+    for url in ["https://remote.invalid/other/v1", "https://user:secret@remote.invalid/v1", "file:///tmp/v1"] {
+        home.save(&path, &json!({"provider":MANAGED_AGENT_PROVIDER_ID, "baseUrl":url, "apiKey":"remote-client-key", "model":"remote-model"}));
+        assert!(copilot_helper_command(&args).is_err());
+    }
+}

@@ -353,7 +353,7 @@ struct AgentConfigStatusCache {
 }
 
 struct AgentConfigStatusCacheEntry {
-    port: u16,
+    origin: String,
     api_key_sha256: String,
     statuses: Vec<AgentConfigStatus>,
 }
@@ -366,14 +366,14 @@ struct ConfigFilesChangedPayload {
 }
 
 impl AgentConfigStatusCache {
-    fn get(&self, port: u16, api_key: &str) -> Result<Option<Vec<AgentConfigStatus>>, String> {
+    fn get(&self, port: impl AgentEndpoint, api_key: &str) -> Result<Option<Vec<AgentConfigStatus>>, String> {
         let api_key_sha256 = sha256_bytes(api_key.as_bytes());
         self.entry
             .lock()
             .map(|entry| {
                 entry
                     .as_ref()
-                    .filter(|entry| entry.port == port && entry.api_key_sha256 == api_key_sha256)
+                    .filter(|entry| entry.origin == port.origin() && entry.api_key_sha256 == api_key_sha256)
                     .map(|entry| entry.statuses.clone())
             })
             .map_err(|_| "Agent configuration status cache lock is poisoned".to_string())
@@ -381,7 +381,7 @@ impl AgentConfigStatusCache {
 
     fn replace(
         &self,
-        port: u16,
+        port: impl AgentEndpoint,
         api_key: &str,
         statuses: Vec<AgentConfigStatus>,
     ) -> Result<(), String> {
@@ -390,7 +390,7 @@ impl AgentConfigStatusCache {
             .lock()
             .map_err(|_| "Agent configuration status cache lock is poisoned".to_string())?;
         *current = Some(AgentConfigStatusCacheEntry {
-            port,
+            origin: port.origin(),
             api_key_sha256: sha256_bytes(api_key.as_bytes()),
             statuses,
         });

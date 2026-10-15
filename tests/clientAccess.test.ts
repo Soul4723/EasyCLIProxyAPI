@@ -57,3 +57,21 @@ describe('客户端 API 接入信息', () => {
     );
   });
 });
+
+
+describe('remote client API target', () => {
+  const remote = { mode: 'remote' as const, remoteManagementOrigin: 'https://management.example', remoteManagementKey: 'management-secret', clientApiOrigin: 'http://100.64.0.2:8317', clientApiKey: 'client-secret' };
+  it('uses explicit HTTP / HTTPS / IPv6 client origins, independently of local settings and management origin', () => {
+    for (const origin of ['http://100.64.0.2:8317', 'https://clients.example', 'https://[2001:db8::2]:8443']) {
+      const profiles = clientApiProfiles(9000, false, 'localhost', { ...remote, clientApiOrigin: origin });
+      expect(profiles.map(p => p.baseUrl)).toEqual([`${origin}/v1`, origin, origin]);
+    }
+  });
+  it('offers no loopback or management fallback for management-only attachments', () => {
+    expect(clientApiProfiles(9000, false, 'localhost', { ...remote, clientApiOrigin: '', clientApiKey: '' })).toEqual([]);
+    expect(() => clientApiProfiles(9000, false, 'localhost', { ...remote, clientApiOrigin: 'https://clients.example/v1' })).toThrow();
+  });
+  it('keeps local targets when remote settings were saved previously', () => {
+    expect(clientApiProfiles(9000, false, 'localhost', { ...remote, mode: 'local' })[0].baseUrl).toBe('http://localhost:9000/v1');
+  });
+});

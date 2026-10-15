@@ -212,8 +212,8 @@ pub(crate) async fn fetch_deepseek_harness_models(
 ) -> Result<Vec<AgentModelOption>, String> {
     let api_key = effective_agent_api_key(config);
     let (models, runtime, configuration) = tokio::join!(
-        fetch_agent_models(config.port, api_key),
-        fetch_codex_runtime_models(config.port, api_key),
+        fetch_agent_models(agent_target(&config)?, api_key),
+        fetch_codex_runtime_models(agent_target(&config)?, api_key),
         fetch_management_config_yaml(config),
     );
     let mut models = models?;
@@ -524,7 +524,7 @@ pub(crate) fn build_deepseek_harness_catalog_settings(
 
 pub(crate) fn prepare_deepseek_harness_configuration(
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     selected: &str,
     models: &[AgentModelOption],
@@ -535,7 +535,7 @@ pub(crate) fn prepare_deepseek_harness_configuration(
     let mut state = read_harness_state(before[2].1.as_deref())?;
     let settings = build_deepseek_harness_catalog_settings(
         text(before[0].1.as_deref())?,
-        &format!("{}/v1", managed_core_loopback_origin(port)),
+        &format!("{}/v1", port.origin()),
         selected,
         models,
         &mut state,
@@ -566,7 +566,7 @@ pub(crate) fn prepare_deepseek_harness_configuration(
 
 pub(crate) fn apply_deepseek_harness_configuration(
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     selected: &str,
     models: &[AgentModelOption],
@@ -586,7 +586,7 @@ pub(crate) fn apply_deepseek_harness_configuration(
 fn harness_editor_from_images(
     before: &Images,
     models: &[AgentModelOption],
-    port: u16,
+    port: impl AgentEndpoint,
 ) -> Result<(HarnessEditorSnapshot, DeepSeekHarnessCatalogState), String> {
     let root = harness_root(text(before[0].1.as_deref())?)?;
     let mut state = read_harness_state(before[2].1.as_deref())?;
@@ -604,7 +604,7 @@ fn harness_editor_from_images(
             configuration: state.models.get(&model.name).cloned().unwrap_or_default(),
         })
         .collect::<Vec<_>>();
-    let base_url = format!("{}/v1", managed_core_loopback_origin(port));
+    let base_url = format!("{}/v1", port.origin());
     let revision = sha256_bytes(
         &serde_json::to_vec(&(image_revision(before), &models, &base_url))
             .map_err(|_| "Failed to generate DSH configuration version")?,
@@ -630,7 +630,7 @@ fn harness_editor_from_images(
 pub(crate) fn harness_editor_snapshot(
     home: &Path,
     models: &[AgentModelOption],
-    port: u16,
+    port: impl AgentEndpoint,
 ) -> Result<HarnessEditorSnapshot, String> {
     let mut paths = config_paths("deepseek-harness", home)?;
     paths.push(deepseek_harness_catalog_state_path(&paths)?);
@@ -640,7 +640,7 @@ pub(crate) fn harness_editor_snapshot(
 pub(crate) fn save_harness_editor(
     home: &Path,
     models: &[AgentModelOption],
-    port: u16,
+    port: impl AgentEndpoint,
     request: HarnessEditorRequest,
 ) -> Result<HarnessEditorSnapshot, String> {
     let mut paths = config_paths("deepseek-harness", home)?;
@@ -689,7 +689,7 @@ pub(crate) fn save_harness_editor(
         }
         let settings = render_harness_profiles(
             text(before[0].1.as_deref())?,
-            &format!("{}/v1", managed_core_loopback_origin(port)),
+            &format!("{}/v1", port.origin()),
             models,
             &mut state,
         )?;
@@ -724,14 +724,14 @@ pub(crate) async fn get_deepseek_harness_model_catalog_editor(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<HarnessEditorSnapshot, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let models = fetch_deepseek_harness_models(&config).await?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
         .map_err(|_| "Agent configuration file lock is poisoned")?;
-    harness_editor_snapshot(&home, &models, config.port)
+    harness_editor_snapshot(&home, &models, agent_target(&config)?)
 }
 
 #[tauri::command]
@@ -740,12 +740,12 @@ pub(crate) async fn save_deepseek_harness_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: HarnessEditorRequest,
 ) -> Result<HarnessEditorSnapshot, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let models = fetch_deepseek_harness_models(&config).await?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
         .map_err(|_| "Agent configuration file lock is poisoned")?;
-    save_harness_editor(&home, &models, config.port, request)
+    save_harness_editor(&home, &models, agent_target(&config)?, request)
 }

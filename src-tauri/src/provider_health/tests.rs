@@ -217,3 +217,24 @@ fn openai_terminal_success_requires_both_exhausted_budget_and_valid_reasoning_us
         assert!(!provider_health_stream_has_terminal_success("openai-chat", body.as_bytes()));
     }
 }
+
+#[tokio::test]
+async fn remote_core_health_uses_selected_client_target_and_key() {
+    let (port, server) = mock_core_response("200 OK", "text/event-stream", "data: {\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\n", "").await;
+    let mut config = probe_config(1);
+    config.core_connection = crate::core_connection::CoreConnection {
+        mode: crate::core_connection::ConnectionMode::Remote,
+        remote_management_origin: "https://management.invalid".into(),
+        remote_management_key: "remote-management-secret".into(),
+        client_api_origin: format!("http://127.0.0.1:{port}"),
+        client_api_key: "remote-client-access-key".into(),
+    };
+    assert!(probe_core_model(&config, "remote-model", Some(2_000)).await.unwrap().first_token_latency_ms.is_some());
+    let request = server.await.unwrap();
+    assert!(request.starts_with("POST /v1/chat/completions HTTP/1.1\r\n"));
+    assert!(request.to_ascii_lowercase().contains("authorization: bearer remote-client-access-key\r\n"));
+    assert!(!request.contains("remote-management-secret"));
+    assert!(!request.contains("test-client-access-key"));
+    config.core_connection.client_api_origin.clear();
+    assert!(probe_core_model(&config, "remote-model", Some(2_000)).await.is_err());
+}

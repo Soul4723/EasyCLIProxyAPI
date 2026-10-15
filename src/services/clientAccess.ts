@@ -1,3 +1,5 @@
+import type { CoreConnection } from '../coreConnection';
+import { normalizedCoreConnection } from './coreConnection';
 import { getCurrentLocale, translate } from '../i18n';
 
 export type ClientApiProfile = {
@@ -33,11 +35,15 @@ export function clientApiProfiles(
   port: number,
   tlsEnabled = false,
   listenHost = '127.0.0.1',
+  connection?: CoreConnection,
 ): ClientApiProfile[] {
   const safePort = safeLocalPort(port);
   const scheme = tlsEnabled ? 'https' : 'http';
   const connectHost = normalizedConnectHost(listenHost);
-  const origin = `${scheme}://${urlHost(connectHost)}:${safePort}`;
+  const origin = connection?.mode === 'remote'
+    ? normalizedCoreConnection(connection).clientApiOrigin
+    : `${scheme}://${urlHost(connectHost)}:${safePort}`;
+  if (!origin) return [];
 
   return [
     {

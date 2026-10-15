@@ -514,7 +514,7 @@ pub(crate) fn codex_record_needs_resync(
 pub(crate) fn inspect_agent_modification(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     configured: bool,
     current_model: Option<&str>,
 ) -> AgentModificationInspection {
@@ -630,7 +630,7 @@ pub(crate) fn inspect_agent_modification(
 #[cfg(test)]
 pub(crate) fn fresh_agent_contents(
     client: AgentClient,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     model: &str,
 ) -> Result<Vec<String>, String> {
@@ -659,7 +659,7 @@ pub(crate) fn fresh_agent_contents(
 
 pub(crate) fn fresh_agent_contents_with_oauth(
     client: AgentClient,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     model: &str,
     options: AgentConfigurationOptions<'_>,
@@ -671,7 +671,7 @@ pub(crate) fn fresh_agent_contents_with_oauth(
         claude_desktop_model_mappings,
         ..
     } = options;
-    let root_base = managed_core_loopback_origin(port);
+    let root_base = port.origin();
     let openai_base = format!("{root_base}/v1");
     match client {
         AgentClient::ClaudeCode => Ok(vec![build_claude_agent_config(
@@ -803,7 +803,7 @@ pub(crate) fn normalize_codex_config_for_legacy_compare(content: &str) -> Option
 pub(crate) fn build_legacy_agent_record(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     model: &str,
 ) -> Result<Option<AgentModificationRecord>, String> {
     let paths = agent_config_paths(client, home);
@@ -1349,7 +1349,7 @@ pub(crate) fn commit_agent_configuration(
 
 pub(crate) fn sync_codex_model_catalog_if_configured(
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     models: &[AgentModelOption],
     catalog: &str,
@@ -1426,7 +1426,7 @@ pub(crate) fn sync_codex_model_catalog_if_configured(
 pub(crate) fn apply_agent_configuration(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     model: &str,
     models: &[AgentModelOption],
@@ -1451,7 +1451,7 @@ pub(crate) fn apply_agent_configuration(
 pub(crate) fn apply_agent_configuration_with_oauth(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     model: &str,
     options: AgentConfigurationOptions<'_>,
@@ -1480,7 +1480,7 @@ pub(crate) fn apply_agent_configuration_with_oauth(
 pub(crate) fn reset_agent_configuration_to_default(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     model: &str,
     codex_catalog: Option<&str>,
@@ -1506,10 +1506,10 @@ pub(crate) fn reset_agent_configuration_to_default(
     })
 }
 
-pub(crate) struct AgentDefaultConfiguration<'a> {
+pub(crate) struct AgentDefaultConfiguration<'a, E: AgentEndpoint = u16> {
     pub(crate) client: AgentClient,
     pub(crate) home: &'a Path,
-    pub(crate) port: u16,
+    pub(crate) port: E,
     pub(crate) api_key: &'a str,
     pub(crate) model: &'a str,
     pub(crate) models: &'a [AgentModelOption],
@@ -1520,7 +1520,7 @@ pub(crate) struct AgentDefaultConfiguration<'a> {
 }
 
 #[cfg(test)]
-pub(crate) fn reset_agent_configuration_to_default_with_oauth(request: AgentDefaultConfiguration<'_>) -> Result<AgentConfigActionResult, String> {
+pub(crate) fn reset_agent_configuration_to_default_with_oauth(request: AgentDefaultConfiguration<'_, impl AgentEndpoint>) -> Result<AgentConfigActionResult, String> {
     let client = request.client;
     let home = request.home;
     let model = request.model.to_string();
@@ -1531,7 +1531,7 @@ pub(crate) fn reset_agent_configuration_to_default_with_oauth(request: AgentDefa
 }
 
 pub(crate) fn build_agent_template_updates(
-    request: AgentDefaultConfiguration<'_>,
+    request: AgentDefaultConfiguration<'_, impl AgentEndpoint>,
 ) -> Result<Vec<AgentFileUpdate>, String> {
     let AgentDefaultConfiguration {
         client,
@@ -1546,10 +1546,10 @@ pub(crate) fn build_agent_template_updates(
         claude_desktop_model_mappings,
     } = request;
     if matches!(client, AgentClient::CopilotCli | AgentClient::VscodeCopilot) {
-        return build_copilot_updates(client, home, &format!("{}/v1", managed_core_loopback_origin(port)), api_key, model, models, true);
+        return build_copilot_updates(client, home, &format!("{}/v1", port.origin()), api_key, model, models, true);
     }
     if client == AgentClient::AntigravityCli {
-        return build_antigravity_updates(client, home, &managed_core_loopback_origin(port), api_key, model, true);
+        return build_antigravity_updates(client, home, &port.origin(), api_key, model, true);
     }
     let paths = agent_config_paths(client, home);
     let contents = fresh_agent_contents_with_oauth(
@@ -1710,7 +1710,7 @@ pub(crate) fn action_result(
 pub(crate) fn enable_agent_modification(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     model: &str,
     models: &[AgentModelOption],
     codex_catalog: Option<&str>,
@@ -1798,7 +1798,7 @@ pub(crate) fn enable_agent_modification(
 pub(crate) fn disable_agent_modification(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     force_restore: bool,
 ) -> Result<AgentConfigActionResult, String> {
     let paths = agent_config_paths(client, home);
@@ -1882,7 +1882,7 @@ pub(crate) fn disable_agent_modification(
 pub(crate) fn update_agent_modification(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     model: &str,
     models: &[AgentModelOption],
     codex_catalog: Option<&str>,

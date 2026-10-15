@@ -122,7 +122,7 @@ async function loadProviderKeys(): Promise<number> {
   }
 }
 
-export async function loadHomeOverview(coreReady: boolean, nowMs = Date.now()): Promise<HomeOverviewSnapshot> {
+export async function loadHomeOverview(coreReady: boolean, nowMs = Date.now(), clientReady = coreReady): Promise<HomeOverviewSnapshot> {
   const query = {
     start: new Date(nowMs - 24 * 60 * 60_000).toISOString(),
     end: new Date(nowMs).toISOString(),
@@ -132,7 +132,7 @@ export async function loadHomeOverview(coreReady: boolean, nowMs = Date.now()): 
     invoke<unknown>('get_usage_overview', { query }).then(summarizeHomeUsage),
     coreReady ? managementApi.get('/credentials').then(summarizeHomeCredentials) : Promise.resolve(null),
     coreReady ? loadProviderKeys() : Promise.resolve(null),
-    coreReady ? invoke<unknown>('get_core_models').then(normalizeHomeModels) : Promise.resolve(null),
+    clientReady ? invoke<unknown>('get_core_models').then(normalizeHomeModels) : Promise.resolve(null),
   ]);
   const errors: HomeOverviewSnapshot['errors'] = {};
   const result = <T>(key: HomeOverviewMetric, settled: PromiseSettledResult<T>): T | null => {

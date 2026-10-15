@@ -299,7 +299,7 @@ pub(crate) fn close_codex_configuration(home: &Path) -> Result<AgentConfigAction
 pub(crate) fn close_codex_config_modification(
     app: tauri::AppHandle,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -417,7 +417,7 @@ pub(crate) fn switch_codex_native_oauth(
 // Subsequent model/auth updates retain the original routing until Close is used.
 pub(crate) fn apply_codex_cpa_configuration(
     home: &Path,
-    port: u16,
+    port: impl AgentEndpoint,
     api_key: &str,
     model: &str,
     options: AgentConfigurationOptions<'_>,
@@ -481,7 +481,7 @@ pub(crate) fn apply_codex_cpa_configuration(
             path: restored_config.0.clone(),
             after: build_codex_agent_config_with_oauth(
                 text(restored_config.1.as_deref())?,
-                &format!("{}/v1", managed_core_loopback_origin(port)),
+                &format!("{}/v1", port.origin()),
                 api_key,
                 model,
                 options.oauth_configuration,
@@ -519,7 +519,7 @@ pub(crate) fn apply_codex_cpa_configuration(
 pub(crate) fn restore_codex_official_config(
     app: tauri::AppHandle,
 ) -> Result<AgentConfigActionResult, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()

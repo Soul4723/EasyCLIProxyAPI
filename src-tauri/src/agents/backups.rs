@@ -469,7 +469,7 @@ pub(crate) fn create_agent_config_backup(
     app: tauri::AppHandle,
     client: String,
 ) -> Result<BackupSummary, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -482,7 +482,7 @@ pub(crate) fn list_agent_config_backups(
     app: tauri::AppHandle,
     client: String,
 ) -> Result<BackupList, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -496,7 +496,7 @@ pub(crate) fn delete_agent_config_backup(
     client: String,
     id: String,
 ) -> Result<(), String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()

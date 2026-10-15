@@ -197,6 +197,7 @@ pub(crate) async fn prepare_restore_plan(
         };
         attach_core_restore(&mut plan, before, after).map_err(agent_core_error)?;
     }
+    plan.preview.revision = sha256_bytes(format!("{}:{}", config.target_revision, plan.preview.revision).as_bytes());
     Ok(plan)
 }
 
@@ -246,6 +247,7 @@ pub(crate) async fn preview_agent_config_backup(
     client: String,
     id: String,
 ) -> Result<BackupPreview, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;
     Ok(prepare_restore_plan(&config, &client, &home, &id)
@@ -260,6 +262,7 @@ pub(crate) async fn restore_agent_config_backup(
     id: String,
     revision: String,
 ) -> Result<AgentConfigActionResult, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;
     let plan = prepare_restore_plan(&config, &client, &home, &id).await?;

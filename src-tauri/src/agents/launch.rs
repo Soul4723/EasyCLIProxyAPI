@@ -130,7 +130,7 @@ pub(crate) fn launch_agent(
     working_directory: Option<String>,
     deepseek_harness_options: Option<DeepSeekHarnessLaunchOptions>,
 ) -> Result<(), String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
@@ -151,7 +151,8 @@ pub(crate) fn launch_agent(
             return Err("Pi supports only CLI launch mode".to_string());
         }
         let executable_override = executable_path.as_deref().map(Path::new);
-        let status = inspect_pi_provider_status_with_executable(&home, config.port, effective_agent_api_key(&config), executable_override);
+        let status = inspect_pi_provider_status_with_executable(&home, agent_target(&config)?, effective_agent_api_key(&config), executable_override);
+        validate_agent_launch_target(&config, status.configured)?;
         if !status.installed {
             return Err("Pi CLI was not detected. Install Pi and detect it again".to_string());
         }
@@ -176,7 +177,8 @@ pub(crate) fn launch_agent(
     }
     let executable_override = executable_path.as_deref().map(Path::new);
     let desktop_override = desktop_executable_path.as_deref().map(Path::new);
-    let status = inspect_agent_config_with_executables(client, &home, config.port, effective_agent_api_key(&config), executable_override, desktop_override);
+    let status = inspect_agent_config_with_executables(client, &home, agent_target(&config)?, effective_agent_api_key(&config), executable_override, desktop_override);
+    validate_agent_launch_target(&config, status.configured)?;
     if !status.installed {
         return Err(format!("{} was not detected. Install it and detect it again", client.name()));
     }
@@ -243,6 +245,7 @@ pub(crate) fn launch_agent(
                 .ok_or_else(|| format!("Executable for {} not found", client.name()))?;
             let launch_directory = resolve_launch_directory(working_directory.as_deref(), &home)?;
             if client == AgentClient::DeepSeekHarness {
+                let _local_guard = crate::core_connection::local_operation()?;
                 let mode = deepseek_harness_launch_mode(deepseek_harness_options.as_ref())?;
                 let arguments =
                     agent_cli_launch_arguments(client, deepseek_harness_options.as_ref())?;
@@ -463,6 +466,7 @@ pub(crate) async fn restart_deepseek_harness_process(
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
     let _connection_guard = crate::core_connection::local_operation()?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = _connection_guard;
         restart_managed_deepseek_harness(app.state::<DeepSeekHarnessProcessState>().inner())
     })
     .await
@@ -730,13 +734,13 @@ fn validate_deepseek_harness_argument(value: &str, label: &str) -> Result<String
 
 #[tauri::command]
 pub(crate) async fn restart_codex_app(app: tauri::AppHandle) -> Result<(), String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     restart_agent_app(app, "codex".to_string(), None).await
 }
 
 #[tauri::command]
 pub(crate) async fn restart_opencode_app(app: tauri::AppHandle) -> Result<(), String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     restart_agent_app(app, "opencode".to_string(), None).await
 }
 
@@ -746,7 +750,7 @@ pub(crate) async fn restart_agent_app(
     client: String,
     executable_path: Option<String>,
 ) -> Result<(), String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let client = AgentClient::parse(&client)?;
     if !matches!(
         client,
@@ -762,7 +766,14 @@ pub(crate) async fn restart_agent_app(
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
+    let config = app.state::<GuiConfigState>().snapshot()?;
     tauri::async_runtime::spawn_blocking(move || {
+        if config.core_connection.is_remote() {
+            let paths = agent_config_paths(client, &home);
+            let configured = inspect_agent_managed_config(client, &paths, agent_target(&config)?, effective_agent_api_key(&config))?.0;
+            validate_agent_launch_target(&config, configured)?;
+        }
+        let _connection_guard = _connection_guard;
         let executable_override = executable_path.as_deref().map(Path::new);
         let target = find_desktop_restart_target(client, &home, executable_override)?;
         match client {
@@ -795,12 +806,13 @@ pub(crate) async fn get_codex_cli_daemon_running(
     app: tauri::AppHandle,
     executable_path: Option<String>,
 ) -> Result<bool, String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = _connection_guard;
         codex_cli_daemon_running(&home, executable_path.as_deref().map(Path::new))
     })
     .await
@@ -831,14 +843,21 @@ pub(crate) async fn restart_codex_cli_daemon(
     app: tauri::AppHandle,
     executable_path: Option<String>,
 ) -> Result<(), String> {
-    let _connection_guard = crate::core_connection::local_operation()?;
+    let _connection_guard = crate::core_connection::target_operation()?;
     let home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
+    let config = app.state::<GuiConfigState>().snapshot()?;
+    if config.core_connection.is_remote() {
+        let paths = agent_config_paths(AgentClient::Codex, &home);
+        let configured = inspect_agent_managed_config(AgentClient::Codex, &paths, agent_target(&config)?, effective_agent_api_key(&config))?.0;
+        validate_agent_launch_target(&config, configured)?;
+    }
     let guard = begin_codex_cli_daemon_restart()
         .ok_or_else(|| "A Codex CLI background service restart is already in progress".to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = _connection_guard;
         let _guard = guard;
         restart_codex_cli_daemon_process(&home, executable_path.as_deref().map(Path::new))
     })
