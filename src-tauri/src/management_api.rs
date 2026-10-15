@@ -825,8 +825,8 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn management_client_rejects_untrusted_https_certificate() {
+    #[tokio::test]
+    async fn management_client_rejects_untrusted_https_certificate() {
         let root = std::env::temp_dir().join(format!(
             "cpa-management-tls-test-{}-{}",
             std::process::id(),
@@ -851,7 +851,7 @@ mod tests {
         drop(listener);
         let mut server = Command::new("openssl")
             .args([
-                "s_server", "-quiet", "-accept", &port.to_string(), "-cert",
+                "s_server", "-quiet", "-www", "-accept", &port.to_string(), "-cert",
                 cert.to_str().unwrap(), "-key", key.to_str().unwrap(),
             ])
             .stdout(Stdio::null())
@@ -863,13 +863,13 @@ mod tests {
             thread::sleep(Duration::from_millis(25));
         }
         let client = management_http_client().unwrap();
-        let result = tauri::async_runtime::block_on(
-            client.get(format!("https://localhost:{port}/")).send(),
-        );
-        assert!(result.is_err(), "untrusted certificate unexpectedly accepted: {result:?}");
+        let result = client.get(format!("https://localhost:{port}/")).send().await;
         let _ = server.kill();
         let _ = server.wait();
         let _ = std::fs::remove_dir_all(root);
+        let error = result.expect_err("untrusted certificate unexpectedly accepted");
+        let detail = format_management_request_error("TLS test", &error).to_ascii_lowercase();
+        assert!(detail.contains("certificate"), "unexpected transport failure: {detail}");
     }
 
 }

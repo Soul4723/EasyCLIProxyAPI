@@ -30,7 +30,8 @@ pub(crate) async fn get_core_sensitive_words_settings(
     let config = gui_config_state.snapshot()?;
     if config.core_connection.is_remote() {
         let content = fetch_management_raw_config_yaml(&config).await?;
-        let document = serde_norway::from_str(&content).map_err(|error| format!("Invalid remote core YAML: {error}"))?;
+        let document = serde_norway::from_str(&content)
+            .map_err(|error| format!("Invalid remote core YAML: {error}"))?;
         crate::core_connection::ensure_current(&config)?;
         return core_sensitive_words_settings_from_value(&document);
     }
@@ -46,10 +47,20 @@ pub(crate) async fn save_core_sensitive_words_settings(
     let config = gui_config_state.snapshot()?;
     if config.core_connection.is_remote() {
         let normalized = normalize_core_sensitive_words_settings(settings);
-        super::extended::save_remote_core_values(&config, &[
-            ("oauth/providers/antigravity/sensitive-words", serde_json::json!(normalized.antigravity_sensitive_words)),
-            ("oauth/providers/devin/sensitive-words", serde_json::json!(normalized.devin_sensitive_words)),
-        ]).await?;
+        super::extended::save_remote_core_values(
+            &config,
+            &[
+                (
+                    "oauth/providers/antigravity/sensitive-words",
+                    serde_json::json!(normalized.antigravity_sensitive_words),
+                ),
+                (
+                    "oauth/providers/devin/sensitive-words",
+                    serde_json::json!(normalized.devin_sensitive_words),
+                ),
+            ],
+        )
+        .await?;
         return Ok(normalized);
     }
     let _connection_guard = crate::core_connection::local_operation()?;
@@ -240,13 +251,26 @@ pub(crate) async fn save_retry_settings(
 ) -> Result<CoreConfigView, String> {
     let snapshot = gui_config_state.snapshot()?;
     if snapshot.core_connection.is_remote() {
-        return super::extended::save_remote_core_values(&snapshot, &[
-            ("routing/cooldown/disable-cooling", serde_json::json!(settings.disable_cooling)),
-            ("routing/retry/request-retry", serde_json::json!(settings.request_retry)),
-            ("routing/retry/max-retry-credentials", serde_json::json!(settings.max_retry_credentials)),
-            ("routing/retry/max-retry-interval", serde_json::json!(settings.max_retry_interval)),
-            ("requests/streaming/bootstrap-retries", serde_json::json!(settings.streaming_bootstrap_retries)),
-        ]).await;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[
+                ("routing/cooldown/disable-cooling", serde_json::json!(settings.disable_cooling)),
+                ("routing/retry/request-retry", serde_json::json!(settings.request_retry)),
+                (
+                    "routing/retry/max-retry-credentials",
+                    serde_json::json!(settings.max_retry_credentials),
+                ),
+                (
+                    "routing/retry/max-retry-interval",
+                    serde_json::json!(settings.max_retry_interval),
+                ),
+                (
+                    "requests/streaming/bootstrap-retries",
+                    serde_json::json!(settings.streaming_bootstrap_retries),
+                ),
+            ],
+        )
+        .await;
     }
     let _connection_guard = crate::core_connection::local_operation()?;
     let previous = gui_config_state.snapshot()?;
@@ -275,10 +299,14 @@ pub(crate) async fn save_session_routing_settings(
     let snapshot = gui_config_state.snapshot()?;
     if snapshot.core_connection.is_remote() {
         let ttl = normalize_session_affinity_ttl(settings.routing_session_affinity_ttl)?;
-        return super::extended::save_remote_core_values(&snapshot, &[
-            ("routing/session-affinity", serde_json::json!(settings.routing_session_affinity)),
-            ("routing/session-affinity-ttl", serde_json::json!(ttl)),
-        ]).await;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[
+                ("routing/session-affinity", serde_json::json!(settings.routing_session_affinity)),
+                ("routing/session-affinity-ttl", serde_json::json!(ttl)),
+            ],
+        )
+        .await;
     }
     let _connection_guard = crate::core_connection::local_operation()?;
     let ttl = normalize_session_affinity_ttl(settings.routing_session_affinity_ttl)?;
@@ -325,15 +353,31 @@ pub(crate) async fn save_core_logging_settings(
         if !(1..=3600).contains(&settings.redis_usage_queue_retention_seconds) {
             return Err("Redis usage queue retention must be between 1 and 3600 seconds".to_string());
         }
-        return super::extended::save_remote_core_values(&snapshot, &[
-            ("observability/logs/debug", serde_json::json!(settings.debug)),
-            ("server/commercial-mode", serde_json::json!(settings.commercial_mode)),
-            ("observability/logs/logging-to-file", serde_json::json!(settings.logging_to_file)),
-            ("observability/logs/logs-max-total-size-mb", serde_json::json!(settings.logs_max_total_size_mb)),
-            ("observability/logs/error-logs-max-files", serde_json::json!(settings.error_logs_max_files)),
-            ("observability/usage/usage-statistics-enabled", serde_json::json!(settings.usage_statistics_enabled)),
-            ("observability/usage/redis-usage-queue-retention-seconds", serde_json::json!(settings.redis_usage_queue_retention_seconds)),
-        ]).await;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[
+                ("observability/logs/debug", serde_json::json!(settings.debug)),
+                ("server/commercial-mode", serde_json::json!(settings.commercial_mode)),
+                ("observability/logs/logging-to-file", serde_json::json!(settings.logging_to_file)),
+                (
+                    "observability/logs/logs-max-total-size-mb",
+                    serde_json::json!(settings.logs_max_total_size_mb),
+                ),
+                (
+                    "observability/logs/error-logs-max-files",
+                    serde_json::json!(settings.error_logs_max_files),
+                ),
+                (
+                    "observability/usage/usage-statistics-enabled",
+                    serde_json::json!(settings.usage_statistics_enabled),
+                ),
+                (
+                    "observability/usage/redis-usage-queue-retention-seconds",
+                    serde_json::json!(settings.redis_usage_queue_retention_seconds),
+                ),
+            ],
+        )
+        .await;
     }
     let _connection_guard = crate::core_connection::local_operation()?;
     if !(1..=3600).contains(&settings.redis_usage_queue_retention_seconds) {
@@ -580,7 +624,11 @@ pub(crate) async fn set_core_plugins_enabled(
 ) -> Result<CoreConfigView, String> {
     let snapshot = gui_config_state.snapshot()?;
     if snapshot.core_connection.is_remote() {
-        return super::extended::save_remote_core_values(&snapshot, &[("plugins/enabled", serde_json::json!(enabled))]).await;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[("plugins/enabled", serde_json::json!(enabled))],
+        )
+        .await;
     }
     let _connection_guard = crate::core_connection::local_operation()?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
@@ -597,7 +645,11 @@ pub(crate) async fn set_core_request_log(
 ) -> Result<CoreConfigView, String> {
     let snapshot = gui_config_state.snapshot()?;
     if snapshot.core_connection.is_remote() {
-        return super::extended::save_remote_core_values(&snapshot, &[("observability/logs/request-log", serde_json::json!(enabled))]).await;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[("observability/logs/request-log", serde_json::json!(enabled))],
+        )
+        .await;
     }
     let _connection_guard = crate::core_connection::local_operation()?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
@@ -622,7 +674,11 @@ pub(crate) async fn set_core_routing_strategy(
     let snapshot = gui_config_state.snapshot()?;
     if snapshot.core_connection.is_remote() {
         validate_routing_strategy(&strategy)?;
-        return super::extended::save_remote_core_values(&snapshot, &[("routing/strategy", serde_json::json!(strategy))]).await;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[("routing/strategy", serde_json::json!(strategy))],
+        )
+        .await;
     }
     let _connection_guard = crate::core_connection::local_operation()?;
     validate_routing_strategy(&strategy)?;
@@ -641,7 +697,11 @@ pub(crate) async fn set_core_proxy_url(
     let snapshot = gui_config_state.snapshot()?;
     if snapshot.core_connection.is_remote() {
         let proxy_url = network_proxy::normalize_optional_proxy_url(&proxy_url)?;
-        return super::extended::save_remote_core_values(&snapshot, &[("requests/proxy-url", serde_json::json!(proxy_url))]).await;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[("requests/proxy-url", serde_json::json!(proxy_url))],
+        )
+        .await;
     }
     let _connection_guard = crate::core_connection::local_operation()?;
     network_proxy::set_manual(gui_config_state.inner(), proxy_url)?;
@@ -655,7 +715,11 @@ pub(crate) async fn set_core_session_affinity(
 ) -> Result<CoreConfigView, String> {
     let snapshot = gui_config_state.snapshot()?;
     if snapshot.core_connection.is_remote() {
-        return super::extended::save_remote_core_values(&snapshot, &[("routing/session-affinity", serde_json::json!(enabled))]).await;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[("routing/session-affinity", serde_json::json!(enabled))],
+        )
+        .await;
     }
     let _connection_guard = crate::core_connection::local_operation()?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
@@ -680,7 +744,11 @@ pub(crate) async fn set_core_session_affinity_ttl(
     let snapshot = gui_config_state.snapshot()?;
     if snapshot.core_connection.is_remote() {
         let ttl = normalize_session_affinity_ttl(ttl)?;
-        return super::extended::save_remote_core_values(&snapshot, &[("routing/session-affinity-ttl", serde_json::json!(ttl))]).await;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[("routing/session-affinity-ttl", serde_json::json!(ttl))],
+        )
+        .await;
     }
     let _connection_guard = crate::core_connection::local_operation()?;
     let ttl = normalize_session_affinity_ttl(ttl)?;
