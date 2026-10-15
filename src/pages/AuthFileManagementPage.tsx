@@ -1,3 +1,4 @@
+import { useCoreConnection } from '../coreConnection';
 import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConfirmation } from '../components/ConfirmationDialog';
@@ -121,6 +122,7 @@ const fileName = authFileName;
 const isRuntimeOnly = isRuntimeOnlyAuthFile;
 
 export function AuthFileManagementPage({ initialProvider }: { initialProvider?: string } = {}) {
+  const { connection } = useCoreConnection();
   const { t } = useI18n();
   const privacy = usePrivacyMask();
   const now = useQuotaClock();
@@ -480,7 +482,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
           const provider = oauthModelProviders.find((item) => item.label === providerFilter) ?? oauthModelProviders[0];
           if (provider) void openOauthModelSettings({ ...provider, scope: 'provider' });
         }}><Settings2 size={15} />{t('authFiles.models.toolbarButton')}</button>
-        <button type="button" className="secondary-button compact-button auth-toolbar-quiet" disabled={busy} onClick={() => void openAuthFilesDirectory()}><FolderOpen size={15} />{t('authFiles.openDirectory')}</button>
+        <button type="button" className="secondary-button compact-button auth-toolbar-quiet" disabled={connection.mode === 'remote' || busy} title={connection.mode === 'remote' ? t('connection.localOnly') : undefined} onClick={() => void openAuthFilesDirectory()}><FolderOpen size={15} />{t('authFiles.openDirectory')}</button>
         <button type="button" className="secondary-button compact-button" onClick={() => void loadFiles()} disabled={loading || busy}>
           <RefreshCw size={16} className={loading ? 'spin' : ''} />{t('authFiles.toolbar.refreshList')}
         </button>

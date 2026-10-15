@@ -37,7 +37,12 @@ pub(crate) fn detect_core_platform() -> Result<CorePlatform, String> {
 
 #[tauri::command]
 pub(crate) async fn get_core_status(app: tauri::AppHandle) -> Result<CoreStatus, String> {
+    let config = app.state::<GuiConfigState>().snapshot()?;
+    if config.core_connection.is_remote() {
+        return core_connection::remote_status(&config).await;
+    }
     tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = core_connection::local_operation()?;
         let config = app.state::<GuiConfigState>().snapshot()?;
         current_core_status(
             Some(app.state::<CoreProcessState>().inner()),

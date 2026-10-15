@@ -1,3 +1,4 @@
+import { useCoreConnection } from '../coreConnection';
 import { useConfirmation } from '../components/ConfirmationDialog';
 import { AdvancedSettingsGroup } from '../components/api-access/AdvancedSettingsGroup';
 import { normalizeProviderModels } from '../services/providerModels';
@@ -1223,6 +1224,8 @@ export const providerRecordWithDisabledState = (
 };
 
 export function ApiAccessPage() {
+  const { connection } = useCoreConnection();
+  const remote = connection.mode === 'remote';
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { t } = useI18n();
   const [records, setRecords] = useState(emptyRecords);
@@ -1698,7 +1701,8 @@ export function ApiAccessPage() {
                       type="button"
                       className="secondary-button provider-health-button"
                       onClick={() => setHealthDialogRow(row)}
-                      disabled={busy}
+                      title={remote ? t('connection.localOnly') : undefined}
+                      disabled={remote || busy}
                     >
                       {t('apiAccess.health.action')}
                     </button>

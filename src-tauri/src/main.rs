@@ -8,6 +8,7 @@ mod codex_catalog;
 mod codex_sessions;
 mod configuration_watcher;
 mod core_config;
+mod core_connection;
 mod core_runtime;
 mod desktop_theme;
 mod instance_lock;
@@ -419,6 +420,8 @@ struct CorePlatform {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CoreStatus {
+    connection_mode: core_connection::ConnectionMode,
+    remote_origin: Option<String>,
     installed: bool,
     running: bool,
     ready: bool,
@@ -604,6 +607,9 @@ struct CoreInstallTask {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 struct GuiConfigFile {
+    core_connection: core_connection::CoreConnection,
+    #[serde(skip)]
+    target_revision: u64,
     locale: String,
     port: u16,
     allow_lan: bool,
@@ -914,6 +920,8 @@ where
 impl Default for GuiConfigFile {
     fn default() -> Self {
         Self {
+            core_connection: core_connection::CoreConnection::default(),
+            target_revision: 0,
             locale: "en".to_string(),
             port: 8317,
             allow_lan: false,
@@ -2043,15 +2051,22 @@ impl GuiConfigState {
     fn snapshot(&self) -> Result<GuiConfigFile, String> {
         self.inner
             .lock()
-            .map(|config| config.clone())
+            .map(|config| {
+                let mut snapshot = config.clone();
+                snapshot.target_revision = core_connection::revision();
+                snapshot
+            })
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())
     }
 
-    fn replace_external(&self, config: GuiConfigFile) -> Result<(), String> {
+    fn replace_external(&self, mut config: GuiConfigFile) -> Result<(), String> {
         let mut current = self
             .inner
             .lock()
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())?;
+        // Only save_core_connection may atomically change the active target.
+        config.core_connection = current.core_connection.clone();
+        config.target_revision = current.target_revision;
         *current = config;
         Ok(())
     }
@@ -2485,6 +2500,7 @@ fn main() {
             config
         }
     };
+    core_connection::initialize(&gui_config.core_connection);
     let initial_window_size = configured_window_size(&gui_config);
     let start_hidden = should_start_hidden(&gui_config);
 
@@ -2501,7 +2517,7 @@ fn main() {
         )
         .manage(CoreDownloadState::default())
         .manage(AppUpdateState::default())
-        .manage(CoreProcessState::new(gui_config.start_core_on_launch))
+        .manage(CoreProcessState::new(gui_config.start_core_on_launch && !gui_config.core_connection.is_remote()))
         .manage(DeepSeekHarnessProcessState::default())
         .manage(usage::UsageCollectorState::default())
         .manage(GuiConfigState::new(gui_config))
@@ -2650,6 +2666,14 @@ fn main() {
                     return;
                 };
 
+                let Ok(_connection_guard) = core_connection::local_operation() else {
+                    process_state.set_starting(false);
+                    return;
+                };
+                if core_connection::ensure_current(&config).is_err() {
+                    process_state.set_starting(false);
+                    return;
+                }
                 if config.start_core_on_launch {
                     if let Ok(status) =
                         current_core_status(Some(process_state.inner()), Some(config.port))
@@ -2704,6 +2728,9 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            core_connection::get_core_connection,
+            core_connection::save_core_connection,
+            core_connection::test_core_connection,
             desktop_theme::get_linux_system_theme,
             desktop_theme::get_theme_selection,
             desktop_theme::save_theme_selection,
@@ -2888,8 +2915,10 @@ fn main() {
         tauri::RunEvent::Exit => {
             usage::stop_usage_collector(app_handle);
             let deepseek_process_state = app_handle.state::<DeepSeekHarnessProcessState>();
+            if !core_connection::active_connection().is_remote() {
             if let Err(error) = stop_managed_deepseek_harness(deepseek_process_state.inner()) {
                 eprintln!("Failed to stop DeepSeek Harness: {error}");
+            }
             }
             let gui_config_state = app_handle.state::<GuiConfigState>();
             let process_state = app_handle.state::<CoreProcessState>();

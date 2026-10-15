@@ -148,3 +148,9 @@
 @media (prefers-contrast: more) {
   .home-page.home-dashboard { --home-line: var(--text-secondary); }
 }
+
+.core-connection-dialog { width: min(540px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+.core-connection-fields { border: 0; padding: 0; margin: 16px 0; display: grid; gap: 16px; }
+.core-connection-fields > label { display: grid; gap: 8px; }
+.core-connection-fields input:not([type="radio"]) { width: 100%; box-sizing: border-box; }
+.core-connection-fields p { line-height: 1.6; }

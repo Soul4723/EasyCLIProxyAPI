@@ -1,3 +1,4 @@
+import { LocalConnectionFixture } from './local-connection';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
@@ -145,4 +146,4 @@ mockIPC(async (command, args) => {
 
 createRoot(document.getElementById('root')!).render(params.has('resource')
   ? <h1>Sample resource preview</h1>
-  : <I18nProvider><main style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}><PluginsPage /></main></I18nProvider>);
+  : <I18nProvider><LocalConnectionFixture><main style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}><PluginsPage /></main></LocalConnectionFixture></I18nProvider>);

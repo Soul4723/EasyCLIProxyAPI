@@ -1,3 +1,4 @@
+import { LocalConnectionFixture } from './local-connection';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -132,12 +133,12 @@ mockIPC(async (cmd, args) => {
 });
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider>
+  <I18nProvider><LocalConnectionFixture>
     <div className="app-shell">
       <aside className="sidebar" aria-hidden="true" />
       <div className="workspace">
         <main className="content">{params.has('quotaPage') ? <QuotaPage /> : <AuthFileManagementPage />}{params.has('cards') ? <><pre id="fixture-writes" aria-label="Fixture saved payload" /><output id="fixture-reset-count" aria-label="Fixture reset calls">0</output></> : null}</main>
       </div>
     </div>
-  </I18nProvider>,
+  </LocalConnectionFixture></I18nProvider>,
 );

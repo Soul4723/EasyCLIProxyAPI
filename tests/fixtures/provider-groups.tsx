@@ -1,3 +1,4 @@
+import { LocalConnectionFixture } from './local-connection';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -121,4 +122,4 @@ mockIPC((cmd, args: any) => {
   persistRemarkScenario();
   return { status: 'ok' };
 });
-createRoot(document.getElementById('root')!).render(<I18nProvider><div className="app-shell"><aside className="sidebar" /><div className="workspace"><main className="content"><ApiAccessPage /></main></div></div></I18nProvider>);
+createRoot(document.getElementById('root')!).render(<I18nProvider><LocalConnectionFixture><div className="app-shell"><aside className="sidebar" /><div className="workspace"><main className="content"><ApiAccessPage /></main></div></div></LocalConnectionFixture></I18nProvider>);

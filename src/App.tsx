@@ -1,3 +1,4 @@
+import { CoreConnectionProvider, useCoreConnection } from './coreConnection';
 import { MessageNotice } from './appNotice';
 import { ThemeSelector } from './components/ThemeSelector';
 import { WindowFrame } from './components/WindowFrame';
@@ -138,11 +139,13 @@ function VersionManagementPageWrapper() {
 function App() {
   return (
     <AppUpdateProvider>
-      <CoreRuntimeProvider>
-        <CoreUpdateProvider>
-          <WindowFrame><AppContent /></WindowFrame>
-        </CoreUpdateProvider>
-      </CoreRuntimeProvider>
+      <CoreConnectionProvider>
+        <CoreRuntimeProvider>
+          <CoreUpdateProvider>
+            <WindowFrame><AppContent /></WindowFrame>
+          </CoreUpdateProvider>
+        </CoreRuntimeProvider>
+      </CoreConnectionProvider>
     </AppUpdateProvider>
   );
 }
@@ -167,6 +170,9 @@ function AppContent() {
   const languageMenuRef = useRef<HTMLDivElement>(null);
   const languageButtonRef = useRef<HTMLButtonElement>(null);
   const { status } = useCoreRuntime();
+  const { connection } = useCoreConnection();
+  const remote = connection.mode === 'remote';
+  const remoteBlocked = (id: string) => remote && ['agents', 'easy'].includes(id);
   const coreReady = Boolean(status?.ready);
   const activePage = pages.find((page) => page.id === active) ?? pages[0];
   const ActivePage = activePage.component;
@@ -267,11 +273,11 @@ function AppContent() {
   };
 
   const select = useCallback((pageId: PageId) => {
-    if (!canOpenAppPage(pageId, coreReady)) {
+    if (remoteBlocked(pageId) || !canOpenAppPage(pageId, coreReady)) {
       return;
     }
     if (pageId !== active) requestAppNavigation(() => setActive(pageId));
-  }, [active, coreReady]);
+  }, [active, coreReady, remote]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -345,7 +351,7 @@ function AppContent() {
               {pages.filter((page) => page.id !== 'easy').map((page) => {
                 const Icon = page.icon;
                 const isActive = page.id === active;
-                const locked = !canOpenAppPage(page.id, coreReady);
+                const locked = remoteBlocked(page.id) || !canOpenAppPage(page.id, coreReady);
                 const updateIndicator = page.id === 'versions'
                   ? appUpdateIndicatorState(hasUpdate, coreHasUpdate, appUpdateProcessing)
                   : null;
@@ -361,7 +367,7 @@ function AppContent() {
                       .join(' ')}
                     aria-current={isActive ? 'page' : undefined}
                     disabled={locked}
-                    title={locked ? t('app.nav.lockedHint') : undefined}
+                    title={locked ? t(remoteBlocked(page.id) ? 'connection.phase2' : 'app.nav.lockedHint') : undefined}
                     onClick={() => select(page.id)}
                   >
                     <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -389,6 +395,8 @@ function AppContent() {
                 <button
                   type="button"
                   className="sidebar-link sidebar-easy-entry"
+                  disabled={remote}
+                  title={remote ? t('connection.phase2') : undefined}
                   onClick={() => select('easy')}
                 >
                   <Sprout size={16} strokeWidth={1.75} aria-hidden="true" />

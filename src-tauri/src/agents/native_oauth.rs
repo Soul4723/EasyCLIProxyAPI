@@ -299,6 +299,7 @@ pub(crate) fn close_codex_configuration(home: &Path) -> Result<AgentConfigAction
 pub(crate) fn close_codex_config_modification(
     app: tauri::AppHandle,
 ) -> Result<AgentConfigActionResult, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -518,6 +519,7 @@ pub(crate) fn apply_codex_cpa_configuration(
 pub(crate) fn restore_codex_official_config(
     app: tauri::AppHandle,
 ) -> Result<AgentConfigActionResult, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()

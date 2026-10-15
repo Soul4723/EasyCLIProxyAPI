@@ -81,6 +81,7 @@ pub(crate) async fn management_request(
     request: ManagementRequest,
 ) -> Result<serde_json::Value, String> {
     let config = gui_config_state.snapshot()?;
+    let result = async {
     let method = match request.method.trim().to_ascii_uppercase().as_str() {
         "GET" => reqwest::Method::GET,
         "POST" => reqwest::Method::POST,
@@ -89,6 +90,10 @@ pub(crate) async fn management_request(
         "DELETE" => reqwest::Method::DELETE,
         _ => return Err("Unsupported management API request method".to_string()),
     };
+    let _target_guard = if method != reqwest::Method::GET {
+        Some(super::core_connection::target_operation()?)
+    } else { None };
+    super::core_connection::ensure_current(&config)?;
     let path = request.path.trim();
     if path.is_empty() || path.contains("://") || path.contains("..") {
         return Err("Invalid management API path".to_string());
@@ -113,6 +118,9 @@ pub(crate) async fn management_request(
         .await
         .map_err(|err| format_management_request_error("Management API request failed", &err))?;
     read_management_value(response).await
+    }.await;
+    super::core_connection::ensure_current(&config)?;
+    result
 }
 
 fn management_request_body(
@@ -141,7 +149,9 @@ pub(crate) async fn import_vertex_credential(
     if name.is_empty() || !name.to_ascii_lowercase().ends_with(".json") {
         return Err("Credential filename must end with .json".to_string());
     }
+    let _connection_guard = super::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
+    let result = async {
     let part = reqwest::multipart::Part::bytes(data)
         .file_name(name.to_owned())
         .mime_str("application/json")
@@ -159,6 +169,9 @@ pub(crate) async fn import_vertex_credential(
         .await
         .map_err(|error| format_management_request_error("Failed to import Vertex credential", &error))?;
     read_management_value(response).await
+    }.await;
+    super::core_connection::ensure_current(&config)?;
+    result
 }
 
 #[tauri::command]
@@ -172,7 +185,9 @@ pub(crate) async fn upload_auth_file(
         return Err("Credential filename must end with .json".to_string());
     }
 
+    let _connection_guard = super::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
+    let result = async {
     let client = management_http_client()?;
     let mut query = HashMap::new();
     query.insert("name".to_string(), name);
@@ -186,12 +201,16 @@ pub(crate) async fn upload_auth_file(
         .await
         .map_err(|err| format_management_request_error("Failed to upload credential file", &err))?;
     read_management_value(response).await
+    }.await;
+    super::core_connection::ensure_current(&config)?;
+    result
 }
 
 #[tauri::command]
 pub(crate) fn open_auth_files_directory(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<(), String> {
+    let _connection_guard = super::core_connection::local_operation()?;
     let config = gui_config_state.snapshot()?;
     let install_dir = core_install_dir()?;
     let auth_dir = auth_dir_path_for_core(&config.auth_dir, &install_dir)?;
@@ -204,6 +223,7 @@ pub(crate) fn open_auth_files_directory(
 pub(crate) fn open_core_logs_directory(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<(), String> {
+    let _connection_guard = super::core_connection::local_operation()?;
     let config = gui_config_state.snapshot()?;
     let install_dir = core_install_dir()?;
     let logs_dir = core_logs_dir_path(&config.auth_dir, &install_dir)?;
@@ -242,7 +262,9 @@ pub(crate) async fn start_oauth_login(
     plugin_provider: Option<bool>,
 ) -> Result<OAuthStartResult, String> {
     super::network_proxy::prepare_oauth(&app).await;
+    let _connection_guard = super::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
+    let result = async {
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
     let client = management_http_client()?;
     let mut request = client
@@ -258,11 +280,15 @@ pub(crate) async fn start_oauth_login(
         .map_err(|err| format_management_request_error("Failed to request OAuth login URL", &err))?;
     let payload = read_management_json::<OAuthStartApiResponse>(response).await?;
     let mut result = normalize_oauth_start_response(payload)?;
+    super::core_connection::ensure_current(&config)?;
     match open_oauth_url_inner(&app, &result.url, browser.as_deref()) {
         Ok(()) => result.opened = true,
         Err(error) => result.open_error = Some(error),
     }
     Ok(result)
+    }.await;
+    super::core_connection::ensure_current(&config)?;
+    result
 }
 
 fn normalize_oauth_start_response(payload: OAuthStartApiResponse) -> Result<OAuthStartResult, String> {
@@ -310,6 +336,7 @@ pub(crate) async fn get_oauth_status(
         return Err("OAuth state cannot be empty".to_string());
     }
     let config = gui_config_state.snapshot()?;
+    let result = async {
     let client = management_http_client()?;
     let response = client
         .get(management_endpoint(&config, "oauth/status")?)
@@ -332,6 +359,9 @@ pub(crate) async fn get_oauth_status(
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
     })
+    }.await;
+    super::core_connection::ensure_current(&config)?;
+    result
 }
 
 #[tauri::command]
@@ -345,7 +375,9 @@ pub(crate) async fn submit_oauth_callback(
     if redirect_url.is_empty() {
         return Err("Callback URL cannot be empty".to_string());
     }
+    let _connection_guard = super::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
+    let result = async {
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
     let client = management_http_client()?;
     let body = serde_json::json!({
@@ -368,15 +400,20 @@ pub(crate) async fn submit_oauth_callback(
         return Err(format_management_error(status.as_u16(), &text));
     }
     Ok(())
+    }.await;
+    super::core_connection::ensure_current(&config)?;
+    result
 }
 
 pub(crate) fn management_http_client() -> Result<reqwest::Client, String> {
     static CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
         reqwest::Client::builder()
+            // Management traffic stays direct (LAN/Tailscale); the core
+            // upstream proxy is not a proxy for its management endpoint.
             .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
-            .danger_accept_invalid_certs(true)
             .build()
             .map_err(|err| format_management_request_error("Failed to create management API client", &err))
     });
@@ -411,7 +448,11 @@ pub(crate) fn format_management_request_error(
 }
 
 pub(crate) fn management_authorization(config: &GuiConfigFile) -> Result<String, String> {
-    let secret_key = config.management_secret_key.trim();
+    let secret_key = if config.core_connection.is_remote() {
+        &config.core_connection.remote_management_key
+    } else {
+        &config.management_secret_key
+    }.trim();
     if secret_key.is_empty() || is_hashed_management_secret_key(secret_key) {
         return Err("Management interface unavailable: no plaintext management key is available".to_string());
     }
@@ -419,6 +460,10 @@ pub(crate) fn management_authorization(config: &GuiConfigFile) -> Result<String,
 }
 
 pub(crate) fn management_endpoint(config: &GuiConfigFile, path: &str) -> Result<String, String> {
+    if config.core_connection.is_remote() {
+        let origin = super::core_connection::normalize_origin(&config.core_connection.remote_management_origin)?;
+        return Ok(format!("{origin}/v8/management/{}", path.trim_start_matches('/')));
+    }
     if config.port == 0 {
         return Err("Invalid kernel port".to_string());
     }
@@ -560,7 +605,13 @@ fn format_management_error(status: u16, body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::{
+        net::TcpStream,
+        path::PathBuf,
+        process::{Command, Stdio},
+        thread,
+        time::Duration,
+    };
 
     #[test]
     fn v8_yaml_body_is_raw_text_and_config_values_remain_json() {
@@ -772,4 +823,53 @@ mod tests {
             install_dir.join(auth_dir).join("logs")
         );
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn management_client_rejects_untrusted_https_certificate() {
+        let root = std::env::temp_dir().join(format!(
+            "cpa-management-tls-test-{}-{}",
+            std::process::id(),
+            crate::unix_now()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cert = root.join("cert.pem");
+        let key = root.join("key.pem");
+        let generated = Command::new("openssl")
+            .args([
+                "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj",
+                "/CN=localhost", "-addext", "subjectAltName=DNS:localhost", "-keyout",
+                key.to_str().unwrap(), "-out", cert.to_str().unwrap(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(generated.success());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let mut server = Command::new("openssl")
+            .args([
+                "s_server", "-quiet", "-accept", &port.to_string(), "-cert",
+                cert.to_str().unwrap(), "-key", key.to_str().unwrap(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        for _ in 0..20 {
+            if TcpStream::connect(("127.0.0.1", port)).is_ok() { break; }
+            thread::sleep(Duration::from_millis(25));
+        }
+        let client = management_http_client().unwrap();
+        let result = tauri::async_runtime::block_on(
+            client.get(format!("https://localhost:{port}/")).send(),
+        );
+        assert!(result.is_err(), "untrusted certificate unexpectedly accepted: {result:?}");
+        let _ = server.kill();
+        let _ = server.wait();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
 }

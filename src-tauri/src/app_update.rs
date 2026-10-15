@@ -152,6 +152,7 @@ pub(crate) async fn check_app_update(
     state: tauri::State<'_, AppUpdateState>,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<AppUpdateInfo, String> {
+    let _connection_guard = core_connection::local_operation()?;
     // Startup and manual version checks also refresh model defaults. Keep this
     // independent so a catalog download failure does not fail the version check.
     let catalog_app = app.clone();
@@ -676,6 +677,7 @@ pub(crate) async fn start_app_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppUpdateState>,
 ) -> Result<(), String> {
+    let connection_guard = core_connection::local_operation()?;
     if portable_update_platform_key().is_none() {
         return Err("The current platform does not support in-app automatic upgrades".to_string());
     }
@@ -685,6 +687,7 @@ pub(crate) async fn start_app_update(
     let _ = app.emit(APP_UPDATE_PROGRESS_EVENT, task);
     let update_app = app.clone();
     tauri::async_runtime::spawn(async move {
+        let _connection_guard = connection_guard;
         let outcome = async {
             let state = update_app.state::<AppUpdateState>();
             let gui_config_state = update_app.state::<GuiConfigState>();

@@ -1,3 +1,4 @@
+import { useCoreConnection } from './coreConnection';
 import {
   createContext,
   useCallback,
@@ -132,12 +133,15 @@ const CoreUpdateContext = createContext<CoreUpdateContextValue | null>(null);
 
 export function CoreUpdateProvider({ children }: { children: ReactNode }) {
   const { status } = useCoreRuntime();
+  const { connection } = useCoreConnection();
+  const remote = connection.mode === 'remote';
   const [latest, setLatest] = useState<CoreLatest | null>(cachedLatest);
   const [error, setError] = useState(cachedLatestError);
   const [checking, setChecking] = useState(Boolean(latestCheckPromise));
   const checkEpochRef = useRef(0);
 
   const check = useCallback(async (force = false) => {
+    if (remote) return;
     const checkEpoch = ++checkEpochRef.current;
     setChecking(true);
     setError('');
@@ -157,7 +161,7 @@ export function CoreUpdateProvider({ children }: { children: ReactNode }) {
         setChecking(false);
       }
     }
-  }, []);
+  }, [remote]);
 
   const reset = useCallback(() => {
     latestRequestEpoch += 1;
@@ -171,22 +175,23 @@ export function CoreUpdateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (remote) return;
     if (!latestAutoCheckStarted) {
       latestAutoCheckStarted = true;
       void check();
     } else if (latestCheckPromise) {
       void check();
     }
-  }, [check]);
+  }, [check, remote]);
 
   const value = useMemo<CoreUpdateContextValue>(() => ({
     latest,
     error,
     checking,
-    hasUpdate: coreUpdateAvailable(status?.currentVersion, latest?.version),
+    hasUpdate: !remote && coreUpdateAvailable(status?.currentVersion, latest?.version),
     check,
     reset,
-  }), [check, checking, error, latest, reset, status?.currentVersion]);
+  }), [check, checking, error, latest, reset, status?.currentVersion, remote]);
 
   return <CoreUpdateContext.Provider value={value}>{children}</CoreUpdateContext.Provider>;
 }

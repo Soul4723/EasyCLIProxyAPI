@@ -92,6 +92,7 @@ fn handle_configuration_file_changes(
     changed_paths: Vec<PathBuf>,
     tracked_paths: &[PathBuf],
 ) {
+    let Ok(_connection_guard) = super::core_connection::local_operation() else { return; };
     let gui_path = gui_config_path().ok();
     let core_path = core_install_dir()
         .ok()
@@ -149,6 +150,7 @@ fn handle_configuration_file_changes(
                     })?;
                     let mut config = toml::from_str::<GuiConfigFile>(&content)
                         .map_err(|error| format!("Failed to parse GUI configuration: {error}"))?;
+                    config.core_connection = gui_state.snapshot()?.core_connection;
                     config.allow_lan = !is_loopback_host(&config.host);
                     config.proxy_url = super::network_proxy::resolve(&config);
                     validate_gui_config(&config)?;

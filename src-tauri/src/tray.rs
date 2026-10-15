@@ -247,6 +247,12 @@ pub(crate) fn windows_tray_presentation(
     busy: bool,
     locale: &str,
 ) -> WindowsTrayPresentation {
+    if status.connection_mode == crate::core_connection::ConnectionMode::Remote {
+        return WindowsTrayPresentation {
+            status_text: status.message.clone(), toggle_text: native_text(locale, NativeText::StartCore).to_string(),
+            toggle_enabled: false, restart_enabled: false, tooltip: status.message.clone(),
+        };
+    }
     let status_text = if busy {
         native_text(locale, NativeText::CoreStatusWorking)
     } else if !status.installed {
@@ -488,6 +494,7 @@ pub(crate) fn run_windows_tray_core_action(
         let process_state = app_handle.state::<CoreProcessState>();
         let gui_config_state = app_handle.state::<GuiConfigState>();
         let result = (|| -> Result<CoreStatus, String> {
+            let _connection_guard = crate::core_connection::local_operation()?;
             let _guard = lock_core_operation(process_state.inner())?;
             match action {
                 WindowsTrayCoreAction::Toggle => {

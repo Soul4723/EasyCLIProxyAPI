@@ -1400,6 +1400,12 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         )
     };
 
+    if config.core_connection.is_remote() {
+        config.core_connection = config.core_connection.clone().normalize()?;
+        validate_gui_config(&config)?;
+        return Ok(config);
+    }
+
     let saved_management_secret = presence.management_secret_key.as_deref();
 
     if gui_config_exists {
@@ -1588,6 +1594,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         presence.proxy_override.is_some(),
     );
     config.prefer_gitcode_downloads = config.download_source == VersionDownloadSource::Gitcode;
+
     let installed_management_secret = if saved_management_secret == Some("") {
         read_installed_core_config_settings()
             .ok()
@@ -1608,12 +1615,12 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     if changed {
         write_gui_config(&config)?;
     }
-    if management_secret_rotated {
+    if management_secret_rotated && !config.core_connection.is_remote() {
         if let Err(error) = patch_core_management_secret_key(&config.management_secret_key) {
             eprintln!("Failed to update legacy CPA WebUI key; will retry the next time the kernel starts: {error}");
         }
     }
-    if !config.auth_dir.trim().is_empty() {
+    if !config.core_connection.is_remote() && !config.auth_dir.trim().is_empty() {
         let install_dir = core_install_dir()?;
         let auth_dir = auth_dir_path_for_core(&config.auth_dir, &install_dir)?;
         fs::create_dir_all(&auth_dir)
@@ -1855,6 +1862,10 @@ pub(crate) fn is_loopback_host(host: &str) -> bool {
 }
 
 pub(crate) fn sanitize_gui_config(config: &mut GuiConfigFile) -> Result<bool, String> {
+    if config.core_connection.is_remote() {
+        config.core_connection = config.core_connection.clone().normalize()?;
+        return Ok(false);
+    }
     let install_dir = core_install_dir()?;
     let persistent_auth_dir = fixed_oauth_dir()?;
     sanitize_gui_config_at(config, &install_dir, &persistent_auth_dir)
@@ -2010,6 +2021,13 @@ pub(crate) fn write_gui_config_to_path(
         .and_then(|content| content.parse::<Document>().ok())
         .unwrap_or_default();
     let root = document.as_table_mut();
+    let connection = toml::Value::try_from(&config.core_connection)
+        .map_err(|error| format!("Failed to serialize core connection: {error}"))?;
+    let connection_document = toml::to_string(&connection)
+        .map_err(|error| format!("Failed to serialize core connection: {error}"))?
+        .parse::<Document>()
+        .map_err(|error| format!("Failed to serialize core connection: {error}"))?;
+    root.insert("core-connection", Item::Table(connection_document.as_table().clone()));
     if config.usage_statistics_disabled == Some(true) {
         set_codex_table_item(root, "usage_statistics_disabled", value(true));
     } else {

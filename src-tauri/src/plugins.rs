@@ -10,7 +10,9 @@ pub(crate) async fn get_plugin_support(
 ) -> Result<bool, String> {
     let config = gui_config_state.snapshot()?;
     let response = request_plugins(&config).await?;
-    read_plugin_support(response).await
+    let result = read_plugin_support(response).await;
+    super::core_connection::ensure_current(&config)?;
+    result
 }
 
 #[tauri::command]
@@ -23,11 +25,12 @@ pub(crate) async fn get_plugin_resource_url(
     let response = request_plugins(&config).await?;
     let plugins = read_management_value(response).await?;
     let path = active_plugin_menu_path(&plugins, &plugin_id, menu_index)?;
-    let origin = core_origin(
-        &config.host,
-        config.port,
-        current_core_tls_settings()?.enabled,
-    );
+    super::core_connection::ensure_current(&config)?;
+    let origin = if config.core_connection.is_remote() {
+        config.core_connection.remote_management_origin.clone()
+    } else {
+        core_origin(&config.host, config.port, current_core_tls_settings()?.enabled)
+    };
     resolve_plugin_resource_url(&origin, path)
 }
 
