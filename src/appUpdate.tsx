@@ -1,3 +1,4 @@
+import { useCoreConnection } from './coreConnection';
 import { MessageNotice } from './appNotice';
 import {
   createContext,
@@ -80,6 +81,8 @@ const idleTask: AppUpdateTask = {
 const AppUpdateContext = createContext<AppUpdateContextValue | null>(null);
 
 export function AppUpdateProvider({ children }: { children: ReactNode }) {
+  const { connection } = useCoreConnection();
+  const remote = connection.mode === 'remote';
   const [info, setInfo] = useState<AppUpdateInfo | null>(null);
   const [task, setTask] = useState<AppUpdateTask>(idleTask);
   const [error, setError] = useState('');
@@ -88,6 +91,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
   const startupCheckStarted = useRef(false);
 
   const check = useCallback(async () => {
+    if (remote) return;
     setChecking(true);
     setError('');
     try {
@@ -109,7 +113,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     } finally {
       setChecking(false);
     }
-  }, []);
+  }, [remote]);
 
   useEffect(() => {
     let disposed = false;
@@ -134,7 +138,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
       else stopListening = stop;
     });
 
-    if (!startupCheckStarted.current) {
+    if (!remote && !startupCheckStarted.current) {
       startupCheckStarted.current = true;
       void check();
     }
@@ -145,6 +149,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const install = useCallback(async () => {
+    if (remote) return;
     setConfirmOpen(false);
     setError('');
     try {
@@ -152,7 +157,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     } catch (nextError) {
       setError(String(nextError));
     }
-  }, []);
+  }, [remote]);
 
   const cancel = useCallback(async () => {
     setError('');
@@ -172,11 +177,11 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     hasUpdate: Boolean(info?.updateAvailable),
     processing: task.running,
     check,
-    requestInstall: () => setConfirmOpen(true),
+    requestInstall: () => { if (!remote) setConfirmOpen(true); },
     dismissConfirm: () => setConfirmOpen(false),
     install,
     cancel,
-  }), [cancel, check, checking, confirmOpen, error, info, install, task]);
+  }), [cancel, check, checking, confirmOpen, error, info, install, remote, task]);
 
   return <AppUpdateContext.Provider value={value}>{children}</AppUpdateContext.Provider>;
 }

@@ -22,6 +22,8 @@ Remote status reports authenticated management reachability and the core version
 header. It does not report a local process ID or installation. Starting, stopping,
 restarting and updating a remote process require host control outside this app.
 Local core and agent configuration actions are unavailable while attached remotely.
+Switch to Local before using the app's automatic updater, which also refreshes
+local agent model catalogs.
 Configuring agents on the GUI machine to use the remote client API is a later step.
 
 Usage history stays on the GUI machine, separated by remote origin from local

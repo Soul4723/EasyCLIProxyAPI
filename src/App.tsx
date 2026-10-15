@@ -138,15 +138,15 @@ function VersionManagementPageWrapper() {
 
 function App() {
   return (
-    <AppUpdateProvider>
-      <CoreConnectionProvider>
+    <CoreConnectionProvider>
+      <AppUpdateProvider>
         <CoreRuntimeProvider>
           <CoreUpdateProvider>
             <WindowFrame><AppContent /></WindowFrame>
           </CoreUpdateProvider>
         </CoreRuntimeProvider>
-      </CoreConnectionProvider>
-    </AppUpdateProvider>
+      </AppUpdateProvider>
+    </CoreConnectionProvider>
   );
 }
 

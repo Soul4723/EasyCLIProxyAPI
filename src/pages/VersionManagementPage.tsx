@@ -345,14 +345,14 @@ export function VersionManagementPage() {
   };
 
   useEffect(() => {
-    if (!recordVersionManagementVisit(pageVisitRef.current)) return;
+    if (remote || !recordVersionManagementVisit(pageVisitRef.current)) return;
     if (!checkingAppUpdate && !appUpdateTask.running) {
       void checkAppUpdate();
     }
     if (!checkingLatest) {
       void checkLatest();
     }
-  }, [appUpdateTask.running, checkAppUpdate, checkLatest, checkingAppUpdate, checkingLatest]);
+  }, [appUpdateTask.running, checkAppUpdate, checkLatest, checkingAppUpdate, checkingLatest, remote]);
 
   useEffect(() => {
     let disposed = false;
@@ -589,7 +589,7 @@ export function VersionManagementPage() {
           <div className="version-item-content">
             <div className="version-card-top">
               <h2>{t('kernel.versions.appCardTitle')}</h2>
-              {appVersionStatusLabel ? (
+              {!remote && appVersionStatusLabel ? (
                 <span className={`version-row-status ${appVersionStatusTone}`} title={appUpdateError || appVersionStatusLabel}>
                   {appVersionStatusLabel}
                 </span>
@@ -604,13 +604,13 @@ export function VersionManagementPage() {
               <div className={`version-metric-tile ${appHasUpdate ? 'has-update' : ''}`}>
                 <dt className="version-metric-label">{t('appUpdate.latest')}</dt>
                 <dd className="version-metric-value">
-                  {appUpdate ? (latestAppVersion || currentAppVersion) : (checkingAppUpdate ? t('appUpdate.checking') : t('common.detecting'))}
+                  {remote ? t('common.unavailable') : appUpdate ? (latestAppVersion || currentAppVersion) : (checkingAppUpdate ? t('appUpdate.checking') : t('common.detecting'))}
                 </dd>
               </div>
             </dl>
 
-            <MessageNotice message={appUpdateError} />
-            {!appUpdate?.autoUpdateSupported ? (
+            {remote ? <p>{t('connection.appUpdates')}</p> : <MessageNotice message={appUpdateError} />}
+            {!remote && !appUpdate?.autoUpdateSupported ? (
               <div className="version-alert-banner neutral">
                 <Info size={14} />
                 <span>{t('appUpdate.manualFallback')}</span>
@@ -622,14 +622,14 @@ export function VersionManagementPage() {
             <button
               type="button"
               className="secondary-button"
-              disabled={checkingAppUpdate || appUpdateTask.running}
+              disabled={remote || checkingAppUpdate || appUpdateTask.running}
               onClick={() => void checkAppUpdate()}
             >
               <RefreshCw size={15} className={checkingAppUpdate ? 'spin' : ''} aria-hidden="true" />
               <span>{checkingAppUpdate ? t('appUpdate.checking') : t('appUpdate.check')}</span>
             </button>
 
-            {appHasUpdate && appUpdate?.autoUpdateSupported ? (
+            {!remote && appHasUpdate && appUpdate?.autoUpdateSupported ? (
               <button
                 type="button"
                 className="primary-button"

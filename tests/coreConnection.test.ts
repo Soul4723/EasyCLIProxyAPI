@@ -64,7 +64,7 @@ describe('core attachment', () => {
     await runtime.invoke('save_core_connection', { connection: { ...remote, clientApiOrigin: 'https://client.example:8317', clientApiKey: 'client-key' } });
     expect(await runtime.invoke('get_core_connection')).toMatchObject({ mode: 'remote', remoteManagementOrigin: 'http://100.64.0.1:8317', clientApiOrigin: 'https://client.example:8317', clientApiKey: 'client-key' });
     expect(await runtime.invoke('get_core_status')).toMatchObject({ connectionMode: 'remote', installed: false, managed: false, processId: null, ready: true, currentVersion: '8.0.29', installDir: '', binaryPath: null });
-    for (const command of ['start_core_process', 'stop_core_process', 'restart_core_process']) await expect(runtime.invoke(command)).rejects.toThrow('Local mode');
+    for (const command of ['start_core_process', 'stop_core_process', 'restart_core_process', 'check_app_update', 'start_app_update']) await expect(runtime.invoke(command)).rejects.toThrow('Local mode');
     expect(await runtime.invoke('management_request', { request: { method: 'GET', path: '/credentials' } })).toHaveProperty('files');
     for (const command of ['add_core_api_key', 'update_core_api_key']) await expect(runtime.invoke(command, { apiKey: 'sk-remote', remark: 'note' })).rejects.toThrow('notes are unsupported');
     expect(await runtime.invoke('add_core_api_key', { apiKey: 'sk-remote', remark: '' })).toHaveProperty('apiKeys');
