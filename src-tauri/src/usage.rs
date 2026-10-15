@@ -528,6 +528,10 @@ struct UsageSqlFilter {
 }
 
 impl UsageCollectorState {
+    pub(crate) fn reset_target(&self) {
+        self.set_status(UsageCollectorStatus::waiting());
+        if let Ok(total) = total_usage_records() { self.set_total_records(total); }
+    }
     fn start(&self) -> Option<CancellationToken> {
         let mut inner = self.inner.lock().ok()?;
         if inner.token.is_some() {
@@ -578,7 +582,9 @@ impl UsageCollectorState {
 
 pub(crate) fn initialize_usage_storage() -> Result<(), String> {
     let root = usage_root_dir()?;
-    migrate_legacy_usage_storage(&root)?;
+    if !crate::core_connection::active_connection().is_remote() {
+        migrate_legacy_usage_storage(&root)?;
+    }
     initialize_usage_storage_at(&root)
 }
 
@@ -660,11 +666,13 @@ fn initialize_usage_storage_at(root: &Path) -> Result<(), String> {
 
 #[tauri::command]
 pub(crate) async fn repair_usage_cache_records() -> Result<UsageRepairResult, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     run_usage_task(|| repair_usage_cache_records_at(&usage_root_dir()?)).await
 }
 
 #[tauri::command]
 pub(crate) async fn get_usage_storage_settings() -> Result<UsageStorageSettings, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     run_usage_task(|| {
         let root = usage_root_dir()?;
         let connection = open_usage_database_at(&root)?;
@@ -678,6 +686,7 @@ pub(crate) async fn save_usage_storage_settings(
     app: tauri::AppHandle,
     max_database_size_mb: u64,
 ) -> Result<UsageStorageSettings, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     let settings = run_usage_task(move || {
         let root = usage_root_dir()?;
         let connection = open_usage_database_at(&root)?;
@@ -699,6 +708,7 @@ pub(crate) async fn shrink_usage_database(
     app: tauri::AppHandle,
     target_database_size_mb: u64,
 ) -> Result<UsageStorageSettings, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     let settings = run_usage_task(move || {
         let root = usage_root_dir()?;
         let connection = open_usage_database_at(&root)?;
@@ -1837,14 +1847,6 @@ pub(crate) fn stop_usage_collector(app: &tauri::AppHandle) {
 }
 
 async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
-    let root = match usage_root_dir() {
-        Ok(root) => root,
-        Err(error) => {
-            set_collector_error(&app, error);
-            return;
-        }
-    };
-
     let mut retry_seconds = 1_u64;
     let mut subscription: Option<UsageSubscription> = None;
     let mut subscription_config: Option<(u16, String)> = None;
@@ -1858,6 +1860,14 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
         if token.is_cancelled() {
             return;
         }
+        let Ok(_connection_guard) = crate::core_connection::target_operation() else {
+            wait_or_cancel(&token, 1).await;
+            continue;
+        };
+        let root = match usage_root_dir() {
+            Ok(root) => root,
+            Err(error) => { set_collector_error(&app, error); return; }
+        };
         let config = match app.state::<GuiConfigState>().snapshot() {
             Ok(config) => config,
             Err(error) => {
@@ -1867,6 +1877,25 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 continue;
             }
         };
+        if config.core_connection.is_remote() {
+            // Remote cores have no local RESP socket or process. HTTP POP is
+            // destructive: retain the target lease until this batch is durable.
+            subscription = None;
+            subscription_config = None;
+            redis_queue = RedisUsageQueueSource::default();
+            core_ready = false;
+            next_core_check_at = tokio::time::Instant::now();
+            let result = fetch_usage_queue_raw(&config).await.and_then(|messages| {
+                persist_raw_usage_messages_from_source(&root, HTTP_USAGE_QUEUE_SOURCE, messages, &config)
+            });
+            match result {
+                Ok(outcome) => publish_collected_records(&app, outcome, "Collecting remote usage over HTTP"),
+                Err(error) => set_collector_error(&app, error),
+            }
+            drop(_connection_guard);
+            wait_or_cancel(&token, 1).await;
+            continue;
+        }
         if subscription_config.as_ref().is_some_and(|(port, secret)| {
             *port != config.port || secret != &config.management_secret_key
         }) {
@@ -2946,11 +2975,13 @@ fn add_text_filter(
 pub(crate) fn get_usage_collector_status(
     state: tauri::State<'_, UsageCollectorState>,
 ) -> Result<UsageCollectorStatus, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     state.status()
 }
 
 #[tauri::command]
 pub(crate) async fn get_usage_overview(query: UsageQuery) -> Result<UsageOverview, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     run_usage_task(move || load_usage_overview(&open_usage_database()?, &query)).await
 }
 
@@ -3696,6 +3727,7 @@ fn upsert_model_price(connection: &Connection, price: &ModelPrice) -> Result<(),
 
 #[tauri::command]
 pub(crate) async fn get_usage_pricing(query: UsageQuery) -> Result<UsagePricing, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     run_usage_task(move || load_usage_pricing(&open_usage_database()?, &query)).await
 }
 
@@ -3772,6 +3804,7 @@ fn load_usage_pricing(connection: &Connection, query: &UsageQuery) -> Result<Usa
 
 #[tauri::command]
 pub(crate) async fn save_usage_model_price(mut price: ModelPrice) -> Result<(), String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     price.model = price.model.trim().to_string();
     price.source = "manual".to_string();
     price.source_model_id.clear();
@@ -3781,6 +3814,7 @@ pub(crate) async fn save_usage_model_price(mut price: ModelPrice) -> Result<(), 
 
 #[tauri::command]
 pub(crate) async fn delete_usage_model_price(model: String) -> Result<(), String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     run_usage_task(move || {
         let connection = open_usage_database()?;
         connection
@@ -3959,6 +3993,7 @@ pub(crate) async fn preview_usage_model_prices(
     source: String,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<ModelPriceSyncPreview, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     let (source_name, source_url) = match source.as_str() {
         "models-dev" => ("Models.dev", MODEL_PRICE_SYNC_URL),
         "litellm" => ("LiteLLM", LITELLM_PRICE_SYNC_URL),
@@ -3997,6 +4032,7 @@ pub(crate) async fn preview_usage_model_prices(
 
 #[tauri::command]
 pub(crate) async fn apply_usage_model_prices(prices: Vec<ModelPrice>) -> Result<ModelPriceSyncResult, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     let mut seen = std::collections::HashSet::new();
     for price in &prices {
         validate_model_price(price)?;
@@ -4086,6 +4122,7 @@ pub(crate) async fn get_usage_analysis(
     query: UsageQuery,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<UsageAnalysis, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let metadata = sources::fetch(&config).await;
     run_usage_task(move || {
@@ -4374,6 +4411,7 @@ fn load_api_key_categories(
 
 #[tauri::command]
 pub(crate) async fn save_usage_events_export(path: String, contents: String) -> Result<(), String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     tauri::async_runtime::spawn_blocking(move || write_usage_events_export(&path, &contents))
         .await
         .map_err(|error| format!("Failed to save usage export: {error}"))?
@@ -4483,6 +4521,7 @@ pub(crate) async fn get_usage_events(
     query: UsageQuery,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<UsageEventPage, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let metadata = sources::fetch(&config).await;
     run_usage_task(move || {
@@ -4643,7 +4682,11 @@ fn query_window_minutes(query: &UsageQuery, first: Option<i64>, last: Option<i64
 }
 
 fn usage_root_dir() -> Result<PathBuf, String> {
-    Ok(core_base_dir()?.join(USAGE_DIR_NAME))
+    let root = core_base_dir()?.join(USAGE_DIR_NAME);
+    Ok(match crate::core_connection::active_connection().usage_namespace() {
+        Some(namespace) => root.join("remote").join(namespace),
+        None => root,
+    })
 }
 
 fn record_local_hour(record: &UsageRecord) -> String {
@@ -5688,6 +5731,8 @@ mod tests {
     #[test]
     fn normalizes_queue_records_without_persisting_secrets_or_headers() {
         let config = GuiConfigFile {
+            core_connection: crate::core_connection::CoreConnection::default(),
+            target_revision: 0,
             locale: "zh-CN".to_string(),
             port: 8317,
             allow_lan: false,

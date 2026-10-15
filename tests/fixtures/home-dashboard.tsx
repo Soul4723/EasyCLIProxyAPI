@@ -1,3 +1,4 @@
+import { LocalConnectionFixture } from './local-connection';
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -90,10 +91,10 @@ function PanelHarness() {
 }
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider><AppUpdateProvider><CoreRuntimeProvider>
+  <I18nProvider><LocalConnectionFixture><AppUpdateProvider><CoreRuntimeProvider>
     <div className="app-shell">
       <aside className="sidebar" aria-hidden="true"><strong>EasyCLIProxyAPI</strong><span>Desktop console</span></aside>
       <div className="workspace"><main className="content">{params.get('view') === 'panel' ? <PanelHarness /> : <KernelPage />}</main></div>
     </div>
-  </CoreRuntimeProvider></AppUpdateProvider></I18nProvider>,
+  </CoreRuntimeProvider></AppUpdateProvider></LocalConnectionFixture></I18nProvider>,
 );

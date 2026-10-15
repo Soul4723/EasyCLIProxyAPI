@@ -1,3 +1,5 @@
+import { useCoreConnection } from '../coreConnection';
+import { assertConnectionCurrent, connectionGeneration } from '../services/connectionGeneration';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -48,6 +50,7 @@ type OAuthFlowStatus = 'idle' | 'waiting' | 'success' | 'error';
 type OAuthProviderState = {
   url?: string;
   userCode?: string;
+  flow?: string;
   state?: string;
   status: OAuthFlowStatus;
   error?: string;
@@ -197,6 +200,11 @@ export function OAuthManagementPage() {
 
 export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provider?: string) => void } = {}) {
   const { t } = useI18n();
+  const { connection } = useCoreConnection();
+  const remote = connection.mode === 'remote';
+  const pageGeneration = useRef(connectionGeneration()).current;
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const privacy = usePrivacyMask();
   const [accounts, setAccounts] = useState<Map<string, OAuthAccountSummary[]> | null>(null);
   const [states, setStates] = useState<Partial<Record<OAuthProviderId, OAuthProviderState>>>(
@@ -392,6 +400,8 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
   }, []);
 
   const startLogin = async (provider: OAuthProviderId) => {
+    if (!alive.current) return;
+    assertConnectionCurrent(pageGeneration);
     clearPollingTimer(provider);
     updateProviderState(provider, {
       url: undefined,
@@ -407,10 +417,14 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
 
     try {
       await captureCredentialSnapshot(provider);
+      assertConnectionCurrent(pageGeneration);
+      if (!alive.current) return;
       const result = await invoke<OAuthStartResult>('start_oauth_login', {
         provider,
         browser: selectedBrowser,
       });
+      assertConnectionCurrent(pageGeneration);
+      if (!alive.current) return;
       if (!result.state) {
         updateProviderState(provider, {
           url: result.url,
@@ -427,6 +441,7 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
         url: result.url,
         state: result.state,
         userCode: result.userCode ?? undefined,
+        flow: result.flow ?? undefined,
         status: 'waiting',
         polling: true,
       });
@@ -600,7 +615,7 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
       <div className="oauth-grid">
         {oauthProviders.map((provider) => {
           const state = states[provider.id] ?? { status: 'idle' as const };
-          const canSubmitCallback = OAUTH_CALLBACK_SUPPORTED.has(provider.id) && Boolean(state.url);
+          const canSubmitCallback = OAUTH_CALLBACK_SUPPORTED.has(provider.id) && Boolean(state.url) && state.flow !== 'device' && !state.userCode;
           const providerAccounts = accounts?.get(provider.id) ?? [];
           const hasAccounts = providerAccounts.length > 0;
           const loginLabel = state.polling
@@ -695,8 +710,10 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
 
                 {canSubmitCallback ? (
                   <div className="oauth-callback-block">
+                    {remote ? <p>{t('connection.oauth')}</p> : null}
                     <div className="oauth-callback-row">
                       <input
+                        aria-label={t('oauth.pasteCallback')}
                         value={state.callbackUrl ?? ''}
                         onChange={(event) => {
                           const value = event.currentTarget.value;

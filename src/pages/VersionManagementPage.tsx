@@ -1,3 +1,4 @@
+import { useCoreConnection } from '../coreConnection';
 import { useEffect, useRef, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
@@ -81,6 +82,8 @@ export function displayAppVersion(version: string) {
 
 export function VersionManagementPage() {
   const { t } = useI18n();
+  const { connection } = useCoreConnection();
+  const remote = connection.mode === 'remote';
   const {
     info: appUpdate,
     error: appUpdateError,
@@ -186,6 +189,7 @@ export function VersionManagementPage() {
   };
 
   const loadInstallTask = async () => {
+    if (remote) return;
     try {
       const task = await invoke<CoreInstallTask>('get_core_install_task');
       applyInstallTask(task, false, false);
@@ -357,6 +361,7 @@ export function VersionManagementPage() {
     let unlistenVersionSource: (() => void) | null = null;
 
     listen<CoreInstallTask>('core-install-progress', (event) => {
+      if (remote) return;
       const showTaskUi = manualInstallInProgressRef.current;
       applyInstallTask(event.payload, showTaskUi, showTaskUi);
       if (!event.payload.running) {
@@ -392,7 +397,7 @@ export function VersionManagementPage() {
 
     loadInstallTask();
     void loadVersionSourceSettings();
-    void invoke<BundledCoreInfo | null>('detect_bundled_core')
+    if (!remote) void invoke<BundledCoreInfo | null>('detect_bundled_core')
       .then((info) => {
         if (!disposed) setBundledCore(info);
       })
@@ -647,7 +652,7 @@ export function VersionManagementPage() {
           </div>
         </article>
 
-        <article className="version-list-item core-module-card">
+        {remote ? <article className="version-list-item core-module-card"><div className="version-item-content"><h2>{t('kernel.versions.coreCardTitle')}</h2><p>{t('connection.updates')}</p><span className="mono-tag">{coreStatus?.currentVersion || t('common.unavailable')}</span></div></article> : <article className="version-list-item core-module-card">
           <div className="version-item-content">
             <div className="version-card-top">
               <h2>{t('kernel.versions.coreCardTitle')}</h2>
@@ -711,7 +716,7 @@ export function VersionManagementPage() {
               <span>{t('kernel.versions.installBundled')}</span>
             </button>
           </div>
-        </article>
+        </article>}
         </div>
         <AppReleaseNotes
           key={appUpdate?.latestVersion ?? 'pending'}

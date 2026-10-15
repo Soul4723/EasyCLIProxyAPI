@@ -1,3 +1,4 @@
+import { LocalConnectionFixture } from './local-connection';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -62,8 +63,8 @@ const plugin: PluginListEntry = {
 function Fixture() {
   const [open, setOpen] = useState(false);
   fixture.unmount = () => setOpen(false);
-  return <I18nProvider><button type="button" onClick={() => setOpen(true)}>Open plugin login</button>
+  return <I18nProvider><LocalConnectionFixture><button type="button" onClick={() => setOpen(true)}>Open plugin login</button>
     {open ? <PluginOAuthDialog plugin={plugin} onClose={() => setOpen(false)} onCompleted={() => { fixture.completed += 1; }} /> : null}
-  </I18nProvider>;
+  </LocalConnectionFixture></I18nProvider>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);

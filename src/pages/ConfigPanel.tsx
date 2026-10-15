@@ -1,3 +1,4 @@
+import { useCoreConnection } from '../coreConnection';
 import { CoolingToggle } from '../components/settings/CoolingToggle';
 import { FormEvent, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -160,6 +161,8 @@ const ROUTING_OPTIONS = [
 
 export function ConfigPanelPage() {
   const { t, locale } = useI18n();
+  const { connection } = useCoreConnection();
+  const remote = connection.mode === 'remote';
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { status: coreStatus, publishStatus, refreshStatus } = useCoreRuntime();
   const [settings, setSettings] = useState<CoreConfigSettings | null>(null);
@@ -404,6 +407,7 @@ export function ConfigPanelPage() {
   }
 
   async function loadTlsSettings(mode: DraftRefreshMode = 'replace') {
+    if (remote) { setTlsSettingsLoading(false); return; }
     setTlsSettingsLoading(true);
     try {
       const result = await invoke<CoreTlsSettings>('get_core_tls_settings');
@@ -558,7 +562,7 @@ export function ConfigPanelPage() {
       setFormError(t('config.error.duplicateKey'));
       return;
     }
-    const remark = newApiKeyRemark.trim();
+    const remark = remote ? '' : newApiKeyRemark.trim();
     if (remark.length > 80) {
       setFormError(t('config.error.remarkTooLong'));
       return;
@@ -624,12 +628,12 @@ export function ConfigPanelPage() {
       });
       loggingDraftDirtyRef.current = false;
       applySettings(result, 'preserve');
-      if (commercialModeChanged && coreStatus?.running) {
+      if (commercialModeChanged && !remote && coreStatus?.running) {
         const status = await invoke<CoreStatus>('restart_core_process');
         publishStatus(status);
         loggingFeedback.showNotice({ key: 'config.diagnostics.notice.savedAndRestarted' }, 'success');
       } else {
-        loggingFeedback.showNotice({ key: 'config.diagnostics.notice.saved' }, 'success');
+        loggingFeedback.showNotice({ key: remote && commercialModeChanged ? 'connection.restart' : 'config.diagnostics.notice.saved' }, 'success');
       }
     } catch (error) {
       const message = t('config.error.saveFailed', { error: String(error) });
@@ -687,6 +691,10 @@ export function ConfigPanelPage() {
 
   const openWebUi = async () => {
     try {
+      if (remote) {
+        await invoke('open_external_url', { url: `${connection.remoteManagementOrigin}/management.html#/login` });
+        return;
+      }
       const [latestSettings, latestTlsSettings] = await Promise.all([
         invoke<CoreConfigSettings>('get_core_config_settings'),
         invoke<CoreTlsSettings>('get_core_tls_settings'),
@@ -727,12 +735,12 @@ export function ConfigPanelPage() {
       setTlsEnabledDraft(result.enabled);
       setTlsCertDraft(result.cert);
       setTlsKeyDraft(result.key);
-      if (coreStatus?.running) {
+      if (!remote && coreStatus?.running) {
         const status = await invoke<CoreStatus>('restart_core_process');
         publishStatus(status);
         tlsFeedback.showNotice({ key: 'config.tls.notice.savedAndRestarted' }, 'success');
       } else {
-        tlsFeedback.showNotice({ key: 'config.tls.notice.saved' }, 'success');
+        tlsFeedback.showNotice({ key: remote ? 'connection.restart' : 'config.tls.notice.saved' }, 'success');
       }
       setTlsSavedStatusVisible(true);
     } catch (error) {
@@ -813,7 +821,7 @@ export function ConfigPanelPage() {
       applySettings(result, 'preserve');
       setLoadError('');
 
-      if (networkChanged && coreStatus?.running) {
+      if (networkChanged && !remote && coreStatus?.running) {
         try {
           const status = await invoke<CoreStatus>('restart_core_process');
           publishStatus(status);
@@ -823,7 +831,7 @@ export function ConfigPanelPage() {
           networkFeedback.showNotice({ key: 'config.error.networkRestartFailed', variables: { error: String(error) } }, 'error');
         }
       } else if (networkChanged) {
-        networkFeedback.showNotice({ key: 'config.notice.networkNextStart' }, 'success');
+        networkFeedback.showNotice({ key: remote ? 'connection.restart' : 'config.notice.networkNextStart' }, 'success');
       } else {
         networkFeedback.showNotice({ key: 'config.notice.networkUpdated' }, 'success');
       }
@@ -1104,6 +1112,7 @@ export function ConfigPanelPage() {
   return (
     <section className="page config-page">
       {confirmationDialog}
+      {remote ? <p className="panel">{t('connection.remoteConfig')}</p> : null}
       <header className="config-settings-header">
         <h1>{st('title')}</h1>
         <div className="config-settings-search"><Search size={18} aria-hidden="true" /><input ref={searchRef} type="search" aria-label={st('search')} placeholder={st('searchHint')} value={settingsSearch} onChange={event => setSettingsSearch(event.currentTarget.value)} onKeyDown={event => { if (event.key === 'Escape') setSettingsSearch(''); }} />{searching ? <button type="button" className="icon-button quiet" aria-label={st('clearSearch')} onClick={() => { setSettingsSearch(''); searchRef.current?.focus(); }}><X size={16} /></button> : null}</div>
@@ -1235,7 +1244,7 @@ export function ConfigPanelPage() {
                 className="secondary-button compact-button"
                 disabled={loading || settings === null}
                 onClick={() => void openWebUi()}
-                title={settings ? webUiManagementUrl(settings.port, tlsSettings?.enabled, settings.host) : undefined}
+                title={remote ? `${connection.remoteManagementOrigin}/management.html#/login` : settings ? webUiManagementUrl(settings.port, tlsSettings?.enabled, settings.host) : undefined}
               >
                 {t('config.webuiKey.open')}
               </button>
@@ -1245,7 +1254,8 @@ export function ConfigPanelPage() {
           <div className="config-management-content">
             {settings?.managementSecretConfigured === false ? <p role="status">{templateText(templateMessages.managementDisabled, locale)}</p> : null}
 
-            <form
+            {remote ? <p>{t('connection.serverOnly')}</p> : null}
+            <fieldset disabled={remote} className="config-remote-fieldset"><form
               className="config-management-form"
               onSubmit={(event) => void saveManagementSecret(event)}
             >
@@ -1329,7 +1339,7 @@ export function ConfigPanelPage() {
                   </button>
                 </div>
               </div>
-            </form>
+            </form></fieldset>
             {renderFeedback(managementFeedback)}
           </div>
         </section>
@@ -1337,6 +1347,8 @@ export function ConfigPanelPage() {
             className="config-network-section"
             aria-labelledby="config-network-section-title"
           >
+          {remote ? <p>{t('connection.serverOnly')}</p> : null}
+          <fieldset disabled={remote} className="config-remote-fieldset">
             <div className="config-network-section-heading config-section-heading-with-actions">
               <div className="config-network-section-title">
                 <Network size={16} aria-hidden="true" />
@@ -1460,11 +1472,14 @@ export function ConfigPanelPage() {
                 <Check size={16} aria-hidden="true" />
                 {busyAction === 'network' ? t('common.saving') : t('common.save')}
               </button></div>
-        </section>
+        </fieldset>
+</section>
 <section id="config-native-tls" tabIndex={-1} hidden={searching || activeSubpage !== 'general'}
             className="config-network-section"
             aria-labelledby="config-tls-section-title"
           >
+          {remote ? <p>{t('connection.serverOnly')}</p> : null}
+          <fieldset disabled={remote} className="config-remote-fieldset">
           <div className="config-network-section-heading config-tls-section-heading">
             <div className="config-tls-section-title">
               <LockKeyhole size={18} aria-hidden="true" />
@@ -1529,7 +1544,7 @@ export function ConfigPanelPage() {
                     <button
                       type="button"
                       className="secondary-button compact-button config-tls-browse-button"
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       title={t('config.tls.selectCertTitle')}
                       onClick={() => void selectTlsFile('cert')}
                     >
@@ -1558,7 +1573,7 @@ export function ConfigPanelPage() {
                     <button
                       type="button"
                       className="secondary-button compact-button config-tls-browse-button"
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       title={t('config.tls.selectKeyTitle')}
                       onClick={() => void selectTlsFile('key')}
                     >
@@ -1585,7 +1600,8 @@ export function ConfigPanelPage() {
                 <Check size={16} aria-hidden="true" />
                 {busyAction === 'tls' ? t('common.saving') : t('common.save')}
               </button></div>
-        </section>
+        </fieldset>
+</section>
 <section id="config-native-routing" tabIndex={-1} hidden={searching || activeSubpage !== 'routing'}
             className="config-network-section"
             aria-labelledby="config-routing-section-title"
@@ -1992,7 +2008,7 @@ export function ConfigPanelPage() {
           {settings && commercialModeDraft !== settings.commercialMode ? (
             <div className="config-diagnostics-commercial-note">
               <AlertCircle size={16} aria-hidden="true" />
-              <span>{st('restart')}</span>
+              <span>{remote ? t('connection.restartHint') : st('restart')}</span>
             </div>
           ) : null}
 
@@ -2004,7 +2020,8 @@ export function ConfigPanelPage() {
               <button
                 type="button"
                 className="secondary-button compact-button"
-                disabled={controlsDisabled}
+                disabled={remote || controlsDisabled}
+                title={remote ? t('connection.localOnly') : undefined}
                 onClick={() => void openCoreLogsDirectory()}
               >
                 <FolderOpen size={16} aria-hidden="true" />
@@ -2080,7 +2097,8 @@ export function ConfigPanelPage() {
                       role="switch"
                       aria-label={t('config.software.startCoreOnLaunch')}
                       checked={softwareStartCoreDraft}
-                      disabled={softwareSettingsLoading || softwareSettings === null || busyAction !== null}
+                      title={remote ? t('connection.localOnly') : undefined}
+                      disabled={remote || softwareSettingsLoading || softwareSettings === null || busyAction !== null}
                       onChange={(event) => {
                         setSoftwareSavedStatusVisible(false);
                         setSoftwareStartCoreDraft(event.currentTarget.checked);
@@ -2184,7 +2202,7 @@ export function ConfigPanelPage() {
           </div>
           <div id="config-template-panel" hidden={searching || templateGroups.length === 0}><TemplateConfigSection groups={allSettingsTemplateGroups} visibleGroups={templateGroups.map(group => group.id)} onDirtyGroupsChange={setDirtyTemplateGroups} /></div>
           <div id="config-native-aliases" tabIndex={-1} role="region" aria-label={t('app.nav.thinkingAliases')} hidden={searching || activeSubpage !== 'aliases'}>{aliasesVisited ? <ThinkingAliasesPage embedded /> : null}</div>
-          <div id="config-native-sensitive-words" tabIndex={-1} role="region" aria-label={t('config.sensitiveWords.title')} hidden={searching || activeSubpage !== 'requests'}>{sensitiveWordsVisited ? <SensitiveWordsPage onDirtyChange={setSensitiveWordsDirty} /> : null}</div>
+          <div id="config-native-sensitive-words" tabIndex={-1} role="region" aria-label={t('config.sensitiveWords.title')} hidden={searching || activeSubpage !== 'requests'}>{remote ? <p>{t('connection.serverOnly')}</p> : sensitiveWordsVisited ? <SensitiveWordsPage onDirtyChange={setSensitiveWordsDirty} /> : null}</div>
         </div>
       </div>
 
@@ -2262,9 +2280,10 @@ export function ConfigPanelPage() {
                   setNewApiKeyRemark(event.currentTarget.value);
                   setFormError('');
                 }}
-                disabled={keyMutationBusy}
+                disabled={remote || keyMutationBusy}
                 placeholder={t('config.keys.remarkPlaceholder')}
               />
+              {remote && <span>{t('connection.keyNotes')}</span>}
             </label>
 
             <div className={`config-form-message ${formError ? 'error' : ''}`}>

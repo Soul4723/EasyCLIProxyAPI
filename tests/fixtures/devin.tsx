@@ -1,3 +1,4 @@
+import { LocalConnectionFixture } from './local-connection';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
@@ -62,6 +63,6 @@ mockIPC(async (cmd, args: any) => {
   }
   throw new Error('Unexpected command: ' + cmd + ' ' + JSON.stringify(args));
 }, { shouldMockEvents: true });
-createRoot(document.getElementById('root')!).render(<I18nProvider><main style={{ padding: 24 }}>
+createRoot(document.getElementById('root')!).render(<I18nProvider><LocalConnectionFixture><main style={{ padding: 24 }}>
   {view === 'quota' ? <QuotaPage /> : view === 'files' ? <AuthFileManagementPage /> : view === 'easy' ? <EasyModePage /> : <OAuthLoginPage />}
-</main></I18nProvider>);
+</main></LocalConnectionFixture></I18nProvider>);

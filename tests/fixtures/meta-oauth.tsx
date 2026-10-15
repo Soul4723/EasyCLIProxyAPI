@@ -1,3 +1,4 @@
+import { LocalConnectionFixture } from './local-connection';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
@@ -125,9 +126,9 @@ mockIPC(async (cmd, args: any = {}) => {
 }, { shouldMockEvents: true });
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider>
+  <I18nProvider><LocalConnectionFixture>
     <main style={{ padding: 24 }}>
       {view === 'easy' ? <EasyModePage /> : <OAuthLoginPage />}
     </main>
-  </I18nProvider>,
+  </LocalConnectionFixture></I18nProvider>,
 );

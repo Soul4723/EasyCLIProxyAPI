@@ -518,3 +518,5 @@
   .config-page #config-group-management .template-config-field:not(.template-config-toggle),
   .config-page #config-group-oauth-common .template-config-field:has(.template-config-directory) { grid-template-columns: minmax(0, 1fr); }
 }
+
+.config-remote-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }

@@ -1,3 +1,5 @@
+import { useCoreConnection } from '../coreConnection';
+import { remoteConfigFieldRequiresServer } from '../services/coreConnection';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -21,6 +23,8 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
   onDirtyGroupsChange?: (groupIds: readonly string[]) => void;
 }) {
   const { locale, t } = useI18n();
+  const { connection } = useCoreConnection();
+  const remote = connection.mode === 'remote';
   const { status, publishStatus, refreshStatus } = useCoreRuntime();
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [drafts, setDrafts] = useState<Record<string, TemplateConfigDraft>>({});
@@ -128,6 +132,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
   };
 
   const restart = async () => {
+    if (remote) return;
     setBusy('restart');
     try { publishStatus(await invoke<CoreStatus>('restart_core_process')); setRestartNeeded(false); setLoadError(''); }
     catch (error) { setLoadError(String(error)); await refreshStatus(); }
@@ -135,6 +140,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
   };
 
   const chooseDirectory = async (group: TemplateConfigGroup, field: TemplateConfigField) => {
+    if (remote) return;
     setBusy('directory');
     try {
       const selected = await open({ directory: true, multiple: false, title: templateText(field.label, locale) });
@@ -145,9 +151,9 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
   };
 
   const control = (group: TemplateConfigGroup, field: TemplateConfigField, value: unknown, id: string, invalid: boolean) => {
-    const disabled = busy !== null || config === null;
+    const disabled = busy !== null || config === null || (remote && remoteConfigFieldRequiresServer(field.path));
     const onChange = (next: unknown) => changeField(group, field, next);
-    const common = { id, disabled, 'aria-invalid': invalid || undefined, 'aria-describedby': invalid ? `${id}-error` : undefined };
+    const common = { id, disabled, title: remote && remoteConfigFieldRequiresServer(field.path) ? t('connection.serverOnly') : undefined, 'aria-invalid': invalid || undefined, 'aria-describedby': invalid ? `${id}-error` : undefined };
     if (field.type === 'custom' && field.render) return field.render({ value, onChange, disabled, id });
     if (field.type === 'boolean') return <label className="switch-control template-config-switch"><input {...common} type="checkbox" checked={value === true} onChange={(event) => onChange(event.currentTarget.checked)} /><span className="switch-track" /></label>;
     if (field.type === 'select') {
@@ -171,14 +177,14 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
       const link = field.link;
       return <div className="template-config-directory">{secret}<button type="button" className="secondary-button compact-button" onClick={() => void invoke('open_external_url', { url: link.url }).catch((error) => setGroupErrors((previous) => ({ ...previous, [group.id]: String(error) })))}><ExternalLink size={15} aria-hidden="true" />{templateText(link.label, locale)}</button></div>;
     }
-    return field.directory ? <div className="template-config-directory">{secret}<button type="button" className="secondary-button compact-button" disabled={disabled} onClick={() => void chooseDirectory(group, field)} aria-label={`${tr('chooseDirectory')}: ${templateText(field.label, locale)}`}>{tr('chooseDirectory')}</button></div> : secret;
+    return field.directory ? <div className="template-config-directory">{secret}<button type="button" className="secondary-button compact-button" disabled={remote || disabled} title={remote ? t('connection.localOnly') : undefined} onClick={() => void chooseDirectory(group, field)} aria-label={`${tr('chooseDirectory')}: ${templateText(field.label, locale)}`}>{tr('chooseDirectory')}</button></div> : secret;
   };
 
   const visible = groups.filter((group) => !visibleGroups || visibleGroups.includes(group.id));
   return <div className="template-config-section" hidden={visible.length === 0}>
     {loadError ? <div className="template-config-notice template-config-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-button compact-button" disabled={busy !== null} onClick={() => void reload()}>{tr('reload')}</button></div> : null}
     {!config && !loadError ? <p role="status">{tr('loading')}</p> : null}
-    {restartNeeded ? <div className="template-config-notice" role="status"><span>{tr('restart')}</span>{status?.running ? <button type="button" className="secondary-button compact-button" disabled={busy !== null} onClick={() => void restart()}>{tr('restartNow')}</button> : null}</div> : null}
+    {restartNeeded ? <div className="template-config-notice" role="status"><span>{remote ? t('connection.restart') : tr('restart')}</span>{!remote && status?.running ? <button type="button" className="secondary-button compact-button" disabled={busy !== null} onClick={() => void restart()}>{tr('restartNow')}</button> : null}</div> : null}
     {groups.map((group) => {
       const dirty = group.fields.some((field) => drafts[templateFieldKey(field.path)]);
       const needsRestart = group.fields.some((field) => field.restart);
@@ -195,7 +201,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
           const description = [templateText(field.description, locale), field.type === 'string-list' ? tr('list') : ''].filter(Boolean).join(' ');
           const resetLabel = `${tr('default')}: ${templateText(field.label, locale)}`;
           return <div key={key} id={`template-field-${group.id}-${index}`} data-field-type={field.type} tabIndex={-1} className={`template-config-field${field.type === 'custom' || field.type === 'json' || field.type === 'string-list' ? ' template-config-field-wide' : ''}${field.type === 'boolean' ? ' template-config-toggle' : ''}${draft ? ' template-config-field-dirty' : ''}`}>
-            <div className="template-config-label">{field.type === 'custom' ? <span id={`${id}-label`}>{templateText(field.label, locale)}</span> : <label htmlFor={id}>{templateText(field.label, locale)}</label>}<div className="template-config-label-tools">{description ? <SettingsHelp label={templateText(field.label, locale)}>{description}</SettingsHelp> : null}{exists ? <button type="button" className="template-config-reset" disabled={busy !== null || !config} title={resetLabel} aria-label={resetLabel} onClick={() => changeField(group, field, null, true)}><RotateCcw size={14} aria-hidden="true" /></button> : null}</div></div>
+            <div className="template-config-label">{field.type === 'custom' ? <span id={`${id}-label`}>{templateText(field.label, locale)}</span> : <label htmlFor={id}>{templateText(field.label, locale)}</label>}<div className="template-config-label-tools">{description ? <SettingsHelp label={templateText(field.label, locale)}>{description}</SettingsHelp> : null}{exists ? <button type="button" className="template-config-reset" disabled={busy !== null || !config || (remote && remoteConfigFieldRequiresServer(field.path))} title={resetLabel} aria-label={resetLabel} onClick={() => changeField(group, field, null, true)}><RotateCcw size={14} aria-hidden="true" /></button> : null}</div></div>
             {field.type === 'custom' ? <details className="template-config-custom"><summary aria-labelledby={`${id}-label ${id}-edit`} aria-describedby={validation ? `${id}-error` : undefined}><span id={`${id}-edit`}>{tr('editDetails')}</span></summary><div className="template-config-control" role="group" aria-labelledby={`${id}-label`}>{control(group, field, value, id, Boolean(validation))}</div></details> : <div className="template-config-control">{control(group, field, value, id, Boolean(validation))}</div>}
             {field.link?.hint ? <small className="template-config-link-hint">{templateText(field.link.hint, locale)}</small> : null}
             {validation ? <small id={`${id}-error`} className="template-config-error" role="alert">{templateText(validation, locale)}</small> : null}

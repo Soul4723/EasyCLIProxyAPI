@@ -1,3 +1,5 @@
+import { useCoreConnection } from '../coreConnection';
+import { connectionGeneration } from '../services/connectionGeneration';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
@@ -25,6 +27,8 @@ export function PluginOAuthDialog({ plugin, browser = 'default', onClose, onComp
 }) {
   const { t, locale, formatDate } = useI18n();
   const text = (key: PluginOAuthMessage) => pluginOAuthText(key, locale);
+  const { connection } = useCoreConnection();
+  const targetGeneration = useRef(connectionGeneration()).current;
   const id = useId();
   const [attempt, setAttempt] = useState(0);
   const [phase, setPhaseState] = useState<Phase>('starting');
@@ -62,7 +66,7 @@ export function PluginOAuthDialog({ plugin, browser = 'default', onClose, onComp
     const current = () => active && !terminal && generation.current === currentGeneration;
     const clearTimers = () => { window.clearTimeout(pollTimer); window.clearTimeout(expiryTimer); };
     const cancel = (value: string) => {
-      if (!value || cancelled.has(value)) return;
+      if (!value || cancelled.has(value) || targetGeneration !== connectionGeneration()) return;
       cancelled.add(value);
       void managementApi.delete('/oauth/session', { query: { state: value } }).catch(() => {});
     };
@@ -159,7 +163,7 @@ export function PluginOAuthDialog({ plugin, browser = 'default', onClose, onComp
           <div className="plugin-oauth-link-actions"><button type="button" className="primary-button" disabled={opening} onClick={() => void open()}>{opening ? <LoaderCircle className="spin" size={16} /> : <ExternalLink size={16} />}{text('open')}</button><button type="button" className="secondary-button" onClick={() => void copy(session.url)}><Copy size={16} />{text('copy')}</button></div>
           {session.code ? <div className="plugin-oauth-code"><span>{text('code')}</span><strong>{session.code}</strong><p>{text('deviceHint')}</p><button type="button" className="secondary-button" onClick={() => void copy(session.code)}><Copy size={16} />{text('copyCode')}</button></div> : null}
           {!session.device ? <form onSubmit={event => { event.preventDefault(); void submit(); }} noValidate>
-            <div className="plugin-oauth-field"><label htmlFor={`${id}-callback`}>{text('callback')}</label><input id={`${id}-callback`} type="url" value={callback} disabled={submitting} autoComplete="off" spellCheck={false} aria-invalid={callbackInvalid} aria-describedby={`${id}-callback-hint`} onChange={event => { setCallback(event.currentTarget.value); setCallbackInvalid(false); setError(''); setNotice(''); }} /><small id={`${id}-callback-hint`}>{text('callbackHint')}</small></div>
+            <div className="plugin-oauth-field"><label htmlFor={`${id}-callback`}>{text('callback')}</label><input id={`${id}-callback`} type="url" value={callback} disabled={submitting} autoComplete="off" spellCheck={false} aria-invalid={callbackInvalid} aria-describedby={`${id}-callback-hint`} onChange={event => { setCallback(event.currentTarget.value); setCallbackInvalid(false); setError(''); setNotice(''); }} /><small id={`${id}-callback-hint`}>{connection.mode === 'remote' ? t('connection.pluginOAuth') : text('callbackHint')}</small></div>
             <button type="submit" className="secondary-button" disabled={submitting || !callback.trim()}>{submitting ? <LoaderCircle className="spin" size={16} /> : null}{text(submitting ? 'submitting' : 'submit')}</button>
           </form> : null}
           <p className="plugin-oauth-expiry">{text('expires')} {formatDate(session.expires, { hour: '2-digit', minute: '2-digit' })}</p>

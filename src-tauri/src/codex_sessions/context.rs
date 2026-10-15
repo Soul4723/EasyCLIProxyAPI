@@ -149,6 +149,7 @@ pub(crate) async fn get_codex_session_context(
     app: tauri::AppHandle,
     request: GetCodexSessionContextRequest,
 ) -> Result<CodexSessionContextDetail, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let user_home = app
         .path()
         .home_dir()
@@ -166,6 +167,7 @@ pub(crate) async fn save_codex_session_context(
     app: tauri::AppHandle,
     request: SaveCodexSessionContextRequest,
 ) -> Result<SaveCodexSessionContextResult, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let user_home = app
         .path()
         .home_dir()
@@ -183,6 +185,7 @@ pub(crate) async fn open_codex_session_rollout(
     app: tauri::AppHandle,
     request: GetCodexSessionContextRequest,
 ) -> Result<(), String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let user_home = app
         .path()
         .home_dir()

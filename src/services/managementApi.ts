@@ -1,3 +1,4 @@
+import { assertConnectionActive, assertConnectionCurrent, connectionGeneration } from './connectionGeneration';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentLocale, translate } from '../i18n';
 
@@ -24,9 +25,13 @@ async function optionalConfigValue(
   path: string, fallback: ManagementJson, options: ManagementRequestOptions = {},
 ): Promise<unknown> {
   try {
-    return await invoke<unknown>('management_request', {
+    assertConnectionActive();
+    const generation = connectionGeneration();
+    const result = await invoke<unknown>('management_request', {
       request: { method: 'GET', path, query: normalizeQuery(options.query), timeoutMs: options.timeoutMs },
     });
+    assertConnectionCurrent(generation);
+    return result;
   } catch (error) {
     // Only an absent v8 config node is optional, not an unavailable endpoint or server.
     const message = error instanceof Error ? error.message : error;
@@ -55,7 +60,9 @@ async function request<T = ManagementJson>(
   path: string,
   options: ManagementRequestOptions = {},
 ): Promise<T> {
-  return invoke<T>('management_request', {
+  assertConnectionActive();
+  const generation = connectionGeneration();
+  const result = await invoke<T>('management_request', {
     request: {
       method,
       path,
@@ -64,6 +71,8 @@ async function request<T = ManagementJson>(
       timeoutMs: options.timeoutMs,
     },
   });
+  assertConnectionCurrent(generation);
+  return result;
 }
 
 export const managementApi = {

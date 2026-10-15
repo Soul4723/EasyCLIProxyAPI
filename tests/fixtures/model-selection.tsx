@@ -1,3 +1,4 @@
+import { LocalConnectionFixture } from './local-connection';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -53,7 +54,7 @@ const initialDraft: ProviderDraft = {
     : scenario === 'excluded' ? 'gpt-*' : '',
 };
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider>
+  <I18nProvider><LocalConnectionFixture>
     <ApiProviderDialog
       activeCategory={scenario === 'new' ? 'deepseek' : 'codex-api-key'}
       editingRow={null}
@@ -62,5 +63,5 @@ createRoot(document.getElementById('root')!).render(
       onClose={() => {}}
       onSave={async (draft) => { fixture.fixtureSaved = draft; return { saved: true }; }}
     />
-  </I18nProvider>,
+  </LocalConnectionFixture></I18nProvider>,
 );

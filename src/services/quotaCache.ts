@@ -50,3 +50,8 @@ export const pruneQuotaCache = (validKeys: Set<string>) => {
 export function useQuotaCache() {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+export function resetQuotaCache() {
+  generation += 1;
+  updateQuotaCache({});
+}

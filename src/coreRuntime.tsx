@@ -1,8 +1,11 @@
+import { useCoreConnection } from './coreConnection';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
 export type CoreStatus = {
+  connectionMode: 'local' | 'remote';
+  remoteOrigin: string | null;
   installed: boolean;
   running: boolean;
   ready: boolean;
@@ -25,18 +28,21 @@ type CoreRuntimeContextValue = {
 const CoreRuntimeContext = createContext<CoreRuntimeContextValue | null>(null);
 
 export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
+  const { connection } = useCoreConnection();
   const [status, setStatus] = useState<CoreStatus | null>(null);
   const [statusError, setStatusError] = useState('');
   const refreshRequest = useRef<Promise<void> | null>(null);
   const statusRevision = useRef(0);
 
   const publishStatus = useCallback((nextStatus: CoreStatus | null) => {
+    if (nextStatus && ((nextStatus.connectionMode ?? 'local') !== connection.mode
+      || (connection.mode === 'remote' && nextStatus.remoteOrigin !== connection.remoteManagementOrigin))) return;
     ++statusRevision.current;
     setStatus((previous) => JSON.stringify(previous) === JSON.stringify(nextStatus) ? previous : nextStatus);
     if (nextStatus) {
       setStatusError('');
     }
-  }, []);
+  }, [connection.mode, connection.remoteManagementOrigin]);
 
   const refreshStatus = useCallback(() => {
     if (refreshRequest.current) return refreshRequest.current;

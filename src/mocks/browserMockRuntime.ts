@@ -1,3 +1,5 @@
+import { normalizedCoreConnection } from '../services/coreConnection';
+import type { CoreConnection } from '../coreConnection';
 import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type TemplateConfigChange } from '../services/templateConfig';
 import { createPluginMock } from './pluginMock';
 import { createQuotaMock, createQuotaMockFiles } from './quotaMock';
@@ -116,6 +118,8 @@ function createCoreStatus(scenario: BrowserMockScenario) {
   const installed = scenario !== 'empty';
   const running = scenario === 'running';
   return {
+    connectionMode: 'local' as 'local' | 'remote',
+    remoteOrigin: null as string | null,
     installed,
     running,
     ready: running,
@@ -947,6 +951,8 @@ export function createBrowserMockRuntime(
   delayMs = 0,
 ): BrowserMockRuntime {
   const state = createState(scenario);
+  let connection: CoreConnection = { mode: 'local', remoteManagementOrigin: '', remoteManagementKey: '', clientApiOrigin: '', clientApiKey: '' };
+  let localStatus = clone(state.coreStatus);
   if (scenario === 'empty') {
     state.usageEvents = [];
     state.usagePrices = [];
@@ -959,6 +965,23 @@ export function createBrowserMockRuntime(
     state.coreConfig.apiKeys = [];
   }
   const pluginMock = createPluginMock(state);
+  try {
+    const saved = globalThis.sessionStorage?.getItem('easycli.mock-core-connection');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      connection = normalizedCoreConnection(parsed.connection);
+      if (parsed.localStatus) localStatus = parsed.localStatus;
+      if (connection.mode === 'remote') Object.assign(state.coreStatus, {
+        connectionMode: 'remote', remoteOrigin: connection.remoteManagementOrigin,
+        installed: false, managed: false, processId: null, installDir: '', binaryPath: null,
+        running: connection.remoteManagementKey !== 'invalid' && new URL(connection.remoteManagementOrigin).hostname !== 'offline.example',
+        starting: false, currentVersion: '8.0.29', message: connection.remoteManagementKey === 'invalid' ? 'Browser Mock: authentication failed (401)' : new URL(connection.remoteManagementOrigin).hostname === 'offline.example' ? 'Browser Mock: remote core unreachable' : 'Browser Mock remote core',
+      });
+      else Object.assign(state.coreStatus, localStatus);
+      state.coreStatus.ready = state.coreStatus.running;
+      if (!state.coreStatus.ready) state.coreStatus.currentVersion = null;
+    }
+  } catch {}
   const emit = (event: string, payload: unknown) => emitEvent(event, clone(payload));
 
   const invoke = async (command: string, rawPayload?: unknown): Promise<unknown> => {
@@ -971,6 +994,11 @@ export function createBrowserMockRuntime(
     const pluginResponse = pluginMock.handle(command, payload);
     if (pluginResponse.handled) return pluginResponse.value;
 
+    if (connection.mode === 'remote' && [
+      'start_core_process', 'stop_core_process', 'restart_core_process',
+      'install_bundled_core', 'install_latest_core', 'open_core_logs_directory',
+      'open_auth_files_directory', 'launch_agent', 'configure_agent',
+    ].includes(command)) throw new Error('Browser Mock: operation requires Local mode');
     switch (command) {
       case 'plugin:app|version': return '0.2.97-mock';
       case 'plugin:app|name': return 'EasyCLIProxyAPI Browser Mock';
@@ -1002,6 +1030,33 @@ export function createBrowserMockRuntime(
       case 'restore_agent_config_backup':
       case 'launch_agent': return null;
 
+      case 'get_core_connection': return clone(connection);
+      case 'test_core_connection': {
+        const candidate = normalizedCoreConnection(asObject(payload.connection) as CoreConnection);
+        if (candidate.mode === 'remote' && candidate.remoteManagementKey === 'invalid') throw new Error('Browser Mock: authentication failed (401)');
+        if (candidate.mode === 'remote' && new URL(candidate.remoteManagementOrigin).hostname === 'offline.example') throw new Error('Browser Mock: remote core unreachable');
+        return { version: '8.0.29', message: 'Browser Mock: authenticated connection succeeded' };
+      }
+      case 'save_core_connection': {
+        const candidate = normalizedCoreConnection(asObject(payload.connection) as CoreConnection);
+        if (connection.mode === 'local' && candidate.mode === 'remote' && state.coreStatus.running && state.coreStatus.managed) {
+          throw new Error('Stop the app-managed local core before switching to Remote. Go Back to Home and Stop it first.');
+        }
+        if (connection.mode === 'local') localStatus = clone(state.coreStatus);
+        connection = candidate;
+        if (connection.mode === 'local') Object.assign(state.coreStatus, localStatus);
+        else Object.assign(state.coreStatus, {
+          connectionMode: 'remote', remoteOrigin: connection.remoteManagementOrigin,
+          installed: false, managed: false, processId: null, installDir: '', binaryPath: null,
+          running: connection.remoteManagementKey !== 'invalid' && new URL(connection.remoteManagementOrigin).hostname !== 'offline.example',
+          starting: false, currentVersion: '8.0.29', message: connection.remoteManagementKey === 'invalid' ? 'Browser Mock: authentication failed (401)' : new URL(connection.remoteManagementOrigin).hostname === 'offline.example' ? 'Browser Mock: remote core unreachable' : 'Browser Mock remote core',
+        });
+        state.coreStatus.ready = state.coreStatus.running;
+        if (!state.coreStatus.ready) state.coreStatus.currentVersion = null;
+        try { globalThis.sessionStorage?.setItem('easycli.mock-core-connection', JSON.stringify({ connection, localStatus })); } catch {}
+        emit('core-connection-changed', connection);
+        return clone(connection);
+      }
       case 'get_core_status': return clone(state.coreStatus);
       case 'start_core_process': {
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
@@ -1086,10 +1141,12 @@ export function createBrowserMockRuntime(
         return updateCoreConfig(state, { settings: { routingSessionAffinityTtl: readString(payload.ttl) } });
       }
       case 'add_core_api_key': {
+        if (connection.mode === 'remote' && readString(payload.remark).trim()) throw new Error('Remote API key notes are unsupported');
         state.coreConfig.apiKeys.push({ apiKey: readString(payload.apiKey), remark: readString(payload.remark) });
         return clone(state.coreConfig);
       }
       case 'update_core_api_key': {
+        if (connection.mode === 'remote' && readString(payload.remark).trim()) throw new Error('Remote API key notes are unsupported');
         const entry = state.coreConfig.apiKeys.find((item) => item.apiKey === payload.originalApiKey);
         if (entry) Object.assign(entry, { apiKey: readString(payload.apiKey), remark: readString(payload.remark) });
         return clone(state.coreConfig);
@@ -1218,7 +1275,7 @@ export function createBrowserMockRuntime(
         const provider = readString(payload.provider) || 'codex';
         const session = `mock-oauth-${provider}-${Date.now()}`;
         state.oauthSessions.set(session, provider);
-        return { url: `https://example.com/mock-oauth/${provider}?state=${session}`, state: session, opened: true, openError: null };
+        return { url: `https://example.com/mock-oauth/${provider}?state=${session}`, state: session, flow: ['kimi', 'xai', 'meta'].includes(provider) ? 'device' : 'browser', userCode: ['kimi', 'xai', 'meta'].includes(provider) ? 'MOCK-1234' : null, opened: true, openError: null };
       }
       case 'get_oauth_status': {
         const session = readString(payload.state);

@@ -1,0 +1,127 @@
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+
+(async () => {
+  const { createServer } = await import('vite');
+  const react = (await import('@vitejs/plugin-react')).default;
+  const server = await createServer({ configFile: false, root: path.resolve(__dirname, '..'), plugins: [react()], logLevel: 'error', server: { host: '127.0.0.1', port: 0, watch: null } });
+  let browser;
+  try {
+    await server.listen();
+    const base = `http://127.0.0.1:${server.httpServer.address().port}`;
+    browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    page.setDefaultTimeout(15000);
+    const errors = [], external = [];
+    page.on('pageerror', error => errors.push(String(error)));
+    await page.route('**/*', route => {
+      if (route.request().url().startsWith(`${base}/`)) return route.continue();
+      external.push(route.request().url()); return route.abort();
+    });
+    await page.addInitScript(() => localStorage.setItem('easy-cli-proxy-api.locale', 'en'));
+    await page.goto(`${base}/?mock=running&mockDelay=10`);
+    const open = async () => {
+      await page.getByRole('button', { name: 'Core connection', exact: true }).click();
+      return page.getByRole('dialog', { name: 'Core connection', exact: true });
+    };
+    let dialog = await open();
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await page.getByRole('button', { name: 'Core connection', exact: true }).evaluate(el => el === document.activeElement), true);
+    dialog = await open();
+    await dialog.getByRole('radio', { name: 'Remote', exact: true }).check();
+    await dialog.getByLabel('Remote server origin', { exact: true }).fill('http://remote.example:8317/v1');
+    await dialog.getByLabel('Management key', { exact: true }).fill('mock-management');
+    await dialog.getByRole('button', { name: 'Test Connection', exact: true }).click();
+    await dialog.getByRole('alert').filter({ hasText: 'without a path' }).waitFor();
+    await dialog.getByLabel('Remote server origin', { exact: true }).fill('http://remote.example:8317');
+    await dialog.getByLabel('Management key', { exact: true }).fill('invalid');
+    await dialog.getByRole('button', { name: 'Test Connection', exact: true }).click();
+    await dialog.getByRole('alert').filter({ hasText: '401' }).waitFor();
+    await dialog.getByLabel('Management key', { exact: true }).fill('mock-management');
+    await dialog.getByRole('button', { name: 'Test Connection', exact: true }).click();
+    await dialog.getByRole('status').filter({ hasText: '8.0.29' }).waitFor();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await dialog.getByRole('alert').filter({ hasText: 'Stop the app-managed local core' }).waitFor();
+    await dialog.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await page.getByRole('button', { name: /^start$/i }).waitFor();
+    dialog = await open();
+    await dialog.getByRole('radio', { name: 'Remote', exact: true }).check();
+    await dialog.getByLabel('Remote server origin', { exact: true }).fill('http://remote.example:8317');
+    await dialog.getByLabel('Management key', { exact: true }).fill('mock-management');
+    await page.evaluate(() => { window.oldTargetSentinel = true; });
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await page.getByText('Authenticated and reachable', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.oldTargetSentinel), undefined);
+    assert.equal(await page.locator('[data-runtime="installation"]').count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Restart', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Agent Configuration', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Beginner Mode', exact: true }).isDisabled(), true);
+    await page.getByRole('button', { name: /^Version Management/ }).click();
+    await page.getByText('Remote core updates must be performed on the server.', { exact: true }).waitFor();
+    assert.equal(await page.locator('.core-actions').count(), 0);
+    await page.getByRole('button', { name: 'API Access', exact: true }).click();
+    await page.locator('.provider-health-button').first().waitFor();
+    assert.equal(await page.locator('.provider-health-button').first().isDisabled(), true);
+    await page.getByRole('button', { name: 'Advanced Features', exact: true }).click();
+    await page.getByRole('button', { name: 'Add Authentication Key', exact: true }).click();
+    const keyDialog = page.getByRole('dialog');
+    assert.equal(await keyDialog.getByLabel('Remark', { exact: false }).isDisabled(), true);
+    assert.equal(await keyDialog.getByLabel('Authentication Key', { exact: true }).isEnabled(), true);
+    await keyDialog.getByText('Remote API key notes are unavailable.', { exact: false }).waitFor();
+    await keyDialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('#config-native-network input').first().waitFor();
+    assert.equal(await page.locator('#config-native-network input').first().isDisabled(), true);
+    await page.getByRole('button', { name: 'Plugins', exact: true }).click();
+    await page.locator('.plugin-card').first().waitFor();
+    await page.getByRole('button', { name: 'OAuth', exact: true }).click();
+    const claude = page.locator('.oauth-card').filter({ has: page.getByRole('heading', { name: 'Claude OAuth', exact: true }) });
+    await claude.getByRole('button', { name: /Add Account|Sign In/, exact: true }).click();
+    await claude.getByText(/Remote OAuth: the browser runs on this computer/).waitFor();
+    const kimi = page.locator('.oauth-card').filter({ has: page.getByRole('heading', { name: 'Kimi OAuth', exact: true }) });
+    await kimi.getByRole('button', { name: /Add Account|Sign In/, exact: true }).click();
+    await kimi.getByText('MOCK-1234', { exact: true }).waitFor();
+    assert.equal(await kimi.locator('.oauth-callback-block').count(), 0);
+    await claude.locator('.oauth-flow-status.success').waitFor();
+    await page.getByRole('button', { name: 'Home', exact: true }).click();
+    dialog = await open();
+    assert.equal(await dialog.getByLabel('Remote server origin', { exact: true }).inputValue(), 'http://remote.example:8317');
+    await dialog.getByLabel('Remote server origin', { exact: true }).fill('http://second.example:8317');
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await page.getByText('http://second.example:8317', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'OAuth', exact: true }).click();
+    await page.locator('.oauth-card').first().waitFor();
+    assert.equal(await page.locator('.oauth-flow-status.success').count(), 0);
+    await page.getByRole('button', { name: 'Home', exact: true }).click();
+    for (const failure of [
+      { origin: 'http://offline.example:8317', key: 'mock-management', message: 'Browser Mock: remote core unreachable' },
+      { origin: 'http://second.example:8317', key: 'invalid', message: 'Browser Mock: authentication failed (401)' },
+    ]) {
+      dialog = await open();
+      await dialog.getByLabel('Remote server origin', { exact: true }).fill(failure.origin);
+      await dialog.getByLabel('Management key', { exact: true }).fill(failure.key);
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: failure.message }).waitFor();
+      await page.getByRole('button', { name: 'Refresh Status', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: failure.message }).waitFor();
+      // Reload again proves recovery from an already-saved unreachable target.
+      await page.reload();
+      await page.getByRole('alert').filter({ hasText: failure.message }).waitFor();
+    }
+    dialog = await open();
+    await dialog.getByRole('radio', { name: 'Local', exact: true }).check();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await page.locator('[data-runtime="installation"]').waitFor();
+    await page.getByRole('button', { name: /^start$/i }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).count(), 0);
+    await page.getByRole('button', { name: /^start$/i }).click();
+    await page.getByRole('button', { name: 'Stop', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Agent Configuration', exact: true }).isEnabled(), true);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(external, []);
+    console.log('PASS: StrictMode dialog, validation/auth and running-local rejection, persisted target reload, remote gates, browser/device OAuth saved offline/auth recovery, remote key note gating and Local restoration; no external requests.');
+  } finally { await browser?.close(); await server.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

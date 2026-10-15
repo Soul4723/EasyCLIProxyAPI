@@ -6,6 +6,9 @@ const BUNDLED_CORE_HANDLED_VERSION_FILE: &str = "cpa-gui-bundled-core-handled.tx
 pub(crate) fn lock_core_operation(
     process_state: &CoreProcessState,
 ) -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    if core_connection::active_connection().is_remote() {
+        return Err("Local core lifecycle unavailable in remote mode".to_string());
+    }
     let guard = CORE_OPERATION_LOCK
         .try_lock()
         .map_err(|_| "The kernel is performing another operation. Try again later".to_string())?;
@@ -125,6 +128,7 @@ async fn run_core_command(
     operation: fn(&CoreProcessState, &GuiConfigState) -> Result<CoreStatus, String>,
 ) -> Result<CoreStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = core_connection::local_operation()?;
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
         let status = operation(
             app.state::<CoreProcessState>().inner(),
@@ -142,6 +146,7 @@ pub(crate) async fn check_latest_core(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<CoreLatest, String> {
+    let _connection_guard = core_connection::local_operation()?;
     let _detection_guard = VERSION_SOURCE_DETECTION_LOCK.lock().await;
     let platform = current_core_platform()?;
     let config = gui_config_state.snapshot()?;
@@ -180,6 +185,7 @@ pub(crate) async fn install_bundled_core(
     window: tauri::Window,
 ) -> Result<CoreInstallResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = core_connection::local_operation()?;
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
         let state = app.state::<CoreDownloadState>();
         let process_state = app.state::<CoreProcessState>();
@@ -318,6 +324,7 @@ pub(crate) async fn install_core_version(
     version: Option<String>,
 ) -> Result<CoreInstallResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _connection_guard = core_connection::local_operation()?;
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
         let state = app.state::<CoreDownloadState>();
         let process_state = app.state::<CoreProcessState>();
@@ -1347,6 +1354,8 @@ pub(crate) fn current_core_status(
     };
 
     Ok(CoreStatus {
+        connection_mode: core_connection::ConnectionMode::Local,
+        remote_origin: None,
         installed,
         running,
         ready,
@@ -2326,6 +2335,7 @@ pub(crate) fn shutdown_managed_core(
     process_state: &CoreProcessState,
     gui_config_state: &GuiConfigState,
 ) {
+    let Ok(_connection_guard) = core_connection::local_operation() else { return; };
     let was_running = process_state.managed_pid().is_some()
         || core_install_dir()
             .ok()

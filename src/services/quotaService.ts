@@ -1,3 +1,4 @@
+import { assertConnectionCurrent, connectionGeneration } from './connectionGeneration';
 import { captureQuotaCacheGeneration } from './quotaCache';
 import { readClaudeResetGrants, type AnthropicResetGrantStatus } from './claudeResetGrants';
 import { selectResetGrant } from './selectClaudeResetGrant';
@@ -1050,7 +1051,7 @@ const quotaRequests = new Map<string, Promise<QuotaState>>();
 const quotaMutationRequests = new Map<string, Promise<QuotaState>>();
 
 export function loadQuota(file: AuthFile): Promise<QuotaState> {
-  const key = quotaKey(file);
+  const key = `${connectionGeneration()}:${quotaKey(file)}`;
   const reset = quotaMutationRequests.get(key);
   if (reset) return reset.catch((error): QuotaState => ({
     status: 'error', rows: [], error: error instanceof Error ? error.message : String(error),
@@ -1065,11 +1066,13 @@ export function loadQuota(file: AuthFile): Promise<QuotaState> {
 }
 
 function runQuotaMutation(file: AuthFile, mutate: () => Promise<QuotaState>): Promise<QuotaState> {
-  const key = quotaKey(file);
+  const key = `${connectionGeneration()}:${quotaKey(file)}`;
   const existing = quotaMutationRequests.get(key);
   if (existing) return existing;
+  const generation = connectionGeneration();
   const request = (async () => {
     await quotaRequests.get(key);
+    assertConnectionCurrent(generation);
     return mutate();
   })().finally(() => {
     if (quotaMutationRequests.get(key) === request) quotaMutationRequests.delete(key);

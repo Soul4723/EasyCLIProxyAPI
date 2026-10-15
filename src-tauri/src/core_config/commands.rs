@@ -7,6 +7,7 @@ pub(crate) fn get_lan_ipv4() -> Option<String> {
 
 #[tauri::command]
 pub(crate) fn get_core_tls_settings() -> Result<CoreTlsSettings, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     current_core_tls_settings()
 }
 
@@ -15,6 +16,7 @@ pub(crate) fn save_core_tls_settings(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: CoreTlsSettings,
 ) -> Result<CoreTlsSettings, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let settings = normalize_core_tls_settings(settings)?;
     patch_core_tls_settings(&settings)?;
     cache.clear()?;
@@ -22,14 +24,35 @@ pub(crate) fn save_core_tls_settings(
 }
 
 #[tauri::command]
-pub(crate) fn get_core_sensitive_words_settings() -> Result<CoreSensitiveWordsSettings, String> {
+pub(crate) async fn get_core_sensitive_words_settings(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<CoreSensitiveWordsSettings, String> {
+    let config = gui_config_state.snapshot()?;
+    if config.core_connection.is_remote() {
+        let content = fetch_management_raw_config_yaml(&config).await?;
+        let document = serde_norway::from_str(&content).map_err(|error| format!("Invalid remote core YAML: {error}"))?;
+        crate::core_connection::ensure_current(&config)?;
+        return core_sensitive_words_settings_from_value(&document);
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     read_core_sensitive_words_settings()
 }
 
 #[tauri::command]
-pub(crate) fn save_core_sensitive_words_settings(
+pub(crate) async fn save_core_sensitive_words_settings(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
     settings: CoreSensitiveWordsSettings,
 ) -> Result<CoreSensitiveWordsSettings, String> {
+    let config = gui_config_state.snapshot()?;
+    if config.core_connection.is_remote() {
+        let normalized = normalize_core_sensitive_words_settings(settings);
+        super::extended::save_remote_core_values(&config, &[
+            ("oauth/providers/antigravity/sensitive-words", serde_json::json!(normalized.antigravity_sensitive_words)),
+            ("oauth/providers/devin/sensitive-words", serde_json::json!(normalized.devin_sensitive_words)),
+        ]).await?;
+        return Ok(normalized);
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let normalized = normalize_core_sensitive_words_settings(settings);
     patch_core_sensitive_words_settings(&normalized)?;
     Ok(normalized)
@@ -62,6 +85,7 @@ pub(crate) fn save_gui_settings(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: GuiNetworkSettings,
 ) -> Result<GuiSettings, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     if settings.port == 0 {
         return Err("Port must be between 1 and 65535".to_string());
     }
@@ -109,6 +133,7 @@ pub(crate) fn save_network_routing_settings(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: GuiNetworkRoutingSettings,
 ) -> Result<CoreConfigView, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     if settings.port == 0 {
         return Err("Port must be between 1 and 65535".to_string());
     }
@@ -162,6 +187,7 @@ pub(crate) fn save_network_endpoint_settings(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: GuiNetworkEndpointSettings,
 ) -> Result<CoreConfigView, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     if settings.port == 0 {
         return Err("Port must be between 1 and 65535".to_string());
     }
@@ -208,10 +234,21 @@ pub(crate) fn save_network_endpoint_settings(
 }
 
 #[tauri::command]
-pub(crate) fn save_retry_settings(
+pub(crate) async fn save_retry_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     settings: GuiRetrySettings,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        return super::extended::save_remote_core_values(&snapshot, &[
+            ("routing/cooldown/disable-cooling", serde_json::json!(settings.disable_cooling)),
+            ("routing/retry/request-retry", serde_json::json!(settings.request_retry)),
+            ("routing/retry/max-retry-credentials", serde_json::json!(settings.max_retry_credentials)),
+            ("routing/retry/max-retry-interval", serde_json::json!(settings.max_retry_interval)),
+            ("requests/streaming/bootstrap-retries", serde_json::json!(settings.streaming_bootstrap_retries)),
+        ]).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let previous = gui_config_state.snapshot()?;
     let mut next = previous.clone();
     next.disable_cooling = settings.disable_cooling;
@@ -231,10 +268,19 @@ pub(crate) fn save_retry_settings(
 }
 
 #[tauri::command]
-pub(crate) fn save_session_routing_settings(
+pub(crate) async fn save_session_routing_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     settings: GuiSessionRoutingSettings,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        let ttl = normalize_session_affinity_ttl(settings.routing_session_affinity_ttl)?;
+        return super::extended::save_remote_core_values(&snapshot, &[
+            ("routing/session-affinity", serde_json::json!(settings.routing_session_affinity)),
+            ("routing/session-affinity-ttl", serde_json::json!(ttl)),
+        ]).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let ttl = normalize_session_affinity_ttl(settings.routing_session_affinity_ttl)?;
     let previous = gui_config_state.snapshot()?;
     let mut next = previous.clone();
@@ -252,9 +298,14 @@ pub(crate) fn save_session_routing_settings(
 }
 
 #[tauri::command]
-pub(crate) fn get_core_config_settings(
+pub(crate) async fn get_core_config_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        return super::extended::remote_core_config_view(&snapshot).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let settings = current_core_config_settings(gui_config_state.inner())?;
     let config = gui_config_state.sync_core_settings(&settings)?;
     let api_keys = gui_api_key_values(&config.api_keys);
@@ -265,10 +316,26 @@ pub(crate) fn get_core_config_settings(
 }
 
 #[tauri::command]
-pub(crate) fn save_core_logging_settings(
+pub(crate) async fn save_core_logging_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     settings: CoreLoggingSettingsInput,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        if !(1..=3600).contains(&settings.redis_usage_queue_retention_seconds) {
+            return Err("Redis usage queue retention must be between 1 and 3600 seconds".to_string());
+        }
+        return super::extended::save_remote_core_values(&snapshot, &[
+            ("observability/logs/debug", serde_json::json!(settings.debug)),
+            ("server/commercial-mode", serde_json::json!(settings.commercial_mode)),
+            ("observability/logs/logging-to-file", serde_json::json!(settings.logging_to_file)),
+            ("observability/logs/logs-max-total-size-mb", serde_json::json!(settings.logs_max_total_size_mb)),
+            ("observability/logs/error-logs-max-files", serde_json::json!(settings.error_logs_max_files)),
+            ("observability/usage/usage-statistics-enabled", serde_json::json!(settings.usage_statistics_enabled)),
+            ("observability/usage/redis-usage-queue-retention-seconds", serde_json::json!(settings.redis_usage_queue_retention_seconds)),
+        ]).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     if !(1..=3600).contains(&settings.redis_usage_queue_retention_seconds) {
         return Err("Redis usage queue retention must be between 1 and 3600 seconds".to_string());
     }
@@ -295,11 +362,38 @@ pub(crate) fn save_core_logging_settings(
 }
 
 #[tauri::command]
-pub(crate) fn add_core_api_key(
+pub(crate) async fn add_core_api_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     api_key: String,
     remark: String,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        let _target_guard = crate::core_connection::target_operation()?;
+        crate::core_connection::ensure_current(&snapshot)?;
+        let api_key = api_key.trim().to_string();
+        validate_core_api_key(&api_key)?;
+        validate_api_key_remark(remark.trim())?;
+        if !remark.trim().is_empty() {
+            return Err("Remote API key notes are not supported; save the key without a note".to_string());
+        }
+        let mut keys = super::extended::remote_core_config_view(&snapshot)
+            .await?
+            .api_keys
+            .iter()
+            .map(|entry| entry.api_key.clone())
+            .collect::<Vec<_>>();
+        if keys.contains(&api_key) {
+            return Err("This authentication key already exists".to_string());
+        }
+        keys.push(api_key);
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[("access/api-keys", serde_json::json!(keys))],
+        )
+        .await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let api_key = api_key.trim().to_string();
     let remark = remark.trim().to_string();
     validate_core_api_key(&api_key)?;
@@ -355,12 +449,36 @@ pub(crate) fn remove_core_api_key_value(
 }
 
 #[tauri::command]
-pub(crate) fn update_core_api_key(
+pub(crate) async fn update_core_api_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     original_api_key: String,
     api_key: String,
     remark: String,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        let _target_guard = crate::core_connection::target_operation()?;
+        crate::core_connection::ensure_current(&snapshot)?;
+        let api_key = api_key.trim().to_string();
+        validate_core_api_key(&api_key)?;
+        validate_api_key_remark(remark.trim())?;
+        if !remark.trim().is_empty() {
+            return Err("Remote API key notes are not supported; save the key without a note".to_string());
+        }
+        let mut keys = super::extended::remote_core_config_view(&snapshot)
+            .await?
+            .api_keys
+            .iter()
+            .map(|entry| entry.api_key.clone())
+            .collect::<Vec<_>>();
+        replace_core_api_key_value(&mut keys, original_api_key.trim(), api_key)?;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[("access/api-keys", serde_json::json!(keys))],
+        )
+        .await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let original_api_key = original_api_key.trim();
     let api_key = api_key.trim().to_string();
     let remark = remark.trim().to_string();
@@ -384,10 +502,28 @@ pub(crate) fn update_core_api_key(
 }
 
 #[tauri::command]
-pub(crate) fn delete_core_api_key(
+pub(crate) async fn delete_core_api_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     api_key: String,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        let _target_guard = crate::core_connection::target_operation()?;
+        crate::core_connection::ensure_current(&snapshot)?;
+        let mut keys = super::extended::remote_core_config_view(&snapshot)
+            .await?
+            .api_keys
+            .iter()
+            .map(|entry| entry.api_key.clone())
+            .collect::<Vec<_>>();
+        remove_core_api_key_value(&mut keys, api_key.trim())?;
+        return super::extended::save_remote_core_values(
+            &snapshot,
+            &[("access/api-keys", serde_json::json!(keys))],
+        )
+        .await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let api_key = api_key.trim();
     if api_key.is_empty() {
         return Err("The authentication key to delete cannot be empty".to_string());
@@ -404,6 +540,7 @@ pub(crate) fn set_core_management_secret_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     secret_key: String,
 ) -> Result<CoreConfigView, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let secret_key = normalize_management_secret_key(secret_key)?;
     let previous = gui_config_state.snapshot()?;
     patch_core_management_secret_key(&secret_key)?;
@@ -422,6 +559,7 @@ pub(crate) fn set_core_management_secret_key(
 pub(crate) fn clear_core_management_secret_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<CoreConfigView, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let previous = gui_config_state.snapshot()?;
     patch_core_management_secret_key("")?;
     let config = match gui_config_state.set_management_secret_key(String::new()) {
@@ -436,10 +574,15 @@ pub(crate) fn clear_core_management_secret_key(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_plugins_enabled(
+pub(crate) async fn set_core_plugins_enabled(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        return super::extended::save_remote_core_values(&snapshot, &[("plugins/enabled", serde_json::json!(enabled))]).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     settings.plugins_enabled = enabled;
     patch_core_plugins_enabled(settings.plugins_enabled)?;
@@ -448,10 +591,15 @@ pub(crate) fn set_core_plugins_enabled(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_request_log(
+pub(crate) async fn set_core_request_log(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        return super::extended::save_remote_core_values(&snapshot, &[("observability/logs/request-log", serde_json::json!(enabled))]).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     let previous_enabled = settings.request_log;
     settings.request_log = enabled;
@@ -467,10 +615,16 @@ pub(crate) fn set_core_request_log(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_routing_strategy(
+pub(crate) async fn set_core_routing_strategy(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     strategy: String,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        validate_routing_strategy(&strategy)?;
+        return super::extended::save_remote_core_values(&snapshot, &[("routing/strategy", serde_json::json!(strategy))]).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     validate_routing_strategy(&strategy)?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     settings.routing_strategy = strategy;
@@ -480,19 +634,30 @@ pub(crate) fn set_core_routing_strategy(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_proxy_url(
+pub(crate) async fn set_core_proxy_url(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     proxy_url: String,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        let proxy_url = network_proxy::normalize_optional_proxy_url(&proxy_url)?;
+        return super::extended::save_remote_core_values(&snapshot, &[("requests/proxy-url", serde_json::json!(proxy_url))]).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     network_proxy::set_manual(gui_config_state.inner(), proxy_url)?;
     Ok(CoreConfigView::from(&gui_config_state.snapshot()?))
 }
 
 #[tauri::command]
-pub(crate) fn set_core_session_affinity(
+pub(crate) async fn set_core_session_affinity(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        return super::extended::save_remote_core_values(&snapshot, &[("routing/session-affinity", serde_json::json!(enabled))]).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     let previous_enabled = settings.routing_session_affinity;
     settings.routing_session_affinity = enabled;
@@ -508,10 +673,16 @@ pub(crate) fn set_core_session_affinity(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_session_affinity_ttl(
+pub(crate) async fn set_core_session_affinity_ttl(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     ttl: String,
 ) -> Result<CoreConfigView, String> {
+    let snapshot = gui_config_state.snapshot()?;
+    if snapshot.core_connection.is_remote() {
+        let ttl = normalize_session_affinity_ttl(ttl)?;
+        return super::extended::save_remote_core_values(&snapshot, &[("routing/session-affinity-ttl", serde_json::json!(ttl))]).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let ttl = normalize_session_affinity_ttl(ttl)?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     let previous_ttl = settings.routing_session_affinity_ttl.clone();

@@ -508,6 +508,7 @@ pub(crate) fn normalize_optional_proxy_url(value: &str) -> Result<String, String
 }
 
 fn apply(state: &GuiConfigState) -> Result<GuiConfigFile, String> {
+    let _connection_guard = super::core_connection::local_operation()?;
     let snapshot = state
         .inner
         .lock()
@@ -558,6 +559,7 @@ pub(crate) fn refresh(state: &GuiConfigState) -> Result<(), String> {
 }
 
 pub(crate) fn set_manual(state: &GuiConfigState, proxy_url: String) -> Result<(), String> {
+    let _connection_guard = super::core_connection::local_operation()?;
     let proxy_url = normalize_optional_proxy_url(&proxy_url)?;
     let detected = if proxy_url.is_empty() {
         Some(detect())
@@ -579,6 +581,7 @@ pub(crate) fn set_manual(state: &GuiConfigState, proxy_url: String) -> Result<()
 }
 
 pub(crate) async fn verify_core_proxy(config: &GuiConfigFile) -> Result<(), String> {
+    let _connection_guard = super::core_connection::local_operation()?;
     let client = management_api::management_http_client()?;
     let mut updated = false;
     for attempt in 0..10 {
@@ -632,6 +635,7 @@ pub(crate) async fn verify_core_proxy(config: &GuiConfigFile) -> Result<(), Stri
 static SYNC_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn synchronize(app: &tauri::AppHandle, require_core: bool) -> Result<(), String> {
+    let _connection_guard = super::core_connection::local_operation()?;
     let _guard = SYNC_LOCK.lock().await;
     let work_app = app.clone();
     let config = tauri::async_runtime::spawn_blocking(move || {

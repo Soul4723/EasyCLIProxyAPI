@@ -1085,8 +1085,75 @@ fn prepare_patch(
     ))
 }
 
+// Remote views are temporary: never mirror server values into GUI/local YAML.
+fn remote_view_from_yaml(config: &GuiConfigFile, content: &str) -> Result<CoreConfigView, String> {
+    let document = serde_norway::from_str(content).map_err(|error| format!("Invalid remote core YAML: {error}"))?;
+    let settings = core_config_settings_from_value(&document)?;
+    let mut view = config.clone();
+    apply_core_settings_to_gui_config(&mut view, &settings);
+    view.api_keys = settings.api_keys.iter().map(|key| GuiApiKeyEntry { key: key.clone(), remark: String::new() }).collect();
+    view.management_secret_key = config.core_connection.remote_management_key.clone();
+    view.proxy_override = true;
+    Ok(CoreConfigView::from(&view))
+}
+
+pub(crate) async fn remote_core_config_view(config: &GuiConfigFile) -> Result<CoreConfigView, String> {
+    let content = fetch_management_raw_config_yaml(config).await?;
+    crate::core_connection::ensure_current(config)?;
+    remote_view_from_yaml(config, &content)
+}
+
+fn validate_remote_changes(changes: &[ExtendedConfigChange]) -> Result<(), String> {
+    for change in changes {
+        for prefix in ["server/host", "server/port", "server/tls", "management", "oauth/auth-dir"] {
+            let prefix = parts(prefix);
+            if change.path.starts_with(&prefix) || prefix.starts_with(&change.path) {
+                return Err("Remote endpoint, TLS, management credentials, and auth directory changes require server-side configuration".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn save_remote_extended(config: &GuiConfigFile, content: &str, changes: &[ExtendedConfigChange]) -> Result<ExtendedConfigResult, String> {
+    validate_remote_changes(changes)?;
+    let (updated, result) = prepare_patch(content, changes)?;
+    crate::core_connection::ensure_current(config)?;
+    if updated != content {
+        let response = management_http_client()?
+            .put(management_endpoint(config, "config.yaml")?)
+            .header("Authorization", management_authorization(config)?)
+            .header(reqwest::header::CONTENT_TYPE, "application/yaml")
+            .body(updated).send().await
+            .map_err(|error| format_management_request_error("Failed to save remote core configuration", &error))?;
+        read_management_value(response).await?;
+    }
+    crate::core_connection::ensure_current(config)?;
+    Ok(result)
+}
+
+pub(crate) async fn save_remote_core_values(config: &GuiConfigFile, values: &[(&str, Json)]) -> Result<CoreConfigView, String> {
+    let _connection_guard = crate::core_connection::target_operation()?;
+    crate::core_connection::ensure_current(config)?;
+    for (path, value) in values {
+        let value = serde_norway::to_value(value).map_err(|error| error.to_string())?;
+        put_management_config_value(config, path, &value).await?;
+    }
+    remote_core_config_view(config).await
+}
+
 #[tauri::command]
-pub(crate) fn get_extended_core_config() -> Result<Json, String> {
+pub(crate) async fn get_extended_core_config(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<Json, String> {
+    let config = gui_config_state.snapshot()?;
+    if config.core_connection.is_remote() {
+        let content = fetch_management_raw_config_yaml(&config).await?;
+        let document = serde_norway::from_str(&content).map_err(|error| format!("Invalid remote core YAML: {error}"))?;
+        crate::core_connection::ensure_current(&config)?;
+        return extended_config_view(&document);
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let _guard = lock_core_config_file()?;
     let path = core_install_dir()?.join(CORE_CONFIG_FILE);
     let content = fs::read_to_string(&path)
@@ -1097,10 +1164,18 @@ pub(crate) fn get_extended_core_config() -> Result<Json, String> {
 }
 
 #[tauri::command]
-pub(crate) fn save_extended_core_config(
+pub(crate) async fn save_extended_core_config(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     changes: Vec<ExtendedConfigChange>,
 ) -> Result<ExtendedConfigResult, String> {
+    let config = gui_config_state.snapshot()?;
+    if config.core_connection.is_remote() {
+        let _connection_guard = crate::core_connection::target_operation()?;
+        crate::core_connection::ensure_current(&config)?;
+        let content = fetch_management_raw_config_yaml(&config).await?;
+        return save_remote_extended(&config, &content, &changes).await;
+    }
+    let _connection_guard = crate::core_connection::local_operation()?;
     let _guard = lock_core_config_file()?;
     let path = core_install_dir()?.join(CORE_CONFIG_FILE);
     let content = fs::read_to_string(&path)
@@ -1644,4 +1719,27 @@ client: {codex: {optimize-multi-agent-v2: false}}
         .unwrap();
         assert!(!result.restart_required);
     }
+    #[test]
+    fn remote_views_do_not_mirror_server_settings_into_local_config() {
+        let mut local = GuiConfigFile::default();
+        local.port = 8001;
+        local.management_secret_key = "local-management".into();
+        local.core_connection.remote_management_key = "remote-management".into();
+        let yaml = "config-version: 8\nserver: {host: 0.0.0.0, port: 9001}\naccess: {api-keys: [remote-client]}\nobservability: {logs: {debug: true}}\n";
+        let remote = remote_view_from_yaml(&local, yaml).unwrap();
+        assert_eq!(remote.port, 9001);
+        assert!(remote.debug);
+        assert_eq!(remote.api_keys[0].api_key, "remote-client");
+        assert_eq!(local.port, 8001);
+        assert_eq!(local.management_secret_key, "local-management");
+        for path in ["server/host", "server/tls", "management", "oauth/auth-dir"] {
+            assert!(validate_remote_changes(&[ExtendedConfigChange { path: parts(path), value: Json::Null, remove: true, expected: Json::Null, expected_exists: false }]).is_err());
+        }
+        let edits = vec![change(yaml, "plugins/enabled", json!(true), false)];
+        assert!(validate_remote_changes(&edits).is_ok());
+        let (updated, result) = prepare_patch(yaml, &edits).unwrap();
+        assert_eq!(result.config.pointer("/plugins/enabled"), Some(&json!(true)));
+        assert!(updated.contains("remote-client"));
+    }
+
 }

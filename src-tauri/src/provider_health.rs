@@ -329,6 +329,7 @@ pub(crate) fn provider_health_content_type_is_streaming(content_type: &str) -> b
 pub(crate) async fn get_core_models(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<CoreHealthModel>, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let config = gui_config_state.snapshot()?;
     fetch_core_models(config.port, effective_agent_api_key(&config)).await
 }
@@ -389,6 +390,7 @@ pub(crate) async fn core_health_probe(
     model: String,
     timeout_ms: Option<u64>,
 ) -> Result<ProviderHealthProbeResponse, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let config = gui_config_state.snapshot()?;
     probe_core_model(&config, &model, timeout_ms).await
 }
@@ -447,6 +449,7 @@ pub(crate) async fn provider_health_probe(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: ProviderHealthProbeRequest,
 ) -> Result<ProviderHealthProbeResponse, String> {
+    let _connection_guard = crate::core_connection::local_operation()?;
     let url = reqwest::Url::parse(request.url.trim())
         .map_err(|error| format!("Invalid health check URL: {error}"))?;
     let config = gui_config_state.snapshot()?;
