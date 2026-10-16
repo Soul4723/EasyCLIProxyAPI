@@ -7,6 +7,7 @@ type ManagementRequestOptions = {
   query?: Record<string, string | number | boolean | undefined>;
   body?: ManagementJson;
   timeoutMs?: number;
+  expectedRevision?: number;
 };
 
 // Native v8 groups: callers keep keys and overrides intact through every edit.
@@ -62,6 +63,7 @@ async function request<T = ManagementJson>(
       query: normalizeQuery(options.query),
       body: options.body,
       timeoutMs: options.timeoutMs,
+      expectedRevision: options.expectedRevision,
     },
   });
 }
@@ -72,7 +74,7 @@ export const managementApi = {
   post: <T = ManagementJson>(
     path: string,
     body?: ManagementJson,
-    options: Pick<ManagementRequestOptions, 'timeoutMs'> = {},
+    options: Pick<ManagementRequestOptions, 'timeoutMs' | 'expectedRevision'> = {},
   ) => request<T>('POST', path, { ...options, body }),
   put: <T = ManagementJson>(path: string, body?: ManagementJson) =>
     request<T>('PUT', path, { body }),

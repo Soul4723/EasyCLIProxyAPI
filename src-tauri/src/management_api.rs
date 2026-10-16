@@ -64,6 +64,7 @@ pub(crate) struct ManagementRequest {
     body: Option<serde_json::Value>,
     #[serde(rename = "timeoutMs")]
     timeout_ms: Option<u64>,
+    expected_revision: Option<u64>,
 }
 
 fn deserialize_management_body<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
@@ -80,6 +81,9 @@ pub(crate) async fn management_request(
     request: ManagementRequest,
 ) -> Result<serde_json::Value, String> {
     let config = gui_config_state.snapshot()?;
+    if request.expected_revision.is_some_and(|revision| revision != config.target_revision) {
+        return Err("The core connection changed; request cancelled".to_string());
+    }
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
     let method = match request.method.trim().to_ascii_uppercase().as_str() {

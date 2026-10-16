@@ -672,6 +672,7 @@ const requestQuotaPayload = async (
   data?: string,
   timeoutMs?: number,
   responseClock?: { serverTimeOffsetMs?: number },
+  expectedRevision?: number,
 ) => {
   const response = await managementApi.post<Record<string, unknown>>('/requests/api-call', {
     authIndex,
@@ -679,7 +680,7 @@ const requestQuotaPayload = async (
     url,
     header,
     data,
-  }, { timeoutMs });
+  }, { timeoutMs, ...(expectedRevision === undefined ? {} : { expectedRevision }) });
   const status = Number(response.status_code ?? response.statusCode ?? 0);
   if (status < 200 || status >= 300) {
     throw new Error(apiCallErrorMessage(response));
@@ -1024,7 +1025,7 @@ const createRedeemRequestId = () => {
   });
 };
 
-async function consumeCodexResetCreditSnapshot(file: AuthFile, assertCurrent?: () => void): Promise<QuotaState> {
+async function consumeCodexResetCreditSnapshot(file: AuthFile, assertCurrent?: () => void, expectedRevision?: number): Promise<QuotaState> {
   if (providerForFile(file) !== 'codex') {
     throw new Error(quotaText('quota.service.error.codexResetOnly'));
   }
@@ -1043,6 +1044,9 @@ async function consumeCodexResetCreditSnapshot(file: AuthFile, assertCurrent?: (
     header,
     'POST',
     JSON.stringify({ redeem_request_id: createRedeemRequestId() }),
+    undefined,
+    undefined,
+    expectedRevision,
   );
   return loadQuotaSnapshot(file);
 }

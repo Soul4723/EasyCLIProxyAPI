@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { managementApi } from '../src/services/managementApi';
-import { consumeCodexResetCredit, loadQuota } from '../src/services/quotaService';
+import { consumeCodexResetCredit, invalidateQuotaRequests, loadQuota } from '../src/services/quotaService';
+import { invalidateQuotaCache } from '../src/services/quotaCache';
 
 const success = (body: unknown) => ({ status_code: 200, body });
 const codexUsage = {
@@ -208,6 +209,26 @@ describe('xAI quota queries aligned with Management Center', () => {
   });
 });
 describe('quota request synchronization', () => {
+  it('refuses a queued reset after switching targets and does not reuse the old fetch', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    handler = async (request) => {
+      await gate;
+      return success(request.url.endsWith('/usage') ? codexUsage : { available_count: 1 });
+    };
+    const oldFetch = loadQuota(codexFile);
+    const reset = consumeCodexResetCredit(codexFile);
+    const refused = reset.then(() => false, () => true);
+    invalidateQuotaRequests();
+    invalidateQuotaCache();
+    const newFetch = loadQuota(codexFile);
+    expect(newFetch).not.toBe(oldFetch);
+    release();
+    await Promise.all([oldFetch, newFetch, refused]);
+    expect(await refused).toBe(true);
+    expect(calls.some((request) => request.url.endsWith('/consume'))).toBe(false);
+  });
+
   it('跨页面重复刷新共用同一个请求', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
