@@ -35,7 +35,7 @@ import {
   updateQuotaCache,
   useQuotaCache,
 } from '../services/quotaCache';
-import { dedupeAuthFiles, parseAuthFilePriority, sortAuthFilesByPriority } from '../services/authFiles';
+import { authFileIdentities, dedupeAuthFiles, parseAuthFilePriority, sortAuthFilesByPriority } from '../services/authFiles';
 import { useI18n } from '../i18n';
 import { usePrivacyMask } from '../privacy';
 import './QuotaPage.css';
@@ -209,6 +209,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset }: { file: AuthFile;
   const provider = account.provider.quotaProvider;
   const privacy = usePrivacyMask();
   const name = privacy.credentialName(file);
+  const identities = authFileIdentities(file);
   const disabled = account.health.disabled;
   const healthLabel = t(account.health.label);
   const priority = parseAuthFilePriority(file.priority) ?? 0;
@@ -219,7 +220,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset }: { file: AuthFile;
           <img src={provider ? providerMeta[provider].icon : ''} alt="" className="quota-account-icon" />
           <div><strong title={name}>{name}</strong><span>{provider ? providerMeta[provider].label : t('quota.unknownProvider')}</span></div>
         </div>
-        <div className="quota-plan"><strong>{quota.plan || '—'}</strong><span>{quota.subscriptionActiveUntil ? t('quota.expiresAt', { time: formatQuotaTimestamp(quota.subscriptionActiveUntil, locale) }) : ''}</span></div>
+        <div className="quota-plan"><strong title={quota.plan ? privacy.text(quota.plan, identities) : undefined}>{quota.plan ? privacy.text(quota.plan, identities) : '—'}</strong><span>{quota.subscriptionActiveUntil ? t('quota.expiresAt', { time: formatQuotaTimestamp(quota.subscriptionActiveUntil, locale) }) : ''}</span></div>
         <div className="quota-status"><span className={`quota-status-badge ${account.health.tone === 'success' ? 'ready' : account.health.tone}`} title={t('authFiles.health.coreStatus', { status: healthLabel })}>{healthLabel}</span><small>{t('authFiles.settings.priority')} {priority}</small></div>
         <div className="quota-card-actions">
           <button type="button" className="icon-button quiet" onClick={onRefresh} disabled={disabled || quota.status === 'loading'} title={disabled ? t('quota.fileDisabled') : t('quota.refresh')} aria-label={disabled ? t('quota.fileDisabled') : t('quota.refresh')}><RefreshCw size={16} className={quota.status === 'loading' ? 'spin' : ''} aria-hidden="true" /></button>
@@ -238,10 +239,12 @@ export function QuotaCard({ file, quota, onRefresh, onReset }: { file: AuthFile;
       </div> : null}
       {quota.status === 'success' ? <div className="quota-row-list">{account.quota.rows.map((row, index) => {
         const reset = formatQuotaReset(row.resetAtMs, row.reset, locale, now);
+        const label = privacy.text(row.label, identities);
+        const detail = row.detail ? privacy.text(row.detail, identities) : '';
         return <div className="real-quota-row" key={`${row.label}-${index}`}>
-          <div><span>{row.label}</span><strong>{row.remainingPercent === null ? '—' : t('quota.remaining', { percent: Math.round(row.remainingPercent) })}</strong></div>
+          <div><span title={label}>{label}</span><strong>{row.remainingPercent === null ? '—' : t('quota.remaining', { percent: Math.round(row.remainingPercent) })}</strong></div>
           {row.remainingPercent !== null ? <div className="real-quota-track"><span style={{ width: `${Math.max(0, Math.min(100, row.remainingPercent))}%` }} /></div> : null}
-          <small>{[row.detail, reset].filter(Boolean).join(' · ')}</small>
+          <small title={[detail, reset].filter(Boolean).join(' · ') || undefined}>{[detail, reset].filter(Boolean).join(' · ')}</small>
         </div>;
       })}</div> : null}
       {onReset && ((quota.resetCredits ?? 0) > 0 || hasPendingClaudeReset(file)) ? <button type="button" className="secondary-button compact-button quota-reset-footer" onClick={onReset} disabled={disabled || !canResetQuota(file, quota)} title={t('quota.reset')}>{t(hasPendingClaudeReset(file) ? 'quota.claude.retry' : 'quota.reset')}</button> : null}

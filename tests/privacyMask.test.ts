@@ -39,6 +39,14 @@ test('masks known identities inside credential file names, including sanitized f
   expect(maskSensitiveText('codex-alice@example.com.json')).not.toContain('alice');
 });
 
+test('masks account identities in quota labels and tooltip text', () => {
+  const identities = authFileIdentities({ name: 'quota.json', email: 'alice@example.com', project_id: 'my-gcp-project-123456' });
+  const shown = maskSensitiveText('alice@example.com · my-gcp-project-123456', identities);
+  expect(shown).toBe('al***@e***.com · my***56');
+  expect(shown).not.toContain('alice@example.com');
+  expect(shown).not.toContain('my-gcp-project-123456');
+});
+
 test('collects the account identifiers of a credential record', () => {
   expect(authFileIdentities({ name: 'x.json', email: ' alice@example.com ', project_id: 'proj-1', label: 'Work' }))
     .toEqual(['alice@example.com', 'proj-1']);
