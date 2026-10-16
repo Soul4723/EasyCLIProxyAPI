@@ -8,7 +8,7 @@ const base = process.env.USAGE_TEST_URL || 'http://127.0.0.1:1427';
   const errors = []; page.on('pageerror', error => errors.push(String(error)));
   await page.goto(`${base}/tests/fixtures/usage-layout.html?tab=events&locale=zh-CN&theme=light`);
   const filters = page.locator('.usage-filter-item');
-  assert.equal(await filters.count(), 5);
+  assert.equal(await filters.count(), 6);
   assert.equal(await page.locator('.usage-th-provider').count(), 0);
   assert.equal(await page.locator('.usage-th-source').count(), 1);
   const upstream = filters.nth(2).locator('button').first();
@@ -28,6 +28,6 @@ const base = process.env.USAGE_TEST_URL || 'http://127.0.0.1:1427';
    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   }
   assert.deepEqual(errors, []);
-  console.log('PASS: five filters, plain source options, exact filtering, keyboard clear, default columns, narrow layout.');
+  console.log('PASS: six filters, plain source options, exact filtering, keyboard clear, default columns, narrow layout.');
  } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

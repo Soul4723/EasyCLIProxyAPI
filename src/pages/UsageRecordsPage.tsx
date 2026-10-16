@@ -149,6 +149,7 @@ type SyncPriceDraft = {
 };
 
 type UsageQuery = {
+  agent?: string;
   start?: string;
   end?: string;
   model?: string;
@@ -259,6 +260,7 @@ export function UsageRecordsPage() {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [model, setModel] = useState('');
+  const [agent, setAgent] = useState('');
 
   const [source, setSource] = useState('');
   const [apiKeyHash, setApiKeyHash] = useState('');
@@ -308,13 +310,14 @@ export function UsageRecordsPage() {
       query: {
         ...nextTimeQuery,
         model: model || undefined,
+        agent: agent || undefined,
         upstream: source || undefined,
         api_key_hash: apiKeyHash || undefined,
         failed: result === 'failed' ? true : result === 'success' ? false : undefined,
         canceled: result === 'canceled' ? true : result === 'failed' ? false : undefined,
       } satisfies UsageQuery,
     };
-  }, [apiKeyHash, customEnd, customStart, model, range, result, source]);
+  }, [agent, apiKeyHash, customEnd, customStart, model, range, result, source]);
 
   const filterScopeKey = useMemo(() => usageViewScopeKey({
     tab: 'overview',
@@ -360,7 +363,7 @@ export function UsageRecordsPage() {
             statusRequest,
             optionsRequest,
             invoke<UsageOverview>('get_usage_overview', { query }),
-            model || source || apiKeyHash || result !== 'all' || !refreshOptions
+            model || source || apiKeyHash || agent || result !== 'all' || !refreshOptions
               ? invoke<UsageAnalysis>('get_usage_analysis', { query })
               : optionsRequest.then((analysis) => analysis ?? emptyAnalysis),
           ]);
@@ -542,6 +545,20 @@ export function UsageRecordsPage() {
                 { value: 'success', label: t('usage.result.success') },
                 { value: 'failed', label: t('usage.result.failed') },
                 { value: 'canceled', label: t('usage.result.canceled') },
+              ]}
+            />
+          </div>
+          <div className="usage-filter-item">
+            <SelectMenu
+              value={agent}
+              ariaLabel={t('usage.column.agent')}
+              onChange={(value) => changeFilter(setAgent, value)}
+              options={[
+                { value: '', label: t('usage.filter.allAgents') },
+                { value: 'codex', label: 'Codex' },
+                { value: 'claude-code', label: 'Claude Code' },
+                { value: 'gemini-cli', label: 'Gemini CLI' },
+                { value: 'unknown', label: t('usage.agent.unknown') },
               ]}
             />
           </div>

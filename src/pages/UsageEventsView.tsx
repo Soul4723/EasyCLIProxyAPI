@@ -44,6 +44,7 @@ export type UsageRecord = {
   failure_status: number;
   failure_body: string;
   provider: string;
+  agent?: string;
   auth_type?: string;
   model: string;
   /** Model name reported by the upstream response, when available. */
@@ -77,6 +78,7 @@ export type UsageEventPage = {
 
 type EventColumnKey =
   | 'time'
+  | 'agent'
   | 'model'
   | 'provider'
   | 'source'
@@ -99,6 +101,7 @@ type EventColumnDef = {
 
 const EVENT_COLUMNS: readonly EventColumnDef[] = [
   { key: 'time', labelKey: 'usage.column.time', defaultWidth: 82, minWidth: 76, align: 'left' },
+  { key: 'agent', labelKey: 'usage.column.agent', defaultWidth: 108, minWidth: 96, align: 'left' },
   { key: 'model', labelKey: 'usage.column.model', defaultWidth: 150, minWidth: 112, align: 'left' },
   { key: 'source', labelKey: 'usage.column.source', defaultWidth: 128, minWidth: 104, align: 'left' },
   { key: 'key', labelKey: 'usage.column.key', defaultWidth: 112, minWidth: 96, align: 'left' },
@@ -113,7 +116,7 @@ const EVENT_COLUMNS: readonly EventColumnDef[] = [
 ] as const;
 
 const DEFAULT_EVENT_VISIBLE_COLUMNS: readonly EventColumnKey[] = [
-  'time', 'model', 'source', 'key', 'result', 'total', 'cache', 'latency', 'speed', 'cost',
+  'time', 'agent', 'model', 'source', 'key', 'result', 'total', 'cache', 'latency', 'speed', 'cost',
 ];
 
 const EVENT_COL_WIDTHS_STORAGE_KEY = 'cpa-gui.usage-events-col-widths.v4';
@@ -144,9 +147,10 @@ export const getInitialVisibleColumns = (): EventColumnKey[] => {
           return true;
         });
         if (savedKeys.length > 0) {
+          const lastDefault = ['time', 'model', 'source', 'key', 'result', 'total', 'cache', 'latency', 'speed', 'cost'];
           const oldDefault = ['time', 'model', 'provider', 'result', 'total', 'cache', 'latency', 'speed', 'cost'];
           const previousDefault = ['time', 'model', 'source', 'result', 'total', 'cache', 'latency', 'speed', 'cost'];
-          if ([oldDefault, previousDefault].some(defaults => savedKeys.length === defaults.length && savedKeys.every((key, index) => key === defaults[index]))) {
+          if ([oldDefault, previousDefault, lastDefault].some(defaults => savedKeys.length === defaults.length && savedKeys.every((key, index) => key === defaults[index]))) {
             return [...DEFAULT_EVENT_VISIBLE_COLUMNS];
           }
           return savedKeys;
@@ -199,6 +203,7 @@ export const getInitialColumnWidths = (): Record<EventColumnKey, number> => {
 
 
 type UsageEventQuery = {
+  agent?: string;
   start?: string;
   end?: string;
   model?: string;
@@ -219,13 +224,13 @@ function usageEventsExportName(date = new Date()) {
 }
 
 function usageEventsCsv(records: UsageRecord[]) {
-  const headers = ['id', 'row_id', 'timestamp', 'api_key_display', 'api_key_remark', 'api_key_hash', 'source', 'source_display', 'provider', 'model', 'alias', 'response_model', 'reasoning_effort', 'endpoint', 'failed', 'canceled', 'failure_status', 'failure_body', 'latency_ms', 'ttft_ms', 'input_tokens', 'output_tokens', 'reasoning_tokens', 'cache_read_tokens', 'cache_creation_tokens', 'total_tokens', 'estimated_cost_usd', 'pricing_model'];
+  const headers = ['id', 'row_id', 'timestamp', 'api_key_display', 'api_key_remark', 'api_key_hash', 'source', 'source_display', 'provider', 'agent', 'model', 'alias', 'response_model', 'reasoning_effort', 'endpoint', 'failed', 'canceled', 'failure_status', 'failure_body', 'latency_ms', 'ttft_ms', 'input_tokens', 'output_tokens', 'reasoning_tokens', 'cache_read_tokens', 'cache_creation_tokens', 'total_tokens', 'estimated_cost_usd', 'pricing_model'];
   const csvCell = (value: string | number | boolean | null) => {
     const text = value == null ? '' : String(value);
     const safe = typeof value === 'string' && /^[\s\u0000-\u001f]*[=+@-]/.test(text) ? `'${text}` : text;
     return `"${safe.replace(/"/g, '""')}"`;
   };
-  const rows = records.map((record) => [record.id, record.row_id, record.timestamp, record.api_key_display, record.api_key_remark, record.api_key_hash, record.source, record.source_display, record.provider, record.model, record.alias, record.response_model ?? '', record.reasoning_effort, record.endpoint, record.failed, record.canceled, record.failure_status, record.failure_body, record.latency_ms, record.ttft_ms, record.tokens.input_tokens, record.tokens.output_tokens, record.tokens.reasoning_tokens, record.tokens.cache_read_tokens, record.tokens.cache_creation_tokens, record.tokens.total_tokens, record.cost?.total ?? null, record.cost?.pricing_model ?? '']);
+  const rows = records.map((record) => [record.id, record.row_id, record.timestamp, record.api_key_display, record.api_key_remark, record.api_key_hash, record.source, record.source_display, record.provider, record.agent ?? 'unknown', record.model, record.alias, record.response_model ?? '', record.reasoning_effort, record.endpoint, record.failed, record.canceled, record.failure_status, record.failure_body, record.latency_ms, record.ttft_ms, record.tokens.input_tokens, record.tokens.output_tokens, record.tokens.reasoning_tokens, record.tokens.cache_read_tokens, record.tokens.cache_creation_tokens, record.tokens.total_tokens, record.cost?.total ?? null, record.cost?.pricing_model ?? '']);
   return '\uFEFF' + [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
 }
 
@@ -373,6 +378,8 @@ function UsageEventCell({
           {showDate !== false ? <small>{formatEventDate(record.timestamp)}</small> : null}
         </td>
       );
+    case 'agent':
+      return <td className="usage-td-agent align-left">{record.agent === 'codex' ? 'Codex' : record.agent === 'claude-code' ? 'Claude Code' : record.agent === 'gemini-cli' ? 'Gemini CLI' : t('usage.agent.unknown')}</td>;
     case 'model': {
       const model = usageModelDetails(record.model, record.alias, record.response_model);
       const effort = record.reasoning_effort || 'auto';
