@@ -334,7 +334,7 @@ struct AdoptedCoreProcess {
 
 struct GuiConfigState {
     inner: Mutex<GuiConfigFile>,
-    target_operation: tokio::sync::Mutex<()>,
+    target_operation: std::sync::Arc<tokio::sync::Mutex<()>>,
     oauth_sessions: Mutex<HashMap<String, u64>>,
     #[cfg(test)]
     persistence_path: Option<PathBuf>,
@@ -2087,7 +2087,7 @@ impl GuiConfigState {
     fn new(config: GuiConfigFile) -> Self {
         Self {
             inner: Mutex::new(config),
-            target_operation: tokio::sync::Mutex::new(()),
+            target_operation: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             oauth_sessions: Mutex::new(HashMap::new()),
             #[cfg(test)]
             persistence_path: None,
@@ -2107,6 +2107,15 @@ impl GuiConfigState {
             return Err("Core connection changed; discard the previous target response".to_string());
         }
         Ok(())
+    }
+
+    // Acquire in the blocking worker, not its awaiter: cancellation must not
+    // release the fence while an accepted filesystem/process write is running.
+    fn blocking_local_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+        let guard = self.target_operation.blocking_lock();
+        self.ensure_target(expected)?;
+        crate::core_connection::require_local(&self.snapshot()?)?;
+        Ok(guard)
     }
 
     fn replace_external(&self, mut config: GuiConfigFile) -> Result<(), String> {
@@ -2877,6 +2886,7 @@ fn main() {
             provider_health::provider_health_probe,
             provider_health::get_core_models,
             provider_health::core_health_probe,
+            management_api::get_management_target_revision,
             management_api::upload_auth_file,
             management_api::import_vertex_credential,
             management_api::open_auth_files_directory,

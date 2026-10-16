@@ -1024,6 +1024,7 @@ export function createBrowserMockRuntime(
       case 'restore_agent_config_backup':
       case 'launch_agent': return null;
 
+      case 'get_management_target_revision': return connectionRevision;
       case 'get_core_connection': return clone(connection);
       case 'test_core_connection': return connectionResult(validateConnection(payload.connection as CoreConnection));
       case 'save_core_connection': {
@@ -1213,6 +1214,7 @@ export function createBrowserMockRuntime(
 
       case 'management_request': return clone(managementResponse(state, payload));
       case 'import_vertex_credential': {
+        if (payload.expectedRevision !== connectionRevision) throw new Error('Core connection changed; upload cancelled');
         const parsed: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(asArray(payload.data) as number[])));
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid json');
         const serviceAccount = asObject(parsed);
@@ -1231,6 +1233,7 @@ export function createBrowserMockRuntime(
         return { status: 'ok', project_id: projectId, email, location, 'auth-file': name };
       }
       case 'upload_auth_file': {
+        if (payload.expectedRevision !== connectionRevision) throw new Error('Core connection changed; upload cancelled');
         const name = readString(payload.name) || 'uploaded-mock.json';
         const parsed: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(asArray(payload.data) as number[])));
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Browser Mock: credential must be a JSON object');

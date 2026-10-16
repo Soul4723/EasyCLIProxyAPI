@@ -60,6 +60,7 @@ oauth: {auth-dir: ${JSON.stringify(join(work, 'auth'))}}
     originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
     Object.defineProperty(globalThis, 'window', { value: {}, writable: true, configurable: true });
     mockIPC(async (command, args) => {
+      if (command === 'get_management_target_revision') return 0;
       if (command === 'upload_auth_file') {
         return call('POST', '/credentials', { name: args!.name as string }, JSON.parse(new TextDecoder().decode(new Uint8Array(args!.data as number[]))));
       }

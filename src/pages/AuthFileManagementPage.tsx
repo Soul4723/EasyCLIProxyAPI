@@ -396,11 +396,19 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
     const isCurrentTarget = () => mountedRef.current && connectionRevisionRef.current === initiatingRevision;
     setBusy(true);
     setError('');
+    let expectedRevision: number;
+    try {
+      expectedRevision = await managementApi.getTargetRevision();
+      if (!isCurrentTarget()) return;
+    } catch (requestError) {
+      if (isCurrentTarget()) { setError(String(requestError)); setBusy(false); }
+      return;
+    }
     let uploaded = 0;
     const failures: string[] = [];
     for (const file of selected) {
       try {
-        await managementApi.uploadAuthFile(file, isCurrentTarget);
+        await managementApi.uploadAuthFile(file, isCurrentTarget, expectedRevision);
         if (!isCurrentTarget()) return;
         uploaded += 1;
       } catch (requestError) {

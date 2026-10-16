@@ -246,6 +246,8 @@ pub(crate) async fn preview_agent_config_backup(
     client: String,
     id: String,
 ) -> Result<BackupPreview, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;
@@ -261,6 +263,8 @@ pub(crate) async fn restore_agent_config_backup(
     id: String,
     revision: String,
 ) -> Result<AgentConfigActionResult, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;

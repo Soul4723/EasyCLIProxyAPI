@@ -94,6 +94,7 @@ const path = require('node:path');
         const file = new File(['{}'], 'target-race.json', { type: 'application/json' });
         file.arrayBuffer = () => new Promise(resolve => { finishRead = resolve; });
         const pending = managementApi.uploadAuthFile(file, () => current);
+        while (!finishRead) await new Promise(resolve => setTimeout(resolve, 0));
         current = false; // Includes switching away and back to the same origin (revision changed).
         finishRead(new TextEncoder().encode('{}').buffer);
         let rejected = false;
@@ -105,6 +106,7 @@ const path = require('node:path');
           if (!String(error).includes('upload cancelled')) throw error;
         }
         await managementApi.uploadAuthFile(new File(['{}'], 'current.json'), () => true);
+        if (typeof uploads[0]?.expectedRevision !== 'number') throw new Error('Missing native upload revision');
         if (uploads.length !== 1 || uploads[0].name !== 'current.json'
           || JSON.stringify(uploads[0].data) !== '[123,125]') throw new Error('Upload command contract changed');
       } finally { window.__TAURI_INTERNALS__.invoke = originalInvoke; }

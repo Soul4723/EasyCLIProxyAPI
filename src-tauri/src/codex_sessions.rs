@@ -196,7 +196,8 @@ pub(crate) async fn list_codex_sessions(
     app: tauri::AppHandle,
     request: Option<ListCodexSessionsRequest>,
 ) -> Result<CodexSessionPage, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
+    let expected = app.state::<crate::GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let user_home = app
         .path()
         .home_dir()
@@ -207,6 +208,8 @@ pub(crate) async fn list_codex_sessions(
         limit: DEFAULT_PAGE_SIZE,
     });
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<crate::GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         list_codex_sessions_from_home(&codex_home, request.offset, request.limit)
     })
     .await
@@ -218,13 +221,16 @@ pub(crate) async fn delete_codex_sessions(
     app: tauri::AppHandle,
     request: DeleteCodexSessionsRequest,
 ) -> Result<CodexSessionDeleteBatchResult, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
+    let expected = app.state::<crate::GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let user_home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let codex_home = resolve_codex_home(&user_home);
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<crate::GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         delete_codex_sessions_from_home(&codex_home, request.session_ids)
     })
     .await
@@ -235,7 +241,8 @@ pub(crate) async fn delete_codex_sessions(
 pub(crate) async fn repair_codex_session_metadata(
     app: tauri::AppHandle,
 ) -> Result<CodexSessionRepairResult, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
+    let expected = app.state::<crate::GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let user_home = app
         .path()
         .home_dir()
@@ -243,6 +250,8 @@ pub(crate) async fn repair_codex_session_metadata(
     let codex_home = resolve_codex_home(&user_home);
     let progress_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<crate::GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         let target_provider = resolve_current_codex_provider(&codex_home)?;
         repair_codex_session_metadata_from_home(&codex_home, &target_provider, |progress| {
             let _ = progress_app.emit(REPAIR_PROGRESS_EVENT, progress);
@@ -256,13 +265,16 @@ pub(crate) async fn repair_codex_session_metadata(
 pub(crate) async fn preview_codex_session_index_cleanup(
     app: tauri::AppHandle,
 ) -> Result<SessionIndexCleanupPreview, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
+    let expected = app.state::<crate::GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let user_home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let codex_home = resolve_codex_home(&user_home);
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<crate::GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         preview_session_index_cleanup_from_home(&codex_home)
     })
     .await
@@ -274,13 +286,16 @@ pub(crate) async fn apply_codex_session_index_cleanup(
     app: tauri::AppHandle,
     request: ApplySessionIndexCleanupRequest,
 ) -> Result<SessionIndexCleanupResult, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
+    let expected = app.state::<crate::GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let user_home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let codex_home = resolve_codex_home(&user_home);
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<crate::GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         apply_session_index_cleanup_from_home(
             &codex_home,
             &request.snapshot_sha256,
@@ -2593,6 +2608,44 @@ mod tests {
                 .unwrap()
                 .limit,
             MAX_PAGE_SIZE
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn queued_deletion_rejects_target_revision_change_before_touching_history() {
+        let root = test_root("queued-delete-target-change");
+        let rollout = root.join("sessions/2026/rollout.jsonl");
+        fs::create_dir_all(rollout.parent().unwrap()).unwrap();
+        fs::write(&rollout, "session\n").unwrap();
+        create_threads_db(&root.join("state_5.sqlite"), &rollout);
+        let state = std::sync::Arc::new(crate::GuiConfigState::new(
+            crate::GuiConfigFile::default(),
+        ));
+        let expected = state.snapshot().unwrap();
+        let fence = state.target_operation.blocking_lock();
+        let worker_state = state.clone();
+        let worker_root = root.clone();
+        let worker_expected = expected.clone();
+        let worker = std::thread::spawn(move || {
+            let _target_operation =
+                worker_state.blocking_local_target_operation(&worker_expected)?;
+            delete_codex_sessions_from_home(&worker_root, vec!["thread-1".to_string()])
+        });
+        // Even switching away and back to Local must invalidate queued work.
+        let mut remote = expected.clone();
+        remote.connection_mode = crate::CoreConnectionMode::Remote;
+        state.replace_external(remote).unwrap();
+        state.replace_external(expected).unwrap();
+        drop(fence);
+        assert!(worker.join().unwrap().is_err());
+        assert_eq!(fs::read_to_string(&rollout).unwrap(), "session\n");
+        assert_eq!(
+            list_codex_sessions_from_home(&root, 0, 10)
+                .unwrap()
+                .sessions
+                .len(),
+            1
         );
         fs::remove_dir_all(root).unwrap();
     }

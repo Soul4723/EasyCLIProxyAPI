@@ -99,6 +99,9 @@ fn handle_configuration_file_changes(
         .map(|path| path.join(CORE_CONFIG_FILE));
     let gui_state = app.state::<GuiConfigState>();
     let cache = app.state::<AgentConfigStatusCache>();
+    // The watcher runs on its own OS thread; serialize external changes with
+    // accepted target operations, including queued Local writes.
+    let _target_operation = gui_state.target_operation.blocking_lock();
     let mut payload_paths = Vec::new();
     let mut errors = Vec::new();
     let mut refresh_agents = false;
@@ -164,7 +167,7 @@ fn handle_configuration_file_changes(
                     }
                 };
                 let result = (|| -> Result<(), String> {
-                    gui_state.replace_external(config.clone())?;
+                    super::core_connection::replace_external_target(app, config.clone())?;
                     if !preserve_invalid_core_file {
                         patch_core_from_gui_config_if_valid(&config)?;
                     }

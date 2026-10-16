@@ -108,6 +108,44 @@ fn settings_connection(config: &GuiConfigFile) -> CoreConnection {
     }
 }
 
+// Caller holds target_operation and CORE_OPERATION_LOCK, in that order.
+pub(crate) fn prepare_target_transition<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>, mode: CoreConnectionMode,
+) -> Result<(), String> {
+    use tauri::Manager;
+    if mode == CoreConnectionMode::Remote {
+        let process = app.state::<crate::CoreProcessState>();
+        let mut child = process.child.lock().map_err(|_| "Core process lock is poisoned".to_string())?;
+        if let Some(owned) = child.as_mut() {
+            if owned.try_wait().map_err(|_| "Unable to inspect the local core process".to_string())?.is_none() {
+                return Err("Stop the GUI-managed local core before switching to Remote; its lifetime is tied to this application".to_string());
+            }
+            *child = None;
+        }
+        process.clear_adopted_processes()?;
+    }
+    Ok(())
+}
+
+// Caller holds target_operation; external files never bypass lifecycle refusal.
+pub(crate) fn replace_external_target<R: tauri::Runtime>(app: &tauri::AppHandle<R>, config: GuiConfigFile) -> Result<(), String> {
+    use tauri::Manager;
+    let _operation = crate::CORE_OPERATION_LOCK.lock()
+        .map_err(|_| "Core operation lock is poisoned".to_string())?;
+    prepare_target_transition(app, config.connection_mode)?;
+    let state = app.state::<GuiConfigState>();
+    state.replace_external(config)?;
+    invalidate_target(app, state.snapshot()?.target_revision)
+}
+
+pub(crate) fn invalidate_target<R: tauri::Runtime>(app: &tauri::AppHandle<R>, revision: u64) -> Result<(), String> {
+    use tauri::Manager;
+    app.state::<crate::AgentConfigStatusCache>().clear()?;
+    app.state::<crate::CoreProcessState>().set_starting(false);
+    let _ = app.emit(CONNECTION_CHANGED_EVENT, ConnectionChangedPayload { revision });
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) async fn save_core_connection<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -119,18 +157,7 @@ pub(crate) async fn save_core_connection<R: tauri::Runtime>(
     } else { connection };
     let _target_operation = gui_config_state.target_operation.lock().await;
     let _operation = crate::CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
-    use tauri::Manager;
-    if connection.mode == CoreConnectionMode::Remote {
-        let process = app.state::<crate::CoreProcessState>();
-        let mut child = process.child.lock().map_err(|_| "Core process lock is poisoned".to_string())?;
-        if let Some(owned) = child.as_mut() {
-            if owned.try_wait().map_err(|_| "Unable to inspect the local core process".to_string())?.is_none() {
-                return Err("Stop the GUI-managed local core before switching to Remote; its lifetime is tied to this application".to_string());
-            }
-            *child = None;
-        }
-        process.clear_adopted_processes()?;
-    }
+    prepare_target_transition(&app, connection.mode)?;
     let config = {
         let mut current = gui_config_state.inner.lock().map_err(|_| "GUI configuration lock is poisoned".to_string())?;
         let mut config = current.clone();
@@ -153,9 +180,7 @@ pub(crate) async fn save_core_connection<R: tauri::Runtime>(
         *current = config.clone();
         config
     };
-    app.state::<crate::AgentConfigStatusCache>().clear()?;
-    app.state::<crate::CoreProcessState>().set_starting(false);
-    let _ = app.emit(CONNECTION_CHANGED_EVENT, ConnectionChangedPayload { revision: config.target_revision });
+    invalidate_target(&app, config.target_revision)?;
     Ok(settings_connection(&config))
 }
 

@@ -243,6 +243,8 @@ pub(crate) async fn resolve_pi_default_model(
 pub(crate) async fn check_pi_provider_update(
     app: tauri::AppHandle,
 ) -> Result<PiProviderUpdateStatus, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
@@ -296,7 +298,10 @@ pub(crate) async fn install_pi_provider(
     let port = config.port;
     let api_key = effective_agent_api_key(&config).to_string();
     let proxy_url = config.proxy_url.clone();
+    let expected = config.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         if let Some(executable) = executable {
             install_pi_provider_inner(&home, &executable, port, &api_key, &model, &proxy_url)
         } else {
@@ -329,7 +334,10 @@ pub(crate) async fn update_pi_provider(
     let port = config.port;
     let api_key = effective_agent_api_key(&config).to_string();
     let proxy_url = config.proxy_url.clone();
+    let expected = config.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         update_pi_provider_inner(&home, &executable, port, &api_key, &model, &proxy_url)
     })
     .await
@@ -354,7 +362,10 @@ pub(crate) async fn repair_pi_provider(
     let model = resolve_pi_default_model(&config, &model).await?;
     let port = config.port;
     let api_key = effective_agent_api_key(&config).to_string();
+    let expected = config.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         repair_pi_provider_inner(&home, port, &api_key, &model)
     })
     .await
@@ -370,14 +381,18 @@ pub(crate) async fn uninstall_pi_provider(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref())
         .ok_or_else(|| "Pi CLI was not detected. Install Pi first".to_string())?;
+    let expected = config.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         uninstall_pi_provider_inner(&home, &executable)
     })
     .await
@@ -388,6 +403,8 @@ pub(crate) async fn uninstall_pi_provider(
 
 #[tauri::command]
 pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
     crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
@@ -406,6 +423,8 @@ pub(crate) async fn update_codex_model_catalog(
 pub(crate) async fn update_codex_model_catalog_inner(
     app: &tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     let _update_guard = CODEX_CATALOG_UPDATE_LOCK.lock().await;
     let config = app.state::<GuiConfigState>().snapshot()?;
     crate::core_connection::require_local(&config)?;
@@ -513,6 +532,7 @@ pub(crate) fn load_codex_model_customizations(app: &tauri::AppHandle) -> Result<
 pub(crate) async fn get_codex_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<codex_catalog::CatalogEditorSnapshot, String> {
+    let _target_operation = gui_config_state.target_operation.lock().await;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
     crate::core_connection::require_local(&config)?;
@@ -533,6 +553,7 @@ pub(crate) async fn save_codex_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: codex_catalog::CatalogEditorRequest,
 ) -> Result<CodexCatalogEditorSaveResult, String> {
+    let _target_operation = gui_config_state.target_operation.lock().await;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
     crate::core_connection::require_local(&config)?;
@@ -1053,7 +1074,10 @@ pub(crate) async fn refresh_applied_codex_model_catalog(
     app: &tauri::AppHandle,
     config: &GuiConfigFile,
 ) -> Result<bool, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
+    _target_state.ensure_target(config)?;
     crate::core_connection::require_local(config)?;
     let runtime_models = fetch_codex_catalog_runtime_models(config).await?;
     let prepared = prepare_codex_agent_models(&runtime_models)?;
@@ -1253,6 +1277,7 @@ pub(crate) async fn apply_agent_config(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
+    let target_operation = std::sync::Arc::new(gui_config_state.target_operation.clone().lock_owned().await);
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let client = AgentClient::parse(&client)?;
     let home = app
@@ -1281,7 +1306,7 @@ pub(crate) async fn apply_agent_config(
         &model,
         claude_desktop_model_mappings,
     )?;
-    prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref()).await?;
+    prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref(), target_operation.clone()).await?;
     commit_agent_with_core(&config, claude_desktop_model_mappings, &prepared.models, |claude_desktop_model_mappings| {
         let _guard = AGENT_CONFIG_FILE_LOCK
             .lock()
@@ -1305,6 +1330,8 @@ pub(crate) async fn apply_agent_config(
 
 #[tauri::command]
 pub(crate) fn clear_codex_config(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
     crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
@@ -1329,6 +1356,7 @@ pub(crate) async fn set_agent_config_enabled(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
+    let target_operation = std::sync::Arc::new(gui_config_state.target_operation.clone().lock_owned().await);
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let client = AgentClient::parse(&client)?;
     let home = app
@@ -1356,7 +1384,7 @@ pub(crate) async fn set_agent_config_enabled(
             &model,
             claude_desktop_model_mappings,
         )?;
-        prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref()).await?;
+        prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref(), target_operation.clone()).await?;
         commit_agent_with_core(&config, claude_desktop_model_mappings, &prepared.models, |claude_desktop_model_mappings| {
             let _guard = AGENT_CONFIG_FILE_LOCK
                 .lock()

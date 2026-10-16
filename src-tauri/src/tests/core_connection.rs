@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 use crate::core_connection::{test_core_connection, CoreConnection};
 
 #[tokio::test]
@@ -331,4 +332,101 @@ async fn remote_exit_leaves_adopted_external_process_and_local_startup_preferenc
     assert!(running);
     assert!(startup);
     fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn external_target_change_invalidates_only_with_revision_payload() {
+    use tauri::Listener;
+    let app = tauri::test::mock_builder()
+        .manage(GuiConfigState::new(GuiConfigFile::default()))
+        .manage(AgentConfigStatusCache::default()).manage(CoreProcessState::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let received = events.clone();
+    app.listen("core-connection-changed", move |event| received.lock().unwrap().push(event.payload().to_string()));
+    let state = app.state::<GuiConfigState>();
+    let before = state.snapshot().unwrap();
+    let _guard = state.target_operation.blocking_lock();
+    let mut external = before.clone();
+    external.connection_mode = CoreConnectionMode::Remote;
+    external.remote_management_key = "secret-must-not-be-emitted".into();
+    external.target_revision = 999;
+    crate::core_connection::replace_external_target(app.handle(), external).unwrap();
+    assert!(state.ensure_target(&before).is_err());
+    assert_eq!(state.snapshot().unwrap().target_revision, before.target_revision + 1);
+    assert_eq!(*events.lock().unwrap(), vec![format!("{{\"revision\":{}}}", before.target_revision + 1)]);
+}
+
+#[cfg(unix)]
+#[test]
+fn external_remote_change_refuses_owned_core_without_invalidating() {
+    let app = tauri::test::mock_builder()
+        .manage(GuiConfigState::new(GuiConfigFile::default()))
+        .manage(AgentConfigStatusCache::default()).manage(CoreProcessState::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let mut command = Command::new("sleep"); command.arg("30");
+    app.state::<CoreProcessState>().store_child(spawn_core_child(command).unwrap()).unwrap();
+    let state = app.state::<GuiConfigState>();
+    let before = state.snapshot().unwrap();
+    let _guard = state.target_operation.blocking_lock();
+    let mut external = before.clone(); external.connection_mode = CoreConnectionMode::Remote;
+    let result = crate::core_connection::replace_external_target(app.handle(), external);
+    let process = app.state::<CoreProcessState>();
+    let mut child = process.child.lock().unwrap().take().unwrap();
+    let alive = child.try_wait().unwrap().is_none();
+    child.kill().unwrap(); child.wait().unwrap();
+    assert!(result.unwrap_err().contains("Stop the GUI-managed local core"));
+    assert!(alive);
+    state.ensure_target(&before).unwrap();
+    assert_eq!(state.snapshot().unwrap().connection_mode, CoreConnectionMode::Local);
+}
+
+#[test]
+fn pending_local_worker_revalidates_and_active_worker_fences_through_completion() {
+    let state = Arc::new(GuiConfigState::new(GuiConfigFile::default()));
+    let before = state.snapshot().unwrap();
+    let guard = state.target_operation.blocking_lock();
+    let worker_state = state.clone();
+    let expected = before.clone();
+    let worker = std::thread::spawn(move || worker_state.blocking_local_target_operation(&expected).is_err());
+    let mut remote = before.clone(); remote.connection_mode = CoreConnectionMode::Remote;
+    state.replace_external(remote).unwrap();
+    drop(guard);
+    assert!(worker.join().unwrap(), "Queued Local write must be rejected after switching");
+    state.replace_external(before).unwrap();
+    let expected = state.snapshot().unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+    let worker_state = state.clone();
+    let worker = std::thread::spawn(move || {
+        let _guard = worker_state.blocking_local_target_operation(&expected).unwrap();
+        started_tx.send(()).unwrap();
+        finish_rx.recv().unwrap();
+    });
+    started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(state.target_operation.try_lock().is_err(), "Switch must wait for accepted Local work");
+    finish_tx.send(()).unwrap(); worker.join().unwrap();
+    assert!(state.target_operation.try_lock().is_ok());
+}
+
+#[tokio::test]
+async fn cancelled_local_awaiter_does_not_release_blocking_worker_fence() {
+    let state = Arc::new(GuiConfigState::new(GuiConfigFile::default()));
+    let fence = Arc::new(state.target_operation.clone().lock_owned().await);
+    let worker_fence = fence.clone();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+    let worker = tauri::async_runtime::spawn_blocking(move || {
+        let _fence = worker_fence;
+        started_tx.send(()).unwrap();
+        finish_rx.recv().unwrap();
+    });
+    started_rx.await.unwrap();
+    // Dropping the caller's fence and join handle models command cancellation;
+    // spawn_blocking work continues and must retain target ownership itself.
+    drop(fence);
+    drop(worker);
+    assert!(state.target_operation.try_lock().is_err());
+    finish_tx.send(()).unwrap();
+    let _guard = tokio::time::timeout(Duration::from_secs(5), state.target_operation.lock()).await.unwrap();
 }

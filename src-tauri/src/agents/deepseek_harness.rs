@@ -724,6 +724,7 @@ pub(crate) async fn get_deepseek_harness_model_catalog_editor(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<HarnessEditorSnapshot, String> {
+    let _target_operation = gui_config_state.target_operation.lock().await;
     let config = gui_config_state.snapshot()?;
     crate::core_connection::require_local(&config)?;
     let models = fetch_deepseek_harness_models(&config).await?;
@@ -740,6 +741,7 @@ pub(crate) async fn save_deepseek_harness_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: HarnessEditorRequest,
 ) -> Result<HarnessEditorSnapshot, String> {
+    let _target_operation = gui_config_state.target_operation.lock().await;
     let config = gui_config_state.snapshot()?;
     crate::core_connection::require_local(&config)?;
     let models = fetch_deepseek_harness_models(&config).await?;

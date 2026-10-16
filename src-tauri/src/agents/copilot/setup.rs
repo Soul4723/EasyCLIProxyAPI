@@ -153,6 +153,7 @@ pub(crate) async fn prepare_vscode_copilot_connection(
     home: &Path,
     key: &str,
     overrides: Option<&std::collections::HashMap<String, String>>,
+    target_operation: std::sync::Arc<tokio::sync::OwnedMutexGuard<()>>,
 ) -> Result<(), String> {
     if client != AgentClient::VscodeCopilot {
         return Ok(());
@@ -163,7 +164,11 @@ pub(crate) async fn prepare_vscode_copilot_connection(
     let executable = overrides
         .and_then(|v| v.get(client.id()))
         .map(PathBuf::from);
-    tauri::async_runtime::spawn_blocking(move || connect(&home, &key, executable.as_deref()))
+    tauri::async_runtime::spawn_blocking(move || {
+        // Keep the accepted Local operation fenced even if its caller is cancelled.
+        let _target_operation = target_operation;
+        connect(&home, &key, executable.as_deref())
+    })
         .await
         .map_err(|_| "Copilot connection task failed".to_string())?
 }

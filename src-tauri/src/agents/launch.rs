@@ -130,6 +130,7 @@ pub(crate) fn launch_agent(
     working_directory: Option<String>,
     deepseek_harness_options: Option<DeepSeekHarnessLaunchOptions>,
 ) -> Result<(), String> {
+    let _target_operation = gui_config_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
     let home = app
         .path()
         .home_dir()
@@ -402,6 +403,7 @@ pub(crate) fn get_deepseek_harness_process_status(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     process_state: tauri::State<'_, DeepSeekHarnessProcessState>,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
+    let _target_operation = gui_config_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     process_state.status()
 }
@@ -411,6 +413,8 @@ pub(crate) fn stop_deepseek_harness_process(
     app: tauri::AppHandle,
     process_state: tauri::State<'_, DeepSeekHarnessProcessState>,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
     crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     stop_managed_deepseek_harness(process_state.inner())?;
     process_state.status()
@@ -463,8 +467,11 @@ fn launch_managed_deepseek_harness(
 pub(crate) async fn restart_deepseek_harness_process(
     app: tauri::AppHandle,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
+    let expected = app.state::<GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         restart_managed_deepseek_harness(app.state::<DeepSeekHarnessProcessState>().inner())
     })
     .await
@@ -746,7 +753,8 @@ pub(crate) async fn restart_agent_app(
     client: String,
     executable_path: Option<String>,
 ) -> Result<(), String> {
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
+    let expected = app.state::<GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let client = AgentClient::parse(&client)?;
     if !matches!(
         client,
@@ -763,6 +771,8 @@ pub(crate) async fn restart_agent_app(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         let executable_override = executable_path.as_deref().map(Path::new);
         let target = find_desktop_restart_target(client, &home, executable_override)?;
         match client {
@@ -795,12 +805,15 @@ pub(crate) async fn get_codex_cli_daemon_running(
     app: tauri::AppHandle,
     executable_path: Option<String>,
 ) -> Result<bool, String> {
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
+    let expected = app.state::<GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         codex_cli_daemon_running(&home, executable_path.as_deref().map(Path::new))
     })
     .await
@@ -831,7 +844,8 @@ pub(crate) async fn restart_codex_cli_daemon(
     app: tauri::AppHandle,
     executable_path: Option<String>,
 ) -> Result<(), String> {
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
+    let expected = app.state::<GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let home = app
         .path()
         .home_dir()
@@ -839,6 +853,8 @@ pub(crate) async fn restart_codex_cli_daemon(
     let guard = begin_codex_cli_daemon_restart()
         .ok_or_else(|| "A Codex CLI background service restart is already in progress".to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         let _guard = guard;
         restart_codex_cli_daemon_process(&home, executable_path.as_deref().map(Path::new))
     })

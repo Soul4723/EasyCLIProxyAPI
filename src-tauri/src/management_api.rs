@@ -143,6 +143,17 @@ pub(crate) async fn import_vertex_credential(
     name: String,
     data: Vec<u8>,
     location: Option<String>,
+    expected_revision: u64,
+) -> Result<serde_json::Value, String> {
+    import_vertex_credential_for_target(&gui_config_state, name, data, location, expected_revision).await
+}
+
+async fn import_vertex_credential_for_target(
+    gui_config_state: &GuiConfigState,
+    name: String,
+    data: Vec<u8>,
+    location: Option<String>,
+    expected_revision: u64,
 ) -> Result<serde_json::Value, String> {
     let name = name.trim();
     if name.is_empty() || !name.to_ascii_lowercase().ends_with(".json") {
@@ -150,6 +161,9 @@ pub(crate) async fn import_vertex_credential(
     }
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
+    if config.target_revision != expected_revision {
+        return Err("Core connection changed; upload cancelled".to_string());
+    }
     gui_config_state.ensure_target(&config)?;
     let part = reqwest::multipart::Part::bytes(data)
         .file_name(name.to_owned())
@@ -173,10 +187,27 @@ pub(crate) async fn import_vertex_credential(
 }
 
 #[tauri::command]
+pub(crate) fn get_management_target_revision(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<u64, String> {
+    Ok(gui_config_state.snapshot()?.target_revision)
+}
+
+#[tauri::command]
 pub(crate) async fn upload_auth_file(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     name: String,
     data: Vec<u8>,
+    expected_revision: u64,
+) -> Result<serde_json::Value, String> {
+    upload_auth_file_for_target(&gui_config_state, name, data, expected_revision).await
+}
+
+async fn upload_auth_file_for_target(
+    gui_config_state: &GuiConfigState,
+    name: String,
+    data: Vec<u8>,
+    expected_revision: u64,
 ) -> Result<serde_json::Value, String> {
     let name = name.trim().to_string();
     if name.is_empty() || !name.to_ascii_lowercase().ends_with(".json") {
@@ -185,6 +216,9 @@ pub(crate) async fn upload_auth_file(
 
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
+    if config.target_revision != expected_revision {
+        return Err("Core connection changed; upload cancelled".to_string());
+    }
     gui_config_state.ensure_target(&config)?;
     let client = management_http_client_for(&config)?;
     let mut query = HashMap::new();
@@ -207,8 +241,8 @@ pub(crate) async fn upload_auth_file(
 pub(crate) fn open_auth_files_directory(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<(), String> {
-    let config = gui_config_state.snapshot()?;
     let _operation = super::CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    let config = gui_config_state.snapshot()?;
     super::core_connection::require_local(&config)?;
     let install_dir = core_install_dir()?;
     let auth_dir = auth_dir_path_for_core(&config.auth_dir, &install_dir)?;
@@ -221,8 +255,8 @@ pub(crate) fn open_auth_files_directory(
 pub(crate) fn open_core_logs_directory(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<(), String> {
-    let config = gui_config_state.snapshot()?;
     let _operation = super::CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    let config = gui_config_state.snapshot()?;
     super::core_connection::require_local(&config)?;
     let install_dir = core_install_dir()?;
     let logs_dir = core_logs_dir_path(&config.auth_dir, &install_dir)?;
@@ -592,6 +626,56 @@ fn format_management_error(status: u16, body: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn upload_rejects_a_target_changed_before_dispatch() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let revision = state.snapshot().unwrap().target_revision;
+        // External config changes need not have reached the browser event handler.
+        state.replace_external(state.snapshot().unwrap()).unwrap();
+        let error = upload_auth_file_for_target(&state, "account.json".into(), b"{}".to_vec(), revision)
+            .await.unwrap_err();
+        assert!(error.contains("upload cancelled"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn upload_rechecks_target_after_waiting_for_operation_lock() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let revision = state.snapshot().unwrap().target_revision;
+        let lock = state.target_operation.lock().await;
+        let upload = upload_auth_file_for_target(&state, "account.json".into(), b"{}".to_vec(), revision);
+        tokio::pin!(upload);
+        assert!(tokio::time::timeout(Duration::from_millis(10), &mut upload).await.is_err());
+        state.replace_external(state.snapshot().unwrap()).unwrap();
+        drop(lock);
+        assert!(upload.await.unwrap_err().contains("connection changed"));
+    }
+
+    #[tokio::test]
+    async fn vertex_import_rejects_a_target_changed_before_dispatch() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let revision = state.snapshot().unwrap().target_revision;
+        state.replace_external(state.snapshot().unwrap()).unwrap();
+        let error = import_vertex_credential_for_target(
+            &state, "account.json".into(), b"{}".to_vec(), None, revision,
+        ).await.unwrap_err();
+        assert!(error.contains("upload cancelled"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn vertex_import_rechecks_target_after_waiting_for_operation_lock() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let revision = state.snapshot().unwrap().target_revision;
+        let lock = state.target_operation.lock().await;
+        let import = import_vertex_credential_for_target(
+            &state, "account.json".into(), b"{}".to_vec(), None, revision,
+        );
+        tokio::pin!(import);
+        assert!(tokio::time::timeout(Duration::from_millis(10), &mut import).await.is_err());
+        state.replace_external(state.snapshot().unwrap()).unwrap();
+        drop(lock);
+        assert!(import.await.unwrap_err().contains("connection changed"));
+    }
 
     #[test]
     fn v8_yaml_body_is_raw_text_and_config_values_remain_json() {
