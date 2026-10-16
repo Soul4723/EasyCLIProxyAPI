@@ -64,7 +64,7 @@ use objc2::MainThreadMarker;
 use objc2_app_kit::NSEvent;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 use std::{
@@ -315,6 +315,8 @@ struct CoreProcessState {
     starting: AtomicBool,
     shutting_down: AtomicBool,
     shutdown_complete: AtomicBool,
+    supervisor_started: AtomicBool,
+    supervision_generation: AtomicU64,
     supervision: Mutex<ChildSupervision>,
     crash_restart_attempts: AtomicU32,
 }
@@ -1975,6 +1977,8 @@ impl CoreProcessState {
             starting: AtomicBool::new(starting),
             shutting_down: AtomicBool::new(false),
             shutdown_complete: AtomicBool::new(false),
+            supervisor_started: AtomicBool::new(false),
+            supervision_generation: AtomicU64::new(0),
             supervision: Mutex::new(ChildSupervision::Idle),
             crash_restart_attempts: AtomicU32::new(0),
         }
@@ -2021,6 +2025,12 @@ impl CoreProcessState {
         }
     }
 
+    fn disarm_supervision(&self) {
+        self.supervision_generation.fetch_add(1, Ordering::AcqRel);
+        self.clear_supervision();
+        self.reset_crash_restart_attempts();
+    }
+
     fn finish_recovery_pass(&self) {
         if let Ok(mut supervision) = self.supervision.lock() {
             if matches!(*supervision, ChildSupervision::Recovering) {
@@ -2046,7 +2056,7 @@ impl CoreProcessState {
             return false;
         };
         let child_alive = if let Some(process) = child.as_mut() {
-            if let Ok(None) = process.try_wait() {
+            if !core_child_has_exited(process.try_wait()) {
                 true
             } else {
                 *child = None;
@@ -2107,8 +2117,7 @@ impl CoreProcessState {
 
     fn take_child(&self) -> Option<CoreChild> {
         let taken = self.child.lock().ok().and_then(|mut child| child.take());
-        self.clear_supervision();
-        self.reset_crash_restart_attempts();
+        self.disarm_supervision();
         taken
     }
 
@@ -2129,7 +2138,7 @@ impl CoreProcessState {
             .lock()
             .map_err(|_| "Kernel process status lock is poisoned".to_string())?;
         let has_live_managed_child = if let Some(process) = child.as_mut() {
-            if let Ok(None) = process.try_wait() {
+            if !core_child_has_exited(process.try_wait()) {
                 true
             } else {
                 *child = None;
@@ -2178,6 +2187,7 @@ impl CoreProcessState {
             .lock()
             .map_err(|_| "Adopted kernel process status lock is poisoned".to_string())?;
         adopted.clear();
+        self.supervision_generation.fetch_add(1, Ordering::AcqRel);
         *managed_child = Some(child);
         if let Ok(mut supervision) = self.supervision.lock() {
             *supervision = ChildSupervision::Running {
@@ -2913,7 +2923,9 @@ fn main() {
                 {
                     emit_core_status(&core_app, &status);
                 }
-                start_core_crash_supervisor(core_app.clone());
+                start_core_crash_supervisor_if_needed(process_state.inner(), || {
+                    start_core_crash_supervisor(core_app.clone());
+                });
             });
 
             if let Some(ack_path) = portable_update_ack.as_ref() {
