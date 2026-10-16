@@ -1329,3 +1329,27 @@ fn rollback_removes_files_added_by_the_failed_update_and_keeps_user_files() {
     fs::remove_dir_all(root).unwrap();
 }
 
+
+#[test]
+fn core_child_wait_errors_do_not_confirm_a_crash() {
+    assert!(!core_child_has_exited(Ok(None)));
+    assert!(!core_child_has_exited(Err(io::Error::other("injected wait failure"))));
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    child.kill().unwrap();
+    assert!(core_child_has_exited(Ok(Some(child.wait().unwrap()))));
+}
+
+#[cfg(unix)]
+#[test]
+fn core_child_wait_errors_retain_managed_handle() {
+    let state = CoreProcessState::new(false);
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let pid = child.id();
+    child.kill().unwrap();
+    assert_eq!(unsafe { libc::waitpid(pid as i32, std::ptr::null_mut(), 0) }, pid as i32);
+    assert!(child.try_wait().is_err());
+    state.store_child(child).unwrap();
+    assert_eq!(state.managed_pid(), Some(pid));
+    assert_eq!(state.child.lock().unwrap().as_ref().unwrap().id(), pid);
+    state.take_child();
+}
