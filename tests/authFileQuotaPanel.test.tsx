@@ -47,16 +47,16 @@ it('normalizes a string priority and keeps zero as the default', () => {
   expect(missingPriority).toContain('Priority 0');
 });
 
-it('renders real quota values with bounded bars and keeps unknown distinct from zero', () => {
+it('renders measured quota values and keeps malformed readings unavailable, distinct from zero', () => {
   const html = render({ status: 'success', rows: [
     { label: 'empty', remainingPercent: 0 }, { label: 'full', remainingPercent: 100 },
     { label: 'too high', remainingPercent: 140 }, { label: 'too low', remainingPercent: -20 },
     { label: 'unknown', remainingPercent: null }, { label: 'invalid', remainingPercent: NaN },
   ] });
-  expect(html.match(/role="progressbar"/g)).toHaveLength(4);
-  expect(html.match(/aria-valuenow="0"/g)).toHaveLength(2);
-  expect(html.match(/aria-valuenow="100"/g)).toHaveLength(2);
-  expect(html.match(/credential-quota-row unknown/g)).toHaveLength(2);
+  expect(html.match(/role="progressbar"/g)).toHaveLength(2);
+  expect(html.match(/aria-valuenow="0"/g)).toHaveLength(1);
+  expect(html.match(/aria-valuenow="100"/g)).toHaveLength(1);
+  expect(html.match(/credential-quota-row unknown/g)).toHaveLength(4);
   expect(html).not.toContain('NaN');
   expect(html).not.toContain('140%');
 });

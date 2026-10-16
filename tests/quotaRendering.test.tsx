@@ -79,3 +79,24 @@ describe('quota card rendering', () => {
     expect(html).not.toContain('app-notice-entry');
   });
 });
+
+
+it('renders unavailable measurements instead of fabricated percentages on the quota page', () => {
+  const html = render({ status: 'success', rows: [
+    { label: 'Exhausted', remainingPercent: 0 },
+    { label: 'Known', remainingPercent: 75 },
+    { label: 'Unknown', remainingPercent: null },
+    { label: 'Malformed low', remainingPercent: -20 },
+    { label: 'Malformed high', remainingPercent: 140 },
+    { label: 'Not a number', remainingPercent: NaN },
+    { label: 'Infinite', remainingPercent: Infinity },
+  ] });
+  expect(html.match(/class="real-quota-track"/g)).toHaveLength(2);
+  expect(html).toContain('0% remaining');
+  expect(html).toContain('75% remaining');
+  expect(html.match(/<strong>—<\/strong>/g)).toHaveLength(6);
+  expect(html).not.toContain('140%');
+  expect(html).not.toContain('-20%');
+  expect(html).not.toContain('NaN');
+  expect(html).not.toContain('Infinity');
+});
