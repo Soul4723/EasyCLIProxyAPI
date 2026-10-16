@@ -1,0 +1,105 @@
+.codex-catalog-batch-dialog .codex-catalog-sidebar {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.codex-catalog-batch-controls {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.codex-catalog-select-all,
+.codex-catalog-row-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.codex-catalog-select-all input,
+.codex-catalog-row-check input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  accent-color: var(--theme-2f6b3f);
+}
+
+.codex-catalog-selection-count,
+.codex-catalog-batch-controls small {
+  color: var(--theme-716b61);
+  font-size: var(--font-size-meta);
+  overflow-wrap: anywhere;
+}
+
+.codex-catalog-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.codex-catalog-batch-actions button {
+  flex: 1 1 100px;
+  white-space: normal;
+}
+
+.codex-catalog-batch-row {
+  display: flex;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--theme-2d2a26);
+}
+
+.codex-catalog-batch-row:hover {
+  background: var(--theme-ffffff);
+}
+
+.codex-catalog-batch-row.active {
+  border-color: var(--theme-9db8a5);
+  background: var(--ui-accent-soft);
+}
+
+.codex-catalog-row-check {
+  padding: 9px 4px 9px 10px;
+}
+
+.codex-catalog-batch-row > button {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  padding: 9px 10px 9px 4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.codex-catalog-batch-row small {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 599px) {
+  .codex-catalog-batch-dialog .codex-catalog-body {
+    grid-template-rows: minmax(270px, 42%) minmax(0, 1fr);
+  }
+
+  .codex-catalog-batch-dialog .codex-catalog-sidebar {
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .codex-catalog-batch-controls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .codex-catalog-batch-dialog .codex-catalog-models {
+    grid-row: 3;
+  }
+
+  .codex-catalog-batch-dialog .codex-catalog-reload {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
