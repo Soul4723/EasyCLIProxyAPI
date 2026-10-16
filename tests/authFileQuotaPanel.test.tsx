@@ -100,3 +100,17 @@ it.each([
   expect(buttonState(credentialHtml)).toEqual(buttonState(quotaHtml));
   if (values.loading) expect(credentialHtml).toContain('Submitting reset and refreshing quota');
 });
+
+
+it('both quota surfaces gate refresh and reset on core disabled status without a boolean flag', () => {
+  const file = { name: 'disabled.json', provider: 'codex', status: 'disabled' };
+  const quota: QuotaState = { status: 'success', rows: [], resetCredits: 2 };
+  for (const content of [
+    <AuthFileQuotaPanel file={file} quota={quota} disabled={false} onRefresh={() => {}} onReset={() => {}} />,
+    <QuotaCard file={file} quota={quota} onRefresh={() => {}} onReset={() => {}} />,
+  ]) {
+    const html = renderToStaticMarkup(<I18nProvider>{content}</I18nProvider>);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="Reset Quota"/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="[^"]*disabled[^"]*"/i);
+  }
+});

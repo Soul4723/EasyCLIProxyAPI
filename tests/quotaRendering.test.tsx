@@ -100,3 +100,40 @@ it('renders unavailable measurements instead of fabricated percentages on the qu
   expect(html).not.toContain('NaN');
   expect(html).not.toContain('Infinity');
 });
+
+
+describe('quota card uses credential health, not fetch success, for account status', () => {
+  const renderFile = (file: Record<string, unknown>, quota: QuotaState) => renderToStaticMarkup(
+    <I18nProvider><QuotaCard file={{ name: 'health.json', provider: 'codex', ...file }} quota={quota} onRefresh={() => {}} onReset={() => {}} /></I18nProvider>,
+  );
+  const badge = (html: string) => html.match(/<span class="quota-status-badge[^>]*>[^<]*<\/span>/)?.[0] ?? '';
+
+  it('keeps active credential status while quota reads fail or load', () => {
+    for (const status of ['idle', 'loading', 'error', 'success'] as const) {
+      const html = renderFile({ status: 'active' }, { status, rows: [], error: status === 'error' ? 'Quota read failed' : undefined });
+      expect(badge(html)).toContain('Core-reported status:');
+      expect(badge(html)).toContain('ready');
+      expect(badge(html)).not.toContain('Unavailable');
+      if (status === 'error') expect(html).toContain('Quota read failed');
+    }
+  });
+
+  it('does not make unknown or rejected credentials healthy from successful quota data', () => {
+    const quota: QuotaState = { status: 'success', rows: [{ label: '5h', remainingPercent: 100 }] };
+    const unknown = badge(renderFile({}, quota));
+    expect(unknown).toContain('neutral');
+    expect(unknown).not.toContain('ready');
+    const rejected = badge(renderFile({ status: 'error', status_message: 'token expired' }, quota));
+    expect(rejected).toContain('error');
+    expect(rejected).toContain('Access token expired');
+    expect(rejected).not.toContain('ready');
+  });
+
+  it('honors a core disabled status even without the boolean disabled field', () => {
+    const html = renderFile({ status: 'disabled' }, { status: 'success', rows: [], resetCredits: 2 });
+    expect(badge(html)).toContain('Disabled');
+    expect(badge(html)).not.toContain('ready');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="Reset Quota"/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="[^"]*disabled[^"]*"/i);
+  });
+});
