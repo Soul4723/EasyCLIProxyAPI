@@ -1989,7 +1989,7 @@ impl CoreProcessState {
     fn managed_pid(&self) -> Option<u32> {
         if let Ok(mut child) = self.child.lock() {
             if let Some(process) = child.as_mut() {
-                if let Ok(None) = process.try_wait() {
+                if !core_child_has_exited(process.try_wait()) {
                     return Some(process.id());
                 }
 
