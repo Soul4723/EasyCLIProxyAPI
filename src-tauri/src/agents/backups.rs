@@ -469,6 +469,9 @@ pub(crate) fn create_agent_config_backup(
     app: tauri::AppHandle,
     client: String,
 ) -> Result<BackupSummary, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -481,6 +484,9 @@ pub(crate) fn list_agent_config_backups(
     app: tauri::AppHandle,
     client: String,
 ) -> Result<BackupList, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -494,6 +500,9 @@ pub(crate) fn delete_agent_config_backup(
     client: String,
     id: String,
 ) -> Result<(), String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()

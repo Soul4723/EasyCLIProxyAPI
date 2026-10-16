@@ -37,15 +37,21 @@ pub(crate) fn detect_core_platform() -> Result<CorePlatform, String> {
 
 #[tauri::command]
 pub(crate) async fn get_core_status(app: tauri::AppHandle) -> Result<CoreStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let config = app.state::<GuiConfigState>().snapshot()?;
-        current_core_status(
-            Some(app.state::<CoreProcessState>().inner()),
-            Some(config.port),
-        )
-    })
-    .await
-    .map_err(|error| format!("Kernel status background task failed: {error}"))?
+    let config = app.state::<GuiConfigState>().snapshot()?;
+    let status = if config.connection_mode == CoreConnectionMode::Remote {
+        let connection = core_connection::connection_from_config(&config)?;
+        let result = core_connection::test_core_connection(connection.clone()).await?;
+        core_connection::remote_status(&connection, result)
+    } else {
+        let process_app = app.clone();
+        let port = config.port;
+        tauri::async_runtime::spawn_blocking(move || {
+            current_core_status(Some(process_app.state::<CoreProcessState>().inner()), Some(port))
+        }).await.map_err(|_| "Kernel status background task failed".to_string())??
+    };
+    app.state::<GuiConfigState>().ensure_target(&config)?;
+    emit_core_status(&app, &status);
+    Ok(status)
 }
 
 pub(crate) fn emit_core_status(app: &tauri::AppHandle, status: &CoreStatus) {

@@ -66,7 +66,7 @@ test('cooldown reset acknowledges the correct credential and preserves disabled 
 
 test('imports JSON contents, replaces the same filename, and deletes without mutating other accounts', async () => {
   const originalCount = (await files()).length;
-  const upload = (content: string) => runtime.invoke('upload_auth_file', { name: 'imported.json', data: Array.from(new TextEncoder().encode(content)) });
+  const upload = (content: string) => runtime.invoke('upload_auth_file', { expectedRevision: 0, name: 'imported.json', data: Array.from(new TextEncoder().encode(content)) });
   await upload(JSON.stringify({ type: 'kimi', note: 'Imported example', priority: 9 }));
   const first = (await files()).find(file => file.name === 'imported.json')!;
   expect(first).toMatchObject({ provider: 'kimi', note: 'Imported example', priority: 9 });

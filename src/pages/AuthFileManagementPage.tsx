@@ -1,3 +1,4 @@
+import { useCoreRuntime } from '../coreRuntime';
 import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConfirmation } from '../components/ConfirmationDialog';
@@ -164,6 +165,9 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
   const quotas = useQuotaCache();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mountedRef = useRef(true);
+  const { connectionRevision } = useCoreRuntime();
+  const connectionRevisionRef = useRef(connectionRevision);
+  connectionRevisionRef.current = connectionRevision;
   const fileRequestRef = useRef(0);
   const cooldownResetPendingRef = useRef(new Set<string>());
   const oauthModelRequestRef = useRef(0);
@@ -388,15 +392,27 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
     const selected = Array.from(event.currentTarget.files ?? []);
     event.currentTarget.value = '';
     if (selected.length === 0) return;
+    const initiatingRevision = connectionRevision;
+    const isCurrentTarget = () => mountedRef.current && connectionRevisionRef.current === initiatingRevision;
     setBusy(true);
     setError('');
+    let expectedRevision: number;
+    try {
+      expectedRevision = await managementApi.getTargetRevision();
+      if (!isCurrentTarget()) return;
+    } catch (requestError) {
+      if (isCurrentTarget()) { setError(String(requestError)); setBusy(false); }
+      return;
+    }
     let uploaded = 0;
     const failures: string[] = [];
     for (const file of selected) {
       try {
-        await managementApi.uploadAuthFile(file);
+        await managementApi.uploadAuthFile(file, isCurrentTarget, expectedRevision);
+        if (!isCurrentTarget()) return;
         uploaded += 1;
       } catch (requestError) {
+        if (!isCurrentTarget()) return;
         failures.push(`${file.name}：${String(requestError)}`);
       }
     }

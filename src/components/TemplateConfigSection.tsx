@@ -128,6 +128,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
   };
 
   const restart = async () => {
+    if (status?.connectionMode === 'remote') return;
     setBusy('restart');
     try { publishStatus(await invoke<CoreStatus>('restart_core_process')); setRestartNeeded(false); setLoadError(''); }
     catch (error) { setLoadError(String(error)); await refreshStatus(); }
@@ -135,6 +136,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
   };
 
   const chooseDirectory = async (group: TemplateConfigGroup, field: TemplateConfigField) => {
+    if (status?.connectionMode === 'remote') return;
     setBusy('directory');
     try {
       const selected = await open({ directory: true, multiple: false, title: templateText(field.label, locale) });
@@ -171,14 +173,14 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
       const link = field.link;
       return <div className="template-config-directory">{secret}<button type="button" className="secondary-button compact-button" onClick={() => void invoke('open_external_url', { url: link.url }).catch((error) => setGroupErrors((previous) => ({ ...previous, [group.id]: String(error) })))}><ExternalLink size={15} aria-hidden="true" />{templateText(link.label, locale)}</button></div>;
     }
-    return field.directory ? <div className="template-config-directory">{secret}<button type="button" className="secondary-button compact-button" disabled={disabled} onClick={() => void chooseDirectory(group, field)} aria-label={`${tr('chooseDirectory')}: ${templateText(field.label, locale)}`}>{tr('chooseDirectory')}</button></div> : secret;
+    return field.directory ? <div className="template-config-directory">{secret}<button type="button" className="secondary-button compact-button" disabled={disabled || status?.connectionMode === 'remote'} title={status?.connectionMode === 'remote' ? t('connection.remotePaths') : undefined} onClick={() => void chooseDirectory(group, field)} aria-label={`${tr('chooseDirectory')}: ${templateText(field.label, locale)}`}>{tr('chooseDirectory')}</button></div> : secret;
   };
 
   const visible = groups.filter((group) => !visibleGroups || visibleGroups.includes(group.id));
   return <div className="template-config-section" hidden={visible.length === 0}>
     {loadError ? <div className="template-config-notice template-config-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-button compact-button" disabled={busy !== null} onClick={() => void reload()}>{tr('reload')}</button></div> : null}
     {!config && !loadError ? <p role="status">{tr('loading')}</p> : null}
-    {restartNeeded ? <div className="template-config-notice" role="status"><span>{tr('restart')}</span>{status?.running ? <button type="button" className="secondary-button compact-button" disabled={busy !== null} onClick={() => void restart()}>{tr('restartNow')}</button> : null}</div> : null}
+    {restartNeeded ? <div className="template-config-notice" role="status"><span>{status?.connectionMode === 'remote' ? t('connection.lifecycleHint') : tr('restart')}</span>{status?.running && status.connectionMode !== 'remote' ? <button type="button" className="secondary-button compact-button" disabled={busy !== null} onClick={() => void restart()}>{tr('restartNow')}</button> : null}</div> : null}
     {groups.map((group) => {
       const dirty = group.fields.some((field) => drafts[templateFieldKey(field.path)]);
       const needsRestart = group.fields.some((field) => field.restart);

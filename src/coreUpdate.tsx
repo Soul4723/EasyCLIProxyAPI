@@ -183,10 +183,10 @@ export function CoreUpdateProvider({ children }: { children: ReactNode }) {
     latest,
     error,
     checking,
-    hasUpdate: coreUpdateAvailable(status?.currentVersion, latest?.version),
+    hasUpdate: status?.connectionMode !== 'remote' && coreUpdateAvailable(status?.currentVersion, latest?.version),
     check,
     reset,
-  }), [check, checking, error, latest, reset, status?.currentVersion]);
+  }), [check, checking, error, latest, reset, status?.connectionMode, status?.currentVersion]);
 
   return <CoreUpdateContext.Provider value={value}>{children}</CoreUpdateContext.Provider>;
 }

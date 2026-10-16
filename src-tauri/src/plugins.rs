@@ -1,6 +1,7 @@
+use crate::management_api;
 use super::{
-    core_origin, current_core_tls_settings, format_management_request_error,
-    management_authorization, management_endpoint, management_http_client, read_management_value,
+    format_management_request_error,
+    management_authorization, management_endpoint, read_management_value,
     GuiConfigFile, GuiConfigState,
 };
 
@@ -10,7 +11,9 @@ pub(crate) async fn get_plugin_support(
 ) -> Result<bool, String> {
     let config = gui_config_state.snapshot()?;
     let response = request_plugins(&config).await?;
-    read_plugin_support(response).await
+    let result = read_plugin_support(response).await;
+    gui_config_state.ensure_target(&config)?;
+    result
 }
 
 #[tauri::command]
@@ -23,16 +26,13 @@ pub(crate) async fn get_plugin_resource_url(
     let response = request_plugins(&config).await?;
     let plugins = read_management_value(response).await?;
     let path = active_plugin_menu_path(&plugins, &plugin_id, menu_index)?;
-    let origin = core_origin(
-        &config.host,
-        config.port,
-        current_core_tls_settings()?.enabled,
-    );
+    gui_config_state.ensure_target(&config)?;
+    let origin = crate::core_connection::connection_from_config(&config)?.management_origin;
     resolve_plugin_resource_url(&origin, path)
 }
 
 async fn request_plugins(config: &GuiConfigFile) -> Result<reqwest::Response, String> {
-    management_http_client()?
+    management_api::management_http_client_for(config)?
         .get(management_endpoint(config, "plugins")?)
         .header("Authorization", management_authorization(config)?)
         .send()

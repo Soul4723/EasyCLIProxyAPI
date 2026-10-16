@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { ArrowLeft, Download, ExternalLink, Folder, LogIn, Puzzle, RefreshCw, Search, Settings2, Trash2, X } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { useCoreRuntime } from '../coreRuntime';
 import { pluginText } from '../i18n/plugins';
 import { FloatingNotice, useAppNotice } from '../appNotice';
 import { useConfirmation } from '../components/ConfirmationDialog';
@@ -20,6 +21,8 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 
 export function PluginsPage() {
   const { t, locale } = useI18n();
+  const { status: coreStatus } = useCoreRuntime();
+  const remote = coreStatus?.connectionMode === 'remote';
   const pt = (key: Parameters<typeof pluginText>[0]) => pluginText(key, locale);
   const [tab, setTab] = useState<Tab>('installed');
   const [supported, setSupported] = useState<boolean | null>(null);
@@ -135,7 +138,7 @@ export function PluginsPage() {
     {supported === false ? <section className="plugin-empty"><Puzzle size={36} /><p>{pt('unsupported')}</p></section> : supported === null ? <section className="plugin-empty" role="status">{loading ? t('common.loading') : pt('retry')}</section> : <>
       <div className="plugin-summary"><label className="plugin-global-toggle"><input type="checkbox" checked={data?.pluginsEnabled ?? false} disabled={locked || !data} onChange={e => { const enabled = e.target.checked; void mutate(() => pluginsApi.updateSettings({ enabled }), pt('saved')); }} />{pt('global')}</label><span><Folder size={15} aria-hidden="true" />{data?.pluginsDir || pt('directory')}</span><span>{pt('installed')} <strong>{installedCount}</strong>{configOnlyCount > 0 && <> · {pt('configOnly')} <strong>{configOnlyCount}</strong></>}</span></div>
       {data && !data.pluginsEnabled && <p className="plugin-banner">{pt('disabledHint')}</p>}
-      {restartRequired && <div className="plugin-banner"><span>{pt('restart')}</span><button className="secondary-button" disabled={locked} onClick={async () => { if (await askConfirmation({ title: pt('restartButton'), message: pt('restartConfirm') })) void mutate(async () => { await invoke('restart_core_process'); if (mounted.current) setRestartRequired(false); }, pt('saved')); }}>{pt('restartButton')}</button></div>}
+      {restartRequired && <div className="plugin-banner"><span>{remote ? t('connection.lifecycleHint') : pt('restart')}</span><button className="secondary-button" disabled={locked || remote} onClick={async () => { if (await askConfirmation({ title: pt('restartButton'), message: pt('restartConfirm') })) void mutate(async () => { await invoke('restart_core_process'); if (mounted.current) setRestartRequired(false); }, pt('saved')); }}>{pt('restartButton')}</button></div>}
       {resource ? <section className="plugin-resource"><div className="plugin-toolbar"><button className="secondary-button" onClick={() => setResource(null)}><ArrowLeft size={16} />{pt('back')}</button><strong>{resource.entry.label}</strong><button className="secondary-button" onClick={() => void invoke('open_external_url', { url: resource.url }).catch(e => setError(message(e)))}><ExternalLink size={16} />{pt('openExternal')}</button></div><iframe key={resource.url} src={resource.url} title={resource.entry.label} referrerPolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" allow="clipboard-read; clipboard-write" /></section> : <>
         <div className="plugin-navigation">
         <nav className="plugin-tabs" aria-label={pt('title')}>{(['installed', 'store', 'settings'] as const).map(value => <button key={value} className={tab === value ? 'active' : ''} aria-current={tab === value ? 'page' : undefined} disabled={busy} onClick={() => { setTab(value); setSearch(''); setFilter('all'); }}>{pt(value === 'installed' ? 'local' : value)}</button>)}</nav>

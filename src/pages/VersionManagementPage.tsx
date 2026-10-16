@@ -252,6 +252,7 @@ export function VersionManagementPage() {
   };
 
   const installCore = async (target: { kind: 'bundled' } | { kind: 'release'; version: string }) => {
+    if (!coreStatus || coreStatus.connectionMode === 'remote') return;
     completedInstallKeyRef.current = '';
     manualInstallInProgressRef.current = true;
     setInstalling(true);
@@ -416,6 +417,7 @@ export function VersionManagementPage() {
 
   const latestVersion = latest?.version ?? '';
   const currentVersion = coreStatus?.currentVersion ?? '';
+  const remote = coreStatus?.connectionMode === 'remote';
   const coreInstalled = Boolean(coreStatus?.installed);
   const coreProcessBusy = Boolean(coreStatus?.starting);
   const busy = checkingLatest || installing || coreProcessBusy;
@@ -678,6 +680,7 @@ export function VersionManagementPage() {
             ) : null}
           </div>
 
+          {remote && <p className="core-connection-hint">{t('connection.lifecycleHint')}</p>}
           <div className="version-card-actions core-actions">
             <button
               type="button"
@@ -693,7 +696,7 @@ export function VersionManagementPage() {
               type="button"
               className={latestVersion && (!coreInstalled || coreHasUpdate) ? 'primary-button' : 'secondary-button'}
               title={latestVersion ? t('kernel.versions.stopAndUpdateVersion', { version: latestVersion }) : t('kernel.versions.installLatest')}
-              disabled={!latestVersion || busy}
+              disabled={!coreStatus || remote || !latestVersion || busy}
               onClick={() => setConfirmUpdateOpen(true)}
             >
               <Download size={15} aria-hidden="true" />
@@ -704,7 +707,7 @@ export function VersionManagementPage() {
               type="button"
               className="secondary-button"
               title={bundledCoreError || (bundledCore ? t('kernel.versions.installBundledTitle', { version: bundledCore.version }) : t('kernel.versions.noBundled'))}
-              disabled={!bundledCore || installDisabled}
+              disabled={!coreStatus || remote || !bundledCore || installDisabled}
               onClick={() => void installCore({ kind: 'bundled' })}
             >
               <Package size={15} aria-hidden="true" />

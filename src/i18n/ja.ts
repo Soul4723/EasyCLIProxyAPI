@@ -1,3 +1,4 @@
+import { connectionJa } from "./coreConnection";
 import type { MessageKey } from './locales/zh-CN';
 import { easyModeJa } from './easyMode';
 import { homeJa } from './home';
@@ -24,6 +25,7 @@ export const jaOverrides = {
   'oauth.vertex.import': 'Vertex 認証情報をインポート',
   'oauth.vertex.importing': 'インポート中…',
   ...homeJa,
+  ...connectionJa,
   ...authFileListJa,
   'apiAccess.entries.addKey': 'API キーを追加',
   'apiAccess.entries.addProvider': 'サービスを追加',

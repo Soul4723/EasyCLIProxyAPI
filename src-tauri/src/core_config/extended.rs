@@ -1086,7 +1086,18 @@ fn prepare_patch(
 }
 
 #[tauri::command]
-pub(crate) fn get_extended_core_config() -> Result<Json, String> {
+pub(crate) async fn get_extended_core_config(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<Json, String> {
+    let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        let content = crate::core_connection::read_remote_yaml(&config).await?;
+        gui_config_state.ensure_target(&config)?;
+        let document = serde_norway::from_str(&content).map_err(|_| "Invalid remote kernel YAML".to_string())?;
+        return extended_config_view(&document);
+    }
     let _guard = lock_core_config_file()?;
     let path = core_install_dir()?.join(CORE_CONFIG_FILE);
     let content = fs::read_to_string(&path)
@@ -1097,10 +1108,21 @@ pub(crate) fn get_extended_core_config() -> Result<Json, String> {
 }
 
 #[tauri::command]
-pub(crate) fn save_extended_core_config(
+pub(crate) async fn save_extended_core_config(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     changes: Vec<ExtendedConfigChange>,
 ) -> Result<ExtendedConfigResult, String> {
+    let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        let content = crate::core_connection::read_remote_yaml(&config).await?;
+        let (updated, result) = prepare_patch(&content, &changes)?;
+        gui_config_state.ensure_target(&config)?;
+        crate::core_connection::write_remote_yaml(&gui_config_state, &config, &content, &updated).await?;
+        gui_config_state.ensure_target(&config)?;
+        return Ok(result);
+    }
     let _guard = lock_core_config_file()?;
     let path = core_install_dir()?.join(CORE_CONFIG_FILE);
     let content = fs::read_to_string(&path)

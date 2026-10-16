@@ -1,3 +1,4 @@
+import { connectionEn } from "../coreConnection";
 import type { MessageKey } from './zh-CN';
 import { easyModeEn } from '../easyMode';
 import { homeEn } from '../home';
@@ -24,6 +25,7 @@ export const en: Record<MessageKey, string> = {
   'oauth.vertex.import': 'Import Vertex Credential',
   'oauth.vertex.importing': 'Importing…',
   ...homeEn,
+  ...connectionEn,
   ...authFileListEn,
   'apiAccess.entries.addKey': 'Add API Key',
   'apiAccess.entries.addProvider': 'Add Service',

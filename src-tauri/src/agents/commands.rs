@@ -138,6 +138,9 @@ pub(crate) fn refresh_agent_config_status_cache(
         .lock()
         .map_err(|_| "Agent configuration status refresh lock is poisoned".to_string())?;
     let config = gui_config_state.snapshot()?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        return Ok(Vec::new());
+    }
     let port = config.port;
     let api_key = effective_agent_api_key(&config);
     let statuses = inspect_agent_config_statuses(app, &config)?;
@@ -159,6 +162,9 @@ pub(crate) async fn get_agent_config_statuses(
                 .lock()
                 .map_err(|_| "Agent configuration status refresh lock is poisoned".to_string())?;
             let config = gui_config_state.snapshot()?;
+            if config.connection_mode == CoreConnectionMode::Remote {
+                return Ok(Vec::new());
+            }
             let port = config.port;
             if executable_overrides.as_ref().is_none_or(HashMap::is_empty) {
               if let Some(statuses) = cache.get(port, effective_agent_api_key(&config))? {
@@ -167,6 +173,9 @@ pub(crate) async fn get_agent_config_statuses(
             }
         }
         let config = gui_config_state.snapshot()?;
+        if config.connection_mode == CoreConnectionMode::Remote {
+            return Ok(Vec::new());
+        }
         let statuses = inspect_agent_config_statuses_with_overrides(&app, &config, &executable_overrides.unwrap_or_default())?;
         cache.replace(config.port, effective_agent_api_key(&config), statuses.clone())?;
         Ok(statuses)
@@ -184,6 +193,9 @@ pub(crate) async fn refresh_agent_config_statuses(
         let gui_config_state = app.state::<GuiConfigState>();
         let cache = app.state::<AgentConfigStatusCache>();
         let config = gui_config_state.snapshot()?;
+        if config.connection_mode == CoreConnectionMode::Remote {
+            return Ok(Vec::new());
+        }
         let statuses = inspect_agent_config_statuses_with_overrides(&app, &config, &executable_overrides.unwrap_or_default())?;
         cache.replace(config.port, effective_agent_api_key(&config), statuses.clone())?;
         Ok(statuses)
@@ -198,6 +210,12 @@ pub(crate) async fn get_agent_models(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     client: String,
 ) -> Result<Vec<AgentModelOption>, String> {
+    let target = gui_config_state.snapshot()?;
+    if target.connection_mode == CoreConnectionMode::Remote {
+        let payload = crate::core_connection::fetch_client_models(&target).await?;
+        gui_config_state.ensure_target(&target)?;
+        return parse_agent_model_options(&payload);
+    }
     if client.trim().eq_ignore_ascii_case(PI_AGENT_ID) {
         let config = gui_config_state.snapshot()?;
         return fetch_agent_models(config.port, effective_agent_api_key(&config)).await;
@@ -225,6 +243,9 @@ pub(crate) async fn resolve_pi_default_model(
 pub(crate) async fn check_pi_provider_update(
     app: tauri::AppHandle,
 ) -> Result<PiProviderUpdateStatus, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()
@@ -260,6 +281,7 @@ pub(crate) async fn install_pi_provider(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref());
     if executable.is_none()
         && !inspect_pi_provider_status_with_executable(
@@ -276,7 +298,10 @@ pub(crate) async fn install_pi_provider(
     let port = config.port;
     let api_key = effective_agent_api_key(&config).to_string();
     let proxy_url = config.proxy_url.clone();
+    let expected = config.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         if let Some(executable) = executable {
             install_pi_provider_inner(&home, &executable, port, &api_key, &model, &proxy_url)
         } else {
@@ -302,13 +327,17 @@ pub(crate) async fn update_pi_provider(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref())
         .ok_or_else(|| "Pi CLI was not detected. Install Pi and ensure the pi command is in PATH".to_string())?;
     let model = resolve_pi_default_model(&config, &model).await?;
     let port = config.port;
     let api_key = effective_agent_api_key(&config).to_string();
     let proxy_url = config.proxy_url.clone();
+    let expected = config.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         update_pi_provider_inner(&home, &executable, port, &api_key, &model, &proxy_url)
     })
     .await
@@ -329,10 +358,14 @@ pub(crate) async fn repair_pi_provider(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let model = resolve_pi_default_model(&config, &model).await?;
     let port = config.port;
     let api_key = effective_agent_api_key(&config).to_string();
+    let expected = config.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         repair_pi_provider_inner(&home, port, &api_key, &model)
     })
     .await
@@ -344,16 +377,22 @@ pub(crate) async fn repair_pi_provider(
 #[tauri::command]
 pub(crate) async fn uninstall_pi_provider(
     app: tauri::AppHandle,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
     cache: tauri::State<'_, AgentConfigStatusCache>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
+    let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref())
         .ok_or_else(|| "Pi CLI was not detected. Install Pi first".to_string())?;
+    let expected = config.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         uninstall_pi_provider_inner(&home, &executable)
     })
     .await
@@ -364,6 +403,9 @@ pub(crate) async fn uninstall_pi_provider(
 
 #[tauri::command]
 pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()
@@ -381,8 +423,12 @@ pub(crate) async fn update_codex_model_catalog(
 pub(crate) async fn update_codex_model_catalog_inner(
     app: &tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     let _update_guard = CODEX_CATALOG_UPDATE_LOCK.lock().await;
-    let proxy_url = app.state::<GuiConfigState>().snapshot()?.proxy_url;
+    let config = app.state::<GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&config)?;
+    let proxy_url = config.proxy_url;
     let client = build_http_client_with_proxy(
         reqwest::Client::builder()
             .redirect(github_https_redirect_policy())
@@ -486,8 +532,10 @@ pub(crate) fn load_codex_model_customizations(app: &tauri::AppHandle) -> Result<
 pub(crate) async fn get_codex_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<codex_catalog::CatalogEditorSnapshot, String> {
+    let _target_operation = gui_config_state.target_operation.lock().await;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
     codex_catalog::editor_snapshot(&runtime_models)
 }
@@ -505,8 +553,10 @@ pub(crate) async fn save_codex_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: codex_catalog::CatalogEditorRequest,
 ) -> Result<CodexCatalogEditorSaveResult, String> {
+    let _target_operation = gui_config_state.target_operation.lock().await;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
     let snapshot = codex_catalog::save_customizations(
         &codex_model_customizations_path(&app)?,
@@ -527,6 +577,8 @@ pub(crate) async fn get_thinking_aliases(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let content = fetch_management_config_yaml(&config).await?;
     thinking_aliases_from_yaml(&content)
 }
@@ -536,9 +588,11 @@ pub(crate) async fn get_model_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
-        fetch_agent_models(config.port, effective_agent_api_key(&config)).await?;
+        fetch_alias_models(&config).await?;
     let definitions = fetch_oauth_model_definitions(&config).await;
     Ok(resolved_oauth_alias_sources(
         &content,
@@ -556,9 +610,11 @@ pub(crate) async fn get_thinking_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
-        fetch_agent_models(config.port, effective_agent_api_key(&config)).await?;
+        fetch_alias_models(&config).await?;
     let definitions = fetch_oauth_model_definitions(&config).await;
     Ok(resolved_oauth_alias_sources(
         &content,
@@ -578,6 +634,8 @@ pub(crate) async fn get_model_alias_edit_source(
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<ModelAliasEditContext, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
     let definitions = fetch_oauth_model_definitions(&config).await;
@@ -595,6 +653,8 @@ pub(crate) async fn create_thinking_alias(
     original_entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
         return Err("Select the source model first".to_string());
@@ -630,7 +690,7 @@ pub(crate) async fn create_thinking_alias(
         resolve_model_alias_edit_source_for_mapping(&content, original, &definitions, original_entry.as_ref())?
     } else {
         let available_models =
-            fetch_agent_models(config.port, effective_agent_api_key(&config)).await?;
+            fetch_alias_models(&config).await?;
         resolved_oauth_alias_sources(&content, &definitions, &available_models, capability)?
             .into_iter()
             .find(|source| source.source.id == source_id)
@@ -661,7 +721,11 @@ pub(crate) async fn create_thinking_alias(
         Some(original) => edit_model_alias_in_yaml_for_mapping(&content, original, &source, &alias, &effort, fast, original_entry.as_ref())?,
         None => add_model_alias_to_yaml(&content, &source, &alias, &effort, fast)?,
     };
-    put_management_alias_config_changes(&config, &content, &updated).await?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        save_remote_alias_changes(&gui_config_state, &config, &content, &updated).await?;
+    } else {
+        put_management_alias_config_changes(&config, &content, &updated).await?;
+    }
     thinking_aliases_from_yaml(&updated)
 }
 
@@ -673,13 +737,19 @@ pub(crate) async fn delete_thinking_alias(
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
     let updated = match entry.as_ref() {
         Some(entry) => remove_model_alias_mapping_from_yaml(&content, &alias, entry)?,
         None => remove_thinking_alias_from_yaml_for_channel(&content, &alias, oauth_channel.as_deref())?,
     };
-    put_management_alias_config_changes(&config, &content, &updated).await?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        save_remote_alias_changes(&gui_config_state, &config, &content, &updated).await?;
+    } else {
+        put_management_alias_config_changes(&config, &content, &updated).await?;
+    }
     thinking_aliases_from_yaml(&updated)
 }
 
@@ -688,6 +758,8 @@ pub(crate) async fn get_speed_aliases(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let content = fetch_management_config_yaml(&config).await?;
     speed_aliases_from_yaml(&content)
 }
@@ -697,9 +769,11 @@ pub(crate) async fn get_speed_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
-        fetch_agent_models(config.port, effective_agent_api_key(&config)).await?;
+        fetch_alias_models(&config).await?;
     let definitions = fetch_oauth_model_definitions(&config).await;
     Ok(resolved_oauth_alias_sources(
         &content,
@@ -719,6 +793,8 @@ pub(crate) async fn create_speed_alias(
     alias: String,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
         return Err("Select the source model first".to_string());
@@ -726,7 +802,7 @@ pub(crate) async fn create_speed_alias(
     let alias = validate_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
-        fetch_agent_models(config.port, effective_agent_api_key(&config)).await?;
+        fetch_alias_models(&config).await?;
     let definitions = fetch_oauth_model_definitions(&config).await;
     let sources = resolved_oauth_alias_sources(
         &content,
@@ -745,7 +821,11 @@ pub(crate) async fn create_speed_alias(
         return Err("Alias model cannot be the same as the source model".to_string());
     }
     let updated = add_speed_alias_to_yaml(&content, &source, &alias)?;
-    put_management_alias_config_changes(&config, &content, &updated).await?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        save_remote_alias_changes(&gui_config_state, &config, &content, &updated).await?;
+    } else {
+        put_management_alias_config_changes(&config, &content, &updated).await?;
+    }
     speed_aliases_from_yaml(&updated)
 }
 
@@ -757,13 +837,19 @@ pub(crate) async fn delete_speed_alias(
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
     let updated = match entry.as_ref() {
         Some(entry) => remove_model_alias_mapping_from_yaml(&content, &alias, entry)?,
         None => remove_speed_alias_from_yaml_for_channel(&content, &alias, oauth_channel.as_deref())?,
     };
-    put_management_alias_config_changes(&config, &content, &updated).await?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        save_remote_alias_changes(&gui_config_state, &config, &content, &updated).await?;
+    } else {
+        put_management_alias_config_changes(&config, &content, &updated).await?;
+    }
     speed_aliases_from_yaml(&updated)
 }
 
@@ -988,7 +1074,11 @@ pub(crate) async fn refresh_applied_codex_model_catalog(
     app: &tauri::AppHandle,
     config: &GuiConfigFile,
 ) -> Result<bool, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
+    _target_state.ensure_target(config)?;
+    crate::core_connection::require_local(config)?;
     let runtime_models = fetch_codex_catalog_runtime_models(config).await?;
     let prepared = prepare_codex_agent_models(&runtime_models)?;
     sync_prepared_codex_model_catalog(app, config, &prepared)
@@ -1000,9 +1090,6 @@ pub(crate) fn request_codex_model_catalog_refresh() {
 
 pub(crate) fn start_codex_model_catalog_sync(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let Ok(home) = app.path().home_dir() else {
-            return;
-        };
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
@@ -1013,6 +1100,12 @@ pub(crate) fn start_codex_model_catalog_sync(app: tauri::AppHandle) {
                 },
             }
             let Ok(config) = app.state::<GuiConfigState>().snapshot() else {
+                continue;
+            };
+            if config.connection_mode == CoreConnectionMode::Remote {
+                continue;
+            }
+            let Ok(home) = app.path().home_dir() else {
                 continue;
             };
             let paths = agent_config_paths(AgentClient::Codex, &home);
@@ -1184,6 +1277,8 @@ pub(crate) async fn apply_agent_config(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
+    let target_operation = std::sync::Arc::new(gui_config_state.target_operation.clone().lock_owned().await);
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let client = AgentClient::parse(&client)?;
     let home = app
         .path()
@@ -1211,7 +1306,7 @@ pub(crate) async fn apply_agent_config(
         &model,
         claude_desktop_model_mappings,
     )?;
-    prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref()).await?;
+    prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref(), target_operation.clone()).await?;
     commit_agent_with_core(&config, claude_desktop_model_mappings, &prepared.models, |claude_desktop_model_mappings| {
         let _guard = AGENT_CONFIG_FILE_LOCK
             .lock()
@@ -1235,6 +1330,9 @@ pub(crate) async fn apply_agent_config(
 
 #[tauri::command]
 pub(crate) fn clear_codex_config(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()
@@ -1258,6 +1356,8 @@ pub(crate) async fn set_agent_config_enabled(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
+    let target_operation = std::sync::Arc::new(gui_config_state.target_operation.clone().lock_owned().await);
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let client = AgentClient::parse(&client)?;
     let home = app
         .path()
@@ -1284,7 +1384,7 @@ pub(crate) async fn set_agent_config_enabled(
             &model,
             claude_desktop_model_mappings,
         )?;
-        prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref()).await?;
+        prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref(), target_operation.clone()).await?;
         commit_agent_with_core(&config, claude_desktop_model_mappings, &prepared.models, |claude_desktop_model_mappings| {
             let _guard = AGENT_CONFIG_FILE_LOCK
                 .lock()
@@ -1333,6 +1433,7 @@ pub(crate) async fn update_agent_config(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     apply_agent_config(
         app,
         gui_config_state,
@@ -1703,5 +1804,13 @@ pub(crate) fn format_agent_models_error(status: u16, body: &str) -> String {
             "Failed to get local model list ({status}): {}",
             truncate_for_error(body)
         )
+    }
+}
+
+async fn fetch_alias_models(config: &GuiConfigFile) -> Result<Vec<AgentModelOption>, String> {
+    if config.connection_mode == CoreConnectionMode::Remote {
+        parse_agent_model_options(&crate::core_connection::fetch_client_models(config).await?)
+    } else {
+        fetch_agent_models(config.port, effective_agent_api_key(config)).await
     }
 }

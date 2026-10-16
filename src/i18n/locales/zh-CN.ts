@@ -1,3 +1,4 @@
+import { connectionZhCN } from "../coreConnection";
 import { easyModeZhCN } from '../easyMode';
 import { homeZhCN } from '../home';
 import { authFileListZhCN } from '../authFileList';
@@ -23,6 +24,7 @@ export const zhCN = {
   'oauth.vertex.import': '导入 Vertex 凭证',
   'oauth.vertex.importing': '正在导入…',
   ...homeZhCN,
+  ...connectionZhCN,
   ...authFileListZhCN,
   'apiAccess.entries.addKey': '添加 API Key',
   'apiAccess.entries.addProvider': '添加服务',

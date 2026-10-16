@@ -1400,6 +1400,8 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         )
     };
 
+    // Installed core settings are only a migration/recovery source for Local mode.
+    let is_local = config.connection_mode == CoreConnectionMode::Local;
     let saved_management_secret = presence.management_secret_key.as_deref();
 
     if gui_config_exists {
@@ -1422,7 +1424,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     let core_is_newer = file_modified_time(&core_config_path)
         .zip(file_modified_time(&config_path))
         .is_some_and(|(core, gui)| core > gui);
-    if core_is_newer && !gui_parse_failed {
+    if is_local && core_is_newer && !gui_parse_failed {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             apply_core_settings_to_gui_config(&mut config, &core_settings);
             apply_external_core_proxy_override(&mut config, &core_settings)?;
@@ -1453,7 +1455,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         || presence.max_retry_credentials.is_none()
         || presence.max_retry_interval.is_none()
         || presence.streaming_bootstrap_retries.is_none();
-    if missing_core_settings && !gui_parse_failed {
+    if is_local && missing_core_settings && !gui_parse_failed {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             if presence.host.is_none() {
                 config.host = core_settings.host.clone();
@@ -1540,7 +1542,8 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         }
         changed = true;
     }
-    if presence.management_secret_key.is_none()
+    if is_local
+        && presence.management_secret_key.is_none()
         && (had_existing_gui_config || core_config_path.is_file())
     {
         config.management_secret_key = read_installed_core_config_settings()
@@ -1583,12 +1586,20 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     if presence.prefer_gitcode_downloads.is_none() {
         changed = true;
     }
+    if presence.connection_mode.is_none()
+        || presence.remote_management_origin.is_none()
+        || presence.remote_management_key.is_none()
+        || presence.remote_client_origin.is_none()
+        || presence.remote_client_key.is_none()
+    {
+        changed = true;
+    }
     changed |= network_proxy::initialize_override(
         &mut config,
         presence.proxy_override.is_some(),
     );
     config.prefer_gitcode_downloads = config.download_source == VersionDownloadSource::Gitcode;
-    let installed_management_secret = if saved_management_secret == Some("") {
+    let installed_management_secret = if is_local && saved_management_secret == Some("") {
         read_installed_core_config_settings()
             .ok()
             .and_then(|settings| settings.management_secret_key)
@@ -1608,12 +1619,12 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     if changed {
         write_gui_config(&config)?;
     }
-    if management_secret_rotated {
+    if management_secret_rotated && config.connection_mode == CoreConnectionMode::Local {
         if let Err(error) = patch_core_management_secret_key(&config.management_secret_key) {
             eprintln!("Failed to update legacy CPA WebUI key; will retry the next time the kernel starts: {error}");
         }
     }
-    if !config.auth_dir.trim().is_empty() {
+    if config.connection_mode == CoreConnectionMode::Local && !config.auth_dir.trim().is_empty() {
         let install_dir = core_install_dir()?;
         let auth_dir = auth_dir_path_for_core(&config.auth_dir, &install_dir)?;
         fs::create_dir_all(&auth_dir)
@@ -1886,7 +1897,7 @@ pub(crate) fn sanitize_gui_config_at(
         config.allow_lan = allow_lan;
         changed = true;
     }
-    if !config.auth_dir_user_selected {
+    if config.connection_mode == CoreConnectionMode::Local && !config.auth_dir_user_selected {
         match migrate_auth_dir_at(config, install_dir, persistent_auth_dir) {
             Ok(migrated) => changed |= migrated,
             Err(error) => {
@@ -2025,6 +2036,20 @@ pub(crate) fn write_gui_config_to_path(
         ("port", value(i64::from(config.port))),
         ("allow-lan", value(config.allow_lan)),
         ("host", value(config.host.as_str())),
+        ("connection-mode", value(config.connection_mode.as_str())),
+        (
+            "remote-management-origin",
+            value(config.remote_management_origin.as_str()),
+        ),
+        (
+            "remote-management-key",
+            value(config.remote_management_key.as_str()),
+        ),
+        (
+            "remote-client-origin",
+            value(config.remote_client_origin.as_str()),
+        ),
+        ("remote-client-key", value(config.remote_client_key.as_str())),
         ("run-on-startup", value(config.run_on_startup)),
         ("start-core-on-launch", value(config.start_core_on_launch)),
         ("silent-start", value(config.silent_start)),

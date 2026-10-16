@@ -102,7 +102,7 @@ pub(crate) fn spawn_core_child(command: Command) -> Result<CoreChild, String> {
     };
     Ok(CoreChild {
         child,
-        #[cfg(windows)]
+            #[cfg(windows)]
         job,
     })
 }
@@ -142,6 +142,7 @@ pub(crate) async fn check_latest_core(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<CoreLatest, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let _detection_guard = VERSION_SOURCE_DETECTION_LOCK.lock().await;
     let platform = current_core_platform()?;
     let config = gui_config_state.snapshot()?;
@@ -170,7 +171,10 @@ pub(crate) async fn check_latest_core(
 }
 
 #[tauri::command]
-pub(crate) fn detect_bundled_core() -> Result<Option<BundledCoreInfo>, String> {
+pub(crate) fn detect_bundled_core(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<Option<BundledCoreInfo>, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     bundled_core_archive().map(|value| value.map(|(info, _)| info))
 }
 
@@ -179,6 +183,7 @@ pub(crate) async fn install_bundled_core(
     app: tauri::AppHandle,
     window: tauri::Window,
 ) -> Result<CoreInstallResult, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
         let state = app.state::<CoreDownloadState>();
@@ -263,6 +268,8 @@ pub(crate) fn remember_bundled_core_when_up_to_date(
 }
 
 pub(crate) fn auto_install_bundled_core_if_needed(app: &tauri::AppHandle) -> Result<bool, String> {
+    if app.state::<GuiConfigState>().snapshot()?.connection_mode == CoreConnectionMode::Remote { return Ok(false); }
+
     let install_dir = core_install_dir()?;
     let (info, archive_path) = match bundled_core_archive()? {
         Some(bundled) => bundled,
@@ -294,13 +301,22 @@ pub(crate) fn auto_install_bundled_core_if_needed(app: &tauri::AppHandle) -> Res
 }
 
 #[tauri::command]
-pub(crate) fn cancel_core_install(state: tauri::State<'_, CoreDownloadState>) {
+pub(crate) fn cancel_core_install(
+    state: tauri::State<'_, CoreDownloadState>,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<(), String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     state.cancel();
+    Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn get_core_install_task(state: tauri::State<'_, CoreDownloadState>) -> CoreInstallTask {
-    state.snapshot()
+pub(crate) fn get_core_install_task(
+    state: tauri::State<'_, CoreDownloadState>,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<CoreInstallTask, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    Ok(state.snapshot())
 }
 
 pub(crate) struct StagedCoreInstall {
@@ -317,12 +333,14 @@ pub(crate) async fn install_core_version(
     window: tauri::Window,
     version: Option<String>,
 ) -> Result<CoreInstallResult, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
         let state = app.state::<CoreDownloadState>();
         let process_state = app.state::<CoreProcessState>();
         let gui_config_state = app.state::<GuiConfigState>();
         let config = gui_config_state.snapshot()?;
+        crate::core_connection::require_local(&config)?;
         let proxy_url = config.proxy_url.clone();
         let rollback_dir = core_base_dir()?.join("cpa-core.rollback");
         ensure_core_rollback_available(&rollback_dir)?;
@@ -399,6 +417,7 @@ where
     F: FnOnce() -> Result<CoreInstallResult, String>,
 {
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let was_running = pause_core_for_install(app, process_state, &config)?;
     let result = install();
     restore_core_after_install(app, process_state, &config, was_running, result)
@@ -409,6 +428,7 @@ fn pause_core_for_install(
     process_state: &CoreProcessState,
     config: &GuiConfigFile,
 ) -> Result<bool, String> {
+    crate::core_connection::require_local(config)?;
     let was_running = pause_core_process_for_install(process_state)?;
     if was_running {
         emit_current_core_status(app, process_state, config.port);
@@ -474,6 +494,9 @@ pub(crate) fn start_core_process_with_state(
     process_state: &CoreProcessState,
     gui_config_state: &GuiConfigState,
 ) -> Result<CoreStatus, String> {
+    if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
+        return Err("Core lifecycle is unavailable for a remote connection".to_string());
+    }
     network_proxy::refresh(gui_config_state)?;
     let config = gui_config_state.snapshot()?;
     start_core_process_inner(process_state, &config)?;
@@ -493,6 +516,9 @@ pub(crate) fn stop_core_process_with_state(
     process_state: &CoreProcessState,
     gui_config_state: &GuiConfigState,
 ) -> Result<CoreStatus, String> {
+    if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
+        return Err("Core lifecycle is unavailable for a remote connection".to_string());
+    }
     stop_core_process_inner(process_state)?;
     let config = gui_config_state.set_run_on_startup(false)?;
     current_core_status(Some(process_state), Some(config.port))
@@ -507,6 +533,9 @@ pub(crate) fn restart_core_process_with_state(
     process_state: &CoreProcessState,
     gui_config_state: &GuiConfigState,
 ) -> Result<CoreStatus, String> {
+    if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
+        return Err("Core lifecycle is unavailable for a remote connection".to_string());
+    }
     network_proxy::refresh(gui_config_state)?;
     let config = gui_config_state.snapshot()?;
     if current_core_status(Some(process_state), None)?.running {
@@ -1356,6 +1385,8 @@ pub(crate) fn current_core_status(
         current_version,
         install_dir: path_to_string(&install_dir),
         binary_path: binary_path.map(|path| path_to_string(&path)),
+        connection_mode: Some("local".to_string()),
+        remote_origin: None,
         message,
     })
 }
@@ -1540,6 +1571,7 @@ pub(crate) fn start_core_process_inner(
     process_state: &CoreProcessState,
     gui_config: &GuiConfigFile,
 ) -> Result<(), String> {
+    crate::core_connection::require_local(gui_config)?;
     process_state.ensure_active()?;
     let mut resolved_config = gui_config.clone();
     resolved_config.proxy_url = network_proxy::resolve(gui_config);
@@ -2326,6 +2358,11 @@ pub(crate) fn shutdown_managed_core(
     process_state: &CoreProcessState,
     gui_config_state: &GuiConfigState,
 ) {
+    if !gui_config_state.snapshot().is_ok_and(|config| config.connection_mode == CoreConnectionMode::Local) {
+        // Remote-only sessions must not discover or stop processes on this machine.
+        // Selecting remote mode is rejected while a GUI-owned local child is alive.
+        return;
+    }
     let was_running = process_state.managed_pid().is_some()
         || core_install_dir()
             .ok()
@@ -2989,6 +3026,7 @@ pub(crate) fn should_start_hidden(config: &GuiConfigFile) -> bool {
 }
 
 pub(crate) fn should_start_core_on_launch(config: &GuiConfigFile) -> bool {
+    if config.connection_mode == CoreConnectionMode::Remote { return false; }
     config.start_core_on_launch
 }
 

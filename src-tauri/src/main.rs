@@ -9,6 +9,7 @@ mod codex_sessions;
 mod configuration_watcher;
 mod core_config;
 mod core_runtime;
+mod core_connection;
 mod desktop_theme;
 mod instance_lock;
 #[cfg(target_os = "linux")]
@@ -40,7 +41,7 @@ mod windows_frame;
 use configuration_watcher::nearest_existing_watch_directory;
 use management_api::{
     format_management_request_error, management_authorization, management_endpoint,
-    management_http_client, read_management_text, read_management_value,
+    read_management_text, read_management_value,
 };
 use oauth_browser::*;
 #[cfg(test)]
@@ -92,7 +93,7 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
 };
-use tauri::{Emitter, LogicalSize, Manager};
+use tauri::{Emitter, Listener, LogicalSize, Manager};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio_util::sync::CancellationToken;
@@ -333,6 +334,10 @@ struct AdoptedCoreProcess {
 
 struct GuiConfigState {
     inner: Mutex<GuiConfigFile>,
+    target_operation: std::sync::Arc<tokio::sync::Mutex<()>>,
+    oauth_sessions: Mutex<HashMap<String, u64>>,
+    #[cfg(test)]
+    persistence_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -428,6 +433,10 @@ struct CoreStatus {
     current_version: Option<String>,
     install_dir: String,
     binary_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    connection_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_origin: Option<String>,
     message: String,
 }
 
@@ -604,6 +613,18 @@ struct CoreInstallTask {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 struct GuiConfigFile {
+    #[serde(skip)]
+    target_revision: u64,
+    #[serde(default)]
+    connection_mode: CoreConnectionMode,
+    #[serde(default)]
+    remote_management_origin: String,
+    #[serde(default)]
+    remote_management_key: String,
+    #[serde(default)]
+    remote_client_origin: String,
+    #[serde(default)]
+    remote_client_key: String,
     locale: String,
     port: u16,
     allow_lan: bool,
@@ -647,6 +668,23 @@ struct GuiConfigFile {
     max_retry_credentials: u32,
     max_retry_interval: i64,
     streaming_bootstrap_retries: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CoreConnectionMode {
+    #[default]
+    Local,
+    Remote,
+}
+
+impl CoreConnectionMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Remote => "remote",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -914,6 +952,13 @@ where
 impl Default for GuiConfigFile {
     fn default() -> Self {
         Self {
+            target_revision: 0,
+            connection_mode: CoreConnectionMode::Local,
+            remote_management_origin: String::new(),
+            remote_management_key: String::new(),
+            remote_client_origin: String::new(),
+            remote_client_key: String::new(),
+
             locale: "en".to_string(),
             port: 8317,
             allow_lan: false,
@@ -962,6 +1007,11 @@ impl Default for GuiConfigFile {
 #[derive(Default, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 struct GuiConfigPresence {
+    connection_mode: Option<CoreConnectionMode>,
+    remote_management_origin: Option<String>,
+    remote_management_key: Option<String>,
+    remote_client_origin: Option<String>,
+    remote_client_key: Option<String>,
     locale: Option<String>,
     port: Option<u16>,
     allow_lan: Option<bool>,
@@ -2037,6 +2087,10 @@ impl GuiConfigState {
     fn new(config: GuiConfigFile) -> Self {
         Self {
             inner: Mutex::new(config),
+            target_operation: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+            oauth_sessions: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            persistence_path: None,
         }
     }
 
@@ -2047,11 +2101,29 @@ impl GuiConfigState {
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())
     }
 
-    fn replace_external(&self, config: GuiConfigFile) -> Result<(), String> {
+    fn ensure_target(&self, expected: &GuiConfigFile) -> Result<(), String> {
+        let current = self.snapshot()?;
+        if current.target_revision != expected.target_revision {
+            return Err("Core connection changed; discard the previous target response".to_string());
+        }
+        Ok(())
+    }
+
+    // Acquire in the blocking worker, not its awaiter: cancellation must not
+    // release the fence while an accepted filesystem/process write is running.
+    fn blocking_local_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+        let guard = self.target_operation.blocking_lock();
+        self.ensure_target(expected)?;
+        crate::core_connection::require_local(&self.snapshot()?)?;
+        Ok(guard)
+    }
+
+    fn replace_external(&self, mut config: GuiConfigFile) -> Result<(), String> {
         let mut current = self
             .inner
             .lock()
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())?;
+        config.target_revision = current.target_revision.wrapping_add(1);
         *current = config;
         Ok(())
     }
@@ -2060,6 +2132,7 @@ impl GuiConfigState {
         &self,
         settings: &CoreConfigSettings,
     ) -> Result<GuiConfigFile, String> {
+        crate::core_connection::require_local(&self.snapshot()?)?;
         let mut current = self
             .inner
             .lock()
@@ -2265,6 +2338,7 @@ impl GuiConfigState {
         apply_external_proxy: bool,
         save_usage_preference: bool,
     ) -> Result<GuiConfigFile, String> {
+        crate::core_connection::require_local(&self.snapshot()?)?;
         self.update(|config| {
             config.api_keys = merge_core_api_keys_with_gui_metadata(
                 &config.api_keys,
@@ -2611,6 +2685,13 @@ fn main() {
             }
 
             network_proxy::start_monitor(app.handle().clone());
+            let connection_app = app.handle().clone();
+            app.listen("core-connection-changed", move |_| {
+                let app = connection_app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = get_core_status(app).await;
+                });
+            });
             start_codex_model_catalog_sync(app.handle().clone());
 
             let usage_app = app.handle().clone();
@@ -2650,7 +2731,12 @@ fn main() {
                     return;
                 };
 
-                if config.start_core_on_launch {
+                if config.connection_mode == CoreConnectionMode::Remote {
+                    process_state.set_starting(false);
+                    return;
+                }
+
+                if config.connection_mode == CoreConnectionMode::Local && config.start_core_on_launch {
                     if let Ok(status) =
                         current_core_status(Some(process_state.inner()), Some(config.port))
                     {
@@ -2658,13 +2744,17 @@ fn main() {
                     }
                 }
 
-                match auto_install_bundled_core_if_needed(&core_app) {
+                match if config.connection_mode == CoreConnectionMode::Local {
+                    auto_install_bundled_core_if_needed(&core_app)
+                } else {
+                    Ok(false)
+                } {
                     Ok(true) => eprintln!("Automatically installed or upgraded to the CPA kernel version bundled with the application"),
                     Ok(false) => {}
                     Err(error) => eprintln!("Failed to automatically install CPA offline kernel: {error}"),
                 }
 
-                let adopted_process_ids = match adopt_existing_core_processes(process_state.inner())
+                let adopted_process_ids = match if config.connection_mode == CoreConnectionMode::Local { adopt_existing_core_processes(process_state.inner()) } else { Ok(Vec::new()) }
                 {
                     Ok(process_ids) => process_ids,
                     Err(error) => {
@@ -2681,7 +2771,7 @@ fn main() {
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
-                } else if should_start_core_on_launch(&config) {
+                } else if config.connection_mode == CoreConnectionMode::Local && should_start_core_on_launch(&config) {
                     if let Err(error) = start_core_process_inner(process_state.inner(), &config) {
                         eprintln!("Failed to automatically start CPA kernel: {error}");
                     }
@@ -2712,6 +2802,9 @@ fn main() {
             health_check,
             detect_core_platform,
             get_core_status,
+            core_connection::get_core_connection,
+            core_connection::save_core_connection,
+            core_connection::test_core_connection,
             get_gui_settings,
             get_usage_view_preferences,
             save_usage_view_preferences,
@@ -2793,6 +2886,7 @@ fn main() {
             provider_health::provider_health_probe,
             provider_health::get_core_models,
             provider_health::core_health_probe,
+            management_api::get_management_target_revision,
             management_api::upload_auth_file,
             management_api::import_vertex_credential,
             management_api::open_auth_files_directory,
@@ -2824,6 +2918,7 @@ fn main() {
             cancel_core_install,
             get_core_install_task,
             usage::get_usage_collector_status,
+            usage::resume_usage_collection,
             usage::get_usage_overview,
             usage::get_usage_analysis,
             usage::get_usage_events,

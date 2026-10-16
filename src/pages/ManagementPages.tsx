@@ -23,6 +23,7 @@ import devinIcon from '../assets/icons/devin.svg';
 import kimiIcon from '../assets/icons/kimi-light.svg';
 import metaIcon from '../assets/icons/meta.svg';
 import { useI18n } from '../i18n';
+import { useCoreRuntime } from '../coreRuntime';
 import { usePrivacyMask } from '../privacy';
 import { FloatingNotice, useAppNotice } from '../appNotice';
 import { oauthSubpages, type OAuthSubpage } from '../oauthNavigation';
@@ -93,7 +94,6 @@ const OAUTH_CALLBACK_SUPPORTED = new Set<OAuthProviderId>([
   'codex',
   'claude',
   'antigravity',
-  'xai',
   'devin',
 ]);
 const BUILTIN_OAUTH_PROVIDER_IDS = oauthProviders.map(provider => provider.id);
@@ -102,7 +102,8 @@ const OAUTH_POLL_INTERVAL_MS = 3000;
 const OAUTH_BROWSER_STORAGE_KEY = 'easy-cli-proxy-api.oauth-browser.v3';
 const NO_AUTO_OPEN_BROWSER_ID = 'none';
 const OAUTH_ACCOUNT_PREVIEW_LIMIT = 3;
-const oauthLoginSuccessCache = createOAuthLoginSuccessCache<OAuthProviderId>();
+let oauthLoginSuccessCache = createOAuthLoginSuccessCache<OAuthProviderId>();
+let oauthCacheRevision = 0;
 
 const resolveOAuthBrowserSelection = (
   available: OAuthBrowserOption[],
@@ -197,6 +198,11 @@ export function OAuthManagementPage() {
 
 export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provider?: string) => void } = {}) {
   const { t } = useI18n();
+  const { status: coreStatus, connectionRevision } = useCoreRuntime();
+  if (oauthCacheRevision !== connectionRevision) {
+    oauthLoginSuccessCache = createOAuthLoginSuccessCache<OAuthProviderId>();
+    oauthCacheRevision = connectionRevision;
+  }
   const privacy = usePrivacyMask();
   const [accounts, setAccounts] = useState<Map<string, OAuthAccountSummary[]> | null>(null);
   const [states, setStates] = useState<Partial<Record<OAuthProviderId, OAuthProviderState>>>(
@@ -560,6 +566,7 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
 
   return (
     <section className="page management-page oauth-login-page">
+      {coreStatus?.connectionMode === 'remote' && <p className="core-connection-hint">{t('connection.oauthHint')}</p>}
       <header className="management-header">
         <label className="oauth-browser-picker">
           <span>{t('oauth.browser.label')}</span>

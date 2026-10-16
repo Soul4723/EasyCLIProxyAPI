@@ -149,12 +149,16 @@ pub(crate) async fn get_codex_session_context(
     app: tauri::AppHandle,
     request: GetCodexSessionContextRequest,
 ) -> Result<CodexSessionContextDetail, String> {
+    let expected = app.state::<crate::GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let user_home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let codex_home = resolve_codex_home(&user_home);
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<crate::GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         get_codex_session_context_from_home(&codex_home, &request.session_id)
     })
     .await
@@ -166,12 +170,16 @@ pub(crate) async fn save_codex_session_context(
     app: tauri::AppHandle,
     request: SaveCodexSessionContextRequest,
 ) -> Result<SaveCodexSessionContextResult, String> {
+    let expected = app.state::<crate::GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let user_home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let codex_home = resolve_codex_home(&user_home);
     tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<crate::GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
         save_codex_session_context_from_home(&codex_home, request)
     })
     .await
@@ -183,20 +191,24 @@ pub(crate) async fn open_codex_session_rollout(
     app: tauri::AppHandle,
     request: GetCodexSessionContextRequest,
 ) -> Result<(), String> {
+    let expected = app.state::<crate::GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&expected)?;
     let user_home = app
         .path()
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let codex_home = resolve_codex_home(&user_home);
     let session_id = validate_session_id(&normalize_thread_id(&request.session_id))?;
-    let path = tauri::async_runtime::spawn_blocking(move || {
-        find_rollout_for_session(&codex_home, &session_id)?
-            .ok_or_else(|| "This session has no rollout file to open".to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<crate::GuiConfigState>();
+        let _target_operation = state.blocking_local_target_operation(&expected)?;
+        let path = find_rollout_for_session(&codex_home, &session_id)?
+            .ok_or_else(|| "This session has no rollout file to open".to_string())?;
+        tauri_plugin_opener::open_path(path, None::<&str>)
+            .map_err(|error| format!("Failed to open rollout with the default application: {error}"))
     })
     .await
-    .map_err(|error| format!("Failed to locate session rollout: {error}"))??;
-    tauri_plugin_opener::open_path(path, None::<&str>)
-        .map_err(|error| format!("Failed to open rollout with the default application: {error}"))
+    .map_err(|error| format!("Failed to locate session rollout: {error}"))?
 }
 
 fn discover_thread_history_databases(codex_home: &Path) -> Vec<PathBuf> {
