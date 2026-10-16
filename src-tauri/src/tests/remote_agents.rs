@@ -150,3 +150,46 @@ async fn remote_model_errors_and_redirects_cannot_echo_or_forward_keys() {
         server.join().unwrap();
     }
 }
+
+#[tokio::test]
+async fn remote_connection_events_emit_only_revision_not_credentials() {
+    use tauri::Listener;
+    let home = agent_test_home("remote-secret-events");
+    let mut state = GuiConfigState::new(GuiConfigFile::default());
+    state.persistence_path = Some(home.join("gui.toml"));
+    let app = tauri::test::mock_builder().manage(state)
+        .manage(AgentConfigStatusCache::default()).manage(CoreProcessState::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let events = std::sync::Arc::new(Mutex::new(Vec::new()));
+    let received = events.clone();
+    app.listen("core-connection-changed", move |event| received.lock().unwrap().push(event.payload().to_string()));
+    let connection = crate::core_connection::CoreConnection {
+        mode: CoreConnectionMode::Remote,
+        management_origin: "https://management.example.test".into(),
+        management_key: "fixture-management-secret".into(),
+        client_origin: "https://client.example.test".into(),
+        client_key: "fixture-client-secret".into(),
+    };
+    crate::core_connection::save_core_connection(app.handle().clone(), app.state(), connection).await.unwrap();
+    let saved = app.state::<GuiConfigState>().snapshot().unwrap();
+    assert_eq!(saved.remote_management_key, "fixture-management-secret");
+    assert_eq!(saved.remote_client_key, "fixture-client-secret");
+    let mut rotated = saved.clone();
+    rotated.remote_management_key = "fixture-rotated-management-secret".into();
+    rotated.remote_client_key = "fixture-rotated-client-secret".into();
+    {
+        let state = app.state::<GuiConfigState>();
+        let _guard = state.target_operation.lock().await;
+        crate::core_connection::replace_external_target(app.handle(), rotated).unwrap();
+    }
+    let events = events.lock().unwrap();
+    assert_eq!(events.len(), 2, "both save and external replacement must emit");
+    for (event, revision) in events.iter().zip([saved.target_revision, saved.target_revision + 1]) {
+        assert_eq!(serde_json::from_str::<serde_json::Value>(event).unwrap(), serde_json::json!({"revision": revision}));
+        for secret in ["fixture-management-secret", "fixture-client-secret",
+            "fixture-rotated-management-secret", "fixture-rotated-client-secret"] {
+            assert!(!event.contains(secret));
+        }
+    }
+    fs::remove_dir_all(home).unwrap();
+}

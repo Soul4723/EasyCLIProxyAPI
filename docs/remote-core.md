@@ -51,9 +51,18 @@ same-field edits can race, and multi-request edits can partially apply. A failed
 save reports this and requires a reload. Uncertain writes are not blindly retried
 or rolled back over another editor's changes.
 
-This stage does not configure or launch agent clients against the remote client
-endpoint. That is a separate integration; select Local to manage existing local
-agent configurations. The Home client endpoints/key remain separate from management.
+## Local agent clients
+
+While Remote is selected, the Agents page can configure and launch supported agent
+clients on the GUI machine against the saved remote client API origin and client
+API key. Configure a client for the selected remote target before launching or
+restarting it. Client configuration files and client processes remain local; this
+does not configure clients on the remote host or provide SSH machine configuration.
+
+A blank remote client key stays blank: it does not fall back to a local API key or
+the management key. The management key is never used for client traffic. The Home
+client endpoints/key remain separate from management. Core lifecycle actions remain
+local-only and are unavailable while Remote is selected.
 
 ## OAuth
 

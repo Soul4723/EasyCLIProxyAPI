@@ -201,6 +201,7 @@ pub(crate) async fn prepare_restore_plan(
 }
 
 pub(crate) async fn execute_restore_plan(
+    state: &GuiConfigState,
     config: &GuiConfigFile,
     plan: RestorePlan,
     revision: &str,
@@ -231,12 +232,23 @@ pub(crate) async fn execute_restore_plan(
         )
     };
     match &plan.core {
+        Some(core) if config.connection_mode == CoreConnectionMode::Remote => {
+            state.ensure_target(config)?;
+            save_remote_alias_changes(state, config, &core.before, &core.after)
+                .await
+                .map_err(|_| "Remote alias restore did not complete; changes may have applied. Reload before retrying".to_string())?;
+            state.ensure_target(config)?;
+            commit().map_err(|_| "Remote aliases were restored but the local client configuration failed. Inspect both before retrying".to_string())
+        }
         Some(core) => {
             commit_management_alias_config_changes(config, &core.before, &core.after, commit)
                 .await
                 .map_err(agent_core_error)
         }
-        None => commit(),
+        None => {
+            state.ensure_target(config)?;
+            commit()
+        },
     }
 }
 
@@ -267,7 +279,7 @@ pub(crate) async fn restore_agent_config_backup(
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;
     let plan = prepare_restore_plan(&config, &client, &home, &id).await?;
-    let result = execute_restore_plan(&config, plan, &revision).await?;
+    let result = execute_restore_plan(&_target_state, &config, plan, &revision).await?;
     app.state::<AgentConfigStatusCache>().clear()?;
     Ok(result)
 }
