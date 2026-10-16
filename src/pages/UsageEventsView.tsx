@@ -379,7 +379,7 @@ function UsageEventCell({
         </td>
       );
     case 'agent':
-      return <td className="usage-td-agent align-left">{record.agent === 'codex' ? 'Codex' : record.agent === 'claude-code' ? 'Claude Code' : record.agent === 'gemini-cli' ? 'Gemini CLI' : t('usage.agent.unknown')}</td>;
+      return <td className="usage-td-agent align-left">{record.agent === 'codex' ? t('usage.agent.codex') : record.agent === 'claude-code' ? t('usage.agent.claudeCode') : record.agent === 'gemini-cli' ? t('usage.agent.geminiCli') : t('usage.agent.unknown')}</td>;
     case 'model': {
       const model = usageModelDetails(record.model, record.alias, record.response_model);
       const effort = record.reasoning_effort || 'auto';
