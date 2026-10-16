@@ -12,7 +12,6 @@ use std::{
     fs,
     path::Path,
     process::{Command, Stdio},
-    sync::LazyLock,
     time::Duration,
 };
 
@@ -471,16 +470,18 @@ fn ensure_oauth_target(state: &GuiConfigState, config: &GuiConfigFile, oauth_sta
 }
 
 pub(crate) fn management_http_client() -> Result<reqwest::Client, String> {
-    static CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
-        reqwest::Client::builder()
-            .no_proxy()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
-            .danger_accept_invalid_certs(true)
-            .build()
-            .map_err(|err| format_management_request_error("Failed to create management API client", &err))
-    });
-    CLIENT.as_ref().cloned().map_err(Clone::clone)
+    local_management_http_client(current_core_tls_settings()?.enabled)
+}
+
+fn local_management_http_client(local_tls: bool) -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .danger_accept_invalid_certs(local_tls)
+        .build()
+        .map_err(|err| format_management_request_error("Failed to create management API client", &err))
 }
 
 pub(crate) fn format_management_request_error(
@@ -626,6 +627,67 @@ fn format_management_error(status: u16, body: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // Disposable TLS management endpoint: no installed core or user config is changed.
+    #[tokio::test]
+    async fn self_signed_local_tls_management_remains_compatible() {
+        let root = std::env::temp_dir().join(format!("cpa-management-tls-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cert = root.join("cert.pem");
+        let key = root.join("key.pem");
+        assert!(std::process::Command::new("openssl").args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-keyout"]).arg(&key).arg("-out").arg(&cert).output().unwrap().status.success());
+        let script = r#"
+import http.server, ssl, sys
+class Handler(http.server.BaseHTTPRequestHandler):
+ def do_GET(self):
+  self.send_response(200); self.send_header('Content-Length', '13'); self.end_headers(); self.wfile.write(b'local-core-ok')
+ def log_message(self, *args): pass
+server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain(sys.argv[1], sys.argv[2])
+server.socket = ctx.wrap_socket(server.socket, server_side=True)
+print(server.server_port, flush=True)
+server.serve_forever()
+"#;
+        let mut server = std::process::Command::new("python3").arg("-u").arg("-c").arg(script).arg(&cert).arg(&key).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        use std::io::BufRead;
+        let mut port = String::new();
+        std::io::BufReader::new(server.stdout.take().unwrap()).read_line(&mut port).unwrap();
+        let url = format!("https://127.0.0.1:{}/v8/management/config", port.trim());
+        let compatible = local_management_http_client(true).unwrap().get(&url).send().await;
+        let strict_local = local_management_http_client(false).unwrap().get(&url).send().await;
+        let mut config = GuiConfigFile::default();
+        config.connection_mode = super::super::CoreConnectionMode::Remote;
+        let strict_remote = management_http_client_for(&config).unwrap().get(&url).send().await;
+        server.kill().unwrap();
+        server.wait().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(compatible.unwrap().text().await.unwrap(), "local-core-ok");
+        assert!(strict_local.is_err());
+        assert!(strict_remote.is_err());
+    }
+
+    #[tokio::test]
+    async fn management_clients_never_follow_redirects() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for remote in [false, true] {
+            let mut config = GuiConfigFile::default();
+            if remote { config.connection_mode = super::super::CoreConnectionMode::Remote; }
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}/", listener.local_addr().unwrap());
+            let server = async {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                socket.read(&mut request).await.unwrap();
+                socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+            };
+            let client = management_http_client_for(&config).unwrap();
+            let (response, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+                tokio::join!(client.get(url).bearer_auth("isolated-secret").send(), server)
+            }).await.unwrap();
+            assert_eq!(response.unwrap().status(), reqwest::StatusCode::FOUND);
+        }
+    }
 
     #[tokio::test]
     async fn upload_rejects_a_target_changed_before_dispatch() {
