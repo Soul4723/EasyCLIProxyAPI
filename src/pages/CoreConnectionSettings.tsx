@@ -61,10 +61,10 @@ export function CoreConnectionSettings({ onClose, onSaved, initialDraft, onDraft
             <label><span>{t('connection.mode')}</span><select aria-label={t('connection.mode')} disabled={Boolean(busy)} value={draft.mode} onChange={event => change('mode', event.target.value)}><option value="local">{t('connection.local')}</option><option value="remote">{t('connection.remote')}</option></select></label>
             {draft.mode === 'remote' ? <>
               {ownedLocalRunning && <p className="core-connection-hint" role="status">{t('connection.stopLocalHint')}</p>}
-              <label><span>{t('connection.managementOrigin')}</span><input type="url" required disabled={Boolean(busy)} value={draft.managementOrigin} placeholder="http://core.example:8317" onChange={event => change('managementOrigin', event.target.value)} /></label>
+              <label><span>{t('connection.managementOrigin')}</span><input type="url" required disabled={Boolean(busy)} value={draft.managementOrigin} placeholder={t('connection.originPlaceholder')} onChange={event => change('managementOrigin', event.target.value)} /></label>
               <label><span>{t('connection.managementKey')}</span><input type="password" autoComplete="off" required disabled={Boolean(busy)} value={draft.managementKey} onChange={event => change('managementKey', event.target.value)} /></label>
               <p className="core-connection-hint">{t('connection.keysHint')}</p>
-              <label><span>{t('connection.clientOrigin')}</span><input type="url" required disabled={Boolean(busy)} value={draft.clientOrigin} placeholder="http://core.example:8317" onChange={event => change('clientOrigin', event.target.value)} /></label>
+              <label><span>{t('connection.clientOrigin')}</span><input type="url" required disabled={Boolean(busy)} value={draft.clientOrigin} placeholder={t('connection.originPlaceholder')} onChange={event => change('clientOrigin', event.target.value)} /></label>
               <label><span>{t('connection.clientKey')}</span><input type="password" autoComplete="off" disabled={Boolean(busy)} value={draft.clientKey} onChange={event => change('clientKey', event.target.value)} /></label>
               <p className="core-connection-hint">{t('connection.remoteHint')}</p>
             </> : <p>{t('connection.localHint')}</p>}
