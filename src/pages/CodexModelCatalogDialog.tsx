@@ -1,3 +1,4 @@
+import './CodexModelCatalogDialog.css';
 import { MessageNotice } from '../appNotice';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -36,6 +37,7 @@ export function CodexModelCatalogDialog({ onClose, onSaved }: CodexModelCatalogD
   const [snapshot, setSnapshot] = useState<CodexCatalogEditorSnapshot | null>(null);
   const [models, setModels] = useState<CodexCatalogEditorModel[]>([]);
   const [selectedSlug, setSelectedSlug] = useState('');
+  const [checkedSlugs, setCheckedSlugs] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -51,6 +53,7 @@ export function CodexModelCatalogDialog({ onClose, onSaved }: CodexModelCatalogD
     try {
       const next = await invoke<CodexCatalogEditorSnapshot>('get_codex_model_catalog_editor');
       setSnapshot(next);
+      setCheckedSlugs(new Set());
       setModels(cloneModels(next).map((model) => restoreDefaults
         ? { ...model, configuration: cloneCodexModelConfiguration(model.defaults) }
         : model));
@@ -86,6 +89,27 @@ export function CodexModelCatalogDialog({ onClose, onSaved }: CodexModelCatalogD
     return models.filter((model) => model.slug.toLocaleLowerCase().includes(query)
       || model.configuration.display_name.toLocaleLowerCase().includes(query));
   }, [models, search]);
+
+  // Batch selection stays within the current filter, including after name edits.
+  const selectedModels = filteredModels.filter((model) => checkedSlugs.has(model.slug));
+  const selectedCount = selectedModels.length;
+  const allChecked = filteredModels.length > 0 && selectedCount === filteredModels.length;
+
+  useEffect(() => {
+    const visibleSlugs = new Set(filteredModels.map((model) => model.slug));
+    setCheckedSlugs((current) => [...current].some((slug) => !visibleSlugs.has(slug))
+      ? new Set([...current].filter((slug) => visibleSlugs.has(slug)))
+      : current);
+  }, [filteredModels]);
+
+  const setSelectedVisibility = (visibility: 'list' | 'hide') => {
+    const slugs = new Set(selectedModels.map((model) => model.slug));
+    setModels((current) => current.map((model) => slugs.has(model.slug)
+      ? { ...model, configuration: { ...model.configuration, visibility } }
+      : model));
+    setError('');
+    setNotice('');
+  };
 
   const activeModel = models.find((model) => model.slug === selectedSlug) ?? null;
   const activeCustomized = activeModel
@@ -185,7 +209,7 @@ export function CodexModelCatalogDialog({ onClose, onSaved }: CodexModelCatalogD
     <div className="config-dialog-backdrop codex-catalog-backdrop" onMouseDown={(event) => {
       if (event.currentTarget === event.target) requestClose();
     }}>
-      <section ref={dialogRef} className="config-dialog codex-catalog-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-catalog-title">
+      <section ref={dialogRef} className="config-dialog codex-catalog-dialog codex-catalog-batch-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-catalog-title">
         <header className="config-dialog-heading codex-catalog-heading">
           <div>
             <h2 id="codex-catalog-title">{t('agents.catalog.title')}</h2>
@@ -200,20 +224,54 @@ export function CodexModelCatalogDialog({ onClose, onSaved }: CodexModelCatalogD
           <aside className="codex-catalog-sidebar">
             <div className="codex-catalog-search">
               <Search size={15} aria-hidden />
-              <input value={search} onChange={(event) => setSearch(event.currentTarget.value)} placeholder={t('agents.catalog.search')} />
+              <input value={search} onChange={(event) => {
+                setSearch(event.currentTarget.value);
+                setCheckedSlugs(new Set());
+              }} aria-label={t('agents.catalog.search')} placeholder={t('agents.catalog.search')} />
             </div>
-            <div className="codex-catalog-models" role="listbox" aria-label={t('agents.catalog.title')}>
+            <div className="codex-catalog-batch-controls">
+              <label className="codex-catalog-select-all">
+                <input type="checkbox" checked={allChecked} ref={(input) => {
+                  if (input) input.indeterminate = selectedCount > 0 && !allChecked;
+                }} disabled={loading || saving || !filteredModels.length} onChange={(event) => {
+                  setCheckedSlugs(event.currentTarget.checked
+                    ? new Set(filteredModels.map((model) => model.slug))
+                    : new Set());
+                }} />
+                <span>{t('agents.catalog.selectFiltered')}</span>
+              </label>
+              <span className="codex-catalog-selection-count" role="status">
+                {t('agents.catalog.selectedCount', { selected: selectedCount, total: filteredModels.length })}
+              </span>
+              <small>{t('agents.catalog.selectionHint')}</small>
+              <div className="codex-catalog-batch-actions">
+                <button type="button" className="secondary-button" disabled={!selectedCount || loading || saving} onClick={() => setSelectedVisibility('hide')}>{t('agents.catalog.hideSelected')}</button>
+                <button type="button" className="secondary-button" disabled={!selectedCount || loading || saving} onClick={() => setSelectedVisibility('list')}>{t('agents.catalog.showSelected')}</button>
+              </div>
+            </div>
+            <div className="codex-catalog-models" role="group" aria-label={t('agents.catalog.title')}>
               {loading ? (
                 <div className="codex-catalog-state"><LoaderCircle size={18} className="spin" />{t('agents.catalog.loading')}</div>
               ) : filteredModels.length ? filteredModels.map((model) => {
                 const customized = !sameCodexModelConfiguration(model.configuration, model.defaults);
                 return (
-                  <button
+                  <div className={`codex-catalog-batch-row${model.slug === selectedSlug ? ' active' : ''}`} key={model.slug}>
+                    <label className="codex-catalog-row-check">
+                      <input type="checkbox" checked={checkedSlugs.has(model.slug)} disabled={saving}
+                        aria-label={t('agents.catalog.selectModel', { model: model.slug })}
+                        onChange={(event) => {
+                          const checked = event.currentTarget.checked;
+                          setCheckedSlugs((current) => {
+                            const next = new Set(current);
+                            if (checked) next.add(model.slug);
+                            else next.delete(model.slug);
+                            return next;
+                          });
+                        }} />
+                    </label>
+                    <button
                     type="button"
-                    role="option"
-                    aria-selected={model.slug === selectedSlug}
-                    className={model.slug === selectedSlug ? 'active' : ''}
-                    key={model.slug}
+                    aria-pressed={model.slug === selectedSlug}
                     onClick={() => setSelectedSlug(model.slug)}
                   >
                     <strong>{model.configuration.display_name}</strong>
@@ -222,9 +280,10 @@ export function CodexModelCatalogDialog({ onClose, onSaved }: CodexModelCatalogD
                       {model.hasOfficialTemplate ? t('agents.catalog.official') : t('agents.catalog.fallback')}
                       {customized ? ` · ${t('agents.catalog.customized')}` : ''}
                     </small>
-                  </button>
+                    </button>
+                  </div>
                 );
-              }) : <div className="codex-catalog-state">{t('agents.catalog.empty')}</div>}
+              }) : <div className="codex-catalog-state">{t(models.length ? 'agents.catalog.noMatches' : 'agents.catalog.empty')}</div>}
             </div>
             <button type="button" className="secondary-button codex-catalog-reload" onClick={() => void load()} disabled={loading || saving || dirty}>
               <RefreshCw size={15} className={loading ? 'spin' : ''} />
