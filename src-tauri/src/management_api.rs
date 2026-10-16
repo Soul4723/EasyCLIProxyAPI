@@ -99,7 +99,7 @@ pub(crate) async fn management_request(
         return Err("Invalid management API path".to_string());
     }
 
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let mut builder = client
         .request(method, management_endpoint(&config, path)?)
         .header("Authorization", management_authorization(&config)?);
@@ -160,7 +160,7 @@ pub(crate) async fn import_vertex_credential(
     if let Some(location) = location.filter(|value| !value.trim().is_empty()) {
         form = form.text("location", location.trim().to_owned());
     }
-    let response = management_http_client()?
+    let response = management_http_client(&config)?
         .post(management_endpoint(&config, "oauth/import")?)
         .header("Authorization", management_authorization(&config)?)
         .query(&[("provider", "vertex")])
@@ -188,7 +188,7 @@ pub(crate) async fn upload_auth_file(
     let _connection_guard = super::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let result = async {
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let mut query = HashMap::new();
     query.insert("name".to_string(), name);
     let response = client
@@ -266,7 +266,7 @@ pub(crate) async fn start_oauth_login(
     let config = gui_config_state.snapshot()?;
     let result = async {
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let mut request = client
         .get(management_endpoint(&config, "oauth/auth-url")?)
         .header("Authorization", management_authorization(&config)?);
@@ -337,7 +337,7 @@ pub(crate) async fn get_oauth_status(
     }
     let config = gui_config_state.snapshot()?;
     let result = async {
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let response = client
         .get(management_endpoint(&config, "oauth/status")?)
         .header("Authorization", management_authorization(&config)?)
@@ -379,7 +379,7 @@ pub(crate) async fn submit_oauth_callback(
     let config = gui_config_state.snapshot()?;
     let result = async {
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let body = serde_json::json!({
         "provider": provider_key,
         "redirect_url": redirect_url,
@@ -405,19 +405,31 @@ pub(crate) async fn submit_oauth_callback(
     result
 }
 
-pub(crate) fn management_http_client() -> Result<reqwest::Client, String> {
-    static CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
-        reqwest::Client::builder()
+pub(crate) fn management_http_client(config: &GuiConfigFile) -> Result<reqwest::Client, String> {
+    let local_tls = !config.core_connection.is_remote() && current_core_tls_settings()?.enabled;
+    management_http_client_for_target(config, local_tls)
+}
+
+fn management_http_client_for_target(
+    config: &GuiConfigFile,
+    local_tls: bool,
+) -> Result<reqwest::Client, String> {
+    static CLIENTS: LazyLock<[Result<reqwest::Client, String>; 2]> = LazyLock::new(|| {
+        [false, true].map(|local_tls| reqwest::Client::builder()
             // Management traffic stays direct (LAN/Tailscale); the core
             // upstream proxy is not a proxy for its management endpoint.
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
+            // Match local agent/health clients, including loopback certificate
+            // mismatches. Remote targets always retain certificate verification.
+            .danger_accept_invalid_certs(local_tls)
             .build()
-            .map_err(|err| format_management_request_error("Failed to create management API client", &err))
+            .map_err(|err| format_management_request_error("Failed to create management API client", &err)))
     });
-    CLIENT.as_ref().cloned().map_err(Clone::clone)
+    CLIENTS[usize::from(local_tls && !config.core_connection.is_remote())]
+        .as_ref().cloned().map_err(Clone::clone)
 }
 
 pub(crate) fn format_management_request_error(
@@ -826,7 +838,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn management_client_rejects_untrusted_https_certificate() {
+    async fn management_tls_keeps_local_compatibility_and_remote_verification_separate() {
         let root = std::env::temp_dir().join(format!(
             "cpa-management-tls-test-{}-{}",
             std::process::id(),
@@ -862,14 +874,66 @@ mod tests {
             if TcpStream::connect(("127.0.0.1", port)).is_ok() { break; }
             thread::sleep(Duration::from_millis(25));
         }
-        let client = management_http_client().unwrap();
-        let result = client.get(format!("https://localhost:{port}/")).send().await;
+        let local = GuiConfigFile::default();
+        let mut remote = GuiConfigFile::default();
+        remote.core_connection = super::super::core_connection::CoreConnection {
+            mode: super::super::core_connection::ConnectionMode::Remote,
+            remote_management_origin: format!("https://localhost:{port}"),
+            remote_management_key: "isolated-test-secret".into(),
+            ..Default::default()
+        };
+        // Certificate is self-signed and has no SAN for the local loopback IP.
+        let local_url = format!("https://127.0.0.1:{port}/");
+        let local_first = async {
+            management_http_client_for_target(&local, true).unwrap()
+                .get(&local_url).send().await?.text().await
+        }.await;
+        // An unsaved remote probe must stay strict even if local TLS is enabled.
+        let remote_after_local = management_http_client_for_target(&remote, true).unwrap()
+            .get(format!("https://localhost:{port}/")).send().await;
+        let unsaved_probe = super::super::core_connection::probe(&remote).await;
+        let local_after_remote = async {
+            management_http_client_for_target(&local, true).unwrap()
+                .get(&local_url).send().await?.text().await
+        }.await;
+        let local_without_tls = management_http_client_for_target(&local, false).unwrap()
+            .get(&local_url).send().await;
         let _ = server.kill();
         let _ = server.wait();
         let _ = std::fs::remove_dir_all(root);
-        let error = result.expect_err("untrusted certificate unexpectedly accepted");
-        let detail = format_management_request_error("TLS test", &error).to_ascii_lowercase();
-        assert!(detail.contains("certificate"), "unexpected transport failure: {detail}");
+        assert!(local_first.unwrap().contains("s_server"));
+        assert!(local_after_remote.unwrap().contains("s_server"));
+        for result in [remote_after_local, local_without_tls] {
+            let error = result.expect_err("untrusted certificate unexpectedly accepted");
+            let detail = format_management_request_error("TLS test", &error).to_ascii_lowercase();
+            assert!(detail.contains("certificate"), "unexpected transport failure: {detail}");
+        }
+        let probe_error = unsaved_probe.err().expect("unsaved remote probe accepted untrusted TLS");
+        assert!(probe_error.to_ascii_lowercase().contains("certificate"), "{probe_error}");
+    }
+
+    #[tokio::test]
+    async fn management_clients_never_follow_redirects() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for remote in [false, true] {
+            let mut config = GuiConfigFile::default();
+            if remote {
+                config.core_connection.mode = super::super::core_connection::ConnectionMode::Remote;
+            }
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}/", listener.local_addr().unwrap());
+            let server = async {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                socket.read(&mut request).await.unwrap();
+                socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+            };
+            let client = management_http_client_for_target(&config, true).unwrap();
+            let (response, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+                tokio::join!(client.get(url).bearer_auth("isolated-secret").send(), server)
+            }).await.unwrap();
+            assert_eq!(response.unwrap().status(), reqwest::StatusCode::FOUND);
+        }
     }
 
 }

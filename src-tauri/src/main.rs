@@ -2012,7 +2012,7 @@ impl CoreProcessState {
             return false;
         };
         let child_alive = if let Some(process) = child.as_mut() {
-            if let Ok(None) = process.try_wait() {
+            if !core_child_has_exited(process.try_wait()) {
                 true
             } else {
                 *child = None;
@@ -2050,7 +2050,7 @@ impl CoreProcessState {
     fn managed_pid(&self) -> Option<u32> {
         if let Ok(mut child) = self.child.lock() {
             if let Some(process) = child.as_mut() {
-                if let Ok(None) = process.try_wait() {
+                if !core_child_has_exited(process.try_wait()) {
                     return Some(process.id());
                 }
 
@@ -2094,7 +2094,7 @@ impl CoreProcessState {
             .lock()
             .map_err(|_| "Kernel process status lock is poisoned".to_string())?;
         let has_live_managed_child = if let Some(process) = child.as_mut() {
-            if let Ok(None) = process.try_wait() {
+            if !core_child_has_exited(process.try_wait()) {
                 true
             } else {
                 *child = None;

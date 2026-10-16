@@ -4,6 +4,19 @@ import { en, ja, zhCN, zhTW, type MessageKey } from '../src/i18n/resources';
 import { jaOverrides } from '../src/i18n/ja';
 
 describe('i18n', () => {
+  it('translates remote connection labels and recovery guidance into Japanese', () => {
+    for (const key of (Object.keys(en) as MessageKey[]).filter(key => key.startsWith('connection.'))) {
+      expect(ja[key]).not.toBe(en[key]);
+      expect(ja[key]).toMatch(/[\p{Script=Hiragana}\p{Script=Katakana}]/u);
+    }
+    expect(translate('ja', 'connection.stopLocal')).toContain('ローカルコアを停止');
+    expect(translate('ja', 'connection.remoteConfig')).toContain('サーバー側で設定');
+    expect(translate('ja', 'connection.oauth')).toContain('code と state');
+    expect(translate('ja', 'connection.oauth')).toContain('ログインは完了しません');
+    expect(translate('ja', 'connection.unreachable')).toContain('認証に失敗');
+    expect(translate('ja', 'connection.appUpdates')).toContain('ローカルモードに切り替え');
+  });
+
   it('localizes system appearance controls in every language', () => {
     expect(translate('zh-CN', 'app.theme.system')).toBe('自动');
     expect(translate('zh-TW', 'app.theme.system')).toBe('自動');

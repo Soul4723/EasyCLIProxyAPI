@@ -11,8 +11,12 @@ impl Home {
 impl Drop for Home { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
 
 async fn request(home: &Home, identity: &str, operation: RemoteOperation) -> Result<Value, String> {
+    request_with_origin(home, identity, operation, None).await
+}
+
+async fn request_with_origin(home: &Home, identity: &str, operation: RemoteOperation, client_api_origin: Option<&str>) -> Result<Value, String> {
     // Exercise protocol serialization as well as real native transaction handlers.
-    let input = serde_json::to_vec(&Request { version: PROTOCOL, identity: Some(identity.into()), operation }).unwrap();
+    let input = serde_json::to_vec(&Request { version: PROTOCOL, identity: Some(identity.into()), client_api_origin: client_api_origin.map(str::to_string), operation }).unwrap();
     let decoded = serde_json::from_slice(&input).unwrap();
     let response = handle_request(&home.0, "fixture-machine:1000", decoded).await;
     let output = serde_json::to_vec(&response).unwrap();
@@ -68,7 +72,7 @@ async fn helper_rejects_wrong_identity_version_client_and_invalid_config_without
     assert!(request(&home, "other-machine", inspect()).await.unwrap_err().contains("identity"));
     assert_ne!(probe.identity, machine_probe(&home.0, "different-machine:1000").unwrap().identity);
     assert!(request(&home, &probe.identity, RemoteOperation::Inspect {client:"codex".into()}).await.is_err());
-    let response = handle_request(&home.0,"fixture-machine:1000", Request { version:99, identity:Some(probe.identity.clone()), operation:inspect() }).await;
+    let response = handle_request(&home.0,"fixture-machine:1000", Request { version:99, identity:Some(probe.identity.clone()), client_api_origin: None, operation:inspect() }).await;
     assert!(response.result.err().unwrap().contains("protocol"));
     let path = home.0.join(".claude/settings.json");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -77,6 +81,27 @@ async fn helper_rejects_wrong_identity_version_client_and_invalid_config_without
     assert_eq!(inspection["configValid"],false);
     assert!(request(&home,&probe.identity,RemoteOperation::Apply {client:"claude-code".into(),revision:inspection["revision"].as_str().unwrap().into(),origin:"https://core.invalid".into(),api_key:"deliberate-client-secret".into(),model:"fixture".into()}).await.is_err());
     assert_eq!(fs::read(path).unwrap(),b"broken config");
+}
+
+
+#[tokio::test]
+async fn claude_inspect_and_clear_use_selected_remote_origin_without_helper_state() {
+    let home = Home::new();
+    let identity = machine_probe(&home.0, "fixture-machine:1000").unwrap().identity;
+    let path = helper_paths(AgentClient::ClaudeCode, &home.0).unwrap().remove(0);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, br#"{"env":{"ANTHROPIC_BASE_URL":"https://core.example:8317","ANTHROPIC_API_KEY":"managed-key","EASYCLIPROXY_MANAGE_CLAUDE_CODE_DEFAULT_MODEL":"sonnet"},"model":"sonnet","keep":"user-value"}"#).unwrap();
+    let inspection = request_with_origin(&home, &identity, RemoteOperation::Inspect { client: "claude-code".into() }, Some("https://core.example:8317")).await.unwrap();
+    assert_eq!(inspection["currentModel"], "sonnet");
+    let revision = inspection["revision"].as_str().unwrap().to_string();
+    request_with_origin(&home, &identity, RemoteOperation::Clear { client: "claude-code".into(), revision }, Some("https://core.example:8317")).await.unwrap();
+
+    let cleared: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(cleared["keep"], "user-value");
+    assert!(cleared["env"].get("ANTHROPIC_BASE_URL").is_none());
+    assert!(cleared["env"].get("ANTHROPIC_API_KEY").is_none());
+    assert!(cleared["env"].get("EASYCLIPROXY_MANAGE_CLAUDE_CODE_DEFAULT_MODEL").is_none());
+    assert!(cleared.get("model").is_none());
 }
 
 #[test]
@@ -88,12 +113,12 @@ fn local_machine_and_core_guards_reject_stale_or_wrong_target() {
     let mut config = helper_config("http://core.invalid:8317","client-key").unwrap();
     config.target_revision=8;
     let apply = |origin:&str,key:&str| RemoteOperation::Apply {client:"claude-code".into(),revision:"x".into(),origin:origin.into(),api_key:key.into(),model:"test".into()};
-    assert!(validate_apply_target(&config,8,&apply("http://core.invalid:8317","client-key")).is_ok());
-    assert!(validate_apply_target(&config,7,&apply("http://core.invalid:8317","client-key")).is_err());
-    assert!(validate_apply_target(&config,8,&apply("http://other.invalid","client-key")).is_err());
-    assert!(validate_apply_target(&config,8,&apply("http://core.invalid:8317","management-key")).is_err());
+    assert!(validate_operation_target(&config,8,&apply("http://core.invalid:8317","client-key")).is_ok());
+    assert!(validate_operation_target(&config,7,&apply("http://core.invalid:8317","client-key")).is_err());
+    assert!(validate_operation_target(&config,8,&apply("http://other.invalid","client-key")).is_err());
+    assert!(validate_operation_target(&config,8,&apply("http://core.invalid:8317","management-key")).is_err());
     config.core_connection.mode=core_connection::ConnectionMode::Local;
-    assert!(validate_apply_target(&config,8,&apply("http://core.invalid:8317","client-key")).is_err());
+    assert!(validate_operation_target(&config,8,&apply("http://core.invalid:8317","client-key")).is_err());
 }
 
 #[test]
@@ -124,7 +149,7 @@ fn ssh_is_fixed_strict_and_transport_bounds_timeout_output_and_failure() {
         assert!(args.contains(&setting));
     }
     assert_eq!(args.last().unwrap(),&HELPER_COMMAND);
-    let request=Request {version:PROTOCOL,identity:None,operation:RemoteOperation::Capabilities};
+    let request=Request {version:PROTOCOL,identity:None,client_api_origin:None,operation:RemoteOperation::Capabilities};
     let shell=|script:&str| {let mut c=Command::new("sh");c.args(["-c",script]);c};
     let start=Instant::now();
     assert!(exchange(shell("sleep 10"),&request,Duration::from_millis(50)).err().unwrap().contains("timed out"));
@@ -214,7 +239,7 @@ fn remote_client_origins_reject_local_addresses_without_dns_and_keep_network_htt
         let mut config = helper_config("http://core.invalid", "client-key").unwrap();
         config.core_connection.client_api_origin = origin.into();
         let operation = RemoteOperation::Apply { client:"opencode".into(),revision:"fixture".into(),origin:origin.into(),api_key:"client-key".into(),model:"fixture".into() };
-        assert!(validate_apply_target(&config, 0, &operation).is_err());
+        assert!(validate_operation_target(&config, 0, &operation).is_err());
         assert!(helper_config(origin, "client-key").is_err());
     }
     for origin in ["http://100.64.0.2:8317", "http://192.168.1.2", "http://10.0.0.1", "http://203.0.113.5", "https://core.example", "http://localhost.example", "http://[fd00::2]:8317", "http://[2001:db8::1]"] {

@@ -335,7 +335,7 @@ pub(crate) struct ConnectionTestResult {
 }
 
 pub(crate) async fn probe(config: &GuiConfigFile) -> Result<ConnectionTestResult, String> {
-    let response = management_http_client()?
+    let response = management_http_client(config)?
         .get(management_endpoint(config, "config")?)
         .header("Authorization", management_authorization(config)?)
         .send().await
@@ -624,7 +624,7 @@ mod tests {
             requests
         });
         let config = remote_config(origin);
-        let client = management_http_client().unwrap();
+        let client = management_http_client(&config).unwrap();
         let auth = management_authorization(&config).unwrap();
         let get_url = management_endpoint(&config, "config.yaml").unwrap();
         client.get(&get_url).header("Authorization", &auth).send().await.unwrap();

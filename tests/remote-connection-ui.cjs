@@ -60,6 +60,28 @@ const path = require('node:path');
     assert.equal(await page.getByRole('button', { name: 'Restart', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Agent Configuration', exact: true }).isEnabled(), true);
     assert.equal(await page.getByRole('button', { name: 'Beginner Mode', exact: true }).isDisabled(), true);
+    const beginner = page.getByRole('button', { name: 'Beginner Mode', exact: true });
+    const navigationReason = page.locator('#remote-navigation-reason');
+    assert.equal(await navigationReason.innerText(), 'Beginner Mode requires Local mode. Configure remote clients from Agent Configuration.');
+    assert.equal(await beginner.getAttribute('aria-describedby'), 'remote-navigation-reason');
+    assert.equal(await navigationReason.isVisible(), true);
+    assert.match(await beginner.ariaSnapshot(), /Beginner Mode.*\[disabled\]/);
+    // Native disabled buttons stay outside tab order; adjacent help remains readable.
+    await page.getByRole('button', { name: /^Version Management/ }).focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await page.getByRole('button', { name: 'Join Discord Server', exact: true }).evaluate(el => el === document.activeElement), true);
+    await beginner.evaluate(el => el.click());
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'easy' })));
+    assert.equal(await page.locator('.app-shell-easy-mode').count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Home', exact: true }).getAttribute('aria-current'), 'page');
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await navigationReason.isVisible(), true);
+    const reasonBounds = await navigationReason.evaluate(el => {
+      const bounds = el.getBoundingClientRect();
+      return { left: bounds.left, right: bounds.right, bottom: bounds.bottom, width: innerWidth, height: innerHeight };
+    });
+    assert.ok(reasonBounds.left >= 0 && reasonBounds.right <= reasonBounds.width && reasonBounds.bottom <= reasonBounds.height, JSON.stringify(reasonBounds));
+    await page.setViewportSize({ width: 1440, height: 1000 });
     // Management-only attachments remain usable and expose recovery to client settings.
     await page.getByRole('button', { name: 'Agent Configuration', exact: true }).click();
     await page.locator('.agents-page').waitFor();
@@ -246,6 +268,8 @@ const path = require('node:path');
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await page.locator('[data-runtime="installation"]').waitFor();
     await page.getByRole('button', { name: /^start$/i }).waitFor();
+    assert.equal(await page.locator('#remote-navigation-reason').count(), 0);
+    assert.equal(await beginner.isEnabled(), true);
     assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).count(), 0);
     await page.getByRole('button', { name: /^start$/i }).click();
     await page.getByRole('button', { name: 'Stop', exact: true }).waitFor();

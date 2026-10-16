@@ -2222,7 +2222,7 @@ async fn wait_or_cancel(token: &CancellationToken, seconds: u64) {
 }
 
 async fn fetch_usage_queue(config: &GuiConfigFile) -> Result<Vec<Value>, String> {
-    let client = management_http_client()?;
+    let client = management_http_client(config)?;
     let response = client
         .get(management_endpoint(config, "observability/usage/queue")?)
         .header("Authorization", management_authorization(config)?)
@@ -4126,7 +4126,7 @@ impl UsageCredentialNotes {
 async fn fetch_usage_credential_notes(config: &GuiConfigFile) -> HashMap<String, String> {
     // Notes are optional enrichment: offline usage history must remain readable.
     let fetch = async {
-        let response = management_http_client().ok()?
+        let response = management_http_client(config).ok()?
             .get(management_endpoint(config, "credentials").ok()?)
             .header("Authorization", management_authorization(config).ok()?)
             .timeout(Duration::from_secs(3))

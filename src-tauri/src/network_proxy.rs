@@ -582,7 +582,7 @@ pub(crate) fn set_manual(state: &GuiConfigState, proxy_url: String) -> Result<()
 
 pub(crate) async fn verify_core_proxy(config: &GuiConfigFile) -> Result<(), String> {
     let _connection_guard = super::core_connection::local_operation()?;
-    let client = management_api::management_http_client()?;
+    let client = management_api::management_http_client(config)?;
     let mut updated = false;
     for attempt in 0..10 {
         let response = client

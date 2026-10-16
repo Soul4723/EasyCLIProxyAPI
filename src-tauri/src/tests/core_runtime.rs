@@ -1,5 +1,6 @@
 use super::support::*;
 use super::*;
+use crate::core_connection::{ConnectionMode, CoreConnection};
 
 #[test]
 fn retry_must_preserve_backup_from_failed_rollback() {
@@ -1353,6 +1354,73 @@ fn rollback_removes_files_added_by_the_failed_update_and_keeps_user_files() {
     assert!(!install_dir.join("plugins").exists());
     assert!(!rollback_dir.exists());
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn core_child_wait_errors_do_not_confirm_a_crash() {
+    assert!(!core_child_has_exited(Ok(None)));
+    assert!(!core_child_has_exited(Err(io::Error::other("injected wait failure"))));
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    child.kill().unwrap();
+    assert!(core_child_has_exited(Ok(Some(child.wait().unwrap()))));
+}
+
+#[test]
+#[cfg(unix)]
+fn core_child_wait_errors_retain_handle_and_supervision_without_restarting() {
+    let state = CoreProcessState::new(false);
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let pid = child.id();
+    child.kill().unwrap();
+    // Reap outside Child so its next try_wait reports ECHILD instead of an exit status.
+    assert_eq!(unsafe { libc::waitpid(pid as i32, std::ptr::null_mut(), 0) }, pid as i32);
+    assert!(child.try_wait().is_err());
+    state.store_child(child).unwrap();
+
+    assert_eq!(state.managed_pid(), Some(pid));
+    assert!(!check_and_recover_crashed_core(&state, |_| panic!("unknown status must not restart"))
+        .unwrap());
+    state.adopt_process_ids(&env::current_exe().unwrap(), vec![std::process::id()]).unwrap();
+    assert!(state.is_supervising());
+    assert_eq!(state.child.lock().unwrap().as_ref().unwrap().id(), pid);
+    assert_eq!(state.crash_restart_attempts.load(Ordering::Acquire), 0);
+    state.clear_adopted_processes().unwrap();
+    state.take_child();
+}
+
+#[test]
+fn core_crash_supervisor_starts_after_status_reaps_a_ready_child() {
+    let state = CoreProcessState::new(false);
+    let child = spawn_core_child(core_child_sleep_command()).unwrap();
+    state.store_child(child).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    assert!(current_core_status(Some(&state), Some(port)).unwrap().ready);
+
+    // Exit after readiness but before the command's final status snapshot.
+    if let Some(child) = state.child.lock().unwrap().as_mut() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+    let status = current_core_status(Some(&state), Some(port)).unwrap();
+    assert!(!status.managed);
+    assert!(state.child.lock().unwrap().is_none());
+
+    let mut supervisor_started = false;
+    start_core_crash_supervisor_if_needed(&state, || {
+        supervisor_started = true;
+        assert!(check_and_recover_crashed_core(&state, |backoff| {
+            assert_eq!(backoff, Duration::from_secs(1));
+            state.store_child(spawn_core_child(core_child_sleep_command()).unwrap()).map(|_| ())
+        }).unwrap());
+    });
+    assert!(supervisor_started);
+    assert!(state.managed_pid().is_some());
+    if let Some(mut child) = state.take_child() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+    start_core_crash_supervisor_if_needed(&state, || panic!("stopped core must stay unsupervised"));
 }
 
 #[test]

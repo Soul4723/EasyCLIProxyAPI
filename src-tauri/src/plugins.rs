@@ -35,7 +35,7 @@ pub(crate) async fn get_plugin_resource_url(
 }
 
 async fn request_plugins(config: &GuiConfigFile) -> Result<reqwest::Response, String> {
-    management_http_client()?
+    management_http_client(config)?
         .get(management_endpoint(config, "plugins")?)
         .header("Authorization", management_authorization(config)?)
         .send()

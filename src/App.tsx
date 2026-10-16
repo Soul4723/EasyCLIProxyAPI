@@ -396,6 +396,7 @@ function AppContent() {
                   type="button"
                   className="sidebar-link sidebar-easy-entry"
                   disabled={remote}
+                  aria-describedby={remote ? 'remote-navigation-reason' : undefined}
                   title={remote ? t('connection.phase2') : undefined}
                   onClick={() => select('easy')}
                 >
@@ -491,6 +492,11 @@ function AppContent() {
                 </div>
               </div>
             </div>
+            {remote ? (
+              <p id="remote-navigation-reason" style={{ gridColumn: '1 / -1', maxWidth: 'calc(100vw - 28px)', margin: 0, fontSize: 'var(--font-size-meta)' }}>
+                {t('connection.phase2')}
+              </p>
+            ) : null}
           </aside>
         ) : null}
 

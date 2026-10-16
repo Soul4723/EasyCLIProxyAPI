@@ -22,6 +22,10 @@ pub(crate) struct CoreChild {
     job: isize,
 }
 
+pub(crate) fn core_child_has_exited(status: io::Result<Option<std::process::ExitStatus>>) -> bool {
+    matches!(status, Ok(Some(_)))
+}
+
 impl std::ops::Deref for CoreChild {
     type Target = Child;
 
@@ -135,9 +139,9 @@ async fn run_core_command(
             app.state::<GuiConfigState>().inner(),
         )?;
         emit_core_status(&app, &status);
-        if status.managed {
+        start_core_crash_supervisor_if_needed(app.state::<CoreProcessState>().inner(), || {
             start_core_crash_supervisor(app.clone());
-        }
+        });
         Ok(status)
     })
     .await
@@ -2558,7 +2562,7 @@ pub(crate) fn is_process_alive(process_id: u32) -> bool {
 pub(crate) const MAX_CORE_CRASH_RESTART_ATTEMPTS: u32 = 5;
 pub(crate) const CORE_CRASH_STABLE_UPTIME: Duration = Duration::from_secs(60);
 
-fn core_supervision_allowed(connection: &CoreConnection) -> bool {
+pub(crate) fn core_supervision_allowed(connection: &core_connection::CoreConnection) -> bool {
     !connection.is_remote()
 }
 
@@ -2616,6 +2620,15 @@ pub(crate) fn restart_crashed_core_locked(
     }
     start_core_process_inner(process_state, config)?;
     Ok(true)
+}
+
+pub(crate) fn start_core_crash_supervisor_if_needed(
+    process_state: &CoreProcessState,
+    start: impl FnOnce(),
+) {
+    if process_state.is_supervising() {
+        start();
+    }
 }
 
 pub(crate) fn start_core_crash_supervisor(app: tauri::AppHandle) {

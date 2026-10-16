@@ -68,7 +68,13 @@ impl RemoteOperation {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Request { version: u8, identity: Option<String>, operation: RemoteOperation }
+struct Request {
+    version: u8,
+    identity: Option<String>,
+    #[serde(default)]
+    client_api_origin: Option<String>,
+    operation: RemoteOperation,
+}
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Response { version: u8, identity: String, result: Result<Value, String> }
@@ -178,14 +184,14 @@ fn exchange(mut command: Command, request: &Request, deadline: Duration) -> Resu
     Ok(response)
 }
 
-fn remote_call(destination: &str, identity: Option<String>, operation: RemoteOperation) -> Result<Response, String> {
-    exchange(ssh_command(destination)?, &Request { version: PROTOCOL, identity, operation }, DEADLINE)
+fn remote_call(destination: &str, identity: Option<String>, operation: RemoteOperation, client_api_origin: Option<String>) -> Result<Response, String> {
+    exchange(ssh_command(destination)?, &Request { version: PROTOCOL, identity, client_api_origin, operation }, DEADLINE)
 }
 
 #[tauri::command]
 pub(crate) async fn probe_remote_machine(destination: String) -> Result<MachineProbe, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let response = remote_call(&destination, None, RemoteOperation::Capabilities)?;
+        let response = remote_call(&destination, None, RemoteOperation::Capabilities, None)?;
         let probe: MachineProbe = serde_json::from_value(response.result?).map_err(|_| "Invalid machine capabilities")?;
         if probe.identity != response.identity || probe.identity.len() != 64 || !probe.identity.bytes().all(|b| b.is_ascii_hexdigit()) { return Err("Inconsistent remote identity".into()); }
         Ok(probe)
@@ -263,17 +269,25 @@ fn validate_remote_client_origin(value: &str) -> Result<String, String> {
     Ok(origin)
 }
 
-fn validate_apply_target(config: &GuiConfigFile, revision: u64, operation: &RemoteOperation) -> Result<(), String> {
+fn validate_operation_target(config: &GuiConfigFile, revision: u64, operation: &RemoteOperation) -> Result<Option<String>, String> {
     if config.target_revision != revision { return Err("Core selection changed; inspect again".into()); }
-    if let RemoteOperation::Apply { origin, api_key, .. } = operation {
-        if !config.core_connection.is_remote() { return Err("Select a remote core with a reachable client API origin first".into()); }
-        agent_target(config)?;
-        validate_remote_client_origin(origin)?;
-        if origin != &config.core_connection.client_api_origin || api_key != &config.core_connection.client_api_key {
-            return Err("Client origin/key do not match the selected core; refresh before applying".into());
+    match operation {
+        RemoteOperation::Apply { origin, api_key, .. } => {
+            if !config.core_connection.is_remote() { return Err("Select a remote core with a reachable client API origin first".into()); }
+            agent_target(config)?;
+            validate_remote_client_origin(origin)?;
+            if origin != &config.core_connection.client_api_origin || api_key != &config.core_connection.client_api_key {
+                return Err("Client origin/key do not match the selected core; refresh before applying".into());
+            }
+            Ok(None)
         }
+        RemoteOperation::Inspect { .. } | RemoteOperation::Clear { .. } => {
+            if !config.core_connection.is_remote() { return Err("Select a remote core with a reachable client API origin first".into()); }
+            agent_target(config)?;
+            Ok(Some(validate_remote_client_origin(&config.core_connection.client_api_origin)?))
+        }
+        _ => Ok(None),
     }
-    Ok(())
 }
 
 #[tauri::command]
@@ -287,9 +301,9 @@ pub(crate) async fn remote_machine_request(
     if matches!(operation, RemoteOperation::Capabilities) { return Err("Use probe_remote_machine for capabilities".into()); }
     let config = gui_config_state.snapshot()?;
     core_connection::ensure_current(&config)?;
-    validate_apply_target(&config, core_revision, &operation)?;
+    let client_api_origin = validate_operation_target(&config, core_revision, &operation)?;
     let machine = list_remote_machines()?.into_iter().find(|m| m.id == machine_id).ok_or("Machine is no longer enrolled")?;
-    let response = tauri::async_runtime::spawn_blocking(move || remote_call(&machine.destination, Some(machine.identity), operation))
+    let response = tauri::async_runtime::spawn_blocking(move || remote_call(&machine.destination, Some(machine.identity), operation, client_api_origin))
         .await.map_err(|_| "Machine operation failed; inspect before retrying".to_string())??;
     response.result
 }
@@ -389,7 +403,7 @@ fn secure_existing_configs(paths: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
-async fn helper_operation(home: &Path, probe: &MachineProbe, operation: RemoteOperation) -> Result<Value, String> {
+async fn helper_operation(home: &Path, probe: &MachineProbe, operation: RemoteOperation, client_api_origin: Option<&str>) -> Result<Value, String> {
     if matches!(operation, RemoteOperation::Capabilities) { return serde_json::to_value(probe).map_err(|_| "Cannot encode capabilities".into()); }
     if !cfg!(target_os = "linux") { return Err("Remote helper prototype supports Linux only".into()); }
     let client = supported_client(operation.client().ok_or("Missing client")?)?;
@@ -401,7 +415,7 @@ async fn helper_operation(home: &Path, probe: &MachineProbe, operation: RemoteOp
         RemoteOperation::Inspect { .. } => {
             let images = config_images(&paths)?;
             let valid = validate_client_config_images(client.id(), &images).is_ok();
-            let inspection_target = helper_config("http://inspection.invalid", "inspection-placeholder")?;
+            let inspection_target = helper_config(client_api_origin.unwrap_or("http://inspection.invalid"), "inspection-placeholder")?;
             Ok(json!({"revision":config_revision(client,home)?,"paths": paths.iter().map(|p|path_to_string(p)).collect::<Vec<_>>(),
                 "configured": has_recorded_agent_integration(client.id(), &paths)?, "currentModel":inspect_agent_managed_config(client, &paths, &inspection_target, "inspection-placeholder").ok().and_then(|(_, model, _)| model),
                 "configExists":images.iter().any(|(_,b)|b.is_some()), "configValid":valid}))
@@ -420,7 +434,11 @@ async fn helper_operation(home: &Path, probe: &MachineProbe, operation: RemoteOp
         RemoteOperation::Clear { revision, .. } => {
             expect_revision(client, home, &revision)?;
             secure_existing_configs(&paths)?;
-            serde_json::to_value(clear_agent_managed_configuration(client, home, &GuiConfigFile::default())?).map_err(|_| "Cannot encode restore result".into())
+            let config = match client_api_origin {
+                Some(origin) => helper_config(origin, "inspection-placeholder")?,
+                None => GuiConfigFile::default(),
+            };
+            serde_json::to_value(clear_agent_managed_configuration(client, home, &config)?).map_err(|_| "Cannot encode restore result".into())
         }
         RemoteOperation::Backups { .. } => serde_json::to_value(list_backups(client.id(), home)?).map_err(|_| "Cannot encode backups".into()),
         RemoteOperation::Backup { revision, .. } => {
@@ -449,7 +467,7 @@ async fn handle_request(home: &Path, machine_identity: &str, request: Request) -
     };
     let result = if request.version != PROTOCOL { Err("Unsupported helper protocol".into()) }
         else if !matches!(request.operation, RemoteOperation::Capabilities) && request.identity.as_deref() != Some(&probe.identity) { Err("Remote identity/home/paths changed; re-enroll before writing".into()) }
-        else { helper_operation(home, &probe, request.operation).await };
+        else { helper_operation(home, &probe, request.operation, request.client_api_origin.as_deref()).await };
     Response { version: PROTOCOL, identity: probe.identity, result }
 }
 
