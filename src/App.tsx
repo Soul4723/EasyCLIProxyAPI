@@ -489,9 +489,7 @@ function AppContent() {
         <div className="workspace">
           <main className="content" key={connectionRevision}>
             {isAlwaysAvailablePage(activePage.id) || coreReady ? (
-              activePage.id === 'agents' && status?.connectionMode === 'remote' ? (
-                <section className="page"><h1>{t('app.nav.agents')}</h1><p>{t('connection.agentHint')}</p></section>
-              ) : activePage.id === 'easy' ? (
+              activePage.id === 'easy' ? (
                 <EasyModePage
                   onExit={() => select('home')}
                   theme={theme}

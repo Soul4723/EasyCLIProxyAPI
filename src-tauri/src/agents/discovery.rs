@@ -276,14 +276,14 @@ pub(crate) async fn fetch_pi_provider_latest_version(proxy_url: &str) -> Result<
     let payload = response
         .json::<serde_json::Value>()
         .await
-        .map_err(|error| format!("Failed to parse latest Pi provider version: {error}"))?;
+        .map_err(|_| "Failed to parse latest Pi provider version".to_string())?;
     parse_pi_provider_latest_version(&payload)
 }
 
 pub(crate) fn pi_provider_update_available(installed: &str, latest: &str) -> Result<bool, String> {
     let parse = |value: &str| {
         semver::Version::parse(value.trim().trim_start_matches('v'))
-            .map_err(|error| format!("Failed to parse Pi provider version {value}: {error}"))
+            .map_err(|_| format!("Failed to parse Pi provider version {value}"))
     };
     Ok(parse(latest)? > parse(installed)?)
 }
@@ -342,7 +342,7 @@ pub(crate) fn build_pi_provider_config(
 ) -> Result<String, String> {
     let mut root = match existing.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => serde_json::from_str::<serde_json::Value>(value)
-            .map_err(|error| format!("Failed to parse Pi CLIProxyAPI configuration: {error}"))?,
+            .map_err(|_| "Failed to parse Pi CLIProxyAPI configuration".to_string())?,
         None => serde_json::json!({}),
     };
     let object = root
@@ -365,7 +365,7 @@ pub(crate) fn build_pi_provider_settings(
         return Err("Pi default model cannot be empty".to_string());
     }
     let mut root = serde_json::from_str::<serde_json::Value>(existing)
-        .map_err(|error| format!("Failed to parse Pi settings.json: {error}"))?;
+        .map_err(|_| "Failed to parse Pi settings.json".to_string())?;
     let object = root
         .as_object_mut()
         .ok_or_else(|| "Pi settings.json root must be a JSON object".to_string())?;
@@ -396,7 +396,7 @@ pub(crate) fn build_pi_provider_settings(
 
 pub(crate) fn inspect_pi_provider_status_with_executable(
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     executable_override: Option<&Path>,
 ) -> AgentConfigStatus {
@@ -432,11 +432,11 @@ pub(crate) fn inspect_pi_provider_status_with_executable(
             .map_err(|error| format!("Failed to read Pi CLIProxyAPI configuration: {error}"))
             .and_then(|content| {
                 let root = serde_json::from_str::<serde_json::Value>(&content)
-                    .map_err(|error| format!("Failed to parse Pi CLIProxyAPI configuration: {error}"))?;
+                    .map_err(|_| "Failed to parse Pi CLIProxyAPI configuration".to_string())?;
                 let object = root
                     .as_object()
                     .ok_or_else(|| "Pi CLIProxyAPI configuration root must be a JSON object".to_string())?;
-                let expected_base_url = managed_core_loopback_origin(port);
+                let expected_base_url = port.client_origin();
                 credentials_match = object
                     .get("baseUrl")
                     .and_then(serde_json::Value::as_str)
@@ -530,15 +530,15 @@ pub(crate) fn inspect_pi_provider_status_with_executable(
 pub(crate) fn install_pi_provider_inner(
     home: &Path,
     executable: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     default_model: &str,
     proxy_url: &str,
 ) -> Result<AgentConfigActionResult, String> {
-    if port == 0 {
+    if port.validate_client_origin().is_err() {
         return Err("Invalid kernel port".to_string());
     }
-    if api_key.trim().is_empty() {
+    if port.local_client() && api_key.trim().is_empty() {
         return Err("EasyCLIProxyAPI has no available API key".to_string());
     }
     let settings_path = pi_provider_settings_path(home);
@@ -558,14 +558,14 @@ pub(crate) fn install_pi_provider_inner(
 
 pub(crate) fn configure_pi_provider_without_cli_inner(
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     default_model: &str,
 ) -> Result<AgentConfigActionResult, String> {
-    if port == 0 {
+    if port.validate_client_origin().is_err() {
         return Err("Invalid kernel port".to_string());
     }
-    if api_key.trim().is_empty() {
+    if port.local_client() && api_key.trim().is_empty() {
         return Err("EasyCLIProxyAPI has no available API key".to_string());
     }
     let settings_path = pi_provider_settings_path(home);
@@ -588,14 +588,14 @@ pub(crate) fn configure_pi_provider_without_cli_inner(
 
 pub(crate) fn repair_pi_provider_inner(
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     default_model: &str,
 ) -> Result<AgentConfigActionResult, String> {
-    if port == 0 {
+    if port.validate_client_origin().is_err() {
         return Err("Core port is invalid".to_string());
     }
-    if api_key.trim().is_empty() {
+    if port.local_client() && api_key.trim().is_empty() {
         return Err("EasyCLIProxyAPI has no usable API key".to_string());
     }
     let config_path = pi_provider_config_path(home);
@@ -618,7 +618,7 @@ pub(crate) fn repair_pi_provider_inner(
     } else {
         None
     };
-    let base_url = managed_core_loopback_origin(port);
+    let base_url = port.client_origin();
     let rendered = build_pi_provider_config(existing.as_deref(), &base_url, api_key)?;
     let settings = fs::read_to_string(&settings_path).map_err(|error| {
         format!(
@@ -650,7 +650,7 @@ pub(crate) fn repair_pi_provider_inner(
 pub(crate) fn update_pi_provider_inner(
     home: &Path,
     executable: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     default_model: &str,
     proxy_url: &str,
@@ -835,7 +835,7 @@ pub(crate) fn current_codex_oauth_configuration(home: &Path) -> Result<bool, Str
     let root: toml::Value = toml::from_str(
         &fs::read_to_string(&path).map_err(|error| format!("Failed to read Codex configuration: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse Codex configuration: {error}"))?;
+    .map_err(|_| "Failed to parse Codex configuration".to_string())?;
     Ok(root
         .get("model_providers")
         .and_then(toml::Value::as_table)
@@ -1056,7 +1056,7 @@ pub(crate) fn manual_desktop_path(path: Option<&Path>) -> Option<&Path> {
 pub(crate) fn inspect_agent_config_with_executables(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     executable_override: Option<&Path>,
     desktop_override: Option<&Path>,
@@ -1416,7 +1416,7 @@ pub(crate) fn inspect_agent_application(
 pub(crate) fn inspect_agent_managed_config(
     client: AgentClient,
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>, bool), String> {
     match client {
@@ -1585,7 +1585,7 @@ pub(crate) fn agent_has_managed_marker(
                 &fs::read_to_string(&paths[0])
                     .map_err(|error| format!("Failed to read Codex configuration: {error}"))?,
             )
-            .map_err(|error| format!("Failed to parse Codex configuration: {error}"))?;
+            .map_err(|_| "Failed to parse Codex configuration".to_string())?;
             Ok(root.get("model_provider").and_then(toml::Value::as_str)
                 == Some(MANAGED_AGENT_PROVIDER_ID))
         }
@@ -1613,7 +1613,7 @@ pub(crate) fn agent_has_managed_marker(
                 &fs::read_to_string(&paths[0])
                     .map_err(|error| format!("Failed to read OpenClaw configuration: {error}"))?,
             )
-            .map_err(|error| format!("Failed to parse OpenClaw configuration: {error}"))?;
+            .map_err(|_| "Failed to parse OpenClaw configuration".to_string())?;
             let prefix = format!("{MANAGED_AGENT_PROVIDER_ID}/");
             let provider_exists = root
                 .get("models")
@@ -1637,7 +1637,7 @@ pub(crate) fn agent_has_managed_marker(
                 &fs::read_to_string(&paths[0])
                     .map_err(|error| format!("Failed to read Hermes configuration: {error}"))?,
             )
-            .map_err(|error| format!("Failed to parse Hermes configuration: {error}"))?;
+            .map_err(|_| "Failed to parse Hermes configuration".to_string())?;
             let provider_exists = hermes_managed_provider(&root).is_some();
             let model_selected = root
                 .get("model")
@@ -1728,7 +1728,7 @@ pub(crate) fn inspect_managed_toml_model_marker(
     let root: toml::Value = toml::from_str(
         &fs::read_to_string(path).map_err(|error| format!("Failed to read {label}: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse {label}: {error}"))?;
+    .map_err(|_| format!("Failed to parse {label}"))?;
     let prefix = format!("{MANAGED_AGENT_PROVIDER_ID}/");
     let selected = (if let Some(section) = default_section {
         root.get(section)
@@ -2978,7 +2978,7 @@ pub(crate) fn normalize_detected_agent_version(value: &str) -> Option<String> {
 
 pub(crate) fn inspect_claude_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if !path.is_file() {
@@ -2987,9 +2987,9 @@ pub(crate) fn inspect_claude_agent_config(
     let root: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(path).map_err(|error| format!("Failed to read Claude Code configuration: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse Claude Code configuration: {error}"))?;
+    .map_err(|_| "Failed to parse Claude Code configuration".to_string())?;
     let env = root.get("env").and_then(serde_json::Value::as_object);
-    let expected_base = managed_core_loopback_origin(port);
+    let expected_base = port.client_origin();
     let configured = env
         .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
         .and_then(serde_json::Value::as_str)
@@ -3028,7 +3028,7 @@ pub(crate) fn inspect_claude_code_model_mappings(
         &fs::read_to_string(path)
             .map_err(|error| format!("Failed to read Claude Code configuration: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse Claude Code configuration: {error}"))?;
+    .map_err(|_| "Failed to parse Claude Code configuration".to_string())?;
     let Some(env) = root.get("env").and_then(serde_json::Value::as_object) else {
         return Ok(None);
     };
@@ -3354,7 +3354,7 @@ pub(crate) fn claude_code_model_presentation_environment(
 
 pub(crate) fn inspect_claude_desktop_agent_config(
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if paths.len() != 4 || !paths.iter().any(|path| path.is_file()) {
@@ -3364,7 +3364,7 @@ pub(crate) fn inspect_claude_desktop_agent_config(
     let threep = read_agent_json_or_empty(&paths[1], "Claude Desktop 3P configuration")?;
     let profile = read_agent_json_or_empty(&paths[2], "Claude Desktop gateway configuration")?;
     let meta = read_agent_json_or_empty(&paths[3], "Claude Desktop configuration index")?;
-    let expected_base = managed_core_loopback_origin(port);
+    let expected_base = port.client_origin();
     let configured = normal
         .get("deploymentMode")
         .and_then(serde_json::Value::as_str)
@@ -3416,7 +3416,7 @@ pub(crate) fn read_agent_json_or_empty(
         return Ok(serde_json::json!({}));
     }
     let value: serde_json::Value =
-        serde_json::from_str(&content).map_err(|error| format!("Failed to parse {label}: {error}"))?;
+        serde_json::from_str(&content).map_err(|_| format!("Failed to parse {label}"))?;
     if !value.is_object() {
         return Err(format!("{label} root must be an object"));
     }
@@ -3436,7 +3436,7 @@ pub(crate) fn read_agent_json5_or_empty(
         return Ok(serde_json::json!({}));
     }
     let value: serde_json::Value =
-        json5::from_str(&content).map_err(|error| format!("Failed to parse {label}: {error}"))?;
+        json5::from_str(&content).map_err(|_| format!("Failed to parse {label}"))?;
     if !value.is_object() {
         return Err(format!("{label} root must be an object"));
     }
@@ -3445,7 +3445,7 @@ pub(crate) fn read_agent_json5_or_empty(
 
 pub(crate) fn inspect_codex_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>, bool), String> {
     if !path.is_file() {
@@ -3454,8 +3454,8 @@ pub(crate) fn inspect_codex_agent_config(
     let root: toml::Value = toml::from_str(
         &fs::read_to_string(path).map_err(|error| format!("Failed to read Codex configuration: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse Codex configuration: {error}"))?;
-    let expected_base = format!("{}/v1", managed_core_loopback_origin(port));
+    .map_err(|_| "Failed to parse Codex configuration".to_string())?;
+    let expected_base = format!("{}/v1", port.client_origin());
     let provider = root
         .get("model_providers")
         .and_then(toml::Value::as_table)
@@ -3518,7 +3518,7 @@ pub(crate) fn validate_codex_catalog_file(config_path: &Path, model: &str) -> Re
 
 pub(crate) fn inspect_opencode_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if !path.is_file() {
@@ -3528,7 +3528,7 @@ pub(crate) fn inspect_opencode_agent_config(
     let provider = root
         .get("provider")
         .and_then(|providers| providers.get(MANAGED_AGENT_PROVIDER_ID));
-    let expected_base = format!("{}/v1", managed_core_loopback_origin(port));
+    let expected_base = format!("{}/v1", port.client_origin());
     let configured = provider
         .and_then(|provider| provider.get("options"))
         .and_then(|options| options.get("baseURL"))
@@ -3552,7 +3552,7 @@ pub(crate) fn inspect_opencode_agent_config(
 
 pub(crate) fn inspect_zcode_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if !path.is_file() {
@@ -3561,7 +3561,7 @@ pub(crate) fn inspect_zcode_agent_config(
     let root: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(path).map_err(|error| format!("Failed to read ZCode provider configuration: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse ZCode provider configuration: {error}"))?;
+    .map_err(|_| "Failed to parse ZCode provider configuration".to_string())?;
     if root.get("schemaVersion").and_then(serde_json::Value::as_u64) != Some(1) {
         return Ok((false, None));
     }
@@ -3584,7 +3584,7 @@ pub(crate) fn inspect_zcode_agent_config(
         .and_then(|selection| selection.get("modelId"))
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
-    let expected_origin = managed_core_loopback_origin(port);
+    let expected_origin = port.client_origin();
     let expected_base = format!("{expected_origin}/v1");
     let provider_base = provider
         .and_then(|provider| provider.pointer("/config/api/baseUrl"))
@@ -3641,7 +3641,7 @@ pub(crate) fn omp_selected_model(root: &serde_norway::Mapping) -> Option<String>
 
 pub(crate) fn inspect_omp_agent_config(
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if paths.len() != 2 || !paths[0].is_file() || !paths[1].is_file() {
@@ -3651,7 +3651,7 @@ pub(crate) fn inspect_omp_agent_config(
     let settings = read_agent_yaml_mapping_or_empty(&paths[1], "Oh My Pi config.yml")?;
     let provider = omp_provider_mapping(&models);
     let model = omp_selected_model(&settings);
-    let expected = format!("{}/v1", managed_core_loopback_origin(port));
+    let expected = format!("{}/v1", port.client_origin());
     let configured = provider
         .and_then(|provider| yaml_mapping_value(provider, "baseUrl"))
         .and_then(serde_norway::Value::as_str)
@@ -3696,7 +3696,7 @@ pub(crate) fn find_omp_executable(home: &Path) -> Option<PathBuf> {
 
 pub(crate) fn inspect_kimi_code_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if !path.is_file() {
@@ -3705,8 +3705,8 @@ pub(crate) fn inspect_kimi_code_agent_config(
     let root: toml::Value = toml::from_str(
         &fs::read_to_string(path).map_err(|error| format!("Failed to read Kimi Code configuration: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse Kimi Code configuration: {error}"))?;
-    let expected_base = format!("{}/v1", managed_core_loopback_origin(port));
+    .map_err(|_| "Failed to parse Kimi Code configuration".to_string())?;
+    let expected_base = format!("{}/v1", port.client_origin());
     let provider = root
         .get("providers")
         .and_then(toml::Value::as_table)
@@ -3753,7 +3753,7 @@ pub(crate) fn inspect_kimi_code_agent_config(
 
 pub(crate) fn inspect_grok_build_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if !path.is_file() {
@@ -3762,8 +3762,8 @@ pub(crate) fn inspect_grok_build_agent_config(
     let root: toml::Value = toml::from_str(
         &fs::read_to_string(path).map_err(|error| format!("Failed to read Grok Build configuration: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse Grok Build configuration: {error}"))?;
-    let expected_base = format!("{}/v1", managed_core_loopback_origin(port));
+    .map_err(|_| "Failed to parse Grok Build configuration".to_string())?;
+    let expected_base = format!("{}/v1", port.client_origin());
     let prefix = format!("{MANAGED_AGENT_PROVIDER_ID}/");
     let selected = root
         .get("models")
@@ -3803,7 +3803,7 @@ pub(crate) fn inspect_grok_build_agent_config(
 
 pub(crate) fn inspect_openclaw_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if !path.is_file() {
@@ -3812,12 +3812,12 @@ pub(crate) fn inspect_openclaw_agent_config(
     let content =
         fs::read_to_string(path).map_err(|error| format!("Failed to read OpenClaw configuration: {error}"))?;
     let root: serde_json::Value = json5::from_str(&content)
-        .map_err(|error| format!("Failed to parse OpenClaw JSON5 configuration: {error}"))?;
+        .map_err(|_| "Failed to parse OpenClaw JSON5 configuration".to_string())?;
     let provider = root
         .get("models")
         .and_then(|models| models.get("providers"))
         .and_then(|providers| providers.get(MANAGED_AGENT_PROVIDER_ID));
-    let expected_base = format!("{}/v1", managed_core_loopback_origin(port));
+    let expected_base = format!("{}/v1", port.client_origin());
     let configured = provider
         .and_then(|provider| provider.get("baseUrl"))
         .and_then(serde_json::Value::as_str)
@@ -3842,7 +3842,7 @@ pub(crate) fn inspect_openclaw_agent_config(
 
 pub(crate) fn inspect_hermes_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if !path.is_file() {
@@ -3851,9 +3851,9 @@ pub(crate) fn inspect_hermes_agent_config(
     let root: serde_yaml::Value = serde_yaml::from_str(
         &fs::read_to_string(path).map_err(|error| format!("Failed to read Hermes configuration: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse Hermes YAML configuration: {error}"))?;
+    .map_err(|_| "Failed to parse Hermes YAML configuration".to_string())?;
     let provider = hermes_managed_provider(&root);
-    let expected_base = format!("{}/v1", managed_core_loopback_origin(port));
+    let expected_base = format!("{}/v1", port.client_origin());
     let configured = provider
         .and_then(|provider| provider.get("base_url").or_else(|| provider.get("baseUrl")))
         .and_then(serde_yaml::Value::as_str)
@@ -3880,7 +3880,7 @@ pub(crate) fn inspect_hermes_agent_config(
 
 pub(crate) fn inspect_deepseek_harness_config(
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     if paths.len() != 2 {
@@ -3914,9 +3914,9 @@ pub(crate) fn inspect_deepseek_harness_config(
         .and_then(serde_norway::Value::as_str)
         == Some("anthropic-messages")
     {
-        managed_core_loopback_origin(port)
+        port.client_origin()
     } else {
-        format!("{}/v1", managed_core_loopback_origin(port))
+        format!("{}/v1", port.client_origin())
     };
     let credentials_layout_supported = deepseek_harness_credentials_layout_supported(&credentials);
     let credential = yaml_mapping_value(&credentials, "refs")

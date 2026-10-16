@@ -12,7 +12,8 @@ import {
   useState,
   type ComponentType,
 } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke as invokeNative } from '@tauri-apps/api/core';
+import { useCoreTargetRevision } from '../coreRuntime';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -429,6 +430,7 @@ let agentViewStateCache: Record<'full' | 'embedded', Partial<Record<AgentClientI
 
 const AGENT_MODEL_SELECTIONS_KEY = 'cpa-gui.agent-model-selections.v1';
 // Keep the last successful data across page visits; revalidate it in the background.
+let agentCacheRevision = 0;
 let agentStatusesCache: AgentConfigStatus[] | null = null;
 const agentModelsCache: Partial<Record<AgentClientId, ModelOption[]>> = {};
 // A Codex daemon restart outlives page visits; a remounted page waits on it instead of starting another.
@@ -591,6 +593,31 @@ type AgentsPageProps = {
 
 export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsPageProps = {}) {
   const { t } = useI18n();
+  const targetRevision = useCoreTargetRevision();
+  // App remounts the page on target changes, but module caches survive page visits.
+  if (agentCacheRevision !== targetRevision) {
+    agentCacheRevision = targetRevision;
+    agentStatusesCache = null;
+    agentViewStateCache = { full: {}, embedded: {} };
+    agentFormEditBaselineCache = {};
+    claudeModelMappingsDraftCache = createClaudeModelMappingsByClient();
+    claudeCustomMappingCache = createClaudeBooleanByClient();
+    Object.assign(claudeModelMappingsDirtyCache, createClaudeBooleanByClient());
+    codexOauthConfigurationDraftCache = null;
+    for (const client of Object.keys(agentModelsCache) as AgentClientId[]) delete agentModelsCache[client];
+  }
+  const currentTarget = useRef(true);
+  useEffect(() => {
+    currentTarget.current = true;
+    return () => { currentTarget.current = false; };
+  }, []);
+  // A completed command must not start follow-up work on a newly selected target.
+  const invoke = useCallback(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (!currentTarget.current) throw new Error('The core connection changed; agent operation cancelled');
+    const result = await invokeNative<T>(command, args);
+    if (!currentTarget.current) throw new Error('The core connection changed; agent operation cancelled');
+    return result;
+  }, []);
   const [selected, setSelected] = useState<AgentClientId>(readSelectedAgentClient);
   const [viewStateByClient, setViewStateByClient] = useState(() => agentViewStateCache);
   const viewMode = embedded ? 'embedded' : 'full';
@@ -598,6 +625,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
   const activeSubpage = viewState.subpage === 'sessions' && (embedded || selected !== 'codex')
     ? DEFAULT_AGENT_SUBPAGE : viewState.subpage;
   const updateViewState = (patch: Partial<AgentViewState>) => {
+    if (!currentTarget.current) return;
     setViewStateByClient((current) => {
       const next = {
         ...current,
@@ -750,8 +778,8 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
   }, [executablePaths]);
 
   useEffect(() => {
-    if (statuses.length) agentStatusesCache = statuses;
-  }, [statuses]);
+    if (statuses.length && agentCacheRevision === targetRevision) agentStatusesCache = statuses;
+  }, [statuses, targetRevision]);
 
   useEffect(() => () => {
     // Responses from a previous visit must not overwrite the shared cache.
@@ -1571,7 +1599,8 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
     delete next[desktop ? `${selected}:app` as const : selected];
     setExecutablePaths(next);
     writeAgentExecutablePaths(next);
-    void invoke<AgentConfigStatus[]>('refresh_agent_config_statuses', { executableOverrides: next }).then(setStatuses);
+    void invoke<AgentConfigStatus[]>('refresh_agent_config_statuses', { executableOverrides: next })
+      .then(setStatuses).catch((requestError) => setConfigurationError(String(requestError)));
   };
 
   const rememberLaunchDirectory = (client: AgentClientId, directory: string) => {

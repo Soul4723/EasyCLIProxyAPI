@@ -1695,6 +1695,9 @@ pub(crate) fn gui_api_key_values(entries: &[GuiApiKeyEntry]) -> Vec<String> {
 }
 
 pub(crate) fn effective_agent_api_key(config: &GuiConfigFile) -> &str {
+    if config.connection_mode == CoreConnectionMode::Remote {
+        return &config.remote_client_key;
+    }
     config
         .api_keys
         .iter()

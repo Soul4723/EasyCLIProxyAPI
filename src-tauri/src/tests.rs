@@ -26,3 +26,5 @@ mod provider_health;
 mod support;
 
 mod core_connection;
+
+mod remote_agents;

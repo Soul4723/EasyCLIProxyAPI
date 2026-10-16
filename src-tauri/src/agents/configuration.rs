@@ -4,7 +4,7 @@ use super::*;
 pub(crate) fn build_agent_updates(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
     models: &[AgentModelOption],
@@ -29,7 +29,7 @@ pub(crate) fn build_agent_updates(
 pub(crate) fn build_agent_updates_with_oauth(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
     options: AgentConfigurationOptions<'_>,
@@ -42,7 +42,7 @@ pub(crate) fn build_agent_updates_with_oauth(
         claude_desktop_model_mappings,
     } = options;
     let paths = agent_config_paths(client, home);
-    let root_base = managed_core_loopback_origin(port);
+    let root_base = port.client_origin();
     let openai_base = format!("{root_base}/v1");
     match client {
         AgentClient::ClaudeCode => {
@@ -278,7 +278,7 @@ pub(crate) fn parse_agent_yaml_mapping(
         return Ok(serde_norway::Mapping::new());
     };
     serde_norway::from_str::<serde_norway::Value>(content)
-        .map_err(|error| format!("Invalid {label} YAML format: {error}"))?
+        .map_err(|_| format!("Invalid {label} YAML format"))?
         .as_mapping()
         .cloned()
         .ok_or_else(|| format!("{label} root must be a YAML mapping"))
@@ -306,7 +306,7 @@ where
         .map(|_| existing.unwrap_or_default())
         .unwrap_or("{}\n");
     let mut document = yaml_serde_edit::YamlValue::parse(source)
-        .map_err(|error| format!("Invalid {label} YAML format: {error}"))?;
+        .map_err(|_| format!("Invalid {label} YAML format"))?;
     render_updated_core_yaml(&mut document, updated)
         .map_err(|error| format!("Failed to update {label}: {error}"))
 }
@@ -573,7 +573,7 @@ pub(crate) fn build_claude_agent_config(
 ) -> Result<String, String> {
     let mut root = match existing.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => serde_json::from_str::<serde_json::Value>(value)
-            .map_err(|error| format!("Invalid Claude Code settings.json format: {error}"))?,
+            .map_err(|_| "Invalid Claude Code settings.json format".to_string())?,
         None => serde_json::json!({}),
     };
     let root = root
@@ -778,7 +778,7 @@ pub(crate) fn parse_agent_json_object(
 ) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let value = match existing.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => serde_json::from_str::<serde_json::Value>(value)
-            .map_err(|error| format!("Invalid {label} format: {error}"))?,
+            .map_err(|_| format!("Invalid {label} format"))?,
         None => serde_json::json!({}),
     };
     value
@@ -793,7 +793,7 @@ pub(crate) fn parse_agent_json5_object(
 ) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let value = match existing.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => json5::from_str::<serde_json::Value>(value)
-            .map_err(|error| format!("Invalid {label} format: {error}"))?,
+            .map_err(|_| format!("Invalid {label} format"))?,
         None => serde_json::json!({}),
     };
     value
@@ -1078,7 +1078,7 @@ pub(crate) fn repair_claude_desktop_meta_names(root: &mut serde_json::Map<String
 pub(crate) fn clear_agent_managed_configuration(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
 ) -> Result<AgentConfigActionResult, String> {
     if client == AgentClient::Codex {
         return close_codex_configuration(home);
@@ -1340,7 +1340,7 @@ pub(crate) fn prepare_codex_managed_removal(paths: &[PathBuf]) -> Result<Images,
         .map_err(|error| format!("Failed to read Codex configuration {}: {error}", path_to_string(path)))?;
     let mut document = content
         .parse::<Document>()
-        .map_err(|error| format!("Failed to parse Codex configuration: {error}"))?;
+        .map_err(|_| "Failed to parse Codex configuration".to_string())?;
     let managed_selected =
         document.get("model_provider").and_then(Item::as_str) == Some(MANAGED_AGENT_PROVIDER_ID);
     let managed_catalog =
@@ -1490,7 +1490,7 @@ pub(crate) fn prepare_managed_toml_client_removal(
         .map_err(|error| format!("Failed to read {label} configuration {}: {error}", path_to_string(path)))?;
     let mut document = content
         .parse::<Document>()
-        .map_err(|error| format!("Failed to parse {label} configuration: {error}"))?;
+        .map_err(|_| format!("Failed to parse {label} configuration"))?;
     let prefix = format!("{MANAGED_AGENT_PROVIDER_ID}/");
     let mut changed = false;
 
@@ -1584,7 +1584,7 @@ where
     let content = fs::read_to_string(path)
         .map_err(|error| format!("Failed to read {label} {}: {error}", path_to_string(path)))?;
     let value = json5::from_str::<serde_json::Value>(&content)
-        .map_err(|error| format!("Failed to parse {label}: {error}"))?;
+        .map_err(|_| format!("Failed to parse {label}"))?;
     let mut root = value
         .as_object()
         .cloned()
@@ -1688,7 +1688,7 @@ pub(crate) fn prepare_hermes_managed_removal(paths: &[PathBuf]) -> Result<Images
     let content = fs::read_to_string(path)
         .map_err(|error| format!("Failed to read Hermes configuration {}: {error}", path_to_string(path)))?;
     let mut document = yaml_serde_edit::YamlValue::parse(&content)
-        .map_err(|error| format!("Failed to parse Hermes configuration: {error}"))?;
+        .map_err(|_| "Failed to parse Hermes configuration".to_string())?;
     let mut updated = document.get().clone();
     let root = updated
         .as_mapping_mut()
@@ -1745,11 +1745,11 @@ pub(crate) fn prepare_hermes_managed_removal(paths: &[PathBuf]) -> Result<Images
 pub(crate) fn prepare_agent_managed_removal(
     client: AgentClient,
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentClientOrigin,
 ) -> Result<Images, String> {
     match client {
         AgentClient::ClaudeCode => {
-            prepare_claude_code_managed_removal(paths, &managed_core_loopback_origin(port))
+            prepare_claude_code_managed_removal(paths, &port.client_origin())
         }
         AgentClient::ClaudeDesktop => prepare_claude_desktop_managed_removal(paths),
         AgentClient::Codex => prepare_codex_managed_removal(paths),
@@ -2404,7 +2404,7 @@ pub(crate) fn build_restored_openclaw_config(
     original: Option<&str>,
 ) -> Result<Option<String>, String> {
     let current_value = json5::from_str::<serde_json::Value>(current)
-        .map_err(|error| format!("Invalid current OpenClaw configuration format: {error}"))?;
+        .map_err(|_| "Invalid current OpenClaw configuration format".to_string())?;
     let mut root = current_value
         .as_object()
         .cloned()
@@ -2412,7 +2412,7 @@ pub(crate) fn build_restored_openclaw_config(
     let original_root = original
         .map(|content| {
             json5::from_str::<serde_json::Value>(content)
-                .map_err(|error| format!("Invalid original OpenClaw configuration format: {error}"))?
+                .map_err(|_| "Invalid original OpenClaw configuration format".to_string())?
                 .as_object()
                 .cloned()
                 .ok_or_else(|| "Original OpenClaw configuration root must be an object".to_string())
@@ -2582,7 +2582,7 @@ pub(crate) fn build_restored_hermes_config(
     original: Option<&str>,
 ) -> Result<Option<String>, String> {
     let mut document = yaml_serde_edit::YamlValue::parse(current)
-        .map_err(|error| format!("Invalid current Hermes configuration format: {error}"))?;
+        .map_err(|_| "Invalid current Hermes configuration format".to_string())?;
     let mut updated = document.get().clone();
     let root = updated
         .as_mapping_mut()
@@ -2590,7 +2590,7 @@ pub(crate) fn build_restored_hermes_config(
     let original_value = original
         .map(|content| {
             serde_norway::from_str::<serde_norway::Value>(content)
-                .map_err(|error| format!("Invalid original Hermes configuration format: {error}"))
+                .map_err(|_| "Invalid original Hermes configuration format".to_string())
         })
         .transpose()?;
     let original_root = original_value
@@ -2914,7 +2914,7 @@ pub(crate) fn build_codex_agent_config_with_oauth(
     let mut document = match existing.filter(|value| !value.trim().is_empty()) {
         Some(value) => value
             .parse::<Document>()
-            .map_err(|error| format!("Invalid Codex config.toml format: {error}"))?,
+            .map_err(|_| "Invalid Codex config.toml format".to_string())?,
         None => Document::new(),
     };
     set_codex_table_item(
@@ -3052,7 +3052,7 @@ pub(crate) fn parse_codex_document(
     match content.filter(|value| !value.trim().is_empty()) {
         Some(value) => value
             .parse::<Document>()
-            .map_err(|error| format!("Invalid {label} format: {error}")),
+            .map_err(|_| format!("Invalid {label} format")),
         None => Ok(Document::new()),
     }
 }
@@ -3209,7 +3209,7 @@ pub(crate) fn build_restored_codex_agent_config_with_policy(
 
 pub(crate) fn validate_codex_catalog(catalog: &str, model: &str) -> Result<(), String> {
     let root: serde_json::Value = serde_json::from_str(catalog)
-        .map_err(|error| format!("Invalid Codex model catalog format: {error}"))?;
+        .map_err(|_| "Invalid Codex model catalog format".to_string())?;
     let models = root
         .get("models")
         .and_then(serde_json::Value::as_array)
@@ -3715,7 +3715,7 @@ pub(crate) fn build_openclaw_agent_config(
 ) -> Result<String, String> {
     let mut root = match existing.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => json5::from_str::<serde_json::Value>(value)
-            .map_err(|error| format!("Invalid OpenClaw openclaw.json format: {error}"))?,
+            .map_err(|_| "Invalid OpenClaw openclaw.json format".to_string())?,
         None => serde_json::json!({}),
     };
     let root = root
@@ -3893,7 +3893,7 @@ pub(crate) fn build_hermes_agent_config(
 ) -> Result<String, String> {
     let original = match existing.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => serde_norway::from_str::<serde_norway::Value>(value)
-            .map_err(|error| format!("Invalid Hermes config.yaml format: {error}"))?,
+            .map_err(|_| "Invalid Hermes config.yaml format".to_string())?,
         None => serde_norway::Value::Mapping(serde_norway::Mapping::new()),
     };
     let mut root = original.clone();

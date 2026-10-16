@@ -119,3 +119,8 @@ export function useCoreRuntime() {
   }
   return context;
 }
+
+// Standalone agent-page fixtures have no runtime provider.
+export function useCoreTargetRevision() {
+  return useContext(CoreRuntimeContext)?.connectionRevision ?? 0;
+}

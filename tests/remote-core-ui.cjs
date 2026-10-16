@@ -54,6 +54,41 @@ const path = require('node:path');
     assert.equal(await page.getByRole('button', { name: 'Install Latest', exact: true }).isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: 'Install Bundled Core', exact: true }).isDisabled(), true);
     await page.getByRole('button', { name: 'Home', exact: true }).click();
+    // Existing client workflows stay available; native owns endpoint/key resolution.
+    await page.evaluate(async () => {
+      window.clientOperations = [];
+      window.clientCommands = [];
+      const { listen } = await import('/node_modules/@tauri-apps/api/event.js');
+      await listen('browser-mock-client-operation', event => window.clientOperations.push(event.payload));
+      const original = window.__TAURI_INTERNALS__.invoke;
+      window.__TAURI_INTERNALS__.invoke = (command, args) => {
+        if (['update_agent_config', 'get_agent_models', 'launch_agent'].includes(command)) window.clientCommands.push({ command, args });
+        return original(command, args);
+      };
+    });
+    await page.getByRole('button', { name: 'Agent Configuration', exact: true }).click();
+    await page.locator('.agent-client-list-heading button:not([disabled])').waitFor();
+    const codexRow = page.locator('.agent-list-items button').filter({ has: page.getByText('Codex', { exact: true }) });
+    for (let index = 0; index < 16 && !await codexRow.count(); index++) {
+      const next = page.getByRole('button', { name: 'Next client page', exact: true });
+      if (!await next.isEnabled()) break;
+      await next.click();
+    }
+    await codexRow.click();
+    await page.locator('.agent-model-trigger').click();
+    await page.getByRole('option').filter({ hasText: 'claude-sonnet-4-6' }).click();
+    await page.getByRole('button', { name: 'Repair Connection', exact: true }).click();
+    await page.getByRole('button', { name: 'Update Configuration', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Start App', exact: true }).click();
+    await page.waitForFunction(() => window.clientOperations.some(operation => operation.command === 'launch_agent'));
+    const clientEvidence = await page.evaluate(() => ({ operations: window.clientOperations, commands: window.clientCommands }));
+    for (const operation of clientEvidence.operations) assert.equal(operation.origin, 'http://client.example.test:8317');
+    for (const command of ['get_agent_models', 'update_agent_config', 'launch_agent']) {
+      assert.ok(clientEvidence.commands.some(call => call.command === command), `${command} must be reachable in Remote`);
+    }
+    assert.ok(!JSON.stringify(clientEvidence).includes('fixture-management-key'));
+    assert.ok(!JSON.stringify(clientEvidence).includes('fixture-client-key'));
+    await page.getByRole('button', { name: 'Home', exact: true }).click();
     // Failed draft authentication leaves the active successful connection alone.
     await page.getByRole('button', { name: 'Core connection settings', exact: true }).click();
     const retry = page.getByRole('dialog', { name: 'Core connection settings', exact: true });
@@ -113,6 +148,6 @@ const path = require('node:path');
     });
     assert.deepEqual(errors, []);
     assert.deepEqual(externalRequests, []);
-    console.log('PASS: draft test leaves local target unchanged; saving remote hides local lifecycle and shows distinct client endpoint, with auth failure, recovery and return to local; stale credential reads are cancelled and current uploads preserve the command payload; no external requests.');
+    console.log('PASS: draft test leaves local target unchanged; saving remote hides local lifecycle and shows distinct client endpoint, with auth failure, recovery and return to local; remote agent inspection, model selection, configuration repair and launch use only the client target without credential overrides; stale credential reads are cancelled and current uploads preserve the command payload; no external requests.');
   } finally { await browser?.close(); await server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

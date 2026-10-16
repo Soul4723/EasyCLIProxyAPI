@@ -357,7 +357,7 @@ struct AgentConfigStatusCache {
 }
 
 struct AgentConfigStatusCacheEntry {
-    port: u16,
+    origin: String,
     api_key_sha256: String,
     statuses: Vec<AgentConfigStatus>,
 }
@@ -370,14 +370,14 @@ struct ConfigFilesChangedPayload {
 }
 
 impl AgentConfigStatusCache {
-    fn get(&self, port: u16, api_key: &str) -> Result<Option<Vec<AgentConfigStatus>>, String> {
+    fn get(&self, port: impl AgentClientOrigin, api_key: &str) -> Result<Option<Vec<AgentConfigStatus>>, String> {
         let api_key_sha256 = sha256_bytes(api_key.as_bytes());
         self.entry
             .lock()
             .map(|entry| {
                 entry
                     .as_ref()
-                    .filter(|entry| entry.port == port && entry.api_key_sha256 == api_key_sha256)
+                    .filter(|entry| entry.origin == port.client_origin() && entry.api_key_sha256 == api_key_sha256)
                     .map(|entry| entry.statuses.clone())
             })
             .map_err(|_| "Agent configuration status cache lock is poisoned".to_string())
@@ -385,7 +385,7 @@ impl AgentConfigStatusCache {
 
     fn replace(
         &self,
-        port: u16,
+        port: impl AgentClientOrigin,
         api_key: &str,
         statuses: Vec<AgentConfigStatus>,
     ) -> Result<(), String> {
@@ -394,7 +394,7 @@ impl AgentConfigStatusCache {
             .lock()
             .map_err(|_| "Agent configuration status cache lock is poisoned".to_string())?;
         *current = Some(AgentConfigStatusCacheEntry {
-            port,
+            origin: port.client_origin(),
             api_key_sha256: sha256_bytes(api_key.as_bytes()),
             statuses,
         });
@@ -2111,6 +2111,13 @@ impl GuiConfigState {
 
     // Acquire in the blocking worker, not its awaiter: cancellation must not
     // release the fence while an accepted filesystem/process write is running.
+    fn blocking_client_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+        let guard = self.target_operation.blocking_lock();
+        self.ensure_target(expected)?;
+        expected.validate_client_origin()?;
+        Ok(guard)
+    }
+
     fn blocking_local_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
         let guard = self.target_operation.blocking_lock();
         self.ensure_target(expected)?;

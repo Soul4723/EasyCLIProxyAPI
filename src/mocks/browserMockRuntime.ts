@@ -222,6 +222,12 @@ function createAgentStatuses() {
     opus: 'claude-opus-4-6',
     sonnet: 'claude-sonnet-4-6',
     haiku: 'claude-haiku-4-5',
+    fable: '',
+    fable1m: false,
+    startupModel: 'opus',
+    subagentModel: '',
+    manageDefaultModel: true,
+    manageSubagentModel: false,
     opus1m: false,
     sonnet1m: false,
     haiku1m: false,
@@ -954,6 +960,23 @@ export function createBrowserMockRuntime(
   let localStatus = clone(state.coreStatus);
   let connectionRevision = 0;
   let usagePaused = false;
+  // In-memory client files only: never touch the host's actual agent configuration.
+  const localClientIdentity = 'local';
+  const clientIdentity = () => connection.mode === 'remote'
+    ? JSON.stringify([connection.clientOrigin, connection.clientKey]) : localClientIdentity;
+  const agentTargets = new Map(state.agentStatuses.map(status => [status.id, localClientIdentity]));
+  const recordClientOperation = (command: string, client?: unknown) => {
+    emitEvent('browser-mock-client-operation', {
+      command, client: readString(client),
+      origin: connection.mode === 'remote' ? connection.clientOrigin : `http://127.0.0.1:${state.coreConfig.port}`,
+      targetRevision: connectionRevision,
+    });
+  };
+  const requireClientAuthentication = () => {
+    if (connection.mode === 'remote' && connection.clientKey !== 'fixture-client-key') {
+      throw new Error('Browser fixture: client authentication rejected');
+    }
+  };
   const validateConnection = (value: CoreConnection) => {
     if (!value || !['local', 'remote'].includes(value.mode)) throw new Error('Invalid connection mode');
     if (value.mode === 'remote') {
@@ -984,7 +1007,10 @@ export function createBrowserMockRuntime(
   const emit = (event: string, payload: unknown) => emitEvent(event, clone(payload));
 
   const invoke = async (command: string, rawPayload?: unknown): Promise<unknown> => {
+    const startedRevision = connectionRevision;
     await sleep(delayMs);
+    if ((command.includes('agent_') || ['get_core_models', 'core_health_probe'].includes(command))
+      && startedRevision !== connectionRevision) throw new Error('The core connection changed; agent operation cancelled');
     const payload = asObject(rawPayload);
     if (scenario === 'error' && ERROR_SCENARIO_COMMANDS.has(command)) {
       throw new Error(`Browser Mock error scenario: ${command}`);
@@ -1022,7 +1048,10 @@ export function createBrowserMockRuntime(
       case 'restore_codex_official_config':
       case 'create_agent_config_backup':
       case 'restore_agent_config_backup':
-      case 'launch_agent': return null;
+        return null;
+      case 'launch_agent':
+        recordClientOperation(command, payload.client);
+        return null;
 
       case 'get_management_target_revision': return connectionRevision;
       case 'get_core_connection': return clone(connection);
@@ -1253,6 +1282,8 @@ export function createBrowserMockRuntime(
       case 'save_api_access_remark': return null;
       case 'provider_health_probe': return { firstTokenLatencyMs: 184, responseLatencyMs: 642 };
       case 'core_health_probe': {
+        recordClientOperation(command);
+        requireClientAuthentication();
         if (!state.coreStatus.ready) throw new Error('Browser Mock: the core is not ready');
         if (!readString(payload.model).trim()) throw new Error('Select a model first');
         return { firstTokenLatencyMs: 184, responseLatencyMs: 642 };
@@ -1383,21 +1414,40 @@ export function createBrowserMockRuntime(
       case 'apply_usage_model_prices': return { imported: asArray(payload.prices).length };
 
       case 'get_agent_config_statuses':
-      case 'refresh_agent_config_statuses': return clone(state.agentStatuses);
+      case 'refresh_agent_config_statuses': {
+        recordClientOperation(command);
+        return clone(state.agentStatuses.map(status => agentTargets.get(status.id) === clientIdentity()
+          ? status : { ...status, configured: false, configurationSynchronized: false, connectionState: 'needs-update' }));
+      }
       case 'get_core_models': {
         if (!state.coreStatus.ready) throw new Error('Browser Mock: the core is not ready');
         return invoke('get_agent_models', {});
       }
-      case 'get_agent_models': return [
-        { name: 'gpt-5.2-codex', alias: 'codex-latest', displayName: 'GPT-5.2 Codex', isAlias: true, contextWindow: 272_000, inputModalities: ['text', 'image'] },
-        { name: 'claude-opus-4-6', displayName: 'Claude Opus 4.6', contextWindow: 200_000, inputModalities: ['text', 'image'] },
-        { name: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', contextWindow: 200_000, inputModalities: ['text', 'image'] },
-        { name: 'claude-haiku-4-5', displayName: 'Claude Haiku 4.5', contextWindow: 200_000, inputModalities: ['text', 'image'] },
-        { name: 'gemini-3-pro', displayName: 'Gemini 3 Pro', contextWindow: 1_000_000, inputModalities: ['text', 'image'] },
-        { name: 'deepseek-chat', displayName: 'DeepSeek Chat', contextWindow: 64_000, inputModalities: ['text'] },
-      ];
+      case 'get_agent_models': {
+        recordClientOperation(command, payload.client);
+        requireClientAuthentication();
+        return [
+          { name: 'gpt-5.2-codex', alias: 'codex-latest', displayName: 'GPT-5.2 Codex', isAlias: true, contextWindow: 272_000, inputModalities: ['text', 'image'] },
+          { name: 'claude-opus-4-6', displayName: 'Claude Opus 4.6', contextWindow: 200_000, inputModalities: ['text', 'image'] },
+          { name: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', contextWindow: 200_000, inputModalities: ['text', 'image'] },
+          { name: 'claude-haiku-4-5', displayName: 'Claude Haiku 4.5', contextWindow: 200_000, inputModalities: ['text', 'image'] },
+          { name: 'gemini-3-pro', displayName: 'Gemini 3 Pro', contextWindow: 1_000_000, inputModalities: ['text', 'image'] },
+          { name: 'deepseek-chat', displayName: 'DeepSeek Chat', contextWindow: 64_000, inputModalities: ['text'] },
+        ];
+      }
       case 'update_agent_config':
-      case 'apply_agent_config_template':
+      case 'apply_agent_config_template': {
+        recordClientOperation(command, payload.client);
+        const client = readString(payload.client);
+        const status = state.agentStatuses.find(status => status.id === client);
+        if (status) {
+          agentTargets.set(status.id, clientIdentity());
+          Object.assign(status, { currentModel: readString(payload.model) || status.currentModel,
+            configured: true, configurationSynchronized: true, connectionState: 'configured' });
+        }
+        emit('config-files-changed', null);
+        return createActionResult(payload);
+      }
       case 'install_pi_provider':
       case 'update_pi_provider':
       case 'repair_pi_provider':
