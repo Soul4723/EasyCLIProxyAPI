@@ -8,6 +8,7 @@ import { FloatingNotice, useAppNotice } from '../appNotice';
 import { useConfirmation } from '../components/ConfirmationDialog';
 import { pluginsApi, pluginStoreApi, type PluginListEntry, type PluginListResponse, type PluginStoreEntry, type PluginStoreResponse } from '../services/plugins';
 import { collectPluginResourceEntries, getPluginTitle, isOfficialPlugin, notifyPluginResourcesChanged, type PluginResourceEntry } from '../services/pluginResources';
+import { getPluginStoreSources, pluginStoreSourceKey } from '../services/pluginStoreSources';
 import { getPluginStatus, isPluginInstalled } from '../services/pluginStatus';
 import { PluginConfigDialog } from './PluginConfigDialog';
 import { PluginInstallDialog } from './PluginInstallDialog';
@@ -34,6 +35,7 @@ export function PluginsPage() {
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('');
   const [configPlugin, setConfigPlugin] = useState<PluginListEntry | null>(null);
   const [installEntry, setInstallEntry] = useState<PluginStoreEntry | null>(null);
   const [oauthPlugin, setOAuthPlugin] = useState<PluginListEntry | null>(null);
@@ -63,7 +65,10 @@ export function PluginsPage() {
       setResource(previous => previous && collectPluginResourceEntries(next.plugins).some(entry => entry.pluginID === previous.entry.pluginID && entry.menuIndex === previous.entry.menuIndex && entry.menu.path === previous.entry.menu.path) ? previous : null);
       if (target === 'store') {
         const nextStore = await pluginStoreApi.list();
-        if (mounted.current && revision === requests.current) setStore(nextStore);
+        if (mounted.current && revision === requests.current) {
+          setStore(nextStore);
+          setSourceFilter(previous => getPluginStoreSources(nextStore).some(source => source.key === previous) ? previous : '');
+        }
       }
     } catch (reason) { if (mounted.current && revision === requests.current) setError(message(reason)); }
     finally { if (mounted.current && revision === requests.current) setLoading(false); }
@@ -127,7 +132,8 @@ export function PluginsPage() {
   };
   const matches = (values: (string | undefined)[]) => values.join(' ').toLowerCase().includes(search.trim().toLowerCase());
   const plugins = (data?.plugins ?? []).filter(plugin => matches([plugin.id, plugin.metadata?.name, plugin.metadata?.author]));
-  const storePlugins = (store?.plugins ?? []).filter(plugin => matches([plugin.id, plugin.name, plugin.description, plugin.author, ...plugin.tags]) && (filter === 'all' || (filter === 'installed' && plugin.installed) || (filter === 'updates' && plugin.updateAvailable)));
+  const storeSources = getPluginStoreSources(store);
+  const storePlugins = (store?.plugins ?? []).filter(plugin => (!sourceFilter || pluginStoreSourceKey(plugin) === sourceFilter) && matches([plugin.id, plugin.name, plugin.description, plugin.author, ...plugin.tags]) && (filter === 'all' || (filter === 'installed' && plugin.installed) || (filter === 'updates' && plugin.updateAvailable)));
   const installedCount = data?.plugins.filter(isPluginInstalled).length ?? 0;
   const configOnlyCount = data?.plugins.filter(plugin => plugin.configured && !isPluginInstalled(plugin)).length ?? 0;
   const locked = busy || loading || Boolean(configPlugin || installEntry || oauthPlugin);
@@ -150,7 +156,11 @@ export function PluginsPage() {
               <button type="button" className="plugin-search-clear" disabled={!search} aria-label={t('common.clear')} title={t('common.clear')}
                 onClick={() => { setSearch(''); searchRef.current?.focus(); }}><X size={15} aria-hidden="true" /></button>
             </div>
-            {tab === 'store' && <select aria-label={pt('store')} value={filter} onChange={e => setFilter(e.target.value)}>{['all', 'installed', 'updates'].map(value => <option key={value} value={value}>{pt(value as 'all' | 'installed' | 'updates')}</option>)}</select>}
+            {tab === 'store' && <><select aria-label={pt('store')} value={filter} onChange={e => setFilter(e.target.value)}>{['all', 'installed', 'updates'].map(value => <option key={value} value={value}>{pt(value as 'all' | 'installed' | 'updates')}</option>)}</select>
+            <select className="plugin-source-filter" aria-label={pt('storeSource')} title={storeSources.find(source => source.key === sourceFilter)?.label || pt('allStores')} value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}>
+              <option value="">{pt('allStores')}</option>
+              {storeSources.map(source => <option key={source.key} value={source.key}>{source.label}</option>)}
+            </select></>}
           </div>}
         </div>
         {tab === 'settings' ? <PluginSettingsPanel onSaved={() => { notice.showNotice(pt('saved')); void load(); }} /> : <>
@@ -168,7 +178,7 @@ export function PluginsPage() {
             {collectPluginResourceEntries([plugin]).length > 0 && <div className="plugin-menus">{collectPluginResourceEntries([plugin]).map(entry => <button key={entry.menuIndex} title={entry.description} className="secondary-button" disabled={locked} onClick={() => void openResource(entry)}><ExternalLink size={14} />{entry.label}</button>)}</div>}
             <div className="plugin-card-actions">
             {plugin.effectiveEnabled && plugin.supportsOAuth && plugin.oauthProvider && <button className="secondary-button" disabled={locked} onClick={() => setOAuthPlugin(plugin)}><LogIn size={15} />{pt('oauth')}</button>}
-              {installed ? <button className="secondary-button" disabled={locked} onClick={() => void mutate(() => pluginsApi.updateEnabled(plugin.id, !plugin.enabled), pt('saved'))}>{pt(plugin.enabled ? 'disabled' : 'enabled')}</button> : <button className="secondary-button" disabled={locked} onClick={() => { setSearch(plugin.id); setFilter('all'); setTab('store'); }}><Download size={15} />{pt('findInStore')}</button>}
+              {installed ? <button className="secondary-button" disabled={locked} onClick={() => void mutate(() => pluginsApi.updateEnabled(plugin.id, !plugin.enabled), pt('saved'))}>{pt(plugin.enabled ? 'disabled' : 'enabled')}</button> : <button className="secondary-button" disabled={locked} onClick={() => { setSearch(plugin.id); setFilter('all'); setSourceFilter(''); setTab('store'); }}><Download size={15} />{pt('findInStore')}</button>}
               <button className="secondary-button" disabled={locked} onClick={() => setConfigPlugin(plugin)}><Settings2 size={15} />{pt('configure')}</button>
               {status === 'notLoaded' && <button className="secondary-button" disabled={locked} onClick={() => void invoke('open_core_logs_directory').catch(reason => { if (mounted.current) setError(message(reason)); })}><Folder size={15} />{pt('openLogs')}</button>}
               <button className="icon-button quiet plugin-delete" disabled={locked} aria-label={removeLabel} title={removeLabel} onClick={() => void remove(plugin)}><Trash2 size={16} /></button>
@@ -182,7 +192,7 @@ export function PluginsPage() {
               <div className="plugin-card-actions">{entry.installed && <span className="plugin-badge">{pt(entry.updateAvailable ? 'updates' : 'installed')}</span>}<button className="primary-button" disabled={locked || (entry.authRequired && !entry.authConfigured)} onClick={() => setInstallEntry(entry)}><Download size={15} />{pt(entry.authRequired && !entry.authConfigured ? 'authMissing' : !entry.installed ? 'install' : entry.updateAvailable ? 'update' : 'reinstall')}</button></div>
             </article>)}</div>
           </>}
-          {!loading && !error && (tab === 'installed' ? !plugins.length : !storePlugins.length) && <section className="plugin-empty"><Puzzle size={36} /><h2>{pt(search || filter !== 'all' ? 'noMatches' : 'empty')}</h2>{tab === 'installed' && !search && <><p>{pt('emptyHint')}</p><button className="primary-button" onClick={() => setTab('store')}>{pt('store')}</button></>}</section>}
+          {!loading && !error && (tab === 'installed' ? !plugins.length : !storePlugins.length) && <section className="plugin-empty"><Puzzle size={36} /><h2>{pt(search || filter !== 'all' || (tab === 'store' && sourceFilter) ? 'noMatches' : 'empty')}</h2>{tab === 'installed' && !search && <><p>{pt('emptyHint')}</p><button className="primary-button" onClick={() => setTab('store')}>{pt('store')}</button></>}</section>}
         </>}
       </>}
     </>}

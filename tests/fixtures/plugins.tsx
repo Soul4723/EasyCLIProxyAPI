@@ -16,6 +16,16 @@ const state = {
   resourceRequests: [] as unknown[],
   failNextList: false,
   failNextInstall: false,
+  failNextStore: false,
+  sources: [
+    { id: 'official', name: 'Official', url: 'https://official.example.test/plugins.json' },
+    { id: 'community', name: 'Community', url: 'https://registry.example.test/plugins.json' },
+    { id: 'private', name: 'Private', url: 'https://private.example.test/plugins.json' },
+    { id: 'offline', name: 'Offline source', url: 'https://offline.example.test/plugins.json' },
+    { id: 'empty', name: 'Empty registry', url: 'https://empty.example.test/plugins.json' },
+    { id: '', name: 'Community', url: 'https://url-only.example.test/plugins.json' },
+    { id: 'long', name: 'Long registry name '.repeat(20), url: 'https://long.example.test/plugins.json' },
+  ],
   holdInstall: false,
   releaseInstall: null as null | (() => void),
   settings: {
@@ -65,6 +75,8 @@ const storeEntries: Record<string, unknown>[] = [
   { id: 'private', name: 'Private provider', source_id: 'private', source_name: 'Private',
     repository: 'private/provider', auth_required: true, auth_configured: false, install_type: 'github-release',
   },
+  { id: 'analytics', name: 'URL-only provider', source_id: '', source_name: 'Community',
+    source_url: 'https://url-only.example.test/plugins.json', install_type: 'direct' },
   { id: 'kiro', name: 'Kiro', source_id: 'official', source_name: 'Official',
     repository: 'router-for-me/kiro', version: '0.1.1', install_type: 'github-release', installed: false,
     description: 'A configured provider whose plugin file has not been installed.',
@@ -96,10 +108,13 @@ mockIPC(async (command, args) => {
       })),
     };
   }
-  if (request.path === '/plugins/store' && request.method === 'GET') return {
-    plugins_enabled: state.settings.enabled, plugins_dir: state.settings.dir, plugins: storeEntries,
-    source_errors: [{ source_id: 'offline', source_name: 'Offline source', message: 'Fixture registry unavailable' }],
-  };
+  if (request.path === '/plugins/store' && request.method === 'GET') {
+    if (state.failNextStore) { state.failNextStore = false; throw new Error('Fixture store temporarily unavailable'); }
+    return {
+      plugins_enabled: state.settings.enabled, plugins_dir: state.settings.dir, plugins: storeEntries, sources: state.sources,
+      source_errors: [{ source_id: 'offline', source_name: 'Offline source', message: 'Fixture registry unavailable' }],
+    };
+  }
   if (request.path === '/config/plugins') {
     if (request.method === 'GET') return structuredClone(state.settings);
     if (request.method === 'PATCH') { Object.assign(state.settings, request.body); return { status: 'ok' }; }
