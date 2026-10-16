@@ -263,6 +263,9 @@ pub(crate) struct UsageRecord {
     x_forwarded_for: Option<String>,
     #[serde(default, skip_serializing)]
     user_agent: Option<String>,
+    // Derived on reads; imported labels never override persisted request identity.
+    #[serde(default, skip_deserializing)]
+    agent: String,
     #[serde(default)]
     reasoning_effort: String,
     #[serde(default)]
@@ -315,6 +318,8 @@ struct LegacyUsageInboxFile {
 
 #[derive(Clone, Default, Deserialize)]
 pub(crate) struct UsageQuery {
+    #[serde(default)]
+    agent: Option<String>,
     #[serde(default)]
     start: Option<String>,
     #[serde(default)]
@@ -526,6 +531,38 @@ struct UsageUpstream {
 // Old records without an identity can only be grouped by route, never by a
 // raw source value that could contain an upstream or client secret.
 const USAGE_UPSTREAM_SQL: &str = "CASE WHEN TRIM(auth_index) != '' THEN 'auth:' || TRIM(auth_index) ELSE 'provider:' || TRIM(provider) END";
+
+// Product tokens verified against first-party request builders:
+// https://github.com/openai/codex/blob/main/codex-rs/login/src/auth/default_client.rs
+// https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/core/contentGenerator.ts
+// https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.0.tgz (package/cli.js)
+// ponytail: recognize default CLI identities only; add variants after verifying their request builders.
+// GLOB is case-sensitive and anchored, unlike substring/LIKE guesses. Never inspect routing metadata.
+const USAGE_AGENT_SQL: &str = "CASE
+    WHEN user_agent NOT GLOB '*claude-cli/*'
+      AND user_agent NOT GLOB '*GeminiCLI/*'
+      AND user_agent GLOB 'codex_cli_rs/* (*)*'
+      AND substr(user_agent, 14, instr(user_agent, ' (') - 14) NOT GLOB '*[^0-9.]*'
+      AND substr(user_agent, 14, instr(user_agent, ' (') - 14) NOT GLOB ''
+      AND substr(user_agent, 14, instr(user_agent, ' (') - 14) NOT GLOB '.*'
+      AND substr(user_agent, 14, instr(user_agent, ' (') - 14) NOT GLOB '*.'
+      AND substr(user_agent, 14, instr(user_agent, ' (') - 14) NOT GLOB '*..*'
+      THEN 'codex'
+    WHEN user_agent GLOB 'claude-cli/* (external, cli)'
+      AND substr(user_agent, 12, instr(user_agent, ' (') - 12) NOT GLOB '*[^0-9.]*'
+      AND substr(user_agent, 12, instr(user_agent, ' (') - 12) NOT GLOB ''
+      AND substr(user_agent, 12, instr(user_agent, ' (') - 12) NOT GLOB '.*'
+      AND substr(user_agent, 12, instr(user_agent, ' (') - 12) NOT GLOB '*.'
+      AND substr(user_agent, 12, instr(user_agent, ' (') - 12) NOT GLOB '*..*'
+      THEN 'claude-code'
+    WHEN user_agent GLOB 'GeminiCLI/* (*)'
+      AND substr(user_agent, 11, instr(user_agent, ' (') - 11) GLOB '[0-9.]*/*'
+      AND substr(user_agent, 11, instr(user_agent, ' (') - 11) NOT GLOB '*[^0-9A-Za-z._/-]*'
+      AND substr(substr(user_agent, 11, instr(user_agent, ' (') - 11), 1, instr(substr(user_agent, 11, instr(user_agent, ' (') - 11), '/') - 1) NOT GLOB '*[^0-9.]*'
+      AND substr(substr(user_agent, 11, instr(user_agent, ' (') - 11), 1, instr(substr(user_agent, 11, instr(user_agent, ' (') - 11), '/') - 1) NOT GLOB '*..*'
+      AND substr(user_agent, 11, instr(user_agent, ' (') - 11) NOT GLOB '*claude-cli/*'
+      THEN 'gemini-cli'
+    ELSE 'unknown' END";
 
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -3213,6 +3250,7 @@ fn normalize_usage_record(value: Value, config: &GuiConfigFile) -> Result<UsageR
         client_ip: string_field(object, "client_ip"),
         x_forwarded_for: string_field(object, "x_forwarded_for"),
         user_agent: string_field(object, "user_agent"),
+        agent: String::new(),
         reasoning_effort: string_field(object, "reasoning_effort").unwrap_or_default(),
         service_tier: string_field(object, "service_tier").unwrap_or_default(),
         response_service_tier: string_field(object, "response_service_tier").unwrap_or_default(),
@@ -3277,6 +3315,7 @@ fn default_usage_generate() -> bool {
 fn build_usage_filter(query: &UsageQuery) -> UsageSqlFilter {
     let mut clauses = Vec::<String>::new();
     let mut params = Vec::<SqlValue>::new();
+    add_text_filter(&mut clauses, &mut params, &format!("({USAGE_AGENT_SQL})"), query.agent.as_deref());
     if let Some(start) = query.start.as_deref().and_then(parse_timestamp_millis) {
         clauses.push("timestamp_ms >= ?".to_string());
         params.push(SqlValue::Integer(start));
@@ -4985,7 +5024,7 @@ fn load_usage_events_with_notes(
             cached_tokens, collector_source,
             input_tokens, output_tokens, reasoning_tokens, cache_read_tokens,
             cache_creation_tokens, total_tokens, canceled, failure_status,
-            failure_body, id, response_model
+            failure_body, id, response_model, {USAGE_AGENT_SQL}
         FROM usage_events{}
         ORDER BY timestamp_ms DESC, id DESC
         LIMIT ? OFFSET ?
@@ -5052,6 +5091,7 @@ fn usage_record_from_row(row: &Row<'_>) -> rusqlite::Result<UsageRecord> {
         client_ip: row.get(21)?,
         x_forwarded_for: row.get(22)?,
         user_agent: row.get(23)?,
+        agent: row.get(38)?,
         reasoning_effort: row.get(10)?,
         service_tier: row.get(11)?,
         response_service_tier: row.get(12)?,
@@ -5323,6 +5363,90 @@ mod tests {
         config: &GuiConfigFile,
     ) -> Result<UsageEventPage, String> {
         load_usage_events_with_notes(connection, query, config, &HashMap::new())
+    }
+
+    #[test]
+    fn agent_classification_uses_only_verified_product_tokens() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute("CREATE TABLE usage_events (user_agent TEXT)", []).unwrap();
+        let cases = [
+            (Some("codex_cli_rs/0.77.0 (Linux 6.8; x86_64) terminal/1.0"), "codex"),
+            (Some("claude-cli/2.1.0 (external, cli)"), "claude-code"),
+            (Some("GeminiCLI/0.1.0/gemini-2.5-pro (linux; x64; terminal)"), "gemini-cli"),
+            (None, "unknown"), (Some(""), "unknown"),
+            (Some("python-httpx/0.28.1"), "unknown"),
+            (Some("my-codex-proxy/1.0"), "unknown"),
+            (Some("Mozilla/5.0 codex_cli_rs/0.77.0 (Linux)"), "unknown"),
+            (Some("codex_cli_rs/"), "unknown"),
+            (Some("codex_cli_rs/not-a-version (Linux)"), "unknown"),
+            (Some("codex_cli_rs/1abc (Linux)"), "unknown"),
+            (Some("codex_cli_rs/1.2.3 (Linux) GeminiCLI/1.0/model (x)"), "unknown"),
+            (Some("claude-cli/2.1.0 (external, cli) custom"), "unknown"),
+            (Some("GeminiCLI/1abc/model (linux)"), "unknown"),
+            (Some("Codex/1.0"), "unknown"),
+            (Some("claude-cli/2.1.0 (external, sdk-ts, agent-sdk/0.1)"), "unknown"),
+            (Some("GeminiCLI-custom/1.0/model (linux; x64; terminal)"), "unknown"),
+            (Some("OpenAI/JS 4.0"), "unknown"),
+        ];
+        for (ua, expected) in cases {
+            connection.execute("DELETE FROM usage_events", []).unwrap();
+            connection.execute("INSERT INTO usage_events VALUES (?1)", [ua]).unwrap();
+            let actual: String = connection.query_row(
+                &format!("SELECT {USAGE_AGENT_SQL} FROM usage_events"), [], |row| row.get(0),
+            ).unwrap();
+            assert_eq!(actual, expected, "User-Agent: {ua:?}");
+        }
+    }
+
+    #[test]
+    fn agent_filter_precedes_counts_pagination_export_and_aggregates() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&connection).unwrap();
+        let identities = [Some("codex_cli_rs/0.77.0 (Linux; x86_64)"),
+            Some("claude-cli/2.1.0 (external, cli)"),
+            Some("GeminiCLI/0.1.0/model (linux; x64; terminal)"), None,
+            Some("custom-codex/1"), Some("claude-cli/2.1.0 (external, cli)"), None];
+        let records: Vec<_> = identities.iter().enumerate().map(|(index, ua)| {
+            let mut record = sample_record(&format!("agent-{index}"), "2026-08-28T00:00:00Z", "same-model");
+            record.provider = "codex".to_string();
+            record.endpoint = "/v1/responses".to_string();
+            record.user_agent = ua.map(str::to_string);
+            record
+        }).collect();
+        insert_usage_records(&mut connection, &records).unwrap();
+        let config = GuiConfigFile::default();
+        for (agent, expected) in [("codex", 1), ("claude-code", 2), ("gemini-cli", 1), ("unknown", 3), ("invalid", 0)] {
+            let query = UsageQuery { agent: Some(agent.to_string()), page_size: Some(1), ..Default::default() };
+            let first = load_usage_events(&connection, &query, &config).unwrap();
+            assert_eq!(first.total, expected);
+            assert_eq!(first.total_pages, expected.max(1));
+            let mut ids = std::collections::HashSet::new();
+            for page in 1..=first.total_pages {
+                let result = load_usage_events(&connection, &UsageQuery { page: Some(page), ..query.clone() }, &config).unwrap();
+                for item in result.items {
+                    assert_eq!(item.agent, agent);
+                    let json = serde_json::to_value(&item).unwrap();
+                    assert_eq!(json["agent"], agent);
+                    assert!(json.get("user_agent").is_none());
+                    assert!(ids.insert(item.id));
+                }
+            }
+            assert_eq!(ids.len(), expected);
+            // CSV uses the same paged event command with a larger page size.
+            let export = load_usage_events(&connection, &UsageQuery { page_size: Some(5000), ..query.clone() }, &config).unwrap();
+            assert_eq!(export.items.len(), expected);
+            assert_eq!(load_usage_overview(&connection, &query).unwrap().total_requests, expected as u64);
+            assert_eq!(load_usage_pricing(&connection, &query).unwrap().total_requests, expected as u64);
+            assert_eq!(load_usage_analysis(&connection, &query, &config).unwrap().models.iter().map(|item| item.requests).sum::<u64>(), expected as u64);
+        }
+        let imported: UsageRecord = serde_json::from_value(serde_json::json!({
+            "id": "imported", "timestamp": "2026-08-28T00:00:00Z", "agent": "codex",
+            "user_agent": "claude-cli/2.1.0 (external, cli)"
+        })).unwrap();
+        assert!(imported.agent.is_empty());
+        insert_usage_records(&mut connection, &[imported]).unwrap();
+        let page = load_usage_events(&connection, &UsageQuery { agent: Some("claude-code".into()), ..Default::default() }, &config).unwrap();
+        assert_eq!(page.total, 3);
     }
 
     #[tokio::test]
@@ -5900,6 +6024,7 @@ mod tests {
             client_ip: None,
             x_forwarded_for: None,
             user_agent: None,
+            agent: String::new(),
             reasoning_effort: "high".to_string(),
             service_tier: String::new(),
             response_service_tier: String::new(),
