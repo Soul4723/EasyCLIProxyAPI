@@ -9,7 +9,7 @@ import { canResetQuota, hasPendingClaudeReset } from '../services/quotaActions';
 import { formatQuotaReset, useQuotaClock } from '../services/quotaTime';
 import './AuthFileQuotaPanel.css';
 
-export function AuthFileQuotaPanel({ quota, file, disabled, onRefresh, onReset, compact = false, dense = false }: {
+export function AuthFileQuotaPanel({ quota, file, disabled: controlsDisabled, onRefresh, onReset, compact = false, dense = false }: {
   quota: QuotaState;
   file: AuthFile;
   disabled: boolean;
@@ -20,7 +20,9 @@ export function AuthFileQuotaPanel({ quota, file, disabled, onRefresh, onReset, 
 }) {
   const { locale, t } = useI18n();
   const now = useQuotaClock() + (quota.serverTimeOffsetMs ?? 0);
-  const rows = deriveAccountPresentation(file, quota).quota.rows;
+  const account = deriveAccountPresentation(file, quota);
+  const rows = account.quota.rows;
+  const disabled = controlsDisabled || account.health.disabled;
   const loading = quota.status === 'loading';
   const privacy = usePrivacyMask();
   const name = privacy.credentialName(file);
@@ -65,7 +67,7 @@ export function AuthFileQuotaPanel({ quota, file, disabled, onRefresh, onReset, 
         </button> : null}
       </div> : null}
       {loading ? <div className="credential-quota-loading" role="status"><span>{t(quota.pendingAction === 'reset' ? 'quota.resetting' : 'authFiles.quota.loading')}</span><div className="credential-quota-track indeterminate"><i /></div></div> : null}
-      {quota.status === 'idle' ? <p className="credential-quota-empty">{t(file.disabled === true ? 'authFiles.status.disabled' : dense ? 'quota.notFetched' : 'authFiles.settings.quotaIdle')}</p> : null}
+      {quota.status === 'idle' ? <p className="credential-quota-empty">{t(account.health.disabled ? 'authFiles.status.disabled' : dense ? 'quota.notFetched' : 'authFiles.settings.quotaIdle')}</p> : null}
       {quota.status === 'error' ? <div className="credential-quota-error" role="status">
         {dense && error ? <details className="credential-quota-error-details"><summary title={error}>{t('authFiles.quota.failed')}</summary><small>{error}</small></details>
           : <><span>{t('authFiles.quota.failed')}</span>{error ? <small>{error}</small> : null}</>}
