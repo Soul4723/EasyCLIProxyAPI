@@ -17,6 +17,12 @@ const getSnapshot = () => cache;
 export const getQuotaCacheSnapshot = getSnapshot;
 export const captureQuotaCacheGeneration = () => generation;
 
+/** Fence all quota state when the selected core target changes. */
+export const invalidateQuotaCache = () => {
+  generation += 1;
+  updateQuotaCache({});
+};
+
 export const commitQuotaCacheIfCurrent = (expectedGeneration: number, commit: () => void) => {
   if (generation !== expectedGeneration) return false;
   commit();

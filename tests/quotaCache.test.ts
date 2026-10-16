@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   captureQuotaCacheGeneration,
   commitQuotaCacheIfCurrent,
+  invalidateQuotaCache,
   getQuotaCacheSnapshot,
   pruneQuotaCache,
   updateQuotaCache,
@@ -34,5 +35,15 @@ describe('额度跨页面缓存', () => {
     })).toBe(false);
     expect(committed).toBe(false);
     expect(getQuotaCacheSnapshot().retained).toEqual({ status: 'idle', rows: [] });
+  });
+
+  it('目标切换清空旧目标数据并拒绝旧请求写回', () => {
+    updateQuotaCache({ shared: { status: 'success', rows: [], fetchedAt: 1 } });
+    const generation = captureQuotaCacheGeneration();
+    invalidateQuotaCache();
+    let committed = false;
+    expect(commitQuotaCacheIfCurrent(generation, () => { committed = true; })).toBe(false);
+    expect(committed).toBe(false);
+    expect(getQuotaCacheSnapshot()).toEqual({});
   });
 });

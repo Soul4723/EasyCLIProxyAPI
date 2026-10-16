@@ -1024,7 +1024,7 @@ const createRedeemRequestId = () => {
   });
 };
 
-async function consumeCodexResetCreditSnapshot(file: AuthFile): Promise<QuotaState> {
+async function consumeCodexResetCreditSnapshot(file: AuthFile, assertCurrent?: () => void): Promise<QuotaState> {
   if (providerForFile(file) !== 'codex') {
     throw new Error(quotaText('quota.service.error.codexResetOnly'));
   }
@@ -1035,6 +1035,7 @@ async function consumeCodexResetCreditSnapshot(file: AuthFile): Promise<QuotaSta
     ...headersByProvider.codex,
   };
   const accountId = await resolveCodexAccountId(file);
+  assertCurrent?.();
   if (accountId) header['Chatgpt-Account-Id'] = accountId;
   await requestQuotaPayload(
     authIndex,
@@ -1048,6 +1049,12 @@ async function consumeCodexResetCreditSnapshot(file: AuthFile): Promise<QuotaSta
 
 const quotaRequests = new Map<string, Promise<QuotaState>>();
 const quotaMutationRequests = new Map<string, Promise<QuotaState>>();
+
+/** Drop target-bound requests so late responses cannot be reused by a new core. */
+export function invalidateQuotaRequests() {
+  quotaRequests.clear();
+  quotaMutationRequests.clear();
+}
 
 export function loadQuota(file: AuthFile): Promise<QuotaState> {
   const key = quotaKey(file);
@@ -1079,7 +1086,15 @@ function runQuotaMutation(file: AuthFile, mutate: () => Promise<QuotaState>): Pr
 }
 
 export function consumeCodexResetCredit(file: AuthFile): Promise<QuotaState> {
-  return runQuotaMutation(file, () => consumeCodexResetCreditSnapshot(file));
+  const generation = captureQuotaCacheGeneration();
+  return runQuotaMutation(file, async () => {
+    if (captureQuotaCacheGeneration() !== generation) throw new Error(quotaText('quota.claude.blocked'));
+    const result = await consumeCodexResetCreditSnapshot(file, () => {
+      if (captureQuotaCacheGeneration() !== generation) throw new Error(quotaText('quota.claude.blocked'));
+    });
+    if (captureQuotaCacheGeneration() !== generation) throw new Error(quotaText('quota.claude.blocked'));
+    return result;
+  });
 }
 
 export function consumeClaudeResetCredit(file: AuthFile): Promise<QuotaState> {
