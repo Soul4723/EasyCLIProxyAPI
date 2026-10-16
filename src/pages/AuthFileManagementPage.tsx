@@ -243,7 +243,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
   };
 
   const refreshQuota = async (file: AuthFile) => {
-    if (readBoolean(file, 'disabled')) return;
+    if (authFileHealth(file).disabled) return;
     const key = quotaKey(file);
     if (getQuotaCacheSnapshot()[key]?.status === 'loading') return;
     const cacheGeneration = captureQuotaCacheGeneration();
@@ -254,7 +254,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
 
   const refreshAllQuotas = async () => {
     if (quotaRefreshing || busy || loading) return;
-    const queryable = files.filter((file) => !readBoolean(file, 'disabled') && quotaProviderForFile(file));
+    const queryable = files.filter((file) => !authFileHealth(file).disabled && quotaProviderForFile(file));
     if (!queryable.length) return;
     setQuotaRefreshing(true);
     setError('');
@@ -484,7 +484,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
         <button type="button" className="secondary-button compact-button" onClick={() => void loadFiles()} disabled={loading || busy}>
           <RefreshCw size={16} className={loading ? 'spin' : ''} />{t('authFiles.toolbar.refreshList')}
         </button>
-        <button type="button" className="secondary-button compact-button auth-toolbar-quiet" onClick={() => void refreshAllQuotas()} disabled={loading || busy || quotaRefreshing || !files.some((file) => !readBoolean(file, 'disabled') && quotaProviderForFile(file))}>
+        <button type="button" className="secondary-button compact-button auth-toolbar-quiet" onClick={() => void refreshAllQuotas()} disabled={loading || busy || quotaRefreshing || !files.some((file) => !authFileHealth(file).disabled && quotaProviderForFile(file))}>
           <RefreshCw size={16} className={quotaRefreshing ? 'spin' : ''} />{t('authFiles.toolbar.refreshQuota')}
         </button>
         <button type="button" className="primary-button compact-button" onClick={() => fileInputRef.current?.click()} disabled={busy}>
@@ -534,7 +534,8 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
               const name = fileName(file);
               const key = quotaKey(file);
               const icon = providerIcons[providerKey(file)] ?? geminiIcon;
-              const disabled = readBoolean(file, 'disabled');
+              const health = authFileHealth(file);
+              const disabled = health.disabled;
               const priority = parseAuthFilePriority(file.priority) ?? 0;
               const identities = authFileIdentities(file);
               const identity = privacy.text(readString(file, 'email', 'project_id', 'label'), identities);
@@ -546,7 +547,6 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
               const plan = quota.plan || metadata?.plan || readString(file, 'plan_type', 'plan');
               const expiry = quota.subscriptionActiveUntil || metadata?.subscriptionActiveUntil;
               const expiryMs = quotaResetInstant(expiry);
-              const health = authFileHealth(file);
               const cooldownSnapshot = normalizeAuthFileCooldowns(file.cooldowns, receivedAtMs, observedAt);
               const hasCooldown = Boolean(cooldownSnapshot?.records?.length);
               const showCooldown = hasCooldown || cooldownSnapshot?.records === null;
