@@ -1,3 +1,4 @@
+import { useCoreRuntime } from '../coreRuntime';
 import { usagePreferences } from '../services/usagePreferences';
 import { useConfirmation } from '../components/ConfirmationDialog';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
@@ -48,7 +49,11 @@ type UsageRange = '4h' | '24h' | 'today' | '7d' | '30d' | 'all' | 'custom';
 const USAGE_TABS: readonly UsageTab[] = ['overview', 'analysis', 'events', 'pricing', 'data-management'];
 
 type CollectorStatus = {
-  state: 'waiting-core' | 'collecting' | 'error';
+  state: 'waiting-core' | 'collecting' | 'error' | 'paused';
+  connectionMode?: 'local' | 'remote';
+  remoteOrigin?: string | null;
+  targetRevision?: number;
+  paused?: boolean;
   message: string;
   lastCollectedAt: string | null;
   totalRecords: number;
@@ -253,6 +258,8 @@ const filterOptions = (items: UsageCategory[]) => items.filter((item) => item.ke
 
 export function UsageRecordsPage() {
   const { t } = useI18n();
+  const { status: coreStatus } = useCoreRuntime();
+  const remote = coreStatus?.connectionMode === 'remote';
   const privacy = usePrivacyMask();
   const [activeTab, setActiveTab] = useState<UsageTab>(loadTab);
   const [range, setRange] = useState<UsageRange>(loadRange);
@@ -266,6 +273,8 @@ export function UsageRecordsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(loadPageSize);
   const [status, setStatus] = useState<CollectorStatus | null>(null);
+  const [resumingUsage, setResumingUsage] = useState(false);
+  const [resumeError, setResumeError] = useState('');
   const [overview, setOverview] = useState<UsageOverview | null>(null);
   const [overviewRange, setOverviewRange] = useState<Pick<UsageQuery, 'start' | 'end'>>({});
   const [analysis, setAnalysis] = useState<UsageAnalysis>(emptyAnalysis);
@@ -462,7 +471,7 @@ export function UsageRecordsPage() {
     setPage(1);
   };
 
-  const collectorTone = status?.state === 'error' ? 'error' : status?.state === 'collecting' ? 'success' : '';
+  const collectorTone = status?.state === 'error' || status?.state === 'paused' ? 'error' : status?.state === 'collecting' ? 'success' : '';
   const showInitialLoading =
     activeTab !== 'data-management' &&
     !error &&
@@ -570,6 +579,16 @@ export function UsageRecordsPage() {
 
   return (
     <section className="page management-page usage-records-page" data-active-tab={activeTab}>
+      {remote && <aside className="panel core-connection-body" aria-label={t('connection.remoteUsage')}>
+        <strong>{t('connection.remoteUsage')}</strong><p>{t('connection.usageHint')}</p>
+        {status?.message && <p role="status">{status.message}</p>}
+        {status?.paused && status.remoteOrigin === coreStatus?.remoteOrigin && status.targetRevision !== undefined && <button type="button" className="secondary-button" disabled={resumingUsage} onClick={() => {
+          setResumingUsage(true); setResumeError('');
+          void invoke<CollectorStatus>('resume_usage_collection', { expectedOrigin: status.remoteOrigin, expectedRevision: status.targetRevision })
+            .then(setStatus).catch(error => setResumeError(String(error))).finally(() => setResumingUsage(false));
+        }}>{t('connection.resumeUsage')}</button>}
+        {resumeError && <p role="alert" className="core-connection-error">{resumeError}</p>}
+      </aside>}
       {error ? <MessageNotice message={error} onDismiss={() => setError('')} /> : null}
 
       <div className="usage-topbar">
@@ -648,7 +667,7 @@ export function UsageRecordsPage() {
           <div className={`usage-collector-state ${collectorTone}`} title={status?.message}>
             <span className="status-dot" />
             <strong>
-              {status?.state === 'collecting'
+              {status?.state === 'paused' ? t('connection.usagePaused') : status?.state === 'collecting'
                 ? t('usage.collector.collecting')
                 : status?.state === 'error'
                 ? t('usage.collector.error')

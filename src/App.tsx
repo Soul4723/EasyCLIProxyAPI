@@ -166,7 +166,7 @@ function AppContent() {
   });
   const languageMenuRef = useRef<HTMLDivElement>(null);
   const languageButtonRef = useRef<HTMLButtonElement>(null);
-  const { status } = useCoreRuntime();
+  const { status, connectionRevision } = useCoreRuntime();
   const coreReady = Boolean(status?.ready);
   const activePage = pages.find((page) => page.id === active) ?? pages[0];
   const ActivePage = activePage.component;
@@ -487,9 +487,11 @@ function AppContent() {
         ) : null}
 
         <div className="workspace">
-          <main className="content">
+          <main className="content" key={connectionRevision}>
             {isAlwaysAvailablePage(activePage.id) || coreReady ? (
-              activePage.id === 'easy' ? (
+              activePage.id === 'agents' && status?.connectionMode === 'remote' ? (
+                <section className="page"><h1>{t('app.nav.agents')}</h1><p>{t('connection.agentHint')}</p></section>
+              ) : activePage.id === 'easy' ? (
                 <EasyModePage
                   onExit={() => select('home')}
                   theme={theme}

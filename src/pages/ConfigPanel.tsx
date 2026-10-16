@@ -39,6 +39,7 @@ import { useCoreRuntime, type CoreStatus } from '../coreRuntime';
 import { useI18n } from '../i18n';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
 import { webUiManagementUrl } from '../services/clientAccess';
+import { getCoreConnection } from '../services/coreConnection';
 import { ThinkingAliasesPage } from './ThinkingAliasesPage';
 import { SensitiveWordsPage } from './SensitiveWordsPage';
 import { handleHorizontalTabKey } from '../components/tabKeyboardNavigation';
@@ -162,6 +163,7 @@ export function ConfigPanelPage() {
   const { t, locale } = useI18n();
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { status: coreStatus, publishStatus, refreshStatus } = useCoreRuntime();
+  const remote = coreStatus?.connectionMode === 'remote';
   const [settings, setSettings] = useState<CoreConfigSettings | null>(null);
   const [softwareSettings, setSoftwareSettings] = useState<SoftwareSettings | null>(null);
   const [softwareSettingsLoading, setSoftwareSettingsLoading] = useState(true);
@@ -624,7 +626,7 @@ export function ConfigPanelPage() {
       });
       loggingDraftDirtyRef.current = false;
       applySettings(result, 'preserve');
-      if (commercialModeChanged && coreStatus?.running) {
+      if (commercialModeChanged && coreStatus?.running && !remote) {
         const status = await invoke<CoreStatus>('restart_core_process');
         publishStatus(status);
         loggingFeedback.showNotice({ key: 'config.diagnostics.notice.savedAndRestarted' }, 'success');
@@ -687,6 +689,11 @@ export function ConfigPanelPage() {
 
   const openWebUi = async () => {
     try {
+      const connection = await getCoreConnection();
+      if (connection.mode === 'remote') {
+        await invoke('open_external_url', { url: `${connection.managementOrigin}/management.html#/login` });
+        return;
+      }
       const [latestSettings, latestTlsSettings] = await Promise.all([
         invoke<CoreConfigSettings>('get_core_config_settings'),
         invoke<CoreTlsSettings>('get_core_tls_settings'),
@@ -727,7 +734,7 @@ export function ConfigPanelPage() {
       setTlsEnabledDraft(result.enabled);
       setTlsCertDraft(result.cert);
       setTlsKeyDraft(result.key);
-      if (coreStatus?.running) {
+      if (coreStatus?.running && !remote) {
         const status = await invoke<CoreStatus>('restart_core_process');
         publishStatus(status);
         tlsFeedback.showNotice({ key: 'config.tls.notice.savedAndRestarted' }, 'success');
@@ -745,7 +752,7 @@ export function ConfigPanelPage() {
   };
 
   const selectTlsFile = async (target: 'cert' | 'key') => {
-    if (tlsSettings === null || busyAction !== null || tlsFileSelecting !== null) return;
+    if (remote || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null) return;
     setTlsFileSelecting(target);
     setTlsError('');
     try {
@@ -813,7 +820,7 @@ export function ConfigPanelPage() {
       applySettings(result, 'preserve');
       setLoadError('');
 
-      if (networkChanged && coreStatus?.running) {
+      if (networkChanged && coreStatus?.running && !remote) {
         try {
           const status = await invoke<CoreStatus>('restart_core_process');
           publishStatus(status);
@@ -822,6 +829,8 @@ export function ConfigPanelPage() {
           await refreshStatus();
           networkFeedback.showNotice({ key: 'config.error.networkRestartFailed', variables: { error: String(error) } }, 'error');
         }
+      } else if (networkChanged && remote) {
+        networkFeedback.showNotice({ key: 'connection.lifecycleHint' }, 'success');
       } else if (networkChanged) {
         networkFeedback.showNotice({ key: 'config.notice.networkNextStart' }, 'success');
       } else {
@@ -1103,6 +1112,7 @@ export function ConfigPanelPage() {
 
   return (
     <section className="page config-page">
+      {remote && <p className="core-connection-hint">{t('connection.lifecycleHint')} {t('connection.remotePaths')}</p>}
       {confirmationDialog}
       <header className="config-settings-header">
         <h1>{st('title')}</h1>
@@ -1235,7 +1245,7 @@ export function ConfigPanelPage() {
                 className="secondary-button compact-button"
                 disabled={loading || settings === null}
                 onClick={() => void openWebUi()}
-                title={settings ? webUiManagementUrl(settings.port, tlsSettings?.enabled, settings.host) : undefined}
+                title={remote ? coreStatus?.remoteOrigin || undefined : settings ? webUiManagementUrl(settings.port, tlsSettings?.enabled, settings.host) : undefined}
               >
                 {t('config.webuiKey.open')}
               </button>
@@ -1518,7 +1528,7 @@ export function ConfigPanelPage() {
                       type="text"
                       value={tlsCertDraft}
                       aria-label={t('config.tls.cert')}
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       placeholder={t('config.tls.certPlaceholder')}
                       onChange={(event) => {
                         setTlsSavedStatusVisible(false);
@@ -1529,7 +1539,7 @@ export function ConfigPanelPage() {
                     <button
                       type="button"
                       className="secondary-button compact-button config-tls-browse-button"
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       title={t('config.tls.selectCertTitle')}
                       onClick={() => void selectTlsFile('cert')}
                     >
@@ -1547,7 +1557,7 @@ export function ConfigPanelPage() {
                       type="text"
                       value={tlsKeyDraft}
                       aria-label={t('config.tls.key')}
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       placeholder={t('config.tls.keyPlaceholder')}
                       onChange={(event) => {
                         setTlsSavedStatusVisible(false);
@@ -1558,7 +1568,7 @@ export function ConfigPanelPage() {
                     <button
                       type="button"
                       className="secondary-button compact-button config-tls-browse-button"
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       title={t('config.tls.selectKeyTitle')}
                       onClick={() => void selectTlsFile('key')}
                     >

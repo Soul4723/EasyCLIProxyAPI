@@ -1,5 +1,6 @@
 //! Source identities and readable labels from current credential/provider metadata.
 use super::*;
+use crate::management_api;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Source {
@@ -102,7 +103,7 @@ fn providers(value: &Value) -> Option<HashMap<String, Source>> {
 }
 
 async fn fetch_json(config: &GuiConfigFile, path: &str) -> Option<Value> {
-    management_http_client()
+    management_api::management_http_client_for(config)
         .ok()?
         .get(management_endpoint(config, path).ok()?)
         .header("Authorization", management_authorization(config).ok()?)

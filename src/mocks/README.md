@@ -50,3 +50,21 @@ node tests/browser-mock-ui.cjs
 The browser test uses Playwright (and Microsoft Edge on Windows), opens the real
 app, and checks quota rendering, pagination and credential mutations while blocking
 external HTTP requests. Its screenshot is saved under `bin-work/`.
+
+## Remote connection fixture
+
+Open Home → Runtime Control → Core connection settings. Select Remote and enter
+management and client origins such as `http://core.example.test:8317` and
+`http://client.example.test:8317`. Use `fixture-management-key` for the fictional
+management key and a different fictional client key. Origins exclude `/v1` and
+`/v8/management`; the application adds protocol paths. Test Connection tests the
+draft without activating it. Save Connection activates it in memory. A different
+management key simulates rejection; an origin containing `offline` simulates an
+unreachable core. Correct the values and save to recover, or select Local and save
+to restore the prior fixture process state. Reload resets the fixture.
+
+The MOCK badge remains visible. No real server is contacted, no process is started
+or stopped, and no credentials or client configuration files are written. These
+fixtures verify interaction, not native HTTP, TLS or provider OAuth completion.
+Run `bun run test:ui:remote-core` with Playwright available for the interaction
+regression check; it blocks all external HTTP requests.

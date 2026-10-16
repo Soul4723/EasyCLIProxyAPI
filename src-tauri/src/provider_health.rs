@@ -1,7 +1,7 @@
 use super::{
     build_http_client_with_proxy, effective_agent_api_key, fetch_agent_model_payload, is_loopback_host,
     managed_core_loopback_origin, managed_core_tls_enabled, usage, validate_agent_model,
-    GuiConfigFile, GuiConfigState, APP_USER_AGENT,
+    GuiConfigFile, GuiConfigState, CoreConnectionMode, APP_USER_AGENT,
 };
 use chrono::Local;
 use futures_util::StreamExt;
@@ -330,6 +330,11 @@ pub(crate) async fn get_core_models(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<CoreHealthModel>, String> {
     let config = gui_config_state.snapshot()?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        let payload = crate::core_connection::fetch_client_models(&config).await?;
+        gui_config_state.ensure_target(&config)?;
+        return parse_core_models(&payload);
+    }
     fetch_core_models(config.port, effective_agent_api_key(&config)).await
 }
 
@@ -390,7 +395,9 @@ pub(crate) async fn core_health_probe(
     timeout_ms: Option<u64>,
 ) -> Result<ProviderHealthProbeResponse, String> {
     let config = gui_config_state.snapshot()?;
-    probe_core_model(&config, &model, timeout_ms).await
+    let result = probe_core_model(&config, &model, timeout_ms).await;
+    gui_config_state.ensure_target(&config)?;
+    result
 }
 
 async fn probe_core_model(
@@ -399,10 +406,20 @@ async fn probe_core_model(
     timeout_ms: Option<u64>,
 ) -> Result<ProviderHealthProbeResponse, String> {
     let model = validate_agent_model(model)?;
-    if config.port == 0 {
+    if config.connection_mode == CoreConnectionMode::Local && config.port == 0 {
         return Err("Invalid kernel port".to_string());
     }
-    let tls_enabled = managed_core_tls_enabled();
+    let tls_enabled = config.connection_mode == CoreConnectionMode::Local && managed_core_tls_enabled();
+    let client_origin = if config.connection_mode == CoreConnectionMode::Remote {
+        config.remote_client_origin.trim_end_matches('/').to_string()
+    } else {
+        managed_core_loopback_origin(config.port)
+    };
+    let client_key = if config.connection_mode == CoreConnectionMode::Remote {
+        config.remote_client_key.clone()
+    } else {
+        effective_agent_api_key(config).to_string()
+    };
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -412,9 +429,9 @@ async fn probe_core_model(
         .build()
         .map_err(|error| format!("Failed to create kernel health check client: {error}"))?;
     let request = ProviderHealthProbeRequest {
-        url: format!("{}/v1/chat/completions", managed_core_loopback_origin(config.port)),
+        url: format!("{client_origin}/v1/chat/completions"),
         header: HashMap::from([
-            ("Authorization".to_string(), format!("Bearer {}", effective_agent_api_key(config))),
+            ("Authorization".to_string(), format!("Bearer {client_key}")),
             ("Content-Type".to_string(), "application/json".to_string()),
             ("Accept".to_string(), "text/event-stream".to_string()),
         ]),

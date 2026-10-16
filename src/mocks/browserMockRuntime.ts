@@ -1,4 +1,5 @@
 import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type TemplateConfigChange } from '../services/templateConfig';
+import type { CoreConnection } from '../services/coreConnection';
 import { createPluginMock } from './pluginMock';
 import { createQuotaMock, createQuotaMockFiles } from './quotaMock';
 
@@ -116,6 +117,8 @@ function createCoreStatus(scenario: BrowserMockScenario) {
   const installed = scenario !== 'empty';
   const running = scenario === 'running';
   return {
+    connectionMode: 'local' as 'local' | 'remote',
+    remoteOrigin: null as string | null,
     installed,
     running,
     ready: running,
@@ -947,6 +950,25 @@ export function createBrowserMockRuntime(
   delayMs = 0,
 ): BrowserMockRuntime {
   const state = createState(scenario);
+  let connection: CoreConnection = { mode: 'local', managementOrigin: '', managementKey: '', clientOrigin: '', clientKey: '' };
+  let localStatus = clone(state.coreStatus);
+  let connectionRevision = 0;
+  let usagePaused = false;
+  const validateConnection = (value: CoreConnection) => {
+    if (!value || !['local', 'remote'].includes(value.mode)) throw new Error('Invalid connection mode');
+    if (value.mode === 'remote') {
+      for (const origin of [value.managementOrigin, value.clientOrigin]) {
+        const url = new URL(origin);
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Enter an HTTP or HTTPS origin without a path or credentials');
+      }
+      if (!value.managementKey.trim()) throw new Error('Management key is required');
+    }
+    return clone(value);
+  };
+  const connectionResult = (value: CoreConnection) => {
+    const connected = value.mode === 'local' || (value.managementKey === 'fixture-management-key' && !value.managementOrigin.includes('offline'));
+    return { connected, version: connected ? '8.0.29' : null, message: 'Browser fixture only; no network request' };
+  };
   if (scenario === 'empty') {
     state.usageEvents = [];
     state.usagePrices = [];
@@ -1002,8 +1024,30 @@ export function createBrowserMockRuntime(
       case 'restore_agent_config_backup':
       case 'launch_agent': return null;
 
+      case 'get_core_connection': return clone(connection);
+      case 'test_core_connection': return connectionResult(validateConnection(payload.connection as CoreConnection));
+      case 'save_core_connection': {
+        const next = validateConnection(payload.connection as CoreConnection);
+        if (next.mode === 'remote' && state.coreStatus.connectionMode === 'local' && state.coreStatus.running && state.coreStatus.managed) throw new Error('Stop the GUI-managed local core before switching to Remote; its lifetime is tied to this application');
+        if (connection.mode === 'local') localStatus = clone(state.coreStatus);
+        connection = next;
+        ++connectionRevision;
+        usagePaused = connection.mode === 'remote' && connection.managementOrigin.includes('usage-uncertain');
+        if (connection.mode === 'local') Object.assign(state.coreStatus, localStatus);
+        else {
+          const result = connectionResult(connection);
+          Object.assign(state.coreStatus, { connectionMode: 'remote', remoteOrigin: connection.managementOrigin,
+            installed: false, running: result.connected, ready: result.connected, managed: false, starting: false,
+            processId: null, currentVersion: result.connected ? result.version : null, binaryPath: null, installDir: '',
+            message: result.connected ? result.message : 'Browser fixture: authentication rejected or target offline' });
+        }
+        emit('core-connection-changed', null);
+        emit('core-status-changed', state.coreStatus);
+        return clone(connection);
+      }
       case 'get_core_status': return clone(state.coreStatus);
       case 'start_core_process': {
+        if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
         Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42817, message: 'Browser Mock core is running' });
         state.guiSettings.runOnStartup = true;
@@ -1011,12 +1055,14 @@ export function createBrowserMockRuntime(
         return clone(state.coreStatus);
       }
       case 'stop_core_process': {
+        if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         Object.assign(state.coreStatus, { running: false, ready: false, managed: false, starting: false, processId: null, message: 'Browser Mock core is stopped' });
         state.guiSettings.runOnStartup = false;
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }
       case 'restart_core_process': {
+        if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
         Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42818, message: 'Browser Mock core restarted' });
         emit('core-status-changed', state.coreStatus);
@@ -1234,9 +1280,15 @@ export function createBrowserMockRuntime(
       }
       case 'submit_oauth_callback': return null;
 
+      case 'resume_usage_collection': {
+        if (connection.mode !== 'remote' || payload.expectedOrigin !== connection.managementOrigin || payload.expectedRevision !== connectionRevision) throw new Error('The remote connection changed; reload usage status before resuming');
+        usagePaused = false;
+        return { state: 'collecting', message: 'Browser fixture resumed; no network request', paused: false, connectionMode: connection.mode, remoteOrigin: connection.managementOrigin, targetRevision: connectionRevision, lastCollectedAt: null, totalRecords: state.usageOverview.totalRequests };
+      }
       case 'get_usage_collector_status': return {
-        state: state.coreStatus.ready ? 'collecting' : 'waiting-core',
-        message: state.coreStatus.ready ? 'Browser Mock is collecting usage records' : 'Waiting for the core to start',
+        connectionMode: connection.mode, remoteOrigin: connection.mode === 'remote' ? connection.managementOrigin : null, targetRevision: connectionRevision, paused: usagePaused,
+        state: usagePaused ? 'paused' : state.coreStatus.ready ? 'collecting' : 'waiting-core',
+        message: usagePaused ? 'Browser fixture: uncertain HTTP queue read; collection paused without retry' : state.coreStatus.ready ? 'Browser Mock is collecting usage records' : 'Waiting for the core to start',
         lastCollectedAt: new Date().toISOString(),
         totalRecords: state.usageOverview.totalRequests,
       };

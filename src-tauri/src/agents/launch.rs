@@ -135,6 +135,7 @@ pub(crate) fn launch_agent(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let terminal = normalize_agent_terminal(&config.default_terminal);
     let requested_target = target
         .as_deref()
@@ -740,6 +741,7 @@ pub(crate) async fn restart_agent_app(
     client: String,
     executable_path: Option<String>,
 ) -> Result<(), String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let client = AgentClient::parse(&client)?;
     if !matches!(
         client,
@@ -823,6 +825,7 @@ pub(crate) async fn restart_codex_cli_daemon(
     app: tauri::AppHandle,
     executable_path: Option<String>,
 ) -> Result<(), String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()

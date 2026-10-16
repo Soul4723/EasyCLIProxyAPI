@@ -46,6 +46,10 @@ The Home page provides a quick overview of the local proxy runtime and ready-to-
 - Copy ready-to-use OpenAI, Claude, and Gemini-compatible API endpoints.
 - Check local connectivity and the application/core version at a glance.
 
+Home Runtime Control also supports attaching to one already-running remote core.
+See [Remote core connections](docs/remote-core.md) for setup, OAuth completion,
+usage compatibility behavior, and the local-process safeguards.
+
 Core installation, version comparison, and offline installation are available from the
 **Version Management** page. You can switch between official GitHub, GitCode, and GitHub
 mirror proxies or add custom HTTPS mirror prefixes; application and core updates prefer the selected

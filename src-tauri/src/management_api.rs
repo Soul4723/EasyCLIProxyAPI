@@ -3,7 +3,7 @@ use super::windows_explorer_executable;
 use super::{
     auth_dir_path_for_core, configure_background_command, core_install_dir, core_logs_dir_path,
     core_origin, current_core_tls_settings, is_hashed_management_secret_key, open_oauth_url_inner,
-    path_to_string, truncate_for_error, GuiConfigFile, GuiConfigState,
+    path_to_string, GuiConfigFile, GuiConfigState,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -81,6 +81,8 @@ pub(crate) async fn management_request(
     request: ManagementRequest,
 ) -> Result<serde_json::Value, String> {
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let method = match request.method.trim().to_ascii_uppercase().as_str() {
         "GET" => reqwest::Method::GET,
         "POST" => reqwest::Method::POST,
@@ -90,11 +92,14 @@ pub(crate) async fn management_request(
         _ => return Err("Unsupported management API request method".to_string()),
     };
     let path = request.path.trim();
-    if path.is_empty() || path.contains("://") || path.contains("..") {
+    if path.is_empty() || path.contains("://") || path.contains("..")
+        || path.contains(['\\', '?', '#']) || path.to_ascii_lowercase().contains("%2e")
+        || path.chars().any(char::is_control)
+    {
         return Err("Invalid management API path".to_string());
     }
 
-    let client = management_http_client()?;
+    let client = management_http_client_for(&config)?;
     let mut builder = client
         .request(method, management_endpoint(&config, path)?)
         .header("Authorization", management_authorization(&config)?);
@@ -112,7 +117,9 @@ pub(crate) async fn management_request(
         .send()
         .await
         .map_err(|err| format_management_request_error("Management API request failed", &err))?;
-    read_management_value(response).await
+    let value = read_management_value(response).await;
+    gui_config_state.ensure_target(&config)?;
+    value
 }
 
 fn management_request_body(
@@ -142,6 +149,8 @@ pub(crate) async fn import_vertex_credential(
         return Err("Credential filename must end with .json".to_string());
     }
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let part = reqwest::multipart::Part::bytes(data)
         .file_name(name.to_owned())
         .mime_str("application/json")
@@ -150,7 +159,7 @@ pub(crate) async fn import_vertex_credential(
     if let Some(location) = location.filter(|value| !value.trim().is_empty()) {
         form = form.text("location", location.trim().to_owned());
     }
-    let response = management_http_client()?
+    let response = management_http_client_for(&config)?
         .post(management_endpoint(&config, "oauth/import")?)
         .header("Authorization", management_authorization(&config)?)
         .query(&[("provider", "vertex")])
@@ -158,7 +167,9 @@ pub(crate) async fn import_vertex_credential(
         .send()
         .await
         .map_err(|error| format_management_request_error("Failed to import Vertex credential", &error))?;
-    read_management_value(response).await
+    let value = read_management_value(response).await;
+    gui_config_state.ensure_target(&config)?;
+    value
 }
 
 #[tauri::command]
@@ -173,7 +184,9 @@ pub(crate) async fn upload_auth_file(
     }
 
     let config = gui_config_state.snapshot()?;
-    let client = management_http_client()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
+    let client = management_http_client_for(&config)?;
     let mut query = HashMap::new();
     query.insert("name".to_string(), name);
     let response = client
@@ -185,7 +198,9 @@ pub(crate) async fn upload_auth_file(
         .send()
         .await
         .map_err(|err| format_management_request_error("Failed to upload credential file", &err))?;
-    read_management_value(response).await
+    let value = read_management_value(response).await;
+    gui_config_state.ensure_target(&config)?;
+    value
 }
 
 #[tauri::command]
@@ -193,6 +208,8 @@ pub(crate) fn open_auth_files_directory(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<(), String> {
     let config = gui_config_state.snapshot()?;
+    let _operation = super::CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    super::core_connection::require_local(&config)?;
     let install_dir = core_install_dir()?;
     let auth_dir = auth_dir_path_for_core(&config.auth_dir, &install_dir)?;
     fs::create_dir_all(&auth_dir)
@@ -205,6 +222,8 @@ pub(crate) fn open_core_logs_directory(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<(), String> {
     let config = gui_config_state.snapshot()?;
+    let _operation = super::CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    super::core_connection::require_local(&config)?;
     let install_dir = core_install_dir()?;
     let logs_dir = core_logs_dir_path(&config.auth_dir, &install_dir)?;
     fs::create_dir_all(&logs_dir)
@@ -241,10 +260,14 @@ pub(crate) async fn start_oauth_login(
     browser: Option<String>,
     plugin_provider: Option<bool>,
 ) -> Result<OAuthStartResult, String> {
-    super::network_proxy::prepare_oauth(&app).await;
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
+    if config.connection_mode == super::CoreConnectionMode::Local {
+        super::network_proxy::prepare_oauth(&app).await;
+    }
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
-    let client = management_http_client()?;
+    let client = management_http_client_for(&config)?;
     let mut request = client
         .get(management_endpoint(&config, "oauth/auth-url")?)
         .header("Authorization", management_authorization(&config)?);
@@ -257,7 +280,15 @@ pub(crate) async fn start_oauth_login(
         .await
         .map_err(|err| format_management_request_error("Failed to request OAuth login URL", &err))?;
     let payload = read_management_json::<OAuthStartApiResponse>(response).await?;
+    if config.connection_mode == super::CoreConnectionMode::Remote && (payload.error.is_some() || payload.error_message.is_some()) {
+        return Err("Remote core could not start OAuth authorization".to_string());
+    }
+    gui_config_state.ensure_target(&config)?;
     let mut result = normalize_oauth_start_response(payload)?;
+    if let Some(state) = &result.state {
+        gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?
+            .insert(state.clone(), config.target_revision);
+    }
     match open_oauth_url_inner(&app, &result.url, browser.as_deref()) {
         Ok(()) => result.opened = true,
         Err(error) => result.open_error = Some(error),
@@ -310,7 +341,10 @@ pub(crate) async fn get_oauth_status(
         return Err("OAuth state cannot be empty".to_string());
     }
     let config = gui_config_state.snapshot()?;
-    let client = management_http_client()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
+    ensure_oauth_target(&gui_config_state, &config, &state)?;
+    let client = management_http_client_for(&config)?;
     let response = client
         .get(management_endpoint(&config, "oauth/status")?)
         .header("Authorization", management_authorization(&config)?)
@@ -319,6 +353,7 @@ pub(crate) async fn get_oauth_status(
         .await
         .map_err(|err| format_management_request_error("Failed to query OAuth status", &err))?;
     let payload = read_management_json::<OAuthStatusApiResponse>(response).await?;
+    gui_config_state.ensure_target(&config)?;
     let status = payload
         .status
         .map(|value| value.trim().to_ascii_lowercase())
@@ -329,7 +364,7 @@ pub(crate) async fn get_oauth_status(
         error: payload
             .error
             .or(payload.error_message)
-            .map(|value| value.trim().to_string())
+            .map(|value| if config.connection_mode == super::CoreConnectionMode::Remote { "Remote OAuth authorization failed; start authorization again".to_string() } else { value.trim().to_string() })
             .filter(|value| !value.is_empty()),
     })
 }
@@ -346,8 +381,16 @@ pub(crate) async fn submit_oauth_callback(
         return Err("Callback URL cannot be empty".to_string());
     }
     let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
+    if config.connection_mode == super::CoreConnectionMode::Remote {
+        let parsed = reqwest::Url::parse(&redirect_url).map_err(|_| "Invalid OAuth callback URL".to_string())?;
+        let state = parsed.query_pairs().find(|(key, _)| key == "state")
+            .map(|(_, value)| value.into_owned()).ok_or("OAuth callback URL is missing state")?;
+        ensure_oauth_target(&gui_config_state, &config, &state)?;
+    }
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
-    let client = management_http_client()?;
+    let client = management_http_client_for(&config)?;
     let body = serde_json::json!({
         "provider": provider_key,
         "redirect_url": redirect_url,
@@ -364,8 +407,31 @@ pub(crate) async fn submit_oauth_callback(
         .text()
         .await
         .map_err(|err| format_management_request_error("Failed to read OAuth callback response", &err))?;
+    gui_config_state.ensure_target(&config)?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
+    }
+    Ok(())
+}
+
+pub(crate) fn management_http_client_for(config: &GuiConfigFile) -> Result<reqwest::Client, String> {
+    if config.connection_mode == super::CoreConnectionMode::Local {
+        return management_http_client();
+    }
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| "Failed to create remote management client".to_string())
+}
+
+fn ensure_oauth_target(state: &GuiConfigState, config: &GuiConfigFile, oauth_state: &str) -> Result<(), String> {
+    if config.connection_mode == super::CoreConnectionMode::Local { return Ok(()); }
+    let sessions = state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?;
+    if sessions.get(oauth_state) != Some(&config.target_revision) {
+        return Err("OAuth session belongs to a different or expired core connection; start login again".to_string());
     }
     Ok(())
 }
@@ -387,31 +453,15 @@ pub(crate) fn format_management_request_error(
     action: &str,
     error: &(dyn Error + 'static),
 ) -> String {
-    let mut messages = Vec::new();
-    let mut current = Some(error);
-
-    while let Some(error) = current {
-        let message = error.to_string();
-        if !message.is_empty()
-            && messages
-                .last()
-                .map(|previous| previous != &message)
-                .unwrap_or(true)
-        {
-            messages.push(message);
-        }
-        current = error.source();
+    if let Some(error) = error.downcast_ref::<reqwest::Error>() {
+        if error.is_timeout() { return format!("{action}: request timed out"); }
+        if error.is_connect() { return format!("{action}: could not connect to the core"); }
     }
-
-    if messages.is_empty() {
-        action.to_string()
-    } else {
-        format!("{action}: {}", messages.join(": "))
-    }
+    action.to_string()
 }
 
 pub(crate) fn management_authorization(config: &GuiConfigFile) -> Result<String, String> {
-    let secret_key = config.management_secret_key.trim();
+    let secret_key = if config.connection_mode == super::CoreConnectionMode::Remote { config.remote_management_key.trim() } else { config.management_secret_key.trim() };
     if secret_key.is_empty() || is_hashed_management_secret_key(secret_key) {
         return Err("Management interface unavailable: no plaintext management key is available".to_string());
     }
@@ -419,6 +469,10 @@ pub(crate) fn management_authorization(config: &GuiConfigFile) -> Result<String,
 }
 
 pub(crate) fn management_endpoint(config: &GuiConfigFile, path: &str) -> Result<String, String> {
+    if config.connection_mode == super::CoreConnectionMode::Remote {
+        let connection = super::core_connection::connection_from_config(config)?;
+        return Ok(format!("{}/v8/management/{}", connection.management_origin, path.trim_start_matches('/')));
+    }
     if config.port == 0 {
         return Err("Invalid kernel port".to_string());
     }
@@ -469,7 +523,7 @@ fn normalize_management_oauth_provider(provider: &str) -> Result<String, String>
 }
 
 fn management_oauth_uses_webui_callback(provider_key: &str) -> bool {
-    matches!(provider_key, "codex" | "claude" | "antigravity" | "xai" | "devin")
+    matches!(provider_key, "codex" | "claude" | "antigravity")
 }
 
 async fn read_management_json<T>(response: reqwest::Response) -> Result<T, String>
@@ -487,12 +541,7 @@ where
     if text.trim().is_empty() {
         return Err("Management API returned an empty response".to_string());
     }
-    serde_json::from_str::<T>(&text).map_err(|err| {
-        format!(
-            "Failed to parse management API response: {err}; body={}",
-            truncate_for_error(&text)
-        )
-    })
+    serde_json::from_str::<T>(&text).map_err(|_| "Failed to parse management API response".to_string())
 }
 
 pub(crate) async fn read_management_value(
@@ -528,33 +577,15 @@ pub(crate) async fn read_management_text(response: reqwest::Response) -> Result<
 }
 
 fn format_management_error(status: u16, body: &str) -> String {
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(body) {
-        let field = |key| {
-            value.get(key)
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|text| !text.is_empty())
-        };
-        let error = field("error");
-        let message = field("message");
-        let detail = match (error, message) {
-            (Some(error), Some(message)) if error != message => Some(format!("{error}: {message}")),
-            (Some(text), _) | (_, Some(text)) => Some(text.to_string()),
-            _ => None,
-        };
-        if let Some(detail) = detail {
-            return format!(
-                "Management API error ({status}): {}",
-                truncate_for_error(&detail)
-            );
-        }
+    // Only the documented missing-node marker is needed by optional config reads.
+    // Never surface arbitrary server text: it may contain credentials or callback URLs.
+    if status == 404 && serde_json::from_str::<serde_json::Value>(body).ok()
+        .and_then(|value| value.get("error").and_then(|error| error.as_str()).map(str::to_owned))
+        .as_deref() == Some("not_found")
+    {
+        return "Management API error (404): not_found".to_string();
     }
-    let body = body.trim();
-    if body.is_empty() {
-        format!("Management API error ({status})")
-    } else {
-        format!("Management API error ({status}): {}", truncate_for_error(body))
-    }
+    format!("Management API error ({status})")
 }
 
 #[cfg(test)]
@@ -661,37 +692,17 @@ mod tests {
     }
 
     #[test]
-    fn management_errors_include_v8_validation_details() {
-        assert_eq!(
-            format_management_error(400, r#"{"error":"invalid_config","message":"field name not found in type config.CodexKey"}"#),
-            "Management API error (400): invalid_config: field name not found in type config.CodexKey"
-        );
-        for body in [
-            r#"{"error":"not_found"}"#,
-            r#"{"error":"not_found","message":"not_found"}"#,
-        ] {
-            assert_eq!(
-                format_management_error(404, body),
-                "Management API error (404): not_found"
-            );
-        }
-        assert_eq!(
-            format_management_error(400, r#"{"error":" ","message":"validation failed"}"#),
-            "Management API error (400): validation failed"
-        );
-        assert_eq!(
-            format_management_error(502, "gateway unavailable"),
-            "Management API error (502): gateway unavailable"
-        );
-        assert_eq!(format_management_error(500, ""), "Management API error (500)");
+    fn management_errors_do_not_echo_untrusted_response_bodies() {
+        assert_eq!(format_management_error(400, r#"{"error":"secret-key"}"#), "Management API error (400)");
+        assert_eq!(format_management_error(500, "secret-key"), "Management API error (500)");
     }
 
     #[test]
-    fn devin_oauth_uses_the_management_callback_flow() {
+    fn devin_oauth_does_not_claim_the_builtin_webui_callback_flow() {
         for provider in ["Devin", " cognition "] {
             let key = normalize_management_oauth_provider(provider).unwrap();
             assert_eq!(key, "devin");
-            assert!(management_oauth_uses_webui_callback(&key));
+            assert!(!management_oauth_uses_webui_callback(&key));
         }
     }
 

@@ -6,6 +6,7 @@ import { useDialogFocusTrap } from '../components/useDialogFocusTrap';
 import { useI18n } from '../i18n';
 import { pluginOAuthText, type PluginOAuthMessage } from '../i18n/pluginOAuth';
 import { managementApi } from '../services/managementApi';
+import { useCoreRuntime } from '../coreRuntime';
 import type { PluginListEntry } from '../services/plugins';
 import './PluginOAuthDialog.css';
 
@@ -24,6 +25,7 @@ export function PluginOAuthDialog({ plugin, browser = 'default', onClose, onComp
   onCompleted: () => void;
 }) {
   const { t, locale, formatDate } = useI18n();
+  const { status: coreStatus } = useCoreRuntime();
   const text = (key: PluginOAuthMessage) => pluginOAuthText(key, locale);
   const id = useId();
   const [attempt, setAttempt] = useState(0);
@@ -153,6 +155,7 @@ export function PluginOAuthDialog({ plugin, browser = 'default', onClose, onComp
     <section ref={dialogRef} className="config-dialog plugin-oauth-dialog" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}>
       <header className="config-dialog-heading"><div><h2 id={`${id}-title`}><LogIn size={20} />{text('title')}</h2><p>{plugin.metadata?.name || plugin.id}</p></div><button type="button" className="icon-button quiet" onClick={close} aria-label={t('common.close')}><X size={18} /></button></header>
       <div className="plugin-oauth-body">
+        {coreStatus?.connectionMode === 'remote' && <p className="core-connection-hint">{t('connection.oauthHint')}</p>}
         <p className={`plugin-oauth-status ${phase}`} role="status">{phase === 'starting' || phase === 'waiting' ? <LoaderCircle size={18} className="spin" /> : phase === 'success' ? <CheckCircle2 size={18} /> : null}{text(phase === 'error' ? 'failed' : phase)}</p>
         {session && phase === 'waiting' ? <>
           <div className="plugin-oauth-field"><label htmlFor={`${id}-link`}>{text('link')}</label><textarea id={`${id}-link`} rows={3} readOnly value={session.url} spellCheck={false} /></div>

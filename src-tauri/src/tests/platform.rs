@@ -15,6 +15,8 @@ fn windows_tray_presentation_tracks_core_state_and_busy_actions() {
         current_version: None,
         install_dir: String::new(),
         binary_path: None,
+        connection_mode: Some("local".to_string()),
+        remote_origin: None,
         message: String::new(),
     };
 

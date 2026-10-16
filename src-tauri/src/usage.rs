@@ -1,3 +1,4 @@
+use crate::management_api;
 mod resp;
 mod sources;
 mod token;
@@ -8,7 +9,7 @@ use super::executable_dir;
 use super::VersionDownloadSource;
 use super::{
     apply_configured_proxy, core_base_dir, current_core_status, format_management_request_error,
-    management_authorization, management_endpoint, management_http_client, CoreProcessState,
+    management_authorization, management_endpoint, CoreConnectionMode, CoreProcessState,
     GuiConfigFile, GuiConfigState,
 };
 use chrono::{DateTime, Local};
@@ -37,6 +38,7 @@ use self::{
 };
 
 const USAGE_DIR_NAME: &str = "usage-records";
+const REMOTE_USAGE_DIR_NAME: &str = "remote";
 const USAGE_DATABASE_FILE: &str = "usage.db";
 const USAGE_BACKUP_DIR_NAME: &str = "backups";
 const LEGACY_USAGE_EVENTS_DIR: &str = "events";
@@ -79,6 +81,9 @@ const USAGE_DISPLAY_MODEL_SQL: &str =
 
 static USAGE_QUERY_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
+static INITIALIZED_REMOTE_USAGE_ROOTS: LazyLock<Mutex<HashSet<PathBuf>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
 async fn run_usage_task<T, F>(task: F) -> Result<T, String>
 where
     T: Send + 'static,
@@ -103,6 +108,11 @@ pub(crate) struct UsageCollectorState {
 struct UsageCollectorInner {
     token: Option<CancellationToken>,
     status: UsageCollectorStatus,
+    connection_key: Option<String>,
+    connection_mode: String,
+    remote_origin: Option<String>,
+    target_revision: u64,
+    paused: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -154,6 +164,11 @@ impl Default for UsageCollectorState {
             inner: Mutex::new(UsageCollectorInner {
                 token: None,
                 status: UsageCollectorStatus::waiting(),
+                connection_key: None,
+                connection_mode: "local".to_string(),
+                remote_origin: None,
+                target_revision: 0,
+                paused: false,
             }),
         }
     }
@@ -166,6 +181,11 @@ pub(crate) struct UsageCollectorStatus {
     message: String,
     last_collected_at: Option<String>,
     total_records: u64,
+    connection_mode: String,
+    remote_origin: Option<String>,
+    target_revision: u64,
+    paused: bool,
+    destructive_pop: bool,
 }
 
 impl UsageCollectorStatus {
@@ -175,6 +195,11 @@ impl UsageCollectorStatus {
             message: "Waiting for kernel startup".to_string(),
             last_collected_at: None,
             total_records: 0,
+            connection_mode: "local".to_string(),
+            remote_origin: None,
+            target_revision: 0,
+            paused: false,
+            destructive_pop: false,
         }
     }
 }
@@ -552,6 +577,40 @@ impl UsageCollectorState {
         }
     }
 
+    fn set_connection(
+        &self,
+        connection_key: &str,
+        connection_mode: &str,
+        remote_origin: Option<String>,
+        target_revision: u64,
+    ) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.connection_key = Some(connection_key.to_string());
+            inner.connection_mode = connection_mode.to_string();
+            inner.remote_origin = remote_origin;
+            inner.target_revision = target_revision;
+            // Never carry the previous target's message or history into the new
+            // target; the next status write fills in the real state.
+            inner.status.state = "waiting-core".to_string();
+            inner.status.message = if connection_mode == "remote" {
+                "Waiting for remote core usage collection to start".to_string()
+            } else {
+                "Waiting for kernel to become ready".to_string()
+            };
+            inner.status.last_collected_at = None;
+        }
+    }
+
+    fn set_paused(&self, paused: bool) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.paused = paused;
+        }
+    }
+
+    fn is_paused(&self) -> bool {
+        self.inner.lock().map(|inner| inner.paused).unwrap_or(false)
+    }
+
     fn set_total_records(&self, total_records: u64) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.status.total_records = total_records;
@@ -571,8 +630,54 @@ impl UsageCollectorState {
     fn status(&self) -> Result<UsageCollectorStatus, String> {
         self.inner
             .lock()
-            .map(|inner| inner.status.clone())
+            .map(|inner| {
+                let mut status = inner.status.clone();
+                status.connection_mode = inner.connection_mode.clone();
+                status.remote_origin = inner.remote_origin.clone();
+                status.target_revision = inner.target_revision;
+                status.paused = inner.paused;
+                status.destructive_pop = inner.connection_mode == "remote";
+                status
+            })
             .map_err(|_| "Usage collection status lock is poisoned".to_string())
+    }
+
+    /// Status for the target described by `config`.
+    ///
+    /// If the collector has not applied this target yet (e.g. immediately after
+    /// the user switches connection), this never reports the previous target's
+    /// status, totals, or history: it returns a fresh waiting status scoped to
+    /// the new target instead.
+    fn status_for(&self, config: &GuiConfigFile) -> Result<UsageCollectorStatus, String> {
+        let connection_key = usage_connection_key(config);
+        let applied = self
+            .inner
+            .lock()
+            .map_err(|_| "Usage collection status lock is poisoned".to_string())?
+            .connection_key
+            .clone();
+        if applied.as_deref() == Some(connection_key.as_str()) {
+            return self.status();
+        }
+        let remote = config.connection_mode == CoreConnectionMode::Remote;
+        // The collector has not applied this target yet, so report no totals or
+        // history rather than the previous target's. The next collector tick
+        // applies the identity and the real totals.
+        Ok(UsageCollectorStatus {
+            state: "waiting-core".to_string(),
+            message: if remote {
+                "Waiting for remote core usage collection to start".to_string()
+            } else {
+                "Waiting for kernel to become ready".to_string()
+            },
+            last_collected_at: None,
+            total_records: 0,
+            connection_mode: config.connection_mode.as_str().to_string(),
+            remote_origin: remote.then(|| config.remote_management_origin.clone()),
+            target_revision: config.target_revision,
+            paused: false,
+            destructive_pop: remote,
+        })
     }
 }
 
@@ -659,14 +764,20 @@ fn initialize_usage_storage_at(root: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) async fn repair_usage_cache_records() -> Result<UsageRepairResult, String> {
-    run_usage_task(|| repair_usage_cache_records_at(&usage_root_dir()?)).await
+pub(crate) async fn repair_usage_cache_records(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<UsageRepairResult, String> {
+    let config = gui_config_state.snapshot()?;
+    run_usage_task(move || repair_usage_cache_records_at(&usage_root_dir_for(&config)?)).await
 }
 
 #[tauri::command]
-pub(crate) async fn get_usage_storage_settings() -> Result<UsageStorageSettings, String> {
-    run_usage_task(|| {
-        let root = usage_root_dir()?;
+pub(crate) async fn get_usage_storage_settings(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<UsageStorageSettings, String> {
+    let config = gui_config_state.snapshot()?;
+    run_usage_task(move || {
+        let root = usage_root_dir_for(&config)?;
         let connection = open_usage_database_at(&root)?;
         load_usage_storage_settings(&connection, &root, 0)
     })
@@ -676,10 +787,12 @@ pub(crate) async fn get_usage_storage_settings() -> Result<UsageStorageSettings,
 #[tauri::command]
 pub(crate) async fn save_usage_storage_settings(
     app: tauri::AppHandle,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
     max_database_size_mb: u64,
 ) -> Result<UsageStorageSettings, String> {
+    let config = gui_config_state.snapshot()?;
     let settings = run_usage_task(move || {
-        let root = usage_root_dir()?;
+        let root = usage_root_dir_for(&config)?;
         let connection = open_usage_database_at(&root)?;
         save_usage_database_limit(&connection, max_database_size_mb)?;
         let deleted = enforce_usage_database_limit(&connection)?;
@@ -697,10 +810,12 @@ pub(crate) async fn save_usage_storage_settings(
 #[tauri::command]
 pub(crate) async fn shrink_usage_database(
     app: tauri::AppHandle,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
     target_database_size_mb: u64,
 ) -> Result<UsageStorageSettings, String> {
+    let config = gui_config_state.snapshot()?;
     let settings = run_usage_task(move || {
-        let root = usage_root_dir()?;
+        let root = usage_root_dir_for(&config)?;
         let connection = open_usage_database_at(&root)?;
         let deleted = shrink_usage_database_to_mb(&connection, target_database_size_mb)?;
         load_usage_storage_settings(&connection, &root, deleted)
@@ -1451,8 +1566,10 @@ fn backfill_usage_failure_details(connection: &Connection) -> Result<(), String>
     Ok(())
 }
 
-fn open_usage_database() -> Result<Connection, String> {
-    open_usage_database_at(&usage_root_dir()?)
+/// Opens the usage database for the current connection target. Local mode is
+/// unchanged; remote mode reads and writes the target's isolated namespace.
+fn open_usage_database_for(config: &GuiConfigFile) -> Result<Connection, String> {
+    open_usage_database_at(&usage_root_dir_for(config)?)
 }
 
 fn open_usage_database_at(root: &Path) -> Result<Connection, String> {
@@ -1821,8 +1938,12 @@ fn redis_pull_can_try_legacy_queue(error: &str) -> bool {
 
 pub(crate) fn start_usage_collector(app: tauri::AppHandle) {
     let state = app.state::<UsageCollectorState>();
-    if let Ok(total_records) = total_usage_records() {
-        state.set_total_records(total_records);
+    if let Ok(config) = app.state::<GuiConfigState>().snapshot() {
+        let root = usage_root_dir_for(&config)
+            .unwrap_or_else(|_| usage_root_dir().unwrap_or_default());
+        if let Ok(total_records) = total_usage_records_at(&root) {
+            state.set_total_records(total_records);
+        }
     }
     let Some(token) = state.start() else {
         return;
@@ -1837,23 +1958,16 @@ pub(crate) fn stop_usage_collector(app: &tauri::AppHandle) {
 }
 
 async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
-    let root = match usage_root_dir() {
-        Ok(root) => root,
-        Err(error) => {
-            set_collector_error(&app, error);
-            return;
-        }
-    };
-
     let mut retry_seconds = 1_u64;
     let mut subscription: Option<UsageSubscription> = None;
-    let mut subscription_config: Option<(u16, String)> = None;
     let mut redis_queue = RedisUsageQueueSource::default();
     let mut subscribe_retry_at = tokio::time::Instant::now();
     let mut next_inbox_cleanup_at = tokio::time::Instant::now() + Duration::from_secs(60 * 60);
     let mut next_inbox_recovery_at = tokio::time::Instant::now();
     let mut next_core_check_at = tokio::time::Instant::now();
     let mut core_ready = false;
+    let mut remote_ready_error: Option<String> = None;
+    let mut active_connection: Option<String> = None;
     loop {
         if token.is_cancelled() {
             return;
@@ -1867,13 +1981,42 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 continue;
             }
         };
-        if subscription_config.as_ref().is_some_and(|(port, secret)| {
-            *port != config.port || secret != &config.management_secret_key
-        }) {
+        let remote = config.connection_mode == CoreConnectionMode::Remote;
+        // Resolve the target-scoped storage root every iteration: a target
+        // switch changes the namespace, and remote records must never land in
+        // the local store (or the reverse).
+        let root = match usage_root_dir_for(&config) {
+            Ok(root) => root,
+            Err(error) => {
+                set_collector_error(&app, error);
+                wait_or_cancel(&token, retry_seconds).await;
+                retry_seconds = (retry_seconds * 2).min(10);
+                continue;
+            }
+        };
+        let connection_key = usage_connection_key(&config);
+        if active_connection.as_deref() != Some(connection_key.as_str()) {
             subscription = None;
-            subscription_config = None;
             redis_queue = RedisUsageQueueSource::default();
             subscribe_retry_at = tokio::time::Instant::now();
+            next_core_check_at = tokio::time::Instant::now();
+            core_ready = false;
+            remote_ready_error = None;
+            let state = app.state::<UsageCollectorState>();
+            if let Ok(total_records) = total_usage_records_at(&root) {
+                state.set_total_records(total_records);
+            }
+            state.set_connection(
+                &connection_key,
+                config.connection_mode.as_str(),
+                remote.then(|| config.remote_management_origin.clone()),
+                config.target_revision,
+            );
+            // A target switch or revision bump is the explicit resume path: the
+            // new identity always starts unpaused, then re-pauses on the next
+            // uncertain destructive pop.
+            state.set_paused(false);
+            active_connection = Some(connection_key);
         }
         if tokio::time::Instant::now() >= next_inbox_cleanup_at {
             if let Err(error) = open_usage_database_at(&root)
@@ -1914,20 +2057,118 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
             }
         }
         if tokio::time::Instant::now() >= next_core_check_at {
-            let process_state = app.state::<CoreProcessState>();
-            core_ready = current_core_status(Some(process_state.inner()), Some(config.port))
-                .map(|status| status.ready)
-                .unwrap_or(false);
+            if remote {
+                // Remote readiness is authenticated management reachability,
+                // never a local process check or a local RESP connect.
+                match remote_core_readiness(&config).await {
+                    Ok(()) => {
+                        core_ready = true;
+                        remote_ready_error = None;
+                    }
+                    Err(error) => {
+                        core_ready = false;
+                        remote_ready_error = Some(error);
+                    }
+                }
+            } else {
+                let process_state = app.state::<CoreProcessState>();
+                core_ready = current_core_status(Some(process_state.inner()), Some(config.port))
+                    .map(|status| status.ready)
+                    .unwrap_or(false);
+            }
             next_core_check_at = tokio::time::Instant::now() + Duration::from_secs(2);
         }
         if !core_ready {
             subscription = None;
-            subscription_config = None;
             redis_queue = RedisUsageQueueSource::default();
             subscribe_retry_at = tokio::time::Instant::now();
-            set_collector_status(&app, "waiting-core", "Waiting for kernel to become ready", None);
+            let message = if remote {
+                remote_ready_error
+                    .as_deref()
+                    .unwrap_or("Waiting for remote core to become reachable")
+            } else {
+                "Waiting for kernel to become ready"
+            };
+            set_collector_status(&app, "waiting-core", message, None);
             retry_seconds = 1;
             wait_or_cancel(&token, 1).await;
+            continue;
+        }
+
+        if remote {
+            // Remote cores have no cross-machine RESP/TLS subscriber here. Use
+            // the explicit target-bound HTTP compatibility queue: the core pops
+            // records, so a lost response is unrecoverable and no second
+            // consumer (local RESP or another poller) may run against it.
+            if app.state::<UsageCollectorState>().is_paused() {
+                set_collector_status(&app, "paused", &remote_paused_message(&config), None);
+                retry_seconds = 1;
+                wait_or_cancel(&token, 2).await;
+                continue;
+            }
+            match fetch_remote_usage_queue(&config).await {
+                Ok(messages) if messages.is_empty() => {
+                    set_collector_status(
+                        &app,
+                        "collecting",
+                        &remote_collecting_message(&config),
+                        None,
+                    );
+                    retry_seconds = 1;
+                    wait_or_cancel(&token, 2).await;
+                }
+                Ok(messages) => {
+                    let source = remote_usage_queue_source(&config);
+                    match persist_raw_usage_messages_from_source(&root, &source, messages, &config) {
+                        Ok(outcome) => {
+                            // Records were already popped from the core, so they
+                            // are persisted to the namespace of the target that
+                            // produced them even if the target has since changed.
+                            // Counters are only moved when the view still matches.
+                            if app.state::<GuiConfigState>().ensure_target(&config).is_ok() {
+                                publish_collected_records(
+                                    &app,
+                                    outcome,
+                                    &format!(
+                                        "Remote HTTP compatibility mode saved {} records",
+                                        outcome.inserted
+                                    ),
+                                );
+                            }
+                            retry_seconds = 1;
+                        }
+                        Err(error) => {
+                            // The batch is already popped and cannot be replayed.
+                            // Persisting it also includes buffering into the
+                            // inbox, so the failure is definitive for this batch.
+                            set_collector_error(&app, error);
+                            wait_or_cancel(&token, retry_seconds).await;
+                            retry_seconds = (retry_seconds * 2).min(10);
+                        }
+                    }
+                }
+                Err(RemotePopError::Definite(error)) => {
+                    // The core rejected the request before popping, so a
+                    // backoff retry cannot lose records. Readiness/auth is
+                    // re-checked separately before the next pop.
+                    set_collector_error(&app, error);
+                    wait_or_cancel(&token, retry_seconds).await;
+                    retry_seconds = (retry_seconds * 2).min(10);
+                }
+                Err(RemotePopError::Uncertain(error)) => {
+                    // The outcome is unknown: records may already be popped.
+                    // Pause this target and revision instead of dequeuing again.
+                    app.state::<UsageCollectorState>().set_paused(true);
+                    set_collector_status(
+                        &app,
+                        "paused",
+                        &format!("{error}. {}", remote_paused_message(&config)),
+                        None,
+                    );
+                    retry_seconds = 1;
+                    wait_or_cancel(&token, 2).await;
+                }
+            }
             continue;
         }
 
@@ -1935,7 +2176,6 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
             match UsageSubscription::connect(config.port, &config.management_secret_key).await {
                 Ok(next_subscription) => {
                     subscription = Some(next_subscription);
-                    subscription_config = Some((config.port, config.management_secret_key.clone()));
                     set_collector_status(&app, "collecting", "Connected to CPA usage live subscription", None);
                     match backfill_usage_queue(&root, &config, &mut redis_queue).await {
                         Ok(outcome) => {
@@ -2011,8 +2251,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 }
                 Ok(Err(error)) => {
                     subscription = None;
-                    subscription_config = None;
-                    subscribe_retry_at = tokio::time::Instant::now()
+                            subscribe_retry_at = tokio::time::Instant::now()
                         + Duration::from_secs(USAGE_SUBSCRIBE_RETRY_SECONDS);
                     set_collector_status(
                         &app,
@@ -2160,9 +2399,13 @@ pub(crate) fn persist_local_usage_event(
         }
     }
     let config = app.state::<GuiConfigState>().snapshot()?;
+    // Desktop health checks are a local-core concept and always belong to the
+    // local namespace; in remote mode they must not move the remote counters.
     let root = usage_root_dir()?;
     let outcome = persist_queue_items_from_source(&root, collector_source, vec![value], &config)?;
-    publish_collected_records(app, outcome, "Saved desktop health check usage record");
+    if config.connection_mode == CoreConnectionMode::Local {
+        publish_collected_records(app, outcome, "Saved desktop health check usage record");
+    }
     Ok(outcome.inserted)
 }
 
@@ -2174,7 +2417,7 @@ async fn wait_or_cancel(token: &CancellationToken, seconds: u64) {
 }
 
 async fn fetch_usage_queue(config: &GuiConfigFile) -> Result<Vec<Value>, String> {
-    let client = management_http_client()?;
+    let client = management_api::management_http_client_for(config)?;
     let response = client
         .get(management_endpoint(config, "observability/usage/queue")?)
         .header("Authorization", management_authorization(config)?)
@@ -2189,9 +2432,8 @@ async fn fetch_usage_queue(config: &GuiConfigFile) -> Result<Vec<Value>, String>
         .map_err(|error| format_management_request_error("Failed to read CPA usage records response", &error))?;
     if !status.is_success() {
         return Err(format!(
-            "CPA usage records queue returned HTTP {}: {}",
-            status.as_u16(),
-            text.trim()
+            "CPA usage records queue returned HTTP {}",
+            status.as_u16()
         ));
     }
     serde_json::from_str::<Vec<Value>>(&text)
@@ -2230,9 +2472,155 @@ async fn pull_usage_queue_with_fallback(
 fn collector_source_label(source: &str) -> &'static str {
     if source.starts_with("redis_pull:") {
         "Redis queue"
+    } else if source.contains(":remote-") {
+        "Remote HTTP compatibility mode"
     } else {
         "HTTP compatibility mode"
     }
+}
+
+/// Collector state key that changes whenever the active core identity changes.
+/// A change resets the live subscription, storage counters, target status, and
+/// any remote pause. It carries the full active identity (mode, revision, and
+/// credentials) so rotating a key or bumping the target revision is treated as
+/// a switch, while the storage namespace below stays keyed on the origin only.
+fn usage_connection_key(config: &GuiConfigFile) -> String {
+    match config.connection_mode {
+        CoreConnectionMode::Local => format!(
+            "local:{}:{}:{}",
+            config.target_revision,
+            config.port,
+            hash_text(&config.management_secret_key)
+        ),
+        CoreConnectionMode::Remote => format!(
+            "remote:{}:{}:{}:{}",
+            config.target_revision,
+            config.remote_management_origin.trim(),
+            hash_text(&config.remote_management_key),
+            hash_text(&config.remote_client_key)
+        ),
+    }
+}
+
+/// Authenticated remote management reachability. Uses the management API, not a
+/// local process or listener check.
+async fn remote_core_readiness(config: &GuiConfigFile) -> Result<(), String> {
+    let client = management_api::management_http_client_for(config)?;
+    let response = client
+        .get(management_endpoint(config, "config")?)
+        .header("Authorization", management_authorization(config)?)
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|error| format_management_request_error("Failed to reach remote core", &error))?;
+    if response.status().is_success() {
+        return Ok(());
+    }
+    Err(format!(
+        "Remote core management request failed (HTTP {})",
+        response.status().as_u16()
+    ))
+}
+
+fn remote_collecting_message(config: &GuiConfigFile) -> String {
+    let origin = config.remote_management_origin.trim();
+    if origin.is_empty() {
+        "Collecting remote usage (HTTP compatibility mode)".to_string()
+    } else {
+        format!("Collecting remote usage from {origin} (HTTP compatibility mode)")
+    }
+}
+
+fn remote_usage_queue_source(config: &GuiConfigFile) -> String {
+    match remote_usage_target_namespace(config) {
+        Ok(namespace) => format!("{HTTP_USAGE_QUEUE_SOURCE}:{namespace}"),
+        Err(_) => HTTP_USAGE_QUEUE_SOURCE.to_string(),
+    }
+}
+
+fn remote_paused_message(config: &GuiConfigFile) -> String {
+    let origin = config.remote_management_origin.trim();
+    let target = if origin.is_empty() {
+        "the remote core"
+    } else {
+        origin
+    };
+    format!(
+        "Remote usage collection for {target} is paused: the HTTP queue pop is destructive and \
+         the last request outcome was unknown. No further records will be requested automatically; \
+         save the connection settings (or use the resume command) to resume."
+    )
+}
+
+/// Classification of a remote destructive queue pop.
+#[derive(Debug)]
+enum RemotePopError {
+    /// The request may have reached the core, so records may already be popped
+    /// and cannot be replayed. The target must pause instead of retrying.
+    Uncertain(String),
+    /// The request was rejected before the core consumed anything, so backing
+    /// off and retrying cannot lose records.
+    Definite(String),
+}
+
+/// Explicit target-bound HTTP compatibility dequeue for a remote core.
+///
+/// The core Pops records: any response we fail to read may have already removed
+/// them, so uncertain outcomes must never be retried automatically. This is the
+/// only remote path; local RESP is never used against a remote target.
+async fn fetch_remote_usage_queue(config: &GuiConfigFile) -> Result<Vec<String>, RemotePopError> {
+    let client =
+        management_api::management_http_client_for(config).map_err(RemotePopError::Definite)?;
+    let endpoint = management_endpoint(config, "observability/usage/queue")
+        .map_err(RemotePopError::Definite)?;
+    let authorization = management_authorization(config).map_err(RemotePopError::Definite)?;
+    let response = client
+        .get(endpoint)
+        .header("Authorization", authorization)
+        .query(&[("count", USAGE_QUEUE_BATCH_SIZE)])
+        .send()
+        .await
+        .map_err(|error| {
+            let message =
+                format_management_request_error("Failed to pop remote CPA usage records", &error);
+            if error.is_connect() && !error.is_timeout() {
+                // The connection was never established, so nothing was popped.
+                RemotePopError::Definite(message)
+            } else {
+                RemotePopError::Uncertain(message)
+            }
+        })?;
+    let status = response.status();
+    let text = response.text().await.map_err(|error| {
+        RemotePopError::Uncertain(format_management_request_error(
+            "Failed to read the remote CPA usage records response",
+            &error,
+        ))
+    })?;
+    if !status.is_success() {
+        let message = format!(
+            "Remote CPA usage records queue returned HTTP {}",
+            status.as_u16()
+        );
+        // Rejections that happen before dequeue cannot have consumed records.
+        return match status.as_u16() {
+            400 | 401 | 403 | 404 | 405 | 422 => Err(RemotePopError::Definite(message)),
+            _ => Err(RemotePopError::Uncertain(message)),
+        };
+    }
+    let values = serde_json::from_str::<Vec<Value>>(&text).map_err(|error| {
+        RemotePopError::Uncertain(format!("Failed to parse remote CPA usage records: {error}"))
+    })?;
+    values
+        .into_iter()
+        .map(|item| {
+            serde_json::to_string(&item).map_err(|error| {
+                RemotePopError::Uncertain(format!(
+                    "Failed to serialize remote CPA usage records: {error}"
+                ))
+            })
+        })
+        .collect()
 }
 
 fn set_collector_error(app: &tauri::AppHandle, error: String) {
@@ -2251,12 +2639,33 @@ fn set_collector_status(
         .as_ref()
         .map(|value| value.total_records)
         .unwrap_or(0);
+    let connection_mode = previous
+        .as_ref()
+        .map(|value| value.connection_mode.clone())
+        .unwrap_or_else(|| "local".to_string());
+    let remote_origin = previous
+        .as_ref()
+        .and_then(|value| value.remote_origin.clone());
+    let target_revision = previous
+        .as_ref()
+        .map(|value| value.target_revision)
+        .unwrap_or(0);
+    let paused = previous.as_ref().map(|value| value.paused).unwrap_or(false);
+    let destructive_pop = previous
+        .as_ref()
+        .map(|value| value.destructive_pop)
+        .unwrap_or(false);
     state.set_status(UsageCollectorStatus {
         state: state_name.to_string(),
         message: message.to_string(),
         last_collected_at: last_collected_at
             .or_else(|| previous.and_then(|value| value.last_collected_at)),
         total_records,
+        connection_mode,
+        remote_origin,
+        target_revision,
+        paused,
+        destructive_pop,
     });
 }
 
@@ -2945,13 +3354,48 @@ fn add_text_filter(
 #[tauri::command]
 pub(crate) fn get_usage_collector_status(
     state: tauri::State<'_, UsageCollectorState>,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<UsageCollectorStatus, String> {
-    state.status()
+    let config = gui_config_state.snapshot()?;
+    state.status_for(&config)
+}
+
+/// Explicitly resume remote usage collection after it paused on an uncertain
+/// destructive queue pop.
+///
+/// Target-bound: the caller passes the origin and revision it saw in the status
+/// it is acting on, so a stale UI can never resume a different target. Local
+/// collection is never paused, so resuming a local target is rejected rather
+/// than silently clearing an unrelated flag.
+#[tauri::command]
+pub(crate) fn resume_usage_collection(
+    state: tauri::State<'_, UsageCollectorState>,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_origin: String,
+    expected_revision: u64,
+) -> Result<UsageCollectorStatus, String> {
+    let config = gui_config_state.snapshot()?;
+    if config.connection_mode != CoreConnectionMode::Remote {
+        return Err("Usage collection is not running against a remote core".to_string());
+    }
+    if config.remote_management_origin.trim() != expected_origin.trim()
+        || config.target_revision != expected_revision
+    {
+        return Err(
+            "The remote connection changed; reload usage status before resuming".to_string(),
+        );
+    }
+    state.set_paused(false);
+    state.status_for(&config)
 }
 
 #[tauri::command]
-pub(crate) async fn get_usage_overview(query: UsageQuery) -> Result<UsageOverview, String> {
-    run_usage_task(move || load_usage_overview(&open_usage_database()?, &query)).await
+pub(crate) async fn get_usage_overview(
+    query: UsageQuery,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<UsageOverview, String> {
+    let config = gui_config_state.snapshot()?;
+    run_usage_task(move || load_usage_overview(&open_usage_database_for(&config)?, &query)).await
 }
 
 fn load_usage_overview(
@@ -3695,8 +4139,12 @@ fn upsert_model_price(connection: &Connection, price: &ModelPrice) -> Result<(),
 }
 
 #[tauri::command]
-pub(crate) async fn get_usage_pricing(query: UsageQuery) -> Result<UsagePricing, String> {
-    run_usage_task(move || load_usage_pricing(&open_usage_database()?, &query)).await
+pub(crate) async fn get_usage_pricing(
+    query: UsageQuery,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<UsagePricing, String> {
+    let config = gui_config_state.snapshot()?;
+    run_usage_task(move || load_usage_pricing(&open_usage_database_for(&config)?, &query)).await
 }
 
 fn load_usage_pricing(connection: &Connection, query: &UsageQuery) -> Result<UsagePricing, String> {
@@ -3771,18 +4219,26 @@ fn load_usage_pricing(connection: &Connection, query: &UsageQuery) -> Result<Usa
 }
 
 #[tauri::command]
-pub(crate) async fn save_usage_model_price(mut price: ModelPrice) -> Result<(), String> {
+pub(crate) async fn save_usage_model_price(
+    mut price: ModelPrice,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<(), String> {
     price.model = price.model.trim().to_string();
     price.source = "manual".to_string();
     price.source_model_id.clear();
     price.updated_at_ms = Local::now().timestamp_millis();
-    run_usage_task(move || upsert_model_price(&open_usage_database()?, &price)).await
+    let config = gui_config_state.snapshot()?;
+    run_usage_task(move || upsert_model_price(&open_usage_database_for(&config)?, &price)).await
 }
 
 #[tauri::command]
-pub(crate) async fn delete_usage_model_price(model: String) -> Result<(), String> {
+pub(crate) async fn delete_usage_model_price(
+    model: String,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<(), String> {
+    let config = gui_config_state.snapshot()?;
     run_usage_task(move || {
-        let connection = open_usage_database()?;
+        let connection = open_usage_database_for(&config)?;
         connection
             .execute(
                 "DELETE FROM model_prices WHERE model = ?1 COLLATE NOCASE",
@@ -3983,7 +4439,7 @@ pub(crate) async fn preview_usage_model_prices(
     };
 
     run_usage_task(move || {
-        let connection = open_usage_database()?;
+        let connection = open_usage_database_for(&config)?;
         let models = collect_price_preview_models(&connection, &query)?;
         Ok(build_model_price_preview(
             &models,
@@ -3996,7 +4452,10 @@ pub(crate) async fn preview_usage_model_prices(
 }
 
 #[tauri::command]
-pub(crate) async fn apply_usage_model_prices(prices: Vec<ModelPrice>) -> Result<ModelPriceSyncResult, String> {
+pub(crate) async fn apply_usage_model_prices(
+    prices: Vec<ModelPrice>,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<ModelPriceSyncResult, String> {
     let mut seen = std::collections::HashSet::new();
     for price in &prices {
         validate_model_price(price)?;
@@ -4009,8 +4468,9 @@ pub(crate) async fn apply_usage_model_prices(prices: Vec<ModelPrice>) -> Result<
             return Err(format!("Duplicate model pricing: {}", price.model));
         }
     }
+    let config = gui_config_state.snapshot()?;
     run_usage_task(move || {
-        let mut connection = open_usage_database()?;
+        let mut connection = open_usage_database_for(&config)?;
         let transaction = connection
             .transaction()
             .map_err(|error| format!("Failed to begin saving model pricing: {error}"))?;
@@ -4071,7 +4531,7 @@ impl UsageCredentialNotes {
 async fn fetch_usage_credential_notes(config: &GuiConfigFile) -> HashMap<String, String> {
     // Notes are optional enrichment: offline usage history must remain readable.
     let fetch = async {
-        let response = management_http_client().ok()?
+        let response = management_api::management_http_client_for(config).ok()?
             .get(management_endpoint(config, "credentials").ok()?)
             .header("Authorization", management_authorization(config).ok()?)
             .timeout(Duration::from_secs(3))
@@ -4089,7 +4549,7 @@ pub(crate) async fn get_usage_analysis(
     let config = gui_config_state.snapshot()?;
     let metadata = sources::fetch(&config).await;
     run_usage_task(move || {
-        let connection = open_usage_database()?;
+        let connection = open_usage_database_for(&config)?;
         let registry = sources::resolve(&connection, metadata)?;
         let mut analysis = load_usage_analysis_with_notes(&connection, &query, &config, &HashMap::new())?;
         sources::apply_analysis(&mut analysis, &registry);
@@ -4486,7 +4946,7 @@ pub(crate) async fn get_usage_events(
     let config = gui_config_state.snapshot()?;
     let metadata = sources::fetch(&config).await;
     run_usage_task(move || {
-        let connection = open_usage_database()?;
+        let connection = open_usage_database_for(&config)?;
         let registry = sources::resolve(&connection, metadata)?;
         let mut events = load_usage_events_with_notes(&connection, &query, &config, &HashMap::new())?;
         sources::apply_events(&mut events, &registry, &config);
@@ -4616,8 +5076,8 @@ fn usage_record_from_row(row: &Row<'_>) -> rusqlite::Result<UsageRecord> {
     })
 }
 
-fn total_usage_records() -> Result<u64, String> {
-    let connection = open_usage_database()?;
+fn total_usage_records_at(root: &Path) -> Result<u64, String> {
+    let connection = open_usage_database_at(root)?;
     connection
         .query_row("SELECT COUNT(*) FROM usage_events", [], |row| {
             row.get::<_, i64>(0)
@@ -4643,7 +5103,62 @@ fn query_window_minutes(query: &UsageQuery, first: Option<i64>, last: Option<i64
 }
 
 fn usage_root_dir() -> Result<PathBuf, String> {
-    Ok(core_base_dir()?.join(USAGE_DIR_NAME))
+    Ok(usage_base_dir()?.join(USAGE_DIR_NAME))
+}
+
+fn usage_base_dir() -> Result<PathBuf, String> {
+    core_base_dir()
+}
+
+/// Storage root for the current connection target.
+///
+/// Local usage is isolated from remote usage: local mode keeps the historical
+/// `usage-records` root, while remote mode stores records under
+/// `usage-records/remote/<target>` so records from two different cores never
+/// merge. Read and write paths must resolve this the same way.
+fn usage_root_dir_for(config: &GuiConfigFile) -> Result<PathBuf, String> {
+    let root = usage_root_dir_for_at(&usage_base_dir()?, config)?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        ensure_remote_usage_root_initialized(&root)?;
+    }
+    Ok(root)
+}
+
+fn usage_root_dir_for_at(base: &Path, config: &GuiConfigFile) -> Result<PathBuf, String> {
+    let root = base.join(USAGE_DIR_NAME);
+    match config.connection_mode {
+        CoreConnectionMode::Local => Ok(root),
+        CoreConnectionMode::Remote => Ok(root
+            .join(REMOTE_USAGE_DIR_NAME)
+            .join(remote_usage_target_namespace(config)?)),
+    }
+}
+
+/// Stable identity of a remote core for usage attribution.
+///
+/// The management origin identifies the core instance. The management key is
+/// deliberately excluded so rotating a key keeps the same history; two distinct
+/// cores must not share an origin.
+fn remote_usage_target_namespace(config: &GuiConfigFile) -> Result<String, String> {
+    let connection = crate::core_connection::connection_from_config(config)?;
+    let digest = hash_text(connection.management_origin.trim());
+    Ok(format!("remote-{}", &digest[..16]))
+}
+
+fn ensure_remote_usage_root_initialized(root: &Path) -> Result<(), String> {
+    if INITIALIZED_REMOTE_USAGE_ROOTS
+        .lock()
+        .map_err(|_| "Usage storage initialization lock is poisoned".to_string())?
+        .contains(root)
+    {
+        return Ok(());
+    }
+    initialize_usage_storage_at(root)?;
+    INITIALIZED_REMOTE_USAGE_ROOTS
+        .lock()
+        .map_err(|_| "Usage storage initialization lock is poisoned".to_string())?
+        .insert(root.to_path_buf());
+    Ok(())
 }
 
 fn record_local_hour(record: &UsageRecord) -> String {
@@ -5729,6 +6244,7 @@ mod tests {
             max_retry_credentials: crate::DEFAULT_MAX_RETRY_CREDENTIALS,
             max_retry_interval: crate::DEFAULT_MAX_RETRY_INTERVAL,
             streaming_bootstrap_retries: crate::DEFAULT_STREAMING_BOOTSTRAP_RETRIES,
+            ..GuiConfigFile::default()
         };
         let record = normalize_usage_record(
             serde_json::json!({
@@ -7535,5 +8051,308 @@ mod tests {
         assert_eq!(cost_for_price("gpt-6-sol", "", &tokens, &price), 0.0);
         drop(connection);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn remote_usage_test_config(origin: &str) -> GuiConfigFile {
+        GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: origin.to_string(),
+            remote_management_key: "fixture-management".to_string(),
+            remote_client_origin: origin.to_string(),
+            remote_client_key: "fixture-client".to_string(),
+            ..GuiConfigFile::default()
+        }
+    }
+
+    fn remote_usage_test_config_with_key(origin: &str, management_key: &str) -> GuiConfigFile {
+        GuiConfigFile {
+            remote_management_key: management_key.to_string(),
+            ..remote_usage_test_config(origin)
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_usage_pop_targets_management_queue_endpoint_with_management_key() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut data = [0; 8192];
+            let count = stream.read(&mut data).unwrap();
+            let request = String::from_utf8_lossy(&data[..count]);
+            assert!(
+                request.starts_with("GET /v8/management/observability/usage/queue?count="),
+                "unexpected request line: {request}"
+            );
+            assert!(request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer fixture-management"));
+            assert!(!request.contains("fixture-client"));
+            let body = r#"[{"request_id":"remote-1","provider":"codex","model":"gpt-test"}]"#;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+        });
+        let config = remote_usage_test_config(&origin);
+        let messages = fetch_remote_usage_queue(&config).await.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].contains("remote-1"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn remote_usage_pop_classifies_definite_and_uncertain_failures() {
+        use std::io::{Read, Write};
+        for (status, body, uncertain) in [
+            (401, "denied", false),
+            (403, "denied", false),
+            (404, "missing", false),
+            (500, "boom", true),
+            (502, "boom", true),
+            (200, "<html>not json</html>", true),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = [0; 8192];
+                let _ = stream.read(&mut request).unwrap();
+                stream
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            });
+            let config = remote_usage_test_config(&origin);
+            let error = fetch_remote_usage_queue(&config).await.err().unwrap();
+            match error {
+                RemotePopError::Uncertain(message) => {
+                    assert!(uncertain, "HTTP {status} should be definite, got {message}")
+                }
+                RemotePopError::Definite(message) => {
+                    assert!(
+                        !uncertain,
+                        "HTTP {status} should be uncertain, got {message}"
+                    )
+                }
+            }
+            server.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_usage_pop_connect_failure_is_definite_and_safe_to_retry() {
+        let config = remote_usage_test_config("http://127.0.0.1:1");
+        match fetch_remote_usage_queue(&config).await.err().unwrap() {
+            RemotePopError::Definite(_) => {}
+            RemotePopError::Uncertain(message) => {
+                panic!("an unreachable core never popped records; expected definite, got {message}")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_usage_readiness_probes_management_config_with_management_key() {
+        use std::io::{Read, Write};
+        for (status, expected_ok) in [(200, true), (401, false), (500, false)] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut data = [0; 8192];
+                let count = stream.read(&mut data).unwrap();
+                let request = String::from_utf8_lossy(&data[..count]);
+                assert!(request.starts_with("GET /v8/management/config "));
+                assert!(request
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer fixture-management"));
+                stream
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 {status} Fixture\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+                        )
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            });
+            let config = remote_usage_test_config(&origin);
+            assert_eq!(remote_core_readiness(&config).await.is_ok(), expected_ok);
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn remote_and_local_usage_roots_never_share_a_namespace() {
+        let base = test_root("usage-namespace");
+        let local = GuiConfigFile::default();
+        let remote_a = remote_usage_test_config("http://core-a.invalid:8317");
+        let remote_a_rotated =
+            remote_usage_test_config_with_key("http://core-a.invalid:8317", "rotated");
+        let remote_b = remote_usage_test_config("http://core-b.invalid:8317");
+
+        let local_root = usage_root_dir_for_at(&base, &local).unwrap();
+        let root_a = usage_root_dir_for_at(&base, &remote_a).unwrap();
+        let root_a_rotated = usage_root_dir_for_at(&base, &remote_a_rotated).unwrap();
+        let root_b = usage_root_dir_for_at(&base, &remote_b).unwrap();
+
+        assert_eq!(local_root, base.join(USAGE_DIR_NAME));
+        assert_ne!(local_root, root_a);
+        assert_ne!(root_a, root_b);
+        // Rotating the management key keeps the same core's history.
+        assert_eq!(root_a, root_a_rotated);
+        assert!(root_a.starts_with(base.join(USAGE_DIR_NAME).join(REMOTE_USAGE_DIR_NAME)));
+
+        initialize_usage_storage_at(&local_root).unwrap();
+        initialize_usage_storage_at(&root_a).unwrap();
+        initialize_usage_storage_at(&root_b).unwrap();
+        let config = GuiConfigFile::default();
+        let inserted_local = persist_queue_items_from_source(
+            &local_root,
+            HTTP_USAGE_QUEUE_SOURCE,
+            vec![serde_json::json!({"request_id": "local-1", "provider": "codex", "model": "gpt-test"})],
+            &config,
+        )
+        .unwrap();
+        let inserted_remote = persist_queue_items_from_source(
+            &root_a,
+            HTTP_USAGE_QUEUE_SOURCE,
+            vec![serde_json::json!({"request_id": "remote-1", "provider": "codex", "model": "gpt-test"})],
+            &config,
+        )
+        .unwrap();
+        assert_eq!(inserted_local.inserted, 1);
+        assert_eq!(inserted_remote.inserted, 1);
+        assert_eq!(total_usage_records_at(&local_root).unwrap(), 1);
+        assert_eq!(total_usage_records_at(&root_a).unwrap(), 1);
+        // A second remote core stays untouched by the first core's records.
+        assert_eq!(total_usage_records_at(&root_b).unwrap(), 0);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn usage_connection_key_tracks_mode_revision_and_credentials() {
+        let local = GuiConfigFile::default();
+        let remote = remote_usage_test_config("http://core-a.invalid:8317");
+        assert_ne!(usage_connection_key(&local), usage_connection_key(&remote));
+
+        let mut bumped = remote.clone();
+        bumped.target_revision += 1;
+        assert_ne!(usage_connection_key(&remote), usage_connection_key(&bumped));
+
+        let mut rotated = remote.clone();
+        rotated.remote_management_key = "rotated".to_string();
+        assert_ne!(
+            usage_connection_key(&remote),
+            usage_connection_key(&rotated)
+        );
+
+        let mut switched = remote.clone();
+        switched.remote_management_origin = "http://core-b.invalid:8317".to_string();
+        assert_ne!(
+            usage_connection_key(&remote),
+            usage_connection_key(&switched)
+        );
+    }
+
+    #[test]
+    fn collector_status_hides_unapplied_target_status_and_history() {
+        let state = UsageCollectorState::default();
+        let local = GuiConfigFile::default();
+        state.set_connection(&usage_connection_key(&local), "local", None, 0);
+        state.set_total_records(7);
+        let mut with_history = state.status().unwrap();
+        with_history.last_collected_at = Some("2020-01-01T00:00:00Z".to_string());
+        with_history.message = "collected for the old target".to_string();
+        state.set_status(with_history);
+
+        let applied = state.status_for(&local).unwrap();
+        assert_eq!(applied.connection_mode, "local");
+        assert_eq!(applied.total_records, 7);
+        assert!(!applied.paused);
+        assert!(!applied.destructive_pop);
+
+        // Switching to a remote target before the collector applies it must not
+        // report the previous target's totals or history.
+        let remote = remote_usage_test_config("http://core-a.invalid:8317");
+        let switching = state.status_for(&remote).unwrap();
+        assert_eq!(switching.connection_mode, "remote");
+        assert_eq!(
+            switching.remote_origin.as_deref(),
+            Some("http://core-a.invalid:8317")
+        );
+        assert_eq!(switching.total_records, 0);
+        assert_eq!(switching.last_collected_at, None);
+        assert!(switching.destructive_pop);
+        assert_eq!(switching.state, "waiting-core");
+
+        state.set_total_records(0);
+        state.set_connection(
+            &usage_connection_key(&remote),
+            "remote",
+            Some(remote.remote_management_origin.clone()),
+            remote.target_revision,
+        );
+        state.set_paused(true);
+        let paused = state.status_for(&remote).unwrap();
+        // Applying the new identity clears the old target's message/history too.
+        assert_eq!(paused.last_collected_at, None);
+        assert_eq!(paused.state, "waiting-core");
+        assert!(paused.paused);
+        assert!(paused.destructive_pop);
+        assert_eq!(paused.target_revision, remote.target_revision);
+    }
+
+    #[test]
+    fn resume_usage_collection_rejects_a_stale_target() {
+        let remote = remote_usage_test_config("http://core-a.invalid:8317");
+        let mut stale = remote.clone();
+        stale.target_revision += 1;
+        let app = tauri::test::mock_builder()
+            .manage(GuiConfigState::new(stale))
+            .manage(UsageCollectorState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let error = resume_usage_collection(
+            app.state(),
+            app.state(),
+            remote.remote_management_origin.clone(),
+            remote.target_revision,
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("changed"), "{error}");
+
+        // A local target cannot be resumed at all.
+        let local_app = tauri::test::mock_builder()
+            .manage(GuiConfigState::new(GuiConfigFile::default()))
+            .manage(UsageCollectorState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let local_error =
+            resume_usage_collection(local_app.state(), local_app.state(), String::new(), 0)
+                .err()
+                .unwrap();
+        assert!(local_error.contains("remote"), "{local_error}");
     }
 }
