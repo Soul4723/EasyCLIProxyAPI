@@ -13,6 +13,10 @@ pub(crate) fn lock_core_operation(
     Ok(guard)
 }
 
+pub(crate) fn core_child_has_exited(status: io::Result<Option<std::process::ExitStatus>>) -> bool {
+    matches!(status, Ok(Some(_)))
+}
+
 pub(crate) struct CoreChild {
     child: Child,
     #[cfg(windows)]
