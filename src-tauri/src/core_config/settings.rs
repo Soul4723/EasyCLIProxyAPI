@@ -1400,6 +1400,8 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         )
     };
 
+    // Installed core settings are only a migration/recovery source for Local mode.
+    let is_local = config.connection_mode == CoreConnectionMode::Local;
     let saved_management_secret = presence.management_secret_key.as_deref();
 
     if gui_config_exists {
@@ -1422,7 +1424,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     let core_is_newer = file_modified_time(&core_config_path)
         .zip(file_modified_time(&config_path))
         .is_some_and(|(core, gui)| core > gui);
-    if core_is_newer && !gui_parse_failed {
+    if is_local && core_is_newer && !gui_parse_failed {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             apply_core_settings_to_gui_config(&mut config, &core_settings);
             apply_external_core_proxy_override(&mut config, &core_settings)?;
@@ -1453,7 +1455,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         || presence.max_retry_credentials.is_none()
         || presence.max_retry_interval.is_none()
         || presence.streaming_bootstrap_retries.is_none();
-    if missing_core_settings && !gui_parse_failed {
+    if is_local && missing_core_settings && !gui_parse_failed {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             if presence.host.is_none() {
                 config.host = core_settings.host.clone();
@@ -1540,7 +1542,8 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         }
         changed = true;
     }
-    if presence.management_secret_key.is_none()
+    if is_local
+        && presence.management_secret_key.is_none()
         && (had_existing_gui_config || core_config_path.is_file())
     {
         config.management_secret_key = read_installed_core_config_settings()
@@ -1596,7 +1599,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         presence.proxy_override.is_some(),
     );
     config.prefer_gitcode_downloads = config.download_source == VersionDownloadSource::Gitcode;
-    let installed_management_secret = if saved_management_secret == Some("") {
+    let installed_management_secret = if is_local && saved_management_secret == Some("") {
         read_installed_core_config_settings()
             .ok()
             .and_then(|settings| settings.management_secret_key)

@@ -142,6 +142,7 @@ pub(crate) async fn check_latest_core(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<CoreLatest, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let _detection_guard = VERSION_SOURCE_DETECTION_LOCK.lock().await;
     let platform = current_core_platform()?;
     let config = gui_config_state.snapshot()?;
@@ -170,7 +171,10 @@ pub(crate) async fn check_latest_core(
 }
 
 #[tauri::command]
-pub(crate) fn detect_bundled_core() -> Result<Option<BundledCoreInfo>, String> {
+pub(crate) fn detect_bundled_core(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<Option<BundledCoreInfo>, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     bundled_core_archive().map(|value| value.map(|(info, _)| info))
 }
 
@@ -297,13 +301,22 @@ pub(crate) fn auto_install_bundled_core_if_needed(app: &tauri::AppHandle) -> Res
 }
 
 #[tauri::command]
-pub(crate) fn cancel_core_install(state: tauri::State<'_, CoreDownloadState>) {
+pub(crate) fn cancel_core_install(
+    state: tauri::State<'_, CoreDownloadState>,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<(), String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     state.cancel();
+    Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn get_core_install_task(state: tauri::State<'_, CoreDownloadState>) -> CoreInstallTask {
-    state.snapshot()
+pub(crate) fn get_core_install_task(
+    state: tauri::State<'_, CoreDownloadState>,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<CoreInstallTask, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    Ok(state.snapshot())
 }
 
 pub(crate) struct StagedCoreInstall {

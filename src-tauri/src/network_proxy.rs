@@ -523,6 +523,9 @@ fn apply(state: &GuiConfigState) -> Result<GuiConfigFile, String> {
         .inner
         .lock()
         .map_err(|_| "Proxy configuration lock is poisoned".to_string())?;
+    if current.connection_mode == CoreConnectionMode::Remote {
+        return Ok(current.clone());
+    }
     let mut next = current.clone();
     next.proxy_url = if next.proxy_override {
         next.proxy_url.clone()
@@ -569,6 +572,7 @@ pub(crate) fn set_manual(state: &GuiConfigState, proxy_url: String) -> Result<()
         .inner
         .lock()
         .map_err(|_| "Proxy configuration lock is poisoned".to_string())?;
+    crate::core_connection::require_local(&current)?;
     let mut next = current.clone();
     next.proxy_override = !proxy_url.is_empty();
     next.proxy_url = if next.proxy_override {

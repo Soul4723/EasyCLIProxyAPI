@@ -399,15 +399,19 @@ impl DeepSeekHarnessProcessState {
 
 #[tauri::command]
 pub(crate) fn get_deepseek_harness_process_status(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
     process_state: tauri::State<'_, DeepSeekHarnessProcessState>,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     process_state.status()
 }
 
 #[tauri::command]
 pub(crate) fn stop_deepseek_harness_process(
+    app: tauri::AppHandle,
     process_state: tauri::State<'_, DeepSeekHarnessProcessState>,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     stop_managed_deepseek_harness(process_state.inner())?;
     process_state.status()
 }
@@ -459,6 +463,7 @@ fn launch_managed_deepseek_harness(
 pub(crate) async fn restart_deepseek_harness_process(
     app: tauri::AppHandle,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     tauri::async_runtime::spawn_blocking(move || {
         restart_managed_deepseek_harness(app.state::<DeepSeekHarnessProcessState>().inner())
     })
@@ -790,6 +795,7 @@ pub(crate) async fn get_codex_cli_daemon_running(
     app: tauri::AppHandle,
     executable_path: Option<String>,
 ) -> Result<bool, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()

@@ -79,8 +79,38 @@ const path = require('node:path');
     await retry.waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: /^start$/i }).waitFor();
     assert.equal(await page.locator('[data-runtime="installation"]').count(), 1);
+    // A credential read started on an old target must never invoke the upload command.
+    await page.evaluate(async () => {
+      const { managementApi } = await import('/src/services/managementApi.ts');
+      const originalInvoke = window.__TAURI_INTERNALS__.invoke;
+      const uploads = [];
+      window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+        if (command === 'upload_auth_file') { uploads.push(args); return { ok: true }; }
+        return originalInvoke(command, args);
+      };
+      try {
+        let current = true;
+        let finishRead;
+        const file = new File(['{}'], 'target-race.json', { type: 'application/json' });
+        file.arrayBuffer = () => new Promise(resolve => { finishRead = resolve; });
+        const pending = managementApi.uploadAuthFile(file, () => current);
+        current = false; // Includes switching away and back to the same origin (revision changed).
+        finishRead(new TextEncoder().encode('{}').buffer);
+        let rejected = false;
+        try { await pending; } catch { rejected = true; }
+        if (!rejected || uploads.length) throw new Error('Stale file read invoked upload');
+        // Subsequent files in an invalidated batch must not even be read.
+        file.arrayBuffer = () => { throw new Error('Stale batch read another file'); };
+        try { await managementApi.uploadAuthFile(file, () => current); } catch (error) {
+          if (!String(error).includes('upload cancelled')) throw error;
+        }
+        await managementApi.uploadAuthFile(new File(['{}'], 'current.json'), () => true);
+        if (uploads.length !== 1 || uploads[0].name !== 'current.json'
+          || JSON.stringify(uploads[0].data) !== '[123,125]') throw new Error('Upload command contract changed');
+      } finally { window.__TAURI_INTERNALS__.invoke = originalInvoke; }
+    });
     assert.deepEqual(errors, []);
     assert.deepEqual(externalRequests, []);
-    console.log('PASS: draft test leaves local target unchanged; saving remote hides local lifecycle and shows distinct client endpoint, with auth failure, recovery and return to local; no external requests.');
+    console.log('PASS: draft test leaves local target unchanged; saving remote hides local lifecycle and shows distinct client endpoint, with auth failure, recovery and return to local; stale credential reads are cancelled and current uploads preserve the command payload; no external requests.');
   } finally { await browser?.close(); await server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

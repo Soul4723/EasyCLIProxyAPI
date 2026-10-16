@@ -281,8 +281,9 @@ pub(crate) async fn preview_agent_config_template(
     claude_code_model_mappings: Option<ClaudeDesktopModelMappings>,
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
 ) -> Result<TemplatePreview, String> {
-    let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let config = app.state::<GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&config)?;
+    let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     Ok(prepare_template_plan(
         &config,
         &home,

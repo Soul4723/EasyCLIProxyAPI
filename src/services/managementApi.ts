@@ -82,8 +82,14 @@ export const managementApi = {
     path: string,
     options: ManagementRequestOptions = {},
   ) => request<T>('DELETE', path, options),
-  uploadAuthFile: async (file: File) => {
+  uploadAuthFile: async (file: File, isCurrentTarget: () => boolean = () => true) => {
+    const assertCurrentTarget = () => {
+      if (!isCurrentTarget()) throw new Error('The core connection changed; upload cancelled');
+    };
+    assertCurrentTarget();
     const data = Array.from(new Uint8Array(await file.arrayBuffer()));
+    // File reads can outlive the initiating page/connection. Never send their bytes to a new target.
+    assertCurrentTarget();
     return invoke<ManagementJson>('upload_auth_file', {
       name: file.name,
       data,

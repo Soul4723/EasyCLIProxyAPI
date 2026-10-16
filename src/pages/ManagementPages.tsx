@@ -94,7 +94,6 @@ const OAUTH_CALLBACK_SUPPORTED = new Set<OAuthProviderId>([
   'codex',
   'claude',
   'antigravity',
-  'xai',
   'devin',
 ]);
 const BUILTIN_OAUTH_PROVIDER_IDS = oauthProviders.map(provider => provider.id);
