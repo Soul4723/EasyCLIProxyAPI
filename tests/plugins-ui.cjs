@@ -66,10 +66,16 @@ const fs = require('node:fs');
     assert.equal(await searchInput.evaluate(input => input === document.activeElement), true, 'clearing returns focus to search');
     assert.equal(await page.locator('.plugin-card').count(), 4, 'clearing restores the unfiltered list');
 
+    // Store choice survives ordinary tab navigation; the shortcut must clear it.
+    await tab('Plugin store').click();
+    const sourceFilter = page.getByRole('combobox', { name: 'Store source', exact: true });
+    await sourceFilter.selectOption('community');
+    await tab('Local plugins').click();
     await card('kiro').getByRole('button', { name: 'Find in store', exact: true }).click();
     await card('Kiro').getByRole('button', { name: 'Install', exact: true }).waitFor();
     assert.equal(await tab('Plugin store').getAttribute('aria-current'), 'page');
     assert.equal(await page.getByRole('searchbox').inputValue(), 'kiro');
+    assert.equal(await sourceFilter.inputValue(), '');
     assert.equal(await page.locator('.plugin-card').count(), 1);
     await tab('Local plugins').click();
     await card('kiro').getByRole('button', { name: 'Remove configuration kiro', exact: true }).click();
@@ -117,6 +123,53 @@ const fs = require('node:fs');
     await card('Community analytics').getByRole('button', { name: 'Install', exact: true }).waitFor();
     await page.getByText('Offline source: Fixture registry unavailable').waitFor();
     assert.equal(await card('Private provider').getByRole('button', { name: 'Store authentication required' }).isDisabled(), true);
+    assert.equal(await sourceFilter.inputValue(), '');
+    assert.equal(await sourceFilter.locator('option').count(), 8, 'Empty and failed configured sources remain selectable');
+    assert.equal(await sourceFilter.locator('option[value="community"]').innerText(), 'Community (community)');
+    assert.equal(await sourceFilter.locator('option[value="https://url-only.example.test/plugins.json"]').innerText(), 'Community (https://url-only.example.test/plugins.json)');
+    await sourceFilter.selectOption('community');
+    assert.equal(await page.locator('.plugin-card').count(), 1);
+    await page.getByRole('searchbox').fill('sample');
+    await page.getByRole('heading', { name: 'No matching plugins', exact: true }).waitFor();
+    await page.getByRole('searchbox').fill('analytics');
+    assert.equal(await page.locator('.plugin-card').count(), 1);
+    await page.getByRole('searchbox').fill('');
+    await page.getByRole('combobox', { name: 'Plugin store', exact: true }).selectOption('installed');
+    await page.getByRole('heading', { name: 'No matching plugins', exact: true }).waitFor();
+    await sourceFilter.selectOption('official');
+    assert.equal(await page.locator('.plugin-card').count(), 1);
+    await page.getByRole('combobox', { name: 'Plugin store', exact: true }).selectOption('updates');
+    assert.equal(await page.locator('.plugin-card').count(), 1);
+    await page.getByRole('searchbox').fill('kiro');
+    await page.getByRole('heading', { name: 'No matching plugins', exact: true }).waitFor();
+    await page.getByRole('searchbox').fill('sample');
+    assert.equal(await page.locator('.plugin-card').count(), 1, 'Source, search and update status combine');
+    await tab('Plugin settings').click();
+    await tab('Plugin store').click();
+    assert.equal(await sourceFilter.inputValue(), 'official');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByRole('button', { name: 'Refresh', exact: true }).waitFor({ state: 'visible' });
+    await page.waitForFunction(() => !document.querySelector('.plugins-heading button').disabled);
+    assert.equal(await sourceFilter.inputValue(), 'official');
+    await sourceFilter.selectOption('https://url-only.example.test/plugins.json');
+    await card('URL-only provider').waitFor();
+    assert.equal(await page.locator('.plugin-card').count(), 1);
+    await sourceFilter.selectOption('offline');
+    await page.getByRole('heading', { name: 'No matching plugins', exact: true }).waitFor();
+    await page.getByText('Offline source: Fixture registry unavailable').waitFor();
+    await sourceFilter.selectOption('empty');
+    await page.getByRole('heading', { name: 'No matching plugins', exact: true }).waitFor();
+    await page.evaluate(() => { window.pluginsFixture.failNextStore = true; });
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Fixture store temporarily unavailable' }).waitFor();
+    assert.equal(await sourceFilter.inputValue(), 'empty', 'Failed refresh preserves source choice');
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await page.getByRole('heading', { name: 'No matching plugins', exact: true }).waitFor();
+    assert.equal(await sourceFilter.inputValue(), 'empty');
+    await page.evaluate(() => { window.pluginsFixture.sources = window.pluginsFixture.sources.filter(source => source.id !== 'empty'); });
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.plugin-source-filter').value === '');
+    await card('Community analytics').waitFor();
     await page.getByRole('combobox', { name: 'Plugin store' }).selectOption('updates');
     assert.equal(await page.locator('.plugin-card').count(), 1);
     await page.getByRole('combobox', { name: 'Plugin store' }).selectOption('all');
@@ -221,12 +274,32 @@ const fs = require('node:fs');
         await dialog().waitFor({ state: 'detached' });
       }
     }
+    for (const [locale, label, allStores] of [
+      ['en', 'Store source', 'All stores'], ['zh-CN', '商店来源', '全部商店'],
+      ['zh-TW', '商店來源', '全部商店'], ['ja', 'ストアのソース', 'すべてのストア'],
+    ]) {
+      for (const width of [375, 700, 1280]) {
+        await page.setViewportSize({ width, height: 800 });
+        await open(`locale=${locale}`);
+        await page.locator('.plugin-tabs button').nth(1).click();
+        const select = page.getByRole('combobox', { name: label, exact: true });
+        await select.locator('option[value="long"]').waitFor({ state: 'attached' });
+        assert.equal(await select.locator('option').first().innerText(), allStores);
+        await select.selectOption('long');
+        const bounds = await select.boundingBox();
+        assert.ok(bounds.width <= 200 && bounds.x + bounds.width <= width, 'Long source selector must remain bounded');
+        await noOverflow();
+        if (process.env.PLUGIN_SCREENSHOT_DIR) {
+          await page.screenshot({ path: path.join(process.env.PLUGIN_SCREENSHOT_DIR, `plugins-source-${locale}-${width}.png`), fullPage: true });
+        }
+      }
+    }
     await open('unsupported');
     await page.getByText('This core does not support plugins.', { exact: false }).waitFor();
     assert.equal(await page.locator('.plugin-tabs').count(), 0);
     assert.equal(await page.evaluate(() => window.pluginsFixture.requests.length), 0, 'Unsupported cores do not receive plugin mutations or list requests');
     assert.deepEqual(errors, []);
-    console.log('Plugin UI passed: configured-only and unloaded states, installed counts, store lookup, configuration removal, resources, global/instance toggle, store filters, single-step installation, versions, retry, settings, uninstall, unsupported cores, responsive English/Chinese.');
+    console.log('Plugin UI passed: configured-only and unloaded states, installed counts, store lookup, configuration removal, resources, global/instance toggle, combined source/search/status filters, empty/offline stores, refresh retention/reset, localized bounded source selectors, single-step installation, versions, retry, settings, uninstall, unsupported cores, responsive English/Chinese.');
   } finally {
     await browser?.close();
     await server.close();

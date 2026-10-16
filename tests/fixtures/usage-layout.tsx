@@ -56,6 +56,7 @@ const records = Array.from({ length: 400 }, (_, index) => ({
   failure_status: index % 4 === 0 ? 429 : 0,
   failure_body: index % 4 === 0 ? 'Rate limit exceeded' : '',
   provider: 'test-provider',
+  agent: ['codex', 'claude-code', 'gemini-cli', 'unknown'][index % 4],
   auth_type: index % 2 ? 'oauth' : 'apikey',
   model: index % 3 ? 'test-model' : 'secondary-model',
   alias: '',
@@ -79,6 +80,8 @@ const usageKeyFixture = {
   apiKeys: [category('test-key', 'Test key')],
   lastEventKey: '',
   lastEventUpstream: '',
+  exportedCsv: '',
+  eventQueries: [] as { agent?: string; page?: number; page_size?: number }[],
 };
 Object.assign(window, { usageKeyFixture });
 
@@ -100,12 +103,19 @@ mockIPC(async (cmd, args) => {
       ],
     };
   }
+  if (cmd === 'plugin:dialog|save') return '/tmp/usage-agent.csv';
+  if (cmd === 'save_usage_events_export') {
+    usageKeyFixture.exportedCsv = String(args?.contents);
+    return null;
+  }
   if (cmd === 'get_usage_events') {
     const query = args?.query as {
       page: number; page_size: number; model?: string; source?: string;
-      provider?: string; upstream?: string; api_key_hash?: string; failed?: boolean; canceled?: boolean;
+      agent?: string; provider?: string; upstream?: string; api_key_hash?: string; failed?: boolean; canceled?: boolean;
     };
+    usageKeyFixture.eventQueries.push(query);
     const filtered = records.filter(record =>
+      (!query.agent || record.agent === query.agent) &&
       (!query.model || record.model === query.model)
       && (!query.upstream || `auth:${record.auth_index}` === query.upstream)
       && (!query.source || record.source === query.source)

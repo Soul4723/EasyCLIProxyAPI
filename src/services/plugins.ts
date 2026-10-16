@@ -103,16 +103,20 @@ export interface PluginStorePlatform {
   goarch: string;
 }
 
-export interface PluginStoreSourceError {
+export interface PluginStoreSource {
   sourceId: string;
   sourceName: string;
   sourceUrl: string;
+}
+
+export interface PluginStoreSourceError extends PluginStoreSource {
   message: string;
 }
 
 export interface PluginStoreResponse {
   pluginsEnabled: boolean;
   pluginsDir: string;
+  sources: PluginStoreSource[];
   sourceErrors: PluginStoreSourceError[];
   plugins: PluginStoreEntry[];
 }
@@ -208,12 +212,15 @@ export function normalizePluginStore(value: unknown): PluginStoreResponse {
   return {
     pluginsEnabled: source.plugins_enabled === true,
     pluginsDir: text(source.plugins_dir) || 'plugins',
+    sources: records(source.sources).map((entry) => ({
+      sourceId: text(entry.id), sourceName: text(entry.name), sourceUrl: text(entry.url),
+    })),
     sourceErrors: records(source.source_errors).map((entry) => ({
       sourceId: text(entry.source_id), sourceName: text(entry.source_name),
       sourceUrl: text(entry.source_url), message: text(entry.message),
     })),
     plugins: records(source.plugins).filter((entry) => text(entry.id)).map((entry) => ({
-      storeId: text(entry.store_id) || [text(entry.source_id), text(entry.id)].filter(Boolean).join('/'),
+      storeId: text(entry.store_id) || [text(entry.source_id) || text(entry.source_url), text(entry.id)].filter(Boolean).join('/'),
       sourceId: text(entry.source_id), sourceName: text(entry.source_name), sourceUrl: text(entry.source_url),
       id: text(entry.id), name: text(entry.name), description: text(entry.description),
       author: text(entry.author), version: text(entry.version), repository: text(entry.repository),

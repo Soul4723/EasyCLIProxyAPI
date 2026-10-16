@@ -10,7 +10,7 @@ const renderDense = (quota: QuotaState, file: AuthFile = { name: 'test.json', pr
 
 it('keeps window percentages, reset times and additional windows available in dense mode', () => {
   const html = renderDense({ status: 'success', rows: [
-    { label: '5h', remainingPercent: 140, reset: '10:30', detail: 'Window detail' },
+    { label: '5h', remainingPercent: 100, reset: '10:30', detail: 'Window detail' },
     { label: 'weekly', remainingPercent: null, reset: 'Friday' },
     { label: 'extra', remainingPercent: 0, reset: 'Monday' },
   ] });

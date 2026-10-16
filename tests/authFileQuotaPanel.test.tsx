@@ -47,16 +47,16 @@ it('normalizes a string priority and keeps zero as the default', () => {
   expect(missingPriority).toContain('Priority 0');
 });
 
-it('renders real quota values with bounded bars and keeps unknown distinct from zero', () => {
+it('renders measured quota values and keeps malformed readings unavailable, distinct from zero', () => {
   const html = render({ status: 'success', rows: [
     { label: 'empty', remainingPercent: 0 }, { label: 'full', remainingPercent: 100 },
     { label: 'too high', remainingPercent: 140 }, { label: 'too low', remainingPercent: -20 },
     { label: 'unknown', remainingPercent: null }, { label: 'invalid', remainingPercent: NaN },
   ] });
-  expect(html.match(/role="progressbar"/g)).toHaveLength(4);
-  expect(html.match(/aria-valuenow="0"/g)).toHaveLength(2);
-  expect(html.match(/aria-valuenow="100"/g)).toHaveLength(2);
-  expect(html.match(/credential-quota-row unknown/g)).toHaveLength(2);
+  expect(html.match(/role="progressbar"/g)).toHaveLength(2);
+  expect(html.match(/aria-valuenow="0"/g)).toHaveLength(1);
+  expect(html.match(/aria-valuenow="100"/g)).toHaveLength(1);
+  expect(html.match(/credential-quota-row unknown/g)).toHaveLength(4);
   expect(html).not.toContain('NaN');
   expect(html).not.toContain('140%');
 });
@@ -99,4 +99,18 @@ it.each([
   expect(buttonState(credentialHtml)).toEqual({ visible: values.visible, disabled: values.disabled });
   expect(buttonState(credentialHtml)).toEqual(buttonState(quotaHtml));
   if (values.loading) expect(credentialHtml).toContain('Submitting reset and refreshing quota');
+});
+
+
+it('both quota surfaces gate refresh and reset on core disabled status without a boolean flag', () => {
+  const file = { name: 'disabled.json', provider: 'codex', status: 'disabled' };
+  const quota: QuotaState = { status: 'success', rows: [], resetCredits: 2 };
+  for (const content of [
+    <AuthFileQuotaPanel file={file} quota={quota} disabled={false} onRefresh={() => {}} onReset={() => {}} />,
+    <QuotaCard file={file} quota={quota} onRefresh={() => {}} onReset={() => {}} />,
+  ]) {
+    const html = renderToStaticMarkup(<I18nProvider>{content}</I18nProvider>);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="Reset Quota"/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="[^"]*disabled[^"]*"/i);
+  }
 });
