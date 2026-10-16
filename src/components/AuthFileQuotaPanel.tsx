@@ -1,3 +1,4 @@
+import { deriveAccountPresentation } from '../services/accountPresentation';
 import { ResetCreditExpiries } from './ResetCreditExpiries';
 import { LoaderCircle, RefreshCw } from 'lucide-react';
 import { useI18n } from '../i18n';
@@ -19,6 +20,7 @@ export function AuthFileQuotaPanel({ quota, file, disabled, onRefresh, onReset, 
 }) {
   const { locale, t } = useI18n();
   const now = useQuotaClock() + (quota.serverTimeOffsetMs ?? 0);
+  const rows = deriveAccountPresentation(file, quota).quota.rows;
   const loading = quota.status === 'loading';
   const privacy = usePrivacyMask();
   const name = privacy.credentialName(file);
@@ -33,7 +35,7 @@ export function AuthFileQuotaPanel({ quota, file, disabled, onRefresh, onReset, 
     accountCreditsLabel ? t('quota.creditBalance') + ': ' + accountCreditsLabel : '',
   ].filter(Boolean).join(' · ') : '';
   const renderRow = (row: QuotaState['rows'][number], index: number) => {
-    const percent = row.remainingPercent !== null && Number.isFinite(row.remainingPercent) ? Math.max(0, Math.min(100, row.remainingPercent)) : null;
+    const percent = row.remainingPercent;
     const reset = formatQuotaReset(row.resetAtMs, row.reset, locale, now);
     const resetText = dense && row.resetAtMs !== undefined && Number.isFinite(row.resetAtMs)
       ? new Intl.DateTimeFormat(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(row.resetAtMs)
@@ -69,11 +71,11 @@ export function AuthFileQuotaPanel({ quota, file, disabled, onRefresh, onReset, 
           : <><span>{t('authFiles.quota.failed')}</span>{error ? <small>{error}</small> : null}</>}
       </div> : null}
       {quota.status === 'success' ? <>
-        {quota.rows.length ? <>
-          <div className="credential-quota-rows">{(compactLayout ? quota.rows.slice(0, 2) : quota.rows).map(renderRow)}</div>
-          {compactLayout && quota.rows.length > 2 ? <details className="credential-quota-more">
-            <summary>{t('authFiles.health.details')} (+{quota.rows.length - 2})</summary>
-            <div className="credential-quota-rows">{quota.rows.slice(2).map((row, index) => renderRow(row, index + 2))}</div>
+        {rows.length ? <>
+          <div className="credential-quota-rows">{(compactLayout ? rows.slice(0, 2) : rows).map(renderRow)}</div>
+          {compactLayout && rows.length > 2 ? <details className="credential-quota-more">
+            <summary>{t('authFiles.health.details')} (+{rows.length - 2})</summary>
+            <div className="credential-quota-rows">{rows.slice(2).map((row, index) => renderRow(row, index + 2))}</div>
           </details> : null}
         </> : <p className="credential-quota-empty">{t('authFiles.quota.empty')}</p>}
         {!dense ? <div className="credential-quota-footnotes">
