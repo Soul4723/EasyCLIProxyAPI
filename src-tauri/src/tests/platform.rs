@@ -18,6 +18,7 @@ fn windows_tray_presentation_tracks_core_state_and_busy_actions() {
         connection_mode: Some("local".to_string()),
         remote_origin: None,
         message: String::new(),
+        recovery: None,
     };
 
     let missing = windows_tray_presentation(&status, false, "zh-CN");
@@ -221,4 +222,24 @@ fn codex_store_version_resolves_only_the_selected_family_and_application() {
         Some(("OpenAI.Codex_o'brien", "App"))
     );
     fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn main_window_is_found_after_a_child_webview_is_added() {
+    let app = tauri::test::mock_app();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    window
+        .as_ref()
+        .window()
+        .add_child(
+            tauri::webview::WebviewBuilder::new("plugin", Default::default()),
+            tauri::LogicalPosition::new(0.0, 0.0),
+            tauri::LogicalSize::new(1.0, 1.0),
+        )
+        .unwrap();
+
+    assert!(app.get_webview_window("main").is_none());
+    assert_eq!(main_window(&app).unwrap().label(), "main");
 }

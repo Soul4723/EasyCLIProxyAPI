@@ -308,7 +308,20 @@ pub(crate) fn merge_core_config_yaml(
                 current.to_string()
             }
         }
-        None => merge_core_config_fields(template, None)?,
+        None => {
+            // Only new configurations omit template plugin instances. No scan or
+            // cleanup is performed for existing installations.
+            let file = template.parse::<yaml_edit::YamlFile>()
+                .map_err(|error| format!("Failed to parse kernel configuration template: {error}"))?;
+            let root = file.document().and_then(|document| document.as_mapping())
+                .ok_or_else(|| "Kernel configuration template root must be a YAML mapping".to_string())?;
+            if let Some(value) = root.get("plugins") {
+                if let Some(plugins) = value.as_mapping() {
+                    plugins.remove("configs");
+                }
+            }
+            merge_core_config_fields(&file.to_string(), None)?
+        },
     };
     // Old mirrored values may be stale after a kernel upgrade. Only an explicit
     // software-side opt-out should disable statistics when starting the kernel.
@@ -1773,7 +1786,7 @@ pub(crate) fn logical_window_size_from_physical(
 }
 
 pub(crate) fn fit_window_size_to_current_monitor<R: tauri::Runtime>(
-    window: &tauri::WebviewWindow<R>,
+    window: &tauri::Window<R>,
     saved_size: SavedWindowSize,
 ) -> SavedWindowSize {
     let monitor = window
@@ -1820,8 +1833,7 @@ pub(crate) fn restore_main_window_size(app: &tauri::AppHandle) -> Result<(), Str
     let Some(saved_size) = window_size_state.snapshot()? else {
         return Ok(());
     };
-    let window = app
-        .get_webview_window("main")
+    let window = main_window(app)
         .ok_or_else(|| "Main window does not exist; cannot restore window size".to_string())?;
     let restored_size = fit_window_size_to_current_monitor(&window, saved_size);
 
@@ -1839,8 +1851,7 @@ pub(crate) fn persist_main_window_size(app: &tauri::AppHandle) -> Result<(), Str
     let saved_size = match window_size_state.snapshot()? {
         Some(size) => size,
         None => {
-            let window = app
-                .get_webview_window("main")
+            let window = main_window(app)
                 .ok_or_else(|| "Main window does not exist; cannot save window size".to_string())?;
             let physical_size = window
                 .inner_size()
