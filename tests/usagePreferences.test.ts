@@ -25,7 +25,7 @@ describe('usage preferences across updates', () => {
     });
     Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: browser });
     try {
-      expect(getInitialVisibleColumns()).toEqual(['time', 'model', 'source', 'key', 'result', 'total', 'cache', 'latency', 'speed', 'cost']);
+      expect(getInitialVisibleColumns()).toEqual(['time', 'model', 'provider', 'result', 'total', 'cache', 'latency', 'speed', 'cost']);
       expect(getInitialColumnWidths().provider).toBe(135);
       browser.setItem('cpa-gui.usage-events-visible-cols.v5', JSON.stringify(['time', 'provider', 'key', 'source', 'model', 'effort', 'result', 'request', 'latency', 'speed', 'total', 'cache', 'cost']));
       expect(getInitialVisibleColumns()).toEqual(['time', 'provider', 'key', 'source', 'model', 'result', 'request', 'latency', 'speed', 'total', 'cache', 'cost']);
@@ -38,9 +38,9 @@ describe('usage preferences across updates', () => {
       browser.setItem('cpa-gui.usage-events-collapse-errors.v1', '0');
       expect(getInitialCollapseErrors()).toBe(false);
       browser.clear();
-      expect(getInitialVisibleColumns()).toContain('key');
+      expect(getInitialVisibleColumns()).toContain('agent');
       browser.setItem(columns, JSON.stringify(['time', 'model', 'source', 'result', 'total', 'cache', 'latency', 'speed', 'cost']));
-      expect(getInitialVisibleColumns()).toContain('key');
+      expect(getInitialVisibleColumns()).toEqual(['time', 'model', 'source', 'result', 'total', 'cache', 'latency', 'speed', 'cost']);
       browser.setItem(columns, JSON.stringify(['time', 'source']));
       expect(getInitialVisibleColumns()).toEqual(['time', 'source']);
     } finally {
@@ -48,6 +48,36 @@ describe('usage preferences across updates', () => {
       else Reflect.deleteProperty(globalThis, 'localStorage');
     }
   });
+  it('preserves former default layouts at every saved preference version without enabling Agent', () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    const browser = storage();
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: browser });
+    const formerDefaults = [
+      ['time', 'model', 'provider', 'result', 'total', 'cache', 'latency', 'speed', 'cost'],
+      ['time', 'model', 'source', 'result', 'total', 'cache', 'latency', 'speed', 'cost'],
+      ['time', 'model', 'source', 'key', 'result', 'total', 'cache', 'latency', 'speed', 'cost'],
+    ];
+    try {
+      for (const version of [2, 3, 4, 5, 6]) {
+        for (const layout of formerDefaults) {
+          browser.clear();
+          browser.setItem(`cpa-gui.usage-events-visible-cols.v${version}`, JSON.stringify(layout));
+          expect(getInitialVisibleColumns()).toEqual(layout);
+        }
+      }
+      browser.clear();
+      expect(getInitialVisibleColumns()).toContain('agent');
+      browser.setItem(columns, '["model","agent","time"]');
+      expect(getInitialVisibleColumns()).toEqual(['model', 'agent', 'time']);
+      browser.setItem(columns, '["time","model"]');
+      browser.setItem('cpa-gui.usage-events-visible-cols.v5', '["agent","time"]');
+      expect(getInitialVisibleColumns()).toEqual(['time', 'model']);
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'localStorage', original);
+      else Reflect.deleteProperty(globalThis, 'localStorage');
+    }
+  });
+
   it('migrates browser preferences and restores them with an empty WebView cache', async () => {
     let disk: Record<string, string> = {};
     const backend = { load: async () => disk, save: async (values: Record<string, string>) => { disk = values; } };
