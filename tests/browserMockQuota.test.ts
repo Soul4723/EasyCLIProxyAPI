@@ -4,6 +4,10 @@ import { managementApi } from '../src/services/managementApi';
 import { consumeClaudeResetCredit, consumeCodexResetCredit, loadQuota, type AuthFile } from '../src/services/quotaService';
 import { resetAuthFileCooldown } from '../src/services/authFiles';
 
+let targetRevisionMock: ReturnType<typeof spyOn>;
+beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); });
+afterEach(() => { targetRevisionMock.mockRestore(); });
+
 let runtime: ReturnType<typeof createBrowserMockRuntime>;
 let get: ReturnType<typeof spyOn>;
 let post: ReturnType<typeof spyOn>;
@@ -14,7 +18,10 @@ const files = async () => (await request('GET', '/credentials') as { files: Auth
 beforeEach(() => {
   runtime = createBrowserMockRuntime('running');
   get = spyOn(managementApi, 'get').mockImplementation(async (path, query) => await request('GET', path, undefined, query) as never);
-  post = spyOn(managementApi, 'post').mockImplementation(async (path, body) => await request('POST', path, body) as never);
+  post = spyOn(managementApi, 'post').mockImplementation(async (path, body, options) => {
+    if (path === '/requests/api-call') expect(options?.expectedRevision).toBe(0);
+    return await request('POST', path, body) as never;
+  });
 });
 afterEach(() => { get.mockRestore(); post.mockRestore(); });
 

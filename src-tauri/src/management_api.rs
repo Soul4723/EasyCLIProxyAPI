@@ -64,6 +64,7 @@ pub(crate) struct ManagementRequest {
     body: Option<serde_json::Value>,
     #[serde(rename = "timeoutMs")]
     timeout_ms: Option<u64>,
+    expected_revision: Option<u64>,
 }
 
 fn deserialize_management_body<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
@@ -79,7 +80,17 @@ pub(crate) async fn management_request(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: ManagementRequest,
 ) -> Result<serde_json::Value, String> {
+    management_request_for_target(&gui_config_state, request).await
+}
+
+async fn management_request_for_target(
+    gui_config_state: &GuiConfigState,
+    request: ManagementRequest,
+) -> Result<serde_json::Value, String> {
     let config = gui_config_state.snapshot()?;
+    if request.expected_revision.is_some_and(|revision| revision != config.target_revision) {
+        return Err("The core connection changed; request cancelled".to_string());
+    }
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
     let method = match request.method.trim().to_ascii_uppercase().as_str() {
@@ -686,6 +697,33 @@ server.serve_forever()
                 tokio::join!(client.get(url).bearer_auth("isolated-secret").send(), server)
             }).await.unwrap();
             assert_eq!(response.unwrap().status(), reqwest::StatusCode::FOUND);
+        }
+    }
+
+    #[tokio::test]
+    async fn quota_requests_reject_stale_targets_before_dispatch_and_after_lock_wait() {
+        for url in ["https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume",
+                    "https://api.anthropic.com/api/organizations/test/reset_rate_limits"] {
+            for queued in [false, true] {
+                let state = GuiConfigState::new(GuiConfigFile::default());
+                let revision = state.snapshot().unwrap().target_revision;
+                let request = serde_json::from_value(serde_json::json!({
+                    "method": "POST", "path": "/requests/api-call",
+                    "expectedRevision": revision, "body": { "url": url, "method": "POST", "authIndex": "shared" }
+                })).unwrap();
+                if queued {
+                    let lock = state.target_operation.lock().await;
+                    let call = management_request_for_target(&state, request);
+                    tokio::pin!(call);
+                    assert!(tokio::time::timeout(Duration::from_millis(10), &mut call).await.is_err());
+                    state.replace_external(state.snapshot().unwrap()).unwrap();
+                    drop(lock);
+                    assert!(call.await.unwrap_err().contains("connection changed"));
+                } else {
+                    state.replace_external(state.snapshot().unwrap()).unwrap();
+                    assert!(management_request_for_target(&state, request).await.unwrap_err().contains("connection changed"));
+                }
+            }
         }
     }
 

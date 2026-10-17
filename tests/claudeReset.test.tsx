@@ -28,6 +28,7 @@ beforeEach(() => {
   requests = [];
   mode = 'success';
   mockIPC((_command, payload) => {
+    if (_command === 'get_management_target_revision') return 0;
     const request = (payload as { request: { path: string; body: typeof requests[number] } }).request;
     expect(request.path).toBe('/requests/api-call');
     const body = request.body;
@@ -117,12 +118,12 @@ test('retry expiry and account changes never send a new claim', async () => {
     readStatus: async () => status(), readOrganization: async () => account,
     claim: async () => { calls++; throw new Error('timeout'); },
   });
-  await expect(operations.run('key', 'auth', 'test')).rejects.toThrow('timeout');
+  await expect(operations.run('key', 'auth', 'test', 0)).rejects.toThrow('timeout');
   account = 'aaaaaaaa-2222-3333-4444-555555555555';
-  await expect(operations.run('key', 'auth', 'test')).rejects.toThrow('identity');
+  await expect(operations.run('key', 'auth', 'test', 0)).rejects.toThrow('identity');
   account = organization;
   now += RETRY_WINDOW_MS;
-  await expect(operations.run('key', 'auth', 'test')).rejects.toThrow('expired');
+  await expect(operations.run('key', 'auth', 'test', 0)).rejects.toThrow('expired');
   expect(calls).toBe(1);
 });
 
@@ -134,6 +135,6 @@ test('cache invalidation during account verification prevents the claim', async 
     readOrganization: async () => { revision++; return organization; },
     claim: async () => { calls++; return 'reset'; },
   });
-  await expect(operations.run('key', 'auth', 'test')).rejects.toThrow('session');
+  await expect(operations.run('key', 'auth', 'test', 0)).rejects.toThrow('session');
   expect(calls).toBe(0);
 });

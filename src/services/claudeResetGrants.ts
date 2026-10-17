@@ -8,8 +8,8 @@ const CLAUDE_REQUEST_HEADERS = {
   'anthropic-beta': 'oauth-2025-04-20',
 };
 const apiCallApi = {
-  async request(body: { authIndex: string; method: string; url: string; header: Record<string, string>; data?: string }, options: { timeout: number }) {
-    const response = await managementApi.post<Record<string, unknown>>('/requests/api-call', body, { timeoutMs: options.timeout });
+  async request(body: { authIndex: string; method: string; url: string; header: Record<string, string>; data?: string }, options: { timeout: number; expectedRevision: number }) {
+    const response = await managementApi.post<Record<string, unknown>>('/requests/api-call', body, { timeoutMs: options.timeout, expectedRevision: options.expectedRevision });
     let payload = response.body ?? response.bodyText;
     if (typeof payload === 'string') {
       try { payload = JSON.parse(payload); } catch { payload = null; }
@@ -251,7 +251,7 @@ export function anthropicResetGrantBlocker(
   return null;
 }
 
-async function readAccount(authIndex: string, path: string): Promise<Record<string, unknown>> {
+async function readAccount(authIndex: string, path: string, expectedRevision: number): Promise<Record<string, unknown>> {
   const response = await apiCallApi.request(
     {
       authIndex,
@@ -259,7 +259,7 @@ async function readAccount(authIndex: string, path: string): Promise<Record<stri
       url: ANTHROPIC_API_ORIGIN + path,
       header: { ...CLAUDE_REQUEST_HEADERS },
     },
-    { timeout: 12000 }
+    { timeout: 12000, expectedRevision }
   );
   if (response.statusCode < 200 || response.statusCode >= 300 || !isRecord(response.body)) {
     throw new AnthropicResetGrantError('upstream');
@@ -267,15 +267,15 @@ async function readAccount(authIndex: string, path: string): Promise<Record<stri
   return response.body;
 }
 
-export async function readClaudeResetGrants(authIndex: string) {
-  const body = await readAccount(authIndex, ANTHROPIC_RESET_GRANT_STATUS_PATH);
+export async function readClaudeResetGrants(authIndex: string, expectedRevision: number) {
+  const body = await readAccount(authIndex, ANTHROPIC_RESET_GRANT_STATUS_PATH, expectedRevision);
   const status = parseAnthropicResetGrantStatus(body.cedar_ember);
   if (!status) throw new AnthropicResetGrantError('malformed');
   return status;
 }
 
-export async function readClaudeOrganization(authIndex: string) {
-  const body = await readAccount(authIndex, ANTHROPIC_PROFILE_PATH);
+export async function readClaudeOrganization(authIndex: string, expectedRevision: number) {
+  const body = await readAccount(authIndex, ANTHROPIC_PROFILE_PATH, expectedRevision);
   const uuid = isRecord(body.organization) ? body.organization.uuid : undefined;
   if (typeof uuid !== 'string' || !ORGANIZATION_UUID_RE.test(uuid)) {
     throw new AnthropicResetGrantError('malformed');
@@ -287,7 +287,8 @@ export async function claimClaudeResetGrant(
   authIndex: string,
   organization: string,
   grantId: string,
-  requestId: string
+  requestId: string,
+  expectedRevision: number,
 ): Promise<AnthropicResetSettledCode> {
   if (
     !ORGANIZATION_UUID_RE.test(organization) ||
@@ -308,7 +309,7 @@ export async function claimClaudeResetGrant(
           request_id: requestId,
         }),
       },
-      { timeout: ANTHROPIC_RESET_GRANT_REDEEM_TIMEOUT_MS }
+      { timeout: ANTHROPIC_RESET_GRANT_REDEEM_TIMEOUT_MS, expectedRevision }
     );
     if (response.statusCode === 429) return 'rate_limited';
     if (response.statusCode === 401 || response.statusCode === 403) return 'auth_error';

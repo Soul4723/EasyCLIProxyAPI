@@ -1,3 +1,4 @@
+import { startQuotaOperation, assertQuotaOperation, finishQuotaOperation, type QuotaOperation } from './quotaOperation';
 import { captureQuotaCacheGeneration } from './quotaCache';
 import { readClaudeResetGrants, type AnthropicResetGrantStatus } from './claudeResetGrants';
 import { selectResetGrant } from './selectClaudeResetGrant';
@@ -32,6 +33,7 @@ export type QuotaRow = {
   detail?: string;
 };
 export type QuotaState = {
+  targetRevision?: number;
   status: QuotaStatus;
   rows: QuotaRow[];
   error?: string;
@@ -633,11 +635,11 @@ export const quotaRowsFor = (provider: QuotaProvider, payload: unknown): QuotaRo
   });
 };
 
-const resolveProjectId = async (file: AuthFile): Promise<string> => {
+const resolveProjectId = async (operation: QuotaOperation, file: AuthFile): Promise<string> => {
   const direct = antigravityProjectFor(file);
   if (direct) return direct;
   try {
-    const payload = parseBody(await managementApi.get('/credentials/download', { name: fileName(file) }));
+    const payload = parseBody(await managementApi.get('/credentials/download', { name: fileName(file) }, { expectedRevision: operation.expectedRevision }));
     return isRecord(payload) ? antigravityProjectFor(payload) : '';
   } catch {
     return '';
@@ -664,7 +666,7 @@ const xaiUserIdFromRecord = (record: Record<string, unknown>): string => {
 const resolveXaiUserId = (file: AuthFile): string =>
   xaiUserIdFromRecord(file);
 
-const requestQuotaPayload = async (
+const requestQuotaPayload = async (operation: QuotaOperation,
   authIndex: string,
   url: string,
   header: Record<string, string>,
@@ -673,13 +675,14 @@ const requestQuotaPayload = async (
   timeoutMs?: number,
   responseClock?: { serverTimeOffsetMs?: number },
 ) => {
+  assertQuotaOperation(operation);
   const response = await managementApi.post<Record<string, unknown>>('/requests/api-call', {
     authIndex,
     method,
     url,
     header,
     data,
-  }, { timeoutMs });
+  }, { timeoutMs, expectedRevision: operation.expectedRevision });
   const status = Number(response.status_code ?? response.statusCode ?? 0);
   if (status < 200 || status >= 300) {
     throw new Error(apiCallErrorMessage(response));
@@ -693,11 +696,11 @@ const requestQuotaPayload = async (
   return parseBody(response.body ?? response.bodyText);
 };
 
-const callXaiPaidHealth = async (authIndex: string): Promise<unknown> => {
+const callXaiPaidHealth = async (operation: QuotaOperation, authIndex: string): Promise<unknown> => {
   const header = { Authorization: 'Bearer $TOKEN$', accept: 'application/json' };
   const [profile, chat] = await Promise.allSettled([
-    requestQuotaPayload(authIndex, 'https://api.x.ai/v1/me', header, 'GET', undefined, 15_000),
-    requestQuotaPayload(authIndex, 'https://api.x.ai/v1/chat/completions', {
+    requestQuotaPayload(operation, authIndex, 'https://api.x.ai/v1/me', header, 'GET', undefined, 15_000),
+    requestQuotaPayload(operation, authIndex, 'https://api.x.ai/v1/chat/completions', {
       ...header, 'Content-Type': 'application/json',
     }, 'POST', JSON.stringify({
       model: 'grok-4.5',
@@ -714,16 +717,16 @@ const callXaiPaidHealth = async (authIndex: string): Promise<unknown> => {
     teamId: readString(record, 'team_id', 'teamId') || undefined,
   };
 };
-const callXaiQuota = async (file: AuthFile): Promise<unknown> => {
+const callXaiQuota = async (operation: QuotaOperation, file: AuthFile): Promise<unknown> => {
   const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
   if (!authIndex) throw new Error(quotaText('quota.service.error.missingAuthIndex'));
-  if (isPaidXaiFile(file)) return callXaiPaidHealth(authIndex);
+  if (isPaidXaiFile(file)) return callXaiPaidHealth(operation, authIndex);
   const header = { ...headersByProvider.xai };
   const userId = await resolveXaiUserId(file);
   if (userId) header['x-userid'] = userId;
   const [weekly, monthly] = await Promise.allSettled([
-    requestQuotaPayload(authIndex, XAI_WEEKLY_URL, header),
-    requestQuotaPayload(authIndex, endpointByProvider.xai, header),
+    requestQuotaPayload(operation, authIndex, XAI_WEEKLY_URL, header),
+    requestQuotaPayload(operation, authIndex, endpointByProvider.xai, header),
   ]);
   const payload = {
     weekly: weekly.status === 'fulfilled' ? weekly.value : null,
@@ -733,7 +736,7 @@ const callXaiQuota = async (file: AuthFile): Promise<unknown> => {
   const billingError = weekly.status === 'rejected' && monthly.status === 'rejected'
     ? weekly.reason : new Error(quotaText('quota.service.error.unrecognized'));
   try {
-    return await callXaiPaidHealth(authIndex);
+    return await callXaiPaidHealth(operation, authIndex);
   } catch {
     throw billingError;
   }
@@ -742,14 +745,16 @@ const callXaiQuota = async (file: AuthFile): Promise<unknown> => {
 // Optional subscription requests run after the quota has been committed to the shared cache.
 export const enrichXaiQuotaPlan = async (file: AuthFile, quota: QuotaState): Promise<QuotaState> => {
   if (providerForFile(file) !== 'xai' || quota.status !== 'success') return quota;
+  const operation = await startQuotaOperation();
+  if (quota.targetRevision !== undefined && quota.targetRevision !== operation.expectedRevision) throw new Error('The core connection changed; quota cancelled');
   const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
   if (!authIndex) return quota;
   const header = { ...headersByProvider.xai };
   const userId = resolveXaiUserId(file);
   if (userId) header['x-userid'] = userId;
   const [user, settings] = await Promise.allSettled([
-    requestQuotaPayload(authIndex, 'https://cli-chat-proxy.grok.com/v1/user?include=subscription', header, 'GET', undefined, 8_000),
-    requestQuotaPayload(authIndex, 'https://cli-chat-proxy.grok.com/v1/settings', header, 'GET', undefined, 8_000),
+    requestQuotaPayload(operation, authIndex, 'https://cli-chat-proxy.grok.com/v1/user?include=subscription', header, 'GET', undefined, 8_000),
+    requestQuotaPayload(operation, authIndex, 'https://cli-chat-proxy.grok.com/v1/settings', header, 'GET', undefined, 8_000),
   ]);
   const readPlan = (result: PromiseSettledResult<unknown>, keys: string[]) => {
     if (result.status !== 'fulfilled' || !isRecord(result.value)) return '';
@@ -761,6 +766,7 @@ export const enrichXaiQuotaPlan = async (file: AuthFile, quota: QuotaState): Pro
   };
   const plan = readPlan(settings, ['subscription_tier_display', 'subscriptionTierDisplay'])
     || readPlan(user, ['subscriptionTier', 'subscription_tier']);
+  await finishQuotaOperation(operation);
   return plan ? { ...quota, plan } : quota;
 };
 
@@ -804,23 +810,23 @@ const resolveClaudePlan = (payload: unknown): string | undefined => {
   return undefined;
 };
 
-const loadClaudePlan = async (file: AuthFile): Promise<string | undefined> => {
+const loadClaudePlan = async (operation: QuotaOperation, file: AuthFile): Promise<string | undefined> => {
   const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
   if (!authIndex) return undefined;
   try {
     return resolveClaudePlan(
-      await requestQuotaPayload(authIndex, CLAUDE_PROFILE_URL, headersByProvider.claude),
+      await requestQuotaPayload(operation, authIndex, CLAUDE_PROFILE_URL, headersByProvider.claude),
     );
   } catch {
     return undefined;
   }
 };
 
-const loadAntigravityPlan = async (file: AuthFile): Promise<string | undefined> => {
+const loadAntigravityPlan = async (operation: QuotaOperation, file: AuthFile): Promise<string | undefined> => {
   const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
   if (!authIndex) return undefined;
   try {
-    const payload = await requestQuotaPayload(
+    const payload = await requestQuotaPayload(operation,
       authIndex,
       ANTIGRAVITY_CODE_ASSIST_URL,
       headersByProvider.antigravity,
@@ -853,7 +859,7 @@ const loadAntigravityPlan = async (file: AuthFile): Promise<string | undefined> 
   }
 };
 
-async function callUpstreamQuota(
+async function callUpstreamQuota(operation: QuotaOperation,
   file: AuthFile,
   provider: QuotaProvider,
   resolvedCodexAccountId?: string,
@@ -863,14 +869,14 @@ async function callUpstreamQuota(
   if (!authIndex) throw new Error(quotaText('quota.service.error.missingAuthIndex'));
   if (provider === 'devin') {
     if (!readString(file, 'name')) throw new Error(quotaText('quota.service.error.missingAuthIndex'));
-    return requestQuotaPayload(authIndex, DEVIN_QUOTA_URL, DEVIN_QUOTA_HEADERS, 'POST', DEVIN_QUOTA_DATA, undefined, responseClock);
+    return requestQuotaPayload(operation, authIndex, DEVIN_QUOTA_URL, DEVIN_QUOTA_HEADERS, 'POST', DEVIN_QUOTA_DATA, undefined, responseClock);
   }
   const header = { ...headersByProvider[provider] };
   if (provider === 'codex') {
     const accountId = resolvedCodexAccountId ?? await resolveCodexAccountId(file);
     if (accountId) header['Chatgpt-Account-Id'] = accountId;
   }
-  const project = provider === 'antigravity' ? await resolveProjectId(file) : '';
+  const project = provider === 'antigravity' ? await resolveProjectId(operation, file) : '';
   if (provider === 'antigravity' && !project) {
     throw new Error(quotaText('quota.service.error.missingProject'));
   }
@@ -881,7 +887,7 @@ async function callUpstreamQuota(
   let hadSuccessfulResponse = false;
   for (const url of urls) {
     try {
-      const payload = await requestQuotaPayload(
+      const payload = await requestQuotaPayload(operation,
         authIndex,
         url,
         header,
@@ -911,7 +917,7 @@ async function callUpstreamQuota(
   );
 }
 
-const callCodexResetCredits = async (
+const callCodexResetCredits = async (operation: QuotaOperation,
   file: AuthFile,
   accountId: string,
 ): Promise<ReturnType<typeof codexResetCreditDetailsFor>> => {
@@ -924,14 +930,14 @@ const callCodexResetCredits = async (
     Originator: 'Codex Desktop',
   };
   if (accountId) header['Chatgpt-Account-Id'] = accountId;
-  const payload = await requestQuotaPayload(authIndex, CODEX_RESET_CREDITS_URL, header, 'GET', undefined, 8_000);
+  const payload = await requestQuotaPayload(operation, authIndex, CODEX_RESET_CREDITS_URL, header, 'GET', undefined, 8_000);
   if (!isRecord(payload) || !['credits', 'available_count', 'availableCount', 'applicable_available_count', 'applicableAvailableCount'].some((key) => key in payload)) {
     throw new Error(quotaText('quota.service.error.resetCreditsInvalid'));
   }
   return codexResetCreditDetailsFor(payload);
 };
 
-async function loadQuotaSnapshot(file: AuthFile): Promise<QuotaState> {
+async function loadQuotaSnapshot(operation: QuotaOperation, file: AuthFile): Promise<QuotaState> {
   const provider = providerForFile(file);
   if (!provider) {
     return {
@@ -946,22 +952,22 @@ async function loadQuotaSnapshot(file: AuthFile): Promise<QuotaState> {
     const codexAccountId = codexMetadata?.accountId || '';
     const responseClock: { serverTimeOffsetMs?: number } = {};
     const payloadPromise = provider === 'xai'
-      ? callXaiQuota(file)
-      : callUpstreamQuota(file, provider, codexAccountId, responseClock);
+      ? callXaiQuota(operation, file)
+      : callUpstreamQuota(operation, file, provider, codexAccountId, responseClock);
     const planPromise = provider === 'claude'
-      ? loadClaudePlan(file)
+      ? loadClaudePlan(operation, file)
       : provider === 'antigravity'
-        ? loadAntigravityPlan(file)
+        ? loadAntigravityPlan(operation, file)
         : Promise.resolve(undefined);
     let resetCreditsError: string | undefined;
     const resetCreditsPromise = provider === 'codex'
-      ? callCodexResetCredits(file, codexAccountId).catch((error) => {
+      ? callCodexResetCredits(operation, file, codexAccountId).catch((error) => {
         resetCreditsError = error instanceof Error ? error.message : String(error);
         return null;
       })
       : Promise.resolve(null);
     const claudeGrantsPromise = provider === 'claude'
-      ? readClaudeResetGrants(normalizeAuthIndex(file.auth_index ?? file.authIndex)).catch(() => {
+      ? readClaudeResetGrants(normalizeAuthIndex(file.auth_index ?? file.authIndex), operation.expectedRevision).catch(() => {
         resetCreditsError = quotaText('quota.claude.readError');
         return undefined;
       }) : Promise.resolve(undefined);
@@ -1024,7 +1030,7 @@ const createRedeemRequestId = () => {
   });
 };
 
-async function consumeCodexResetCreditSnapshot(file: AuthFile): Promise<QuotaState> {
+async function consumeCodexResetCreditSnapshot(operation: QuotaOperation, file: AuthFile): Promise<QuotaState> {
   if (providerForFile(file) !== 'codex') {
     throw new Error(quotaText('quota.service.error.codexResetOnly'));
   }
@@ -1036,20 +1042,25 @@ async function consumeCodexResetCreditSnapshot(file: AuthFile): Promise<QuotaSta
   };
   const accountId = await resolveCodexAccountId(file);
   if (accountId) header['Chatgpt-Account-Id'] = accountId;
-  await requestQuotaPayload(
+  await requestQuotaPayload(operation,
     authIndex,
     CODEX_RESET_CREDITS_CONSUME_URL,
     header,
     'POST',
     JSON.stringify({ redeem_request_id: createRedeemRequestId() }),
   );
-  return loadQuotaSnapshot(file);
+  return loadQuotaSnapshot(operation, file);
+}
+
+export function invalidateQuotaRequests() {
+  quotaRequests.clear();
+  quotaMutationRequests.clear();
 }
 
 const quotaRequests = new Map<string, Promise<QuotaState>>();
 const quotaMutationRequests = new Map<string, Promise<QuotaState>>();
 
-export function loadQuota(file: AuthFile): Promise<QuotaState> {
+export function loadQuota(file: AuthFile, initiatingOperation?: Promise<QuotaOperation>): Promise<QuotaState> {
   const key = quotaKey(file);
   const reset = quotaMutationRequests.get(key);
   if (reset) return reset.catch((error): QuotaState => ({
@@ -1057,20 +1068,31 @@ export function loadQuota(file: AuthFile): Promise<QuotaState> {
   }));
   const existing = quotaRequests.get(key);
   if (existing) return existing;
-  const request = loadQuotaSnapshot(file).finally(() => {
+  const operation = initiatingOperation ?? startQuotaOperation();
+  const request = operation.then(async (operation) => {
+    const result = await loadQuotaSnapshot(operation, file);
+    await finishQuotaOperation(operation);
+    return { ...result, targetRevision: operation.expectedRevision };
+  }).finally(() => {
     if (quotaRequests.get(key) === request) quotaRequests.delete(key);
   });
   quotaRequests.set(key, request);
   return request;
 }
 
-function runQuotaMutation(file: AuthFile, mutate: () => Promise<QuotaState>): Promise<QuotaState> {
+function runQuotaMutation(file: AuthFile, mutate: (operation: QuotaOperation) => Promise<QuotaState>, initiatingOperation?: Promise<QuotaOperation>): Promise<QuotaState> {
   const key = quotaKey(file);
   const existing = quotaMutationRequests.get(key);
   if (existing) return existing;
+  const started = initiatingOperation ?? startQuotaOperation();
+  const waiting = quotaRequests.get(key);
   const request = (async () => {
-    await quotaRequests.get(key);
-    return mutate();
+    const operation = await started;
+    await waiting;
+    assertQuotaOperation(operation);
+    const result = await mutate(operation);
+    await finishQuotaOperation(operation);
+    return { ...result, targetRevision: operation.expectedRevision };
   })().finally(() => {
     if (quotaMutationRequests.get(key) === request) quotaMutationRequests.delete(key);
   });
@@ -1078,25 +1100,25 @@ function runQuotaMutation(file: AuthFile, mutate: () => Promise<QuotaState>): Pr
   return request;
 }
 
-export function consumeCodexResetCredit(file: AuthFile): Promise<QuotaState> {
-  return runQuotaMutation(file, () => consumeCodexResetCreditSnapshot(file));
+export function consumeCodexResetCredit(file: AuthFile, operation?: Promise<QuotaOperation>): Promise<QuotaState> {
+  return runQuotaMutation(file, operation => consumeCodexResetCreditSnapshot(operation, file), operation);
 }
 
-export function consumeClaudeResetCredit(file: AuthFile): Promise<QuotaState> {
+export function consumeClaudeResetCredit(file: AuthFile, initiatingOperation?: Promise<QuotaOperation>): Promise<QuotaState> {
   const generation = captureQuotaCacheGeneration();
-  return runQuotaMutation(file, async () => {
+  return runQuotaMutation(file, async (operation) => {
     if (captureQuotaCacheGeneration() !== generation) throw new Error(quotaText('quota.claude.blocked'));
     if (providerForFile(file) !== 'claude' || booleanValue(file.disabled) === true)
       throw new Error(quotaText('quota.claude.blocked'));
     const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
     if (!authIndex) throw new Error(quotaText('quota.claude.blocked'));
-    const key = quotaKey(file);
+    const key = `${operation.expectedRevision}:${quotaKey(file)}`;
     const pending = resetGrantOperations.inspect(key);
     const grantId = pending && !pending.code ? pending.grantId
-      : selectResetGrant(await readClaudeResetGrants(authIndex), Date.now())?.id;
+      : selectResetGrant(await readClaudeResetGrants(authIndex, operation.expectedRevision), Date.now())?.id;
     if (!grantId || captureQuotaCacheGeneration() !== generation) throw new Error(quotaText('quota.claude.blocked'));
     try {
-      const answer = await resetGrantOperations.run(key, authIndex, grantId);
+      const answer = await resetGrantOperations.run(key, authIndex, grantId, operation.expectedRevision);
       if (answer.unresolved) throw new Error(quotaText('quota.claude.unknown'));
       if (answer.code !== 'reset' && answer.code !== 'already_used')
         throw new Error(quotaText(`quota.claude.${answer.code}`));
@@ -1105,8 +1127,8 @@ export function consumeClaudeResetCredit(file: AuthFile): Promise<QuotaState> {
       if (operation && !operation.code) throw new Error(quotaText(Date.now() - operation.createdAt >= RETRY_WINDOW_MS ? 'quota.claude.expired' : 'quota.claude.unknown'));
       throw error;
     }
-    return loadQuotaSnapshot(file);
-  });
+    return loadQuotaSnapshot(operation, file);
+  }, initiatingOperation);
 }
 
 export function quotaResetExpiries(quota: QuotaState): string[] {
