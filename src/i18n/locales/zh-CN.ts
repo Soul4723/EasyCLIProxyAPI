@@ -1409,6 +1409,7 @@ export const zhCN = {
   'agents.status.invalid': '配置无效',
   'agents.status.applied': '已应用',
   'agents.status.unconfigured': '尚未配置',
+  "agents.backup.targetMismatch": "备份中的客户端地址或密钥与当前选择的内核不匹配。请选择原目标，或恢复未受 CPA 管理的备份。",
   "agents.backup.create": "手动备份",
   "agents.backup.button": "恢复备份",
   "agents.backup.description": "按原始内容和存在状态恢复整组受管理文件，包括自定义设置。地址和密钥保持备份中的原值。恢复不会自动生成备份。",
