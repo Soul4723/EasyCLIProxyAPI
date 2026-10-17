@@ -31,8 +31,8 @@ test('native target changes during file reading reject even before browser inval
 test('batch revision is preserved and current upload retains bytes', async () => {
   const calls: unknown[] = [];
   mockIPC((command, args) => { calls.push({ command, args }); return { ok: true }; });
-  await managementApi.uploadAuthFile(new File(['{}'], 'current.json'), () => true, 12);
+  await managementApi.uploadAuthFile(new File(['{}'], 'current.json'), () => true, 7);
   expect(calls).toEqual([{ command: 'upload_auth_file', args: {
-    name: 'current.json', data: [123, 125], expectedRevision: 12,
+    name: 'current.json', data: [123, 125], expectedRevision: 7,
   } }]);
 });

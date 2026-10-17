@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/documentTarget';
 import {
   ChevronRight,
   Check,

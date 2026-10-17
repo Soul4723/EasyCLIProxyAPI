@@ -64,7 +64,7 @@ pub(crate) struct ManagementRequest {
     body: Option<serde_json::Value>,
     #[serde(rename = "timeoutMs")]
     timeout_ms: Option<u64>,
-    expected_revision: Option<u64>,
+    expected_revision: u64,
 }
 
 fn deserialize_management_body<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
@@ -88,7 +88,7 @@ async fn management_request_for_target(
     request: ManagementRequest,
 ) -> Result<serde_json::Value, String> {
     let config = gui_config_state.snapshot()?;
-    if request.expected_revision.is_some_and(|revision| revision != config.target_revision) {
+    if request.expected_revision != config.target_revision {
         return Err("The core connection changed; request cancelled".to_string());
     }
     let _target_operation = gui_config_state.target_operation.lock().await;
@@ -109,6 +109,19 @@ async fn management_request_for_target(
         return Err("Invalid management API path".to_string());
     }
 
+    match (method.as_str(), path.trim_start_matches('/')) {
+        ("GET", "oauth/status") | ("DELETE", "oauth/session") => {
+            let state = request.query.as_ref().and_then(|query| query.get("state"))
+                .ok_or("OAuth request is missing state")?;
+            ensure_oauth_target(gui_config_state, &config, state)?;
+        }
+        ("POST", "oauth/callback") => {
+            let url = request.body.as_ref().and_then(|body| body.get("redirect_url"))
+                .and_then(serde_json::Value::as_str).ok_or("OAuth callback is missing redirect_url")?;
+            ensure_oauth_target(gui_config_state, &config, &oauth_callback_state(url)?)?;
+        }
+        _ => {}
+    }
     let client = management_http_client_for(&config)?;
     let mut builder = client
         .request(method, management_endpoint(&config, path)?)
@@ -303,8 +316,12 @@ pub(crate) async fn start_oauth_login(
     provider: String,
     browser: Option<String>,
     plugin_provider: Option<bool>,
+    expected_revision: u64,
 ) -> Result<OAuthStartResult, String> {
     let config = gui_config_state.snapshot()?;
+    if config.target_revision != expected_revision {
+        return Err("The core connection changed; request cancelled".to_string());
+    }
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
     if config.connection_mode == super::CoreConnectionMode::Local {
@@ -379,12 +396,16 @@ fn normalize_oauth_start_response(payload: OAuthStartApiResponse) -> Result<OAut
 pub(crate) async fn get_oauth_status(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     state: String,
+    expected_revision: u64,
 ) -> Result<OAuthStatusResult, String> {
     let state = state.trim().to_string();
     if state.is_empty() {
         return Err("OAuth state cannot be empty".to_string());
     }
     let config = gui_config_state.snapshot()?;
+    if config.target_revision != expected_revision {
+        return Err("The core connection changed; request cancelled".to_string());
+    }
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
     ensure_oauth_target(&gui_config_state, &config, &state)?;
@@ -419,20 +440,19 @@ pub(crate) async fn submit_oauth_callback(
     provider: String,
     redirect_url: String,
     plugin_provider: Option<bool>,
+    expected_revision: u64,
 ) -> Result<(), String> {
     let redirect_url = redirect_url.trim().to_string();
     if redirect_url.is_empty() {
         return Err("Callback URL cannot be empty".to_string());
     }
     let config = gui_config_state.snapshot()?;
+    if config.target_revision != expected_revision {
+        return Err("The core connection changed; request cancelled".to_string());
+    }
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
-    if config.connection_mode == super::CoreConnectionMode::Remote {
-        let parsed = reqwest::Url::parse(&redirect_url).map_err(|_| "Invalid OAuth callback URL".to_string())?;
-        let state = parsed.query_pairs().find(|(key, _)| key == "state")
-            .map(|(_, value)| value.into_owned()).ok_or("OAuth callback URL is missing state")?;
-        ensure_oauth_target(&gui_config_state, &config, &state)?;
-    }
+    ensure_oauth_target(&gui_config_state, &config, &oauth_callback_state(&redirect_url)?)?;
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
     let client = management_http_client_for(&config)?;
     let body = serde_json::json!({
@@ -471,8 +491,17 @@ pub(crate) fn management_http_client_for(config: &GuiConfigFile) -> Result<reqwe
         .map_err(|_| "Failed to create remote management client".to_string())
 }
 
+fn oauth_callback_state(redirect_url: &str) -> Result<String, String> {
+    let parsed = reqwest::Url::parse(redirect_url).map_err(|_| "Invalid OAuth callback URL".to_string())?;
+    let states: Vec<_> = parsed.query_pairs().filter(|(key, _)| key == "state")
+        .map(|(_, value)| value.into_owned()).collect();
+    if states.len() != 1 || states[0].trim().is_empty() {
+        return Err("OAuth callback URL must contain exactly one state".to_string());
+    }
+    Ok(states.into_iter().next().unwrap())
+}
+
 fn ensure_oauth_target(state: &GuiConfigState, config: &GuiConfigFile, oauth_state: &str) -> Result<(), String> {
-    if config.connection_mode == super::CoreConnectionMode::Local { return Ok(()); }
     let sessions = state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?;
     if sessions.get(oauth_state) != Some(&config.target_revision) {
         return Err("OAuth session belongs to a different or expired core connection; start login again".to_string());
@@ -701,6 +730,58 @@ server.serve_forever()
     }
 
     #[tokio::test]
+    async fn stale_document_requests_are_rejected_before_any_management_send() {
+        for method in ["GET", "POST", "PUT", "PATCH", "DELETE"] {
+            let state = GuiConfigState::new(GuiConfigFile::default());
+            let revision = state.snapshot().unwrap().target_revision;
+            let request = serde_json::from_value(serde_json::json!({
+                "method": method, "path": "/config", "expectedRevision": revision,
+                "body": {"private": "old-document-payload"}
+            })).unwrap();
+            state.replace_external(state.snapshot().unwrap()).unwrap();
+            // Default config has no management endpoint/key. Revision refusal must precede
+            // endpoint resolution, body construction and network dispatch in every method.
+            assert!(management_request_for_target(&state, request).await.unwrap_err().contains("connection changed"));
+        }
+        assert!(serde_json::from_value::<ManagementRequest>(serde_json::json!({
+            "method": "PUT", "path": "/config", "body": {}
+        })).is_err());
+    }
+
+    #[test]
+    fn oauth_states_remain_bound_to_start_revision_in_both_modes() {
+        for mode in [super::super::CoreConnectionMode::Local, super::super::CoreConnectionMode::Remote] {
+            let mut config = GuiConfigFile::default();
+            config.connection_mode = mode;
+            let state = GuiConfigState::new(config.clone());
+            state.oauth_sessions.lock().unwrap().insert("state-A".into(), config.target_revision);
+            assert!(ensure_oauth_target(&state, &config, "state-A").is_ok());
+            assert!(ensure_oauth_target(&state, &config, "unknown").is_err());
+            state.replace_external(config.clone()).unwrap();
+            let new = state.snapshot().unwrap();
+            assert!(ensure_oauth_target(&state, &new, "state-A").is_err());
+            // Switching back to identical settings still cannot revive the old flow.
+            state.replace_external(config).unwrap();
+            assert!(ensure_oauth_target(&state, &state.snapshot().unwrap(), "state-A").is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn oauth_cancellation_rejects_unknown_or_old_state_before_dispatch() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        state.oauth_sessions.lock().unwrap().insert("state-A".into(), 0);
+        state.replace_external(state.snapshot().unwrap()).unwrap();
+        for oauth_state in ["state-A", "unknown"] {
+            let request = serde_json::from_value(serde_json::json!({
+                "method": "DELETE", "path": "/oauth/session",
+                "expectedRevision": state.snapshot().unwrap().target_revision,
+                "query": { "state": oauth_state }
+            })).unwrap();
+            assert!(management_request_for_target(&state, request).await.unwrap_err().contains("OAuth session belongs"));
+        }
+    }
+
+    #[tokio::test]
     async fn quota_requests_reject_stale_targets_before_dispatch_and_after_lock_wait() {
         for url in ["https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume",
                     "https://api.anthropic.com/api/organizations/test/reset_rate_limits"] {
@@ -825,11 +906,11 @@ server.serve_forever()
     #[test]
     fn v8_requests_distinguish_explicit_null_from_an_absent_body() {
         let absent: ManagementRequest = serde_json::from_value(serde_json::json!({
-            "method": "GET", "path": "/config",
+            "method": "GET", "path": "/config", "expectedRevision": 0,
         }))
         .unwrap();
         let explicit: ManagementRequest = serde_json::from_value(serde_json::json!({
-            "method": "PUT", "path": "/config/requests/payload", "body": null,
+            "method": "PUT", "path": "/config/requests/payload", "body": null, "expectedRevision": 0,
         }))
         .unwrap();
         assert!(absent.body.is_none());

@@ -552,10 +552,12 @@ pub(crate) async fn save_codex_model_catalog_editor(
 #[tauri::command]
 pub(crate) async fn get_thinking_aliases(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let content = fetch_management_config_yaml(&config).await?;
     thinking_aliases_from_yaml(&content)
 }
@@ -563,10 +565,12 @@ pub(crate) async fn get_thinking_aliases(
 #[tauri::command]
 pub(crate) async fn get_model_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
         fetch_alias_models(&config).await?;
@@ -585,10 +589,12 @@ pub(crate) async fn get_model_alias_sources(
 #[tauri::command]
 pub(crate) async fn get_thinking_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
         fetch_alias_models(&config).await?;
@@ -607,12 +613,14 @@ pub(crate) async fn get_thinking_alias_sources(
 #[tauri::command]
 pub(crate) async fn get_model_alias_edit_source(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     alias: String,
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<ModelAliasEditContext, String> {
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
     let definitions = fetch_oauth_model_definitions(&config).await;
@@ -622,6 +630,7 @@ pub(crate) async fn get_model_alias_edit_source(
 #[tauri::command]
 pub(crate) async fn create_thinking_alias(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     source_id: String,
     alias: String,
     effort: String,
@@ -632,6 +641,7 @@ pub(crate) async fn create_thinking_alias(
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
         return Err("Select the source model first".to_string());
@@ -709,6 +719,7 @@ pub(crate) async fn create_thinking_alias(
 #[tauri::command]
 pub(crate) async fn delete_thinking_alias(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     alias: String,
     oauth_channel: Option<String>,
     entry: Option<ThinkingAliasEntry>,
@@ -716,6 +727,7 @@ pub(crate) async fn delete_thinking_alias(
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
     let updated = match entry.as_ref() {
@@ -733,10 +745,12 @@ pub(crate) async fn delete_thinking_alias(
 #[tauri::command]
 pub(crate) async fn get_speed_aliases(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let content = fetch_management_config_yaml(&config).await?;
     speed_aliases_from_yaml(&content)
 }
@@ -744,10 +758,12 @@ pub(crate) async fn get_speed_aliases(
 #[tauri::command]
 pub(crate) async fn get_speed_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
         fetch_alias_models(&config).await?;
@@ -766,12 +782,14 @@ pub(crate) async fn get_speed_alias_sources(
 #[tauri::command]
 pub(crate) async fn create_speed_alias(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     source_id: String,
     alias: String,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
         return Err("Select the source model first".to_string());
@@ -809,6 +827,7 @@ pub(crate) async fn create_speed_alias(
 #[tauri::command]
 pub(crate) async fn delete_speed_alias(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     alias: String,
     oauth_channel: Option<String>,
     entry: Option<ThinkingAliasEntry>,
@@ -816,6 +835,7 @@ pub(crate) async fn delete_speed_alias(
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
     let updated = match entry.as_ref() {

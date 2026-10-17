@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/documentTarget';
 import { listen } from '@tauri-apps/api/event';
 import { LoaderCircle, Play, RefreshCw, RotateCw, Settings, Square } from 'lucide-react';
 import { type CoreStatus, useCoreRuntime } from '../coreRuntime';

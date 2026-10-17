@@ -2240,6 +2240,13 @@ impl GuiConfigState {
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())
     }
 
+    fn ensure_revision(&self, expected_revision: u64) -> Result<(), String> {
+        if self.snapshot()?.target_revision != expected_revision {
+            return Err("The core connection changed; request cancelled".to_string());
+        }
+        Ok(())
+    }
+
     fn ensure_target(&self, expected: &GuiConfigFile) -> Result<(), String> {
         let current = self.snapshot()?;
         if current.target_revision != expected.target_revision {
