@@ -102,7 +102,7 @@ fn providers(value: &Value) -> Option<HashMap<String, Source>> {
 }
 
 async fn fetch_json(config: &GuiConfigFile, path: &str) -> Option<Value> {
-    management_http_client()
+    management_http_client(config)
         .ok()?
         .get(management_endpoint(config, path).ok()?)
         .header("Authorization", management_authorization(config).ok()?)

@@ -7,6 +7,7 @@ import { beginConnectionChange } from './services/connectionGeneration';
 
 export type CoreConnection = {
   mode: 'local' | 'remote';
+  configurationError?: string;
   remoteManagementOrigin: string;
   remoteManagementKey: string;
   clientApiOrigin: string;

@@ -1120,7 +1120,7 @@ async fn save_remote_extended(config: &GuiConfigFile, content: &str, changes: &[
     let (updated, result) = prepare_patch(content, changes)?;
     crate::core_connection::ensure_current(config)?;
     if updated != content {
-        let response = management_http_client()?
+        let response = management_http_client(&config)?
             .put(management_endpoint(config, "config.yaml")?)
             .header("Authorization", management_authorization(config)?)
             .header(reqwest::header::CONTENT_TYPE, "application/yaml")

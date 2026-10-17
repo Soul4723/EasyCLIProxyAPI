@@ -99,7 +99,7 @@ pub(crate) async fn management_request(
         return Err("Invalid management API path".to_string());
     }
 
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let mut builder = client
         .request(method, management_endpoint(&config, path)?)
         .header("Authorization", management_authorization(&config)?);
@@ -160,7 +160,7 @@ pub(crate) async fn import_vertex_credential(
     if let Some(location) = location.filter(|value| !value.trim().is_empty()) {
         form = form.text("location", location.trim().to_owned());
     }
-    let response = management_http_client()?
+    let response = management_http_client(&config)?
         .post(management_endpoint(&config, "oauth/import")?)
         .header("Authorization", management_authorization(&config)?)
         .query(&[("provider", "vertex")])
@@ -188,7 +188,7 @@ pub(crate) async fn upload_auth_file(
     let _connection_guard = super::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let result = async {
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let mut query = HashMap::new();
     query.insert("name".to_string(), name);
     let response = client
@@ -266,7 +266,7 @@ pub(crate) async fn start_oauth_login(
     let config = gui_config_state.snapshot()?;
     let result = async {
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let mut request = client
         .get(management_endpoint(&config, "oauth/auth-url")?)
         .header("Authorization", management_authorization(&config)?);
@@ -337,7 +337,7 @@ pub(crate) async fn get_oauth_status(
     }
     let config = gui_config_state.snapshot()?;
     let result = async {
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let response = client
         .get(management_endpoint(&config, "oauth/status")?)
         .header("Authorization", management_authorization(&config)?)
@@ -379,7 +379,7 @@ pub(crate) async fn submit_oauth_callback(
     let config = gui_config_state.snapshot()?;
     let result = async {
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
-    let client = management_http_client()?;
+    let client = management_http_client(&config)?;
     let body = serde_json::json!({
         "provider": provider_key,
         "redirect_url": redirect_url,
@@ -405,19 +405,27 @@ pub(crate) async fn submit_oauth_callback(
     result
 }
 
-pub(crate) fn management_http_client() -> Result<reqwest::Client, String> {
-    static CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
+pub(crate) fn management_http_client(config: &GuiConfigFile) -> Result<reqwest::Client, String> {
+    config.core_connection.ensure_configured()?;
+    management_http_client_for_local(!config.core_connection.is_remote())
+}
+
+fn management_http_client_for_local(local: bool) -> Result<reqwest::Client, String> {
+    fn build(local: bool) -> Result<reqwest::Client, String> {
         reqwest::Client::builder()
-            // Management traffic stays direct (LAN/Tailscale); the core
-            // upstream proxy is not a proxy for its management endpoint.
+            // Local preserves main's self-signed TLS support. Remote must use
+            // trusted certificates, even when the local core has TLS enabled.
+            .danger_accept_invalid_certs(local)
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|err| format_management_request_error("Failed to create management API client", &err))
-    });
-    CLIENT.as_ref().cloned().map_err(Clone::clone)
+    }
+    static LOCAL: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| build(true));
+    static REMOTE: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| build(false));
+    (if local { &*LOCAL } else { &*REMOTE }).as_ref().cloned().map_err(Clone::clone)
 }
 
 pub(crate) fn format_management_request_error(
@@ -460,6 +468,7 @@ pub(crate) fn management_authorization(config: &GuiConfigFile) -> Result<String,
 }
 
 pub(crate) fn management_endpoint(config: &GuiConfigFile, path: &str) -> Result<String, String> {
+    config.core_connection.ensure_configured()?;
     if config.core_connection.is_remote() {
         let origin = super::core_connection::normalize_origin(&config.core_connection.remote_management_origin)?;
         return Ok(format!("{origin}/v8/management/{}", path.trim_start_matches('/')));
@@ -826,7 +835,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn management_client_rejects_untrusted_https_certificate() {
+    async fn management_client_accepts_local_but_rejects_remote_self_signed_tls() {
         let root = std::env::temp_dir().join(format!(
             "cpa-management-tls-test-{}-{}",
             std::process::id(),
@@ -862,12 +871,18 @@ mod tests {
             if TcpStream::connect(("127.0.0.1", port)).is_ok() { break; }
             thread::sleep(Duration::from_millis(25));
         }
-        let client = management_http_client().unwrap();
-        let result = client.get(format!("https://localhost:{port}/")).send().await;
+        let local = GuiConfigFile::default();
+        let mut remote = local.clone();
+        remote.core_connection.mode = crate::core_connection::ConnectionMode::Remote;
+        let result = management_http_client(&remote).unwrap()
+            .get(format!("https://localhost:{port}/")).send().await;
+        let local_result = management_http_client(&local).unwrap()
+            .get(format!("https://localhost:{port}/")).send().await;
         let _ = server.kill();
         let _ = server.wait();
         let _ = std::fs::remove_dir_all(root);
-        let error = result.expect_err("untrusted certificate unexpectedly accepted");
+        assert!(local_result.unwrap().status().is_success());
+        let error = result.expect_err("untrusted certificate unexpectedly accepted for Remote");
         let detail = format_management_request_error("TLS test", &error).to_ascii_lowercase();
         assert!(detail.contains("certificate"), "unexpected transport failure: {detail}");
     }

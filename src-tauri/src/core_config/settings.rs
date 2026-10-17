@@ -1357,28 +1357,28 @@ pub(crate) fn file_modified_time(path: &Path) -> Option<SystemTime> {
     fs::metadata(path).ok()?.modified().ok()
 }
 
-pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
-    let config_path = gui_config_path()?;
-    let legacy_config_path = legacy_gui_config_path()?;
-    let gui_config_exists = config_path.is_file();
-    let legacy_config_exists = legacy_config_path.is_file();
+fn parse_saved_gui_config(content: &str) -> Result<(GuiConfigFile, GuiConfigPresence), String> {
+    let config = toml::from_str::<GuiConfigFile>(content)
+        .map_err(|_| "Failed to parse saved GUI configuration; repair Core connection or correct the configuration file".to_string())?;
+    let presence = toml::from_str::<GuiConfigPresence>(content)
+        .map_err(|_| "Failed to parse saved GUI configuration fields; repair Core connection or correct the configuration file".to_string())?;
+    config.core_connection.clone().normalize()?;
+    Ok((config, presence))
+}
+
+fn read_saved_gui_config(
+    config_path: &Path,
+    legacy_config_path: &Path,
+) -> Result<(GuiConfigFile, GuiConfigPresence, bool, bool), String> {
+    let gui_config_exists = config_path.try_exists().map_err(|error| format!("Failed to inspect GUI configuration: {error}"))?;
+    let legacy_config_exists = legacy_config_path.try_exists().map_err(|error| format!("Failed to inspect old GUI configuration: {error}"))?;
     let had_existing_gui_config = gui_config_exists || legacy_config_exists;
 
-    let (mut config, presence, mut changed, gui_parse_failed) = if gui_config_exists {
+    let (config, presence, changed) = if gui_config_exists {
         let content = fs::read_to_string(&config_path)
             .map_err(|err| format!("Failed to read GUI configuration {}: {err}", path_to_string(&config_path)))?;
-        match (
-            toml::from_str::<GuiConfigFile>(&content),
-            toml::from_str::<GuiConfigPresence>(&content),
-        ) {
-            (Ok(config), Ok(presence)) => (config, presence, false, false),
-            _ => (
-                GuiConfigFile::default(),
-                GuiConfigPresence::default(),
-                true,
-                true,
-            ),
-        }
+        let (config, presence) = parse_saved_gui_config(&content)?;
+        (config, presence, false)
     } else if legacy_config_exists {
         let content = fs::read_to_string(&legacy_config_path).map_err(|err| {
             format!(
@@ -1390,15 +1390,24 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
             .map_err(|err| format!("Failed to parse old GUI configuration: {err}"))?;
         let presence = serde_yaml::from_str::<GuiConfigPresence>(&content)
             .map_err(|err| format!("Failed to parse old GUI configuration field: {err}"))?;
-        (config, presence, true, false)
+        (config, presence, true)
     } else {
         (
             GuiConfigFile::default(),
             GuiConfigPresence::default(),
             true,
-            false,
         )
     };
+
+    Ok((config, presence, changed, had_existing_gui_config))
+}
+
+pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
+    let config_path = gui_config_path()?;
+    let legacy_config_path = legacy_gui_config_path()?;
+    let gui_config_exists = config_path.try_exists().map_err(|error| format!("Failed to inspect GUI configuration: {error}"))?;
+    let (mut config, presence, mut changed, had_existing_gui_config) =
+        read_saved_gui_config(&config_path, &legacy_config_path)?;
 
     if config.core_connection.is_remote() {
         config.core_connection = config.core_connection.clone().normalize()?;
@@ -1428,7 +1437,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     let core_is_newer = file_modified_time(&core_config_path)
         .zip(file_modified_time(&config_path))
         .is_some_and(|(core, gui)| core > gui);
-    if core_is_newer && !gui_parse_failed {
+    if core_is_newer {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             apply_core_settings_to_gui_config(&mut config, &core_settings);
             apply_external_core_proxy_override(&mut config, &core_settings)?;
@@ -1459,7 +1468,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         || presence.max_retry_credentials.is_none()
         || presence.max_retry_interval.is_none()
         || presence.streaming_bootstrap_retries.is_none();
-    if missing_core_settings && !gui_parse_failed {
+    if missing_core_settings {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             if presence.host.is_none() {
                 config.host = core_settings.host.clone();
@@ -2180,6 +2189,7 @@ pub(crate) fn write_gui_config_to_path(
 }
 
 pub(crate) fn validate_gui_config(config: &GuiConfigFile) -> Result<(), String> {
+    config.core_connection.ensure_configured()?;
     if config.port == 0 {
         return Err("GUI configuration port must be between 1 and 65535".to_string());
     }
@@ -2263,4 +2273,61 @@ pub(crate) fn gui_config_path() -> Result<PathBuf, String> {
 
 pub(crate) fn legacy_gui_config_path() -> Result<PathBuf, String> {
     Ok(core_base_dir()?.join(LEGACY_GUI_CONFIG_FILE))
+}
+
+#[cfg(test)]
+mod connection_load_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_saved_config_cannot_recover_into_local() {
+        let root = std::env::temp_dir().join(format!("cpa-invalid-config-{}", format!("{}-{}", std::process::id(), unix_now())));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("gui.toml");
+        let content = "[core-connection\nmode = 'remote'";
+        fs::write(&path, content).unwrap();
+        assert!(read_saved_gui_config(&path, &root.join("gui.yaml")).is_err());
+        assert_eq!(fs::read_to_string(path).unwrap(), content);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_saved_remote_origin_or_key_is_rejected() {
+        for (origin, key) in [("https://example.test/path", "valid-management-secret"),
+                              ("https://example.test", "")] {
+            let mut config = GuiConfigFile::default();
+            config.core_connection.mode = core_connection::ConnectionMode::Remote;
+            config.core_connection.remote_management_origin = origin.into();
+            config.core_connection.remote_management_key = key.into();
+            assert!(parse_saved_gui_config(&toml::to_string(&config).unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn first_run_default_remains_local_and_startable() {
+        let root = std::env::temp_dir().join(format!("cpa-absent-config-{}", format!("{}-{}", std::process::id(), unix_now())));
+        let (config, _, changed, existed) = read_saved_gui_config(&root.join("gui.toml"), &root.join("gui.yaml")).unwrap();
+        assert!(changed);
+        assert!(!existed);
+        assert!(!root.exists());
+        assert!(!config.core_connection.is_remote());
+        assert!(config.start_core_on_launch);
+        assert!(config.core_connection.normalize().is_ok());
+    }
+
+    #[test]
+    fn disconnected_recovery_cannot_be_persisted_or_used_until_explicit_save() {
+        let mut config = GuiConfigFile::default();
+        config.core_connection = core_connection::CoreConnection::disconnected("Repair saved configuration".into());
+        assert!(config.core_connection.is_remote());
+        assert!(validate_gui_config(&config).is_err());
+        assert!(management_endpoint(&config, "config").is_err());
+        assert!(management_http_client(&config).is_err());
+        // The dialog submits a newly deserialized choice, not the native error marker.
+        let repaired: core_connection::CoreConnection = serde_json::from_value(serde_json::json!({
+            "mode": "local", "configurationError": "Repair saved configuration"
+        })).unwrap();
+        config.core_connection = repaired.normalize().unwrap();
+        assert!(validate_gui_config(&config).is_ok());
+    }
 }

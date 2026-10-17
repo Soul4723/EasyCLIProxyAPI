@@ -39,7 +39,10 @@ behavior. Model fetching, client launch checks and Home model health use the
 selected client API. Home displays its protocol URLs and explicit client key;
 **Manage Keys** opens connection settings to change them. Saving a target reloads
 the GUI to clear old requests, dialogs and cached results. Connection errors can
-be repaired from Home or Agent Configuration without switching to Local.
+be repaired from Home or Agent Configuration without switching to Local. If saved
+configuration cannot be read or validated, the app stays disconnected and shows
+the error in Core connection; no local core is installed, adopted or started.
+Save valid Remote values or explicitly choose Local to repair it.
 
 Beginner Mode remains Local-only. DeepSeek Harness configuration and model
 editing can use the remote API, but its managed launch, status, stop and restart

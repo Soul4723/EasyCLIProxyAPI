@@ -763,10 +763,15 @@ pub(crate) fn set_app_locale(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     locale: String,
 ) -> Result<String, String> {
+    let _target_guard = core_connection::target_operation()?;
     let config = gui_config_state.set_locale(locale)?;
+    core_connection::ensure_current(&config)?;
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    if let Ok(status) = current_core_status(Some(process_state.inner()), Some(config.port)) {
-        update_windows_tray_locale(&app, &config.locale, &status);
+    {
+        let status = core_connection::local_status_for_target(&config, || {
+            current_core_status(Some(process_state.inner()), Some(config.port))
+        }).ok().flatten();
+        update_windows_tray_locale(&app, &config.locale, status.as_ref());
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     let _ = (app, process_state);

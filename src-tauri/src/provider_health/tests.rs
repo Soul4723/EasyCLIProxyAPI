@@ -224,6 +224,7 @@ async fn remote_core_health_uses_selected_client_target_and_key() {
     let mut config = probe_config(1);
     config.core_connection = crate::core_connection::CoreConnection {
         mode: crate::core_connection::ConnectionMode::Remote,
+        configuration_error: None,
         remote_management_origin: "https://management.invalid".into(),
         remote_management_key: "remote-management-secret".into(),
         client_api_origin: format!("http://127.0.0.1:{port}"),

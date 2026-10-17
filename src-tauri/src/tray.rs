@@ -441,12 +441,14 @@ pub(crate) fn update_windows_tray_status(app_handle: &tauri::AppHandle, status: 
 pub(crate) fn update_windows_tray_locale(
     app_handle: &tauri::AppHandle,
     locale: &str,
-    status: &CoreStatus,
+    status: Option<&CoreStatus>,
 ) {
     if let Some(tray_state) = app_handle.try_state::<WindowsTrayState>() {
         tray_state.set_locale(locale);
     }
-    update_windows_tray_status(app_handle, status);
+    if let Some(status) = status {
+        update_windows_tray_status(app_handle, status);
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -474,6 +476,11 @@ pub(crate) fn run_windows_tray_core_action(
     app_handle: &tauri::AppHandle,
     action: WindowsTrayCoreAction,
 ) {
+    // Reject Remote before changing presentation, and hold this lease through
+    // completion/error publication so a target switch cannot race a Local event.
+    let Ok(connection_guard) = crate::core_connection::local_operation() else {
+        return;
+    };
     let Some(tray_state) = app_handle.try_state::<WindowsTrayState>() else {
         return;
     };
@@ -494,7 +501,6 @@ pub(crate) fn run_windows_tray_core_action(
         let process_state = app_handle.state::<CoreProcessState>();
         let gui_config_state = app_handle.state::<GuiConfigState>();
         let result = (|| -> Result<CoreStatus, String> {
-            let _connection_guard = crate::core_connection::local_operation()?;
             let _guard = lock_core_operation(process_state.inner())?;
             match action {
                 WindowsTrayCoreAction::Toggle => {
@@ -536,6 +542,7 @@ pub(crate) fn run_windows_tray_core_action(
                 show_windows_tray_action_error(&app_handle, &error);
             }
         }
+        drop(connection_guard);
     });
 }
 

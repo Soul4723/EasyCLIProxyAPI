@@ -65,6 +65,7 @@ mod tests {
         let mut config = GuiConfigFile::default();
         config.core_connection = crate::core_connection::CoreConnection {
             mode: crate::core_connection::ConnectionMode::Remote,
+            configuration_error: None,
             remote_management_origin: "https://management.invalid".into(),
             remote_management_key: "management-secret-never-in-client".into(),
             client_api_origin: origin.into(),

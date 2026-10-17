@@ -13,7 +13,7 @@ export function CoreConnectionDialog({ onClose }: { onClose: () => void }) {
   const { status } = useCoreRuntime();
   const [draft, setDraft] = useState(connection);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(connection.configurationError || '');
   const [result, setResult] = useState('');
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);

@@ -1355,6 +1355,7 @@ async fn remote_management_only_backup_recovery_works_offline_and_rejects_old_ta
     config.target_revision = 7;
     config.core_connection = crate::core_connection::CoreConnection {
         mode: crate::core_connection::ConnectionMode::Remote,
+        configuration_error: None,
         remote_management_origin: "https://offline.invalid".into(),
         remote_management_key: "management-secret".into(),
         client_api_origin: String::new(),

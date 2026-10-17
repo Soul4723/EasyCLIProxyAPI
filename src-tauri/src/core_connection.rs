@@ -13,6 +13,9 @@ pub(crate) enum ConnectionMode {
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct CoreConnection {
     pub(crate) mode: ConnectionMode,
+    // Startup-only diagnostic: an explicit dialog save supplies a fresh target.
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub(crate) configuration_error: Option<String>,
     pub(crate) remote_management_origin: String,
     pub(crate) remote_management_key: String,
     pub(crate) client_api_origin: String,
@@ -52,6 +55,16 @@ fn require_local(connection: &CoreConnection) -> Result<(), String> {
     Ok(())
 }
 
+// Callers hold a target lease through both the read and publication.
+pub(crate) fn local_status_for_target(
+    config: &GuiConfigFile,
+    read: impl FnOnce() -> Result<CoreStatus, String>,
+) -> Result<Option<CoreStatus>, String> {
+    if config.core_connection.is_remote() { return Ok(None); }
+    config.core_connection.ensure_configured()?;
+    read().map(Some)
+}
+
 pub(crate) fn ensure_current(config: &GuiConfigFile) -> Result<(), String> {
     ensure_same_target(config, revision(), &active_connection())
 }
@@ -86,9 +99,21 @@ pub(crate) fn normalize_origin(value: &str) -> Result<String, String> {
 }
 
 impl CoreConnection {
+    pub(crate) fn disconnected(error: String) -> Self {
+        Self { mode: ConnectionMode::Remote, configuration_error: Some(error), ..Self::default() }
+    }
+
+    pub(crate) fn ensure_configured(&self) -> Result<(), String> {
+        match &self.configuration_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
+    }
+
     pub(crate) fn is_remote(&self) -> bool { self.mode == ConnectionMode::Remote }
 
     pub(crate) fn normalize(mut self) -> Result<Self, String> {
+        self.ensure_configured()?;
         if self.is_remote() || !self.remote_management_origin.trim().is_empty() {
             self.remote_management_origin = normalize_origin(&self.remote_management_origin)?;
         }
@@ -195,7 +220,7 @@ pub(crate) struct ConnectionTestResult {
 }
 
 pub(crate) async fn probe(config: &GuiConfigFile) -> Result<ConnectionTestResult, String> {
-    let response = management_http_client()?
+    let response = management_http_client(config)?
         .get(management_endpoint(config, "config")?)
         .header("Authorization", management_authorization(config)?)
         .send().await
@@ -243,6 +268,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn remote_locale_and_tray_refresh_never_read_local_status() {
+        let config = remote_config("https://remote.example".into());
+        let status = local_status_for_target(&config, || panic!("Remote refresh probed Local status")).unwrap();
+        assert!(status.is_none());
+    }
+
+    #[test]
     fn connection_validation_and_storage_keep_targets_separate() {
         for origin in ["http://host:8317", "https://host", "http://[::1]:8317/", " HTTP://HOST:8317/ "] {
             assert!(normalize_origin(origin).is_ok());
@@ -257,6 +289,7 @@ mod tests {
         assert!(CoreConnection { remote_management_key: "\nsecret".into(), ..CoreConnection::default() }.normalize().is_err());
         let connection = CoreConnection {
             mode: ConnectionMode::Remote,
+            configuration_error: None,
             remote_management_origin: "https://example.com/".into(),
             remote_management_key: "management-secret".into(),
             client_api_origin: "http://example.com:8317".into(),
@@ -310,6 +343,7 @@ mod tests {
         let mut config = GuiConfigFile::default();
         config.core_connection = CoreConnection {
             mode: ConnectionMode::Remote,
+            configuration_error: None,
             remote_management_origin: origin,
             remote_management_key: "remote-management-key".into(),
             client_api_origin: "http://different-client.example:9000".into(),
@@ -434,7 +468,7 @@ mod tests {
             requests
         });
         let config = remote_config(origin);
-        let client = management_http_client().unwrap();
+        let client = management_http_client(&config).unwrap();
         let auth = management_authorization(&config).unwrap();
         let get_url = management_endpoint(&config, "config.yaml").unwrap();
         client.get(&get_url).header("Authorization", &auth).send().await.unwrap();

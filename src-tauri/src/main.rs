@@ -2490,13 +2490,11 @@ fn main() {
                 return;
             }
             let mut config = GuiConfigFile::default();
-            // If the GUI configuration cannot be read before the kernel starts,
-            // use the shared recovery key so requests and the generated kernel
-            // configuration stay synchronized.
-            config.management_secret_key = LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY.to_string();
-            if let Err(sanitize_error) = sanitize_gui_config(&mut config) {
-                eprintln!("Failed to initialize fixed credentials directory: {sanitize_error}");
-            }
+            // An unreadable saved target is not permission to run a local core.
+            // Keep the dialog available, but block target work and persistence
+            // until the user explicitly saves a valid connection.
+            config.core_connection = core_connection::CoreConnection::disconnected(error);
+            config.start_core_on_launch = false;
             config
         }
     };
