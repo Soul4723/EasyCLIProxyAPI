@@ -1852,6 +1852,53 @@ pub(crate) fn stop_usage_collector(app: &tauri::AppHandle) {
     app.state::<UsageCollectorState>().stop();
 }
 
+struct PendingRemoteUsageBatch {
+    root: PathBuf,
+    config: GuiConfigFile,
+    messages: Vec<String>,
+}
+
+impl PendingRemoteUsageBatch {
+    fn persist_with(
+        pending: &mut Option<Self>,
+        persist: impl FnOnce(&Path, Vec<String>, &GuiConfigFile) -> Result<UsagePersistOutcome, String>,
+    ) -> Result<UsagePersistOutcome, String> {
+        let batch = pending.as_ref().expect("remote batch must be pending");
+        let outcome = persist(&batch.root, batch.messages.clone(), &batch.config)?;
+        *pending = None;
+        Ok(outcome)
+    }
+}
+
+async fn collect_remote_usage_batch<F, Fut>(
+    pending: &mut Option<PendingRemoteUsageBatch>,
+    root: &Path,
+    config: &GuiConfigFile,
+    fetch: F,
+    persist: impl FnOnce(&Path, Vec<String>, &GuiConfigFile) -> Result<UsagePersistOutcome, String>,
+) -> Result<UsagePersistOutcome, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<String>, String>>,
+{
+    if pending.is_none() {
+        *pending = Some(PendingRemoteUsageBatch {
+            root: root.to_path_buf(),
+            config: config.clone(),
+            messages: fetch().await?,
+        });
+    }
+    PendingRemoteUsageBatch::persist_with(pending, persist)
+}
+
+fn persist_remote_usage_batch(
+    root: &Path,
+    messages: Vec<String>,
+    config: &GuiConfigFile,
+) -> Result<UsagePersistOutcome, String> {
+    persist_raw_usage_messages_from_source(root, HTTP_USAGE_QUEUE_SOURCE, messages, config)
+}
+
 async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut retry_seconds = 1_u64;
     let mut subscription: Option<UsageSubscription> = None;
@@ -1863,6 +1910,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut next_core_check_at = tokio::time::Instant::now();
     let mut core_ready = false;
     let mut storage_revision = None;
+    let mut pending_remote_batch: Option<PendingRemoteUsageBatch> = None;
     loop {
         if token.is_cancelled() {
             return;
@@ -1871,6 +1919,27 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
             wait_or_cancel(&token, 1).await;
             continue;
         };
+        // Retry against the captured store even if the selected target has changed.
+        // Do not fetch another batch (including from a new target) until this succeeds.
+        if pending_remote_batch.is_some() {
+            let batch_revision = pending_remote_batch.as_ref().unwrap().config.target_revision;
+            match PendingRemoteUsageBatch::persist_with(
+                &mut pending_remote_batch,
+                persist_remote_usage_batch,
+            ) {
+                Ok(outcome) => {
+                    if app.state::<GuiConfigState>().snapshot()
+                        .is_ok_and(|config| config.target_revision == batch_revision)
+                    {
+                        publish_collected_records(&app, outcome, "Collecting remote usage over HTTP");
+                    }
+                }
+                Err(error) => set_collector_error(&app, error),
+            }
+            drop(_connection_guard);
+            wait_or_cancel(&token, 1).await;
+            continue;
+        }
         let root = match usage_root_dir() {
             Ok(root) => root,
             Err(error) => { set_collector_error(&app, error); return; }
@@ -1936,15 +2005,19 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
         }
         if config.core_connection.is_remote() {
             // Remote cores have no local RESP socket or process. HTTP POP is
-            // destructive: retain the target lease until this batch is durable.
+            // destructive: retain the batch and its original store on failure.
             subscription = None;
             subscription_config = None;
             redis_queue = RedisUsageQueueSource::default();
             core_ready = false;
             next_core_check_at = tokio::time::Instant::now();
-            let result = fetch_usage_queue_raw(&config).await.and_then(|messages| {
-                persist_raw_usage_messages_from_source(&root, HTTP_USAGE_QUEUE_SOURCE, messages, &config)
-            });
+            let result = collect_remote_usage_batch(
+                &mut pending_remote_batch,
+                &root,
+                &config,
+                || fetch_usage_queue_raw(&config),
+                persist_remote_usage_batch,
+            ).await;
             match result {
                 Ok(outcome) => publish_collected_records(&app, outcome, "Collecting remote usage over HTTP"),
                 Err(error) => set_collector_error(&app, error),
@@ -6943,6 +7016,59 @@ mod tests {
         assert_eq!(statuses, vec!["pending", "decode_failed"]);
         drop(connection);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn remote_batch_retries_persistence_before_fetching_and_keeps_original_store() {
+        let root = test_root("remote-persistence-retry");
+        let other_root = test_root("remote-persistence-retry-other");
+        initialize_usage_storage_at(&root).unwrap();
+        initialize_usage_storage_at(&other_root).unwrap();
+        let config = GuiConfigFile::default();
+        let mut other_config = config.clone();
+        other_config.target_revision = 2;
+        let fetches = std::cell::Cell::new(0);
+        let mut pending = None;
+        let messages = vec![serde_json::json!({
+            "request_id": "retry-pending",
+            "model": "gpt-test",
+            "tokens": { "input_tokens": 10, "output_tokens": 20 }
+        }).to_string()];
+        let first = collect_remote_usage_batch(
+            &mut pending, &root, &config,
+            || { fetches.set(fetches.get() + 1); std::future::ready(Ok(messages.clone())) },
+            |_, _, _| Err("temporary persistence failure".into()),
+        ).await;
+        assert!(first.is_err());
+        assert_eq!(pending.as_ref().unwrap().messages, messages);
+        assert_eq!(fetches.get(), 1);
+        let outcome = collect_remote_usage_batch(
+            &mut pending, &other_root, &other_config,
+            || { fetches.set(fetches.get() + 1); std::future::ready(Ok(Vec::new())) },
+            |stored_root, messages, stored_config| {
+                assert_eq!(stored_root, root);
+                assert_eq!(stored_config.target_revision, config.target_revision);
+                persist_remote_usage_batch(stored_root, messages, stored_config)
+            },
+        ).await.unwrap();
+        assert_eq!(fetches.get(), 1);
+        assert!(pending.is_none());
+        assert_eq!(outcome.inserted, 1);
+        for (store, expected) in [(&root, 1_i64), (&other_root, 0_i64)] {
+            let database = open_usage_database_at(store).unwrap();
+            let count: i64 = database.query_row(
+                "SELECT COUNT(*) FROM usage_events", [], |row| row.get(0),
+            ).unwrap();
+            assert_eq!(count, expected);
+        }
+        collect_remote_usage_batch(
+            &mut pending, &other_root, &other_config,
+            || { fetches.set(fetches.get() + 1); std::future::ready(Ok(Vec::new())) },
+            persist_remote_usage_batch,
+        ).await.unwrap();
+        assert_eq!(fetches.get(), 2);
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(other_root).unwrap();
     }
 
     #[tokio::test]

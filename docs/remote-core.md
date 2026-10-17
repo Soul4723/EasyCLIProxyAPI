@@ -48,7 +48,9 @@ remain Local-only. No client files on the core server are edited.
 Usage history stays on the GUI machine, separated by remote origin from local
 history and other remote targets. Remote collection uses the core's HTTP usage
 queue. That queue removes records when read; competing collectors share it, and
-an app crash between retrieval and persistence can lose a batch.
+persistence failures are retried against the original target’s local store before
+fetching more records. The pending batch is held in memory, so an app crash or
+shutdown between retrieval and persistence can still lose it.
 
 ## OAuth
 
