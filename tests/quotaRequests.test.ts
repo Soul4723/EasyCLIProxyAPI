@@ -224,7 +224,7 @@ describe('quota request synchronization', () => {
     const newFetch = loadQuota(codexFile);
     expect(newFetch).not.toBe(oldFetch);
     release();
-    await Promise.all([oldFetch, newFetch, refused]);
+    await Promise.all([oldFetch.catch(() => undefined), newFetch, refused]);
     expect(await refused).toBe(true);
     expect(calls.some((request) => request.url.endsWith('/consume'))).toBe(false);
   });

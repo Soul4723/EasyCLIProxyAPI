@@ -674,6 +674,7 @@ const requestQuotaPayload = async (
   responseClock?: { serverTimeOffsetMs?: number },
   expectedRevision?: number,
 ) => {
+  expectedRevision ??= quotaTargetRevisions.get(authIndex);
   const response = await managementApi.post<Record<string, unknown>>('/requests/api-call', {
     authIndex,
     method,
@@ -1053,6 +1054,7 @@ async function consumeCodexResetCreditSnapshot(file: AuthFile, assertCurrent?: (
 
 const quotaRequests = new Map<string, Promise<QuotaState>>();
 const quotaMutationRequests = new Map<string, Promise<QuotaState>>();
+const quotaTargetRevisions = new Map<string, number>();
 
 /** Drop target-bound requests so late responses cannot be reused by a new core. */
 export function invalidateQuotaRequests() {
@@ -1068,7 +1070,15 @@ export function loadQuota(file: AuthFile): Promise<QuotaState> {
   }));
   const existing = quotaRequests.get(key);
   if (existing) return existing;
-  const request = loadQuotaSnapshot(file).finally(() => {
+  const generation = captureQuotaCacheGeneration();
+  const request = managementApi.getTargetRevision().catch(() => undefined).then((revision) => {
+    const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
+    if (revision !== undefined) quotaTargetRevisions.set(authIndex, revision);
+    return loadQuotaSnapshot(file);
+  }).then((result) => {
+    if (captureQuotaCacheGeneration() !== generation) throw new Error('The core connection changed; quota cancelled');
+    return result;
+  }).finally(() => {
     if (quotaRequests.get(key) === request) quotaRequests.delete(key);
   });
   quotaRequests.set(key, request);
@@ -1092,10 +1102,13 @@ function runQuotaMutation(file: AuthFile, mutate: () => Promise<QuotaState>): Pr
 export function consumeCodexResetCredit(file: AuthFile): Promise<QuotaState> {
   const generation = captureQuotaCacheGeneration();
   return runQuotaMutation(file, async () => {
+    const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
+    const expectedRevision = quotaTargetRevisions.get(authIndex)
+      ?? await managementApi.getTargetRevision().catch(() => undefined);
     if (captureQuotaCacheGeneration() !== generation) throw new Error(quotaText('quota.claude.blocked'));
     const result = await consumeCodexResetCreditSnapshot(file, () => {
       if (captureQuotaCacheGeneration() !== generation) throw new Error(quotaText('quota.claude.blocked'));
-    });
+    }, expectedRevision);
     if (captureQuotaCacheGeneration() !== generation) throw new Error(quotaText('quota.claude.blocked'));
     return result;
   });
