@@ -1569,6 +1569,7 @@ export const zhCN = {
   'agents.clientVersion': '客户端版本',
   'agents.cliVersion': 'CLI 版本',
   'agents.appVersion': 'App 版本',
+  'agents.copilotPluginVersion': 'GitHub Copilot Chat · 插件版本',
   'agents.pluginVersion': '插件版本',
   'agents.notFetched': '未获取',
   'agents.useModel': '使用模型',
