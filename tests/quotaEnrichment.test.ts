@@ -1,8 +1,13 @@
-import { afterEach, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeEach, expect, it, spyOn } from 'bun:test';
 import { managementApi } from '../src/services/managementApi';
 import { commitFetchedQuota } from '../src/services/quotaEnrichment';
 import { captureQuotaCacheGeneration, getQuotaCacheSnapshot, pruneQuotaCache, updateQuotaCache } from '../src/services/quotaCache';
 import { enrichXaiQuotaPlan, loadQuota, quotaKey, type QuotaState } from '../src/services/quotaService';
+
+
+let targetRevisionMock: ReturnType<typeof spyOn>;
+beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); });
+afterEach(() => { targetRevisionMock.mockRestore(); });
 
 const file = { name: 'grok-fixture.json', provider: 'xai', auth_index: 'fixture', sub: 'fictional-user' };
 const key = quotaKey(file);
@@ -17,12 +22,13 @@ it('先提交额度，再后台补套餐；两次请求使用短超时和现有�
   post = spyOn(managementApi, 'post').mockImplementation(async (path, body, options) => {
     expect(path).toBe('/requests/api-call');
     expect(getQuotaCacheSnapshot()[key]).toBe(quota);
-    expect(options).toEqual({ timeoutMs: 8000 });
+    expect(options).toEqual({ timeoutMs: 8000, expectedRevision: 0 });
     expect(body).toMatchObject({ authIndex: 'fixture', method: 'GET', header: { 'x-userid': 'fictional-user' } });
     return await gate as never;
   });
-  commitFetchedQuota(captureQuotaCacheGeneration(), file, quota);
+  await commitFetchedQuota(captureQuotaCacheGeneration(), file, quota);
   expect(getQuotaCacheSnapshot()[key]).toBe(quota);
+  await flush();
   expect(post).toHaveBeenCalledTimes(2);
   release({ status_code: 200, body: { subscription_tier_display: 'SuperGrok Heavy' } });
   await flush();
@@ -49,7 +55,7 @@ for (const change of ['refresh', 'remove', 'session'] as const) {
     let release!: (value: unknown) => void;
     const gate = new Promise((resolve) => { release = resolve; });
     post = spyOn(managementApi, 'post').mockImplementation(async () => await gate as never);
-    commitFetchedQuota(captureQuotaCacheGeneration(), file, quota);
+    await commitFetchedQuota(captureQuotaCacheGeneration(), file, quota);
     if (change === 'refresh') updateQuotaCache({ [key]: { status: 'loading', rows: [] } });
     else if (change === 'remove') updateQuotaCache({});
     else { pruneQuotaCache(new Set()); updateQuotaCache({ [key]: quota }); }

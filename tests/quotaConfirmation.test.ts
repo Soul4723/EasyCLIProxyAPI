@@ -24,6 +24,7 @@ beforeEach(() => {
   consumeError = false;
   refreshError = false;
   mockIPC((command, payload) => {
+    if (command === 'get_management_target_revision') return 0;
     if (command !== 'management_request') throw new Error('Unexpected IPC command: ' + command);
     const request = (payload as { request: { path: string; body: { url: string; method: string } } }).request;
     expect(request.path).toBe('/requests/api-call');

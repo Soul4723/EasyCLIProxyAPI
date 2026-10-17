@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { validateDevinCallback } from '../src/services/devinOAuth';
 import { readDevinQuota } from '../src/services/devinQuota';
 import { loadQuota, providerForFile, quotaRowsFor } from '../src/services/quotaService';
 import { changedOAuthAuthFileNames, snapshotAuthFiles } from '../src/services/authFiles';
 import { managementApi } from '../src/services/managementApi';
 import { loadOAuthModelSettings, saveOAuthModelSettings } from '../src/services/oauthModelSettings';
+
+let targetRevisionMock: ReturnType<typeof spyOn>;
+beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); });
+afterEach(() => { targetRevisionMock.mockRestore(); });
 
 const liveStatus = (fields: Record<string, unknown>) => ({ userStatus: { planStatus: fields } });
 const file = { name: 'devin-test.json', provider: 'devin', auth_index: 'devin-index' };

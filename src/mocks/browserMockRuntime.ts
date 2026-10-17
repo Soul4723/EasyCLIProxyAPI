@@ -1249,7 +1249,11 @@ export function createBrowserMockRuntime(
       }
       case 'set_prefer_gitcode_downloads': return clone(state.versionSource);
 
-      case 'management_request': return clone(managementResponse(state, payload));
+      case 'management_request': {
+        const revision = asObject(payload.request).expectedRevision;
+        if (revision !== undefined && revision !== connectionRevision) throw new Error('The core connection changed; request cancelled');
+        return clone(managementResponse(state, payload));
+      }
       case 'import_vertex_credential': {
         if (payload.expectedRevision !== connectionRevision) throw new Error('Core connection changed; upload cancelled');
         const parsed: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(asArray(payload.data) as number[])));

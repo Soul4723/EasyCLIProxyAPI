@@ -1,3 +1,5 @@
+import type { QuotaState } from '../services/quotaService';
+import { assertQuotaOperation, startQuotaOperation, type QuotaOperation } from '../services/quotaOperation';
 import { useCoreRuntime } from '../coreRuntime';
 import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -246,26 +248,32 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
     }
   };
 
-  const refreshQuota = async (file: AuthFile) => {
+  const refreshQuota = async (file: AuthFile, operation?: Promise<QuotaOperation>) => {
     if (authFileHealth(file).disabled) return;
     const key = quotaKey(file);
     if (getQuotaCacheSnapshot()[key]?.status === 'loading') return;
     const cacheGeneration = captureQuotaCacheGeneration();
     updateQuotaCache((current) => ({ ...current, [key]: { status: 'loading', rows: [] } }));
-    const result = await loadQuota(file);
-    commitFetchedQuota(cacheGeneration, file, result);
+    const result = await loadQuota(file, operation).catch((error): QuotaState => ({ status: 'error', rows: [], error: String(error) }));
+    await commitFetchedQuota(cacheGeneration, file, result);
   };
 
   const refreshAllQuotas = async () => {
     if (quotaRefreshing || busy || loading) return;
     const queryable = files.filter((file) => !authFileHealth(file).disabled && quotaProviderForFile(file));
     if (!queryable.length) return;
+    const cacheGeneration = captureQuotaCacheGeneration();
+    const operation = startQuotaOperation();
+    void operation.catch(() => {});
     setQuotaRefreshing(true);
     setError('');
     try {
       for (let index = 0; index < queryable.length; index += 4) {
-        await Promise.all(queryable.slice(index, index + 4).map((file) => refreshQuota(file)));
+        assertQuotaOperation(await operation);
+        await Promise.all(queryable.slice(index, index + 4).map((file) => refreshQuota(file, operation)));
       }
+    } catch (requestError) {
+      if (mountedRef.current && captureQuotaCacheGeneration() === cacheGeneration) setError(String(requestError));
     } finally {
       if (mountedRef.current) setQuotaRefreshing(false);
     }

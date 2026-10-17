@@ -1,3 +1,4 @@
+import { assertQuotaOperation, startQuotaOperation } from '../services/quotaOperation';
 import { deriveAccountPresentation } from '../services/accountPresentation';
 import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ResetCreditExpiries } from '../components/ResetCreditExpiries';
@@ -98,8 +99,8 @@ export function QuotaPage() {
     if (getQuotaCacheSnapshot()[key]?.status === 'loading') return;
     const cacheGeneration = captureQuotaCacheGeneration();
     updateQuotaCache((current) => ({ ...current, [key]: { status: 'loading', rows: [] } }));
-    const result = await loadQuota(file);
-    commitFetchedQuota(cacheGeneration, file, result);
+    const result = await loadQuota(file).catch((error): QuotaState => ({ status: 'error', rows: [], error: String(error) }));
+    await commitFetchedQuota(cacheGeneration, file, result);
   }, [t]);
 
   const resetQuota = useQuotaReset(askConfirmation, setError);
@@ -109,6 +110,8 @@ export function QuotaPage() {
     setRefreshing(true);
     setError('');
     const cacheGeneration = captureQuotaCacheGeneration();
+    const operation = startQuotaOperation();
+    void operation.catch(() => {});
     updateQuotaCache((current) => ({
       ...current,
       ...Object.fromEntries(files.map((file) => [quotaKey(file), {
@@ -117,12 +120,15 @@ export function QuotaPage() {
     }));
     try {
       for (let index = 0; index < files.length; index += REFRESH_CONCURRENCY) {
+        assertQuotaOperation(await operation);
         const batch = files.slice(index, index + REFRESH_CONCURRENCY);
         await Promise.all(batch.map(async (file) => {
-          const result = await loadQuota(file);
-          commitFetchedQuota(cacheGeneration, file, result);
+          const result = await loadQuota(file, operation).catch((error): QuotaState => ({ status: 'error', rows: [], error: String(error) }));
+          await commitFetchedQuota(cacheGeneration, file, result);
         }));
       }
+    } catch (requestError) {
+      if (captureQuotaCacheGeneration() === cacheGeneration) setError(String(requestError));
     } finally {
       setRefreshing(false);
     }

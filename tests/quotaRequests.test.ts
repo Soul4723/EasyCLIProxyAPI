@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { managementApi } from '../src/services/managementApi';
 import { consumeCodexResetCredit, loadQuota } from '../src/services/quotaService';
 
+
+let targetRevisionMock: ReturnType<typeof spyOn>;
+beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); });
+afterEach(() => { targetRevisionMock.mockRestore(); });
+
 const success = (body: unknown) => ({ status_code: 200, body });
 const codexUsage = {
   rate_limit: { primary_window: { used_percent: 25, limit_window_seconds: 18000 } },
@@ -50,7 +55,7 @@ describe('quota API compatibility', () => {
       expect(call.header.Authorization).toBe('Bearer $TOKEN$');
     }
     const creditCallIndex = calls.findIndex((call) => call.url.endsWith('/rate-limit-reset-credits'));
-    expect(post.mock.calls[creditCallIndex][2]).toEqual({ timeoutMs: 8000 });
+    expect(post.mock.calls[creditCallIndex][2]).toEqual({ timeoutMs: 8000, expectedRevision: 0 });
   });
 
   it('Codex 保留零次数，usage 的适用次数优先于详情，并优先使用用量接口套餐', async () => {
@@ -111,7 +116,7 @@ describe('quota API compatibility', () => {
       groups: [{ buckets: [{ remainingFraction: 1 }] }],
     });
     expect((await loadQuota({ name: 'anti-download.json', provider: 'antigravity', auth_index: 'a' })).status).toBe('success');
-    expect(get).toHaveBeenCalledWith('/credentials/download', { name: 'anti-download.json' });
+    expect(get).toHaveBeenCalledWith('/credentials/download', { name: 'anti-download.json' }, { expectedRevision: 0 });
     expect(calls.find((request) => request.url.endsWith(':retrieveUserQuotaSummary'))?.data).toBe('{"project":"downloaded-project"}');
   });
 
@@ -155,7 +160,7 @@ describe('xAI quota queries aligned with Management Center', () => {
     expect(calls[1].header).toEqual({
       Authorization: 'Bearer $TOKEN$', accept: 'application/json', 'Content-Type': 'application/json',
     });
-    post.mock.calls.forEach((call) => expect(call[2]).toEqual({ timeoutMs: 15000 }));
+    post.mock.calls.forEach((call) => expect(call[2]).toEqual({ timeoutMs: 15000, expectedRevision: 0 }));
   });
 
   it('账单为空后探测成功只显示账户可用，不伪造额度', async () => {

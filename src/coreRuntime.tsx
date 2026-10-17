@@ -1,3 +1,5 @@
+import { invalidateQuotaCache } from './services/quotaCache';
+import { invalidateQuotaRequests } from './services/quotaService';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -66,6 +68,8 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
     listen('core-connection-changed', () => {
       if (disposed) return;
       ++statusRevision.current;
+      invalidateQuotaRequests();
+      invalidateQuotaCache();
       refreshRequest.current = null;
       setStatus(null);
       setStatusError('');
