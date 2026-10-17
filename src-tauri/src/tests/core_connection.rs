@@ -430,3 +430,38 @@ async fn cancelled_local_awaiter_does_not_release_blocking_worker_fence() {
     finish_tx.send(()).unwrap();
     let _guard = tokio::time::timeout(Duration::from_secs(5), state.target_operation.lock()).await.unwrap();
 }
+
+#[test]
+fn portable_commands_export_saved_remote_settings_without_changing_active_target() {
+    use crate::core_connection::{export_core_connection, import_core_connection, get_core_connection};
+    let directory = super::support::agent_test_home("portable-command");
+    let path = directory.join("connection.json").to_str().unwrap().to_string();
+    let app = tauri::test::mock_builder()
+        .manage(GuiConfigState::new(GuiConfigFile::default()))
+        .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    assert!(export_core_connection(app.state(), path.clone(), false).is_err());
+    let config = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: "https://saved.example".into(),
+        remote_management_key: "saved-management-secret".into(),
+        remote_client_origin: "https://client.example".into(),
+        remote_client_key: "saved-client-secret".into(),
+        ..GuiConfigFile::default()
+    };
+    app.state::<GuiConfigState>().replace_external(config).unwrap();
+    export_core_connection(app.state(), path.clone(), false).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("saved-management-secret"));
+    assert!(!text.contains("saved-client-secret"));
+    assert!(!text.contains("managementKey"));
+    assert!(!text.contains("clientKey"));
+    let imported = import_core_connection(path.clone()).unwrap();
+    assert_eq!(imported.management_origin, "https://saved.example");
+    assert!(imported.management_key.is_empty());
+    assert_eq!(get_core_connection(app.state()).unwrap().management_key, "saved-management-secret");
+    export_core_connection(app.state(), path.clone(), true).unwrap();
+    let imported = import_core_connection(path).unwrap();
+    assert_eq!(imported.management_key, "saved-management-secret");
+    assert_eq!(imported.client_key, "saved-client-secret");
+    fs::remove_dir_all(directory).unwrap();
+}

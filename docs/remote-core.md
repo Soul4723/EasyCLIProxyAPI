@@ -30,6 +30,29 @@ This safeguard reflects the GUI-owned process lifetime, not remote host supervis
 Externally managed local processes are not stopped when exiting in Remote mode.
 The last saved remote target is retained when selecting Local.
 
+## Portable settings for another machine
+
+Use **Core connection settings → Export settings** after saving a Remote connection,
+then **Import settings** on the other machine. Exports contain only the remote
+management and client API origins; local client files, executable paths, backups
+and unrelated settings stay on this machine. Keys are excluded by default. Select
+**Include API keys** only when you can handle the exported file as a secret.
+
+Import loads an unsaved draft, without changing the active connection. Review both
+origins on each machine (localhost refers to that machine), enter missing keys,
+and save to apply the existing validation and local-process safeguards. The client
+origin is required; a blank client key remains allowed. Invalid files leave the
+draft and saved configuration unchanged. Save edits before exporting. Importing
+does not modify client files. After saving, use Agent Configuration on each
+machine to configure its installed clients against the selected remote core.
+
+The version-1 JSON format (`easycli-proxy-connection`) uses `managementOrigin`,
+`clientOrigin`, and optional `managementKey` / `clientKey` fields inside a remote
+`connection`. Export replaces files atomically, with mode 0600 on Unix.
+Native file dialogs and cross-platform GUI transfer require platform validation.
+
+Beginner Mode is available only in Local mode.
+
 ## Runtime and management
 
 Remote status means authenticated reachability, not local process ownership. It

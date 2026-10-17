@@ -1,4 +1,11 @@
 export const connectionEn = {
+  "connection.navigationReason": "Beginner Mode requires Local mode. Configure remote clients from Agent Configuration.",
+  "connection.export": "Export settings",
+  "connection.import": "Import settings",
+  "connection.includeSecrets": "Include API keys (handle exported file as secret)",
+  "connection.portableHint": "Export contains only core targets. Machine-local client files and paths stay here. Secrets are excluded unless selected. Save edits before exporting.",
+  "connection.imported": "Settings loaded. Review targets and save to apply.",
+  "connection.exported": "Settings exported.",
   "connection.resumeUsage": "Resume collection",
   "connection.usagePaused": "Collection paused",
   "connection.remotePaths": "File and directory paths refer to the core host. Enter remote paths directly; local file browsing is unavailable.",
@@ -28,6 +35,13 @@ export const connectionEn = {
   "connection.target": "Management target",
 };
 export const connectionZhCN = {
+  "connection.navigationReason": "新手模式需要本地模式。请在客户端配置中设置远程客户端。",
+  "connection.export": "导出设置",
+  "connection.import": "导入设置",
+  "connection.includeSecrets": "包含 API 密钥（请将导出文件作为机密保管）",
+  "connection.portableHint": "导出仅包含内核目标，本机客户端文件和路径不会复制。默认不含密钥。请先保存更改再导出。",
+  "connection.imported": "设置已载入，请检查目标并保存以应用。",
+  "connection.exported": "设置已导出。",
   "connection.resumeUsage": "恢复采集",
   "connection.usagePaused": "采集已暂停",
   "connection.remotePaths": "文件和目录路径属于内核主机。请直接输入远程路径；不支持浏览本机文件。",
@@ -57,6 +71,13 @@ export const connectionZhCN = {
   "connection.target": "管理目标",
 };
 export const connectionJa = {
+  "connection.navigationReason": "初心者モードにはローカルモードが必要です。リモートクライアントはクライアント設定で構成してください。",
+  "connection.export": "設定をエクスポート",
+  "connection.import": "設定をインポート",
+  "connection.includeSecrets": "API キーを含める（ファイルを機密として扱ってください）",
+  "connection.portableHint": "コアの接続先のみをエクスポートします。この端末のクライアントファイルやパスは含みません。選択しない限りキーは除外されます。変更は先に保存してください。",
+  "connection.imported": "設定を読み込みました。接続先を確認し、保存して適用してください。",
+  "connection.exported": "設定をエクスポートしました。",
   "connection.resumeUsage": "収集を再開",
   "connection.usagePaused": "収集は一時停止中",
   "connection.remotePaths": "ファイルとディレクトリのパスはコアのホスト上のものです。リモートパスを直接入力してください。ローカルファイルの参照は利用できません。",

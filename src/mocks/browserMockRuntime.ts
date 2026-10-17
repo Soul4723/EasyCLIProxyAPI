@@ -958,6 +958,7 @@ export function createBrowserMockRuntime(
   const state = createState(scenario);
   let connection: CoreConnection = { mode: 'local', managementOrigin: '', managementKey: '', clientOrigin: '', clientKey: '' };
   let localStatus = clone(state.coreStatus);
+  let portableConnection: CoreConnection | null = null;
   let connectionRevision = 0;
   let usagePaused = false;
   // In-memory client files only: never touch the host's actual agent configuration.
@@ -1054,6 +1055,13 @@ export function createBrowserMockRuntime(
         return null;
 
       case 'get_management_target_revision': return connectionRevision;
+      case 'export_core_connection':
+        if (connection.mode !== 'remote') throw new Error('Switch to Remote mode before exporting connection settings');
+        portableConnection = { ...connection, managementKey: payload.includeSecrets ? connection.managementKey : '', clientKey: payload.includeSecrets ? connection.clientKey : '' };
+        return null;
+      case 'import_core_connection':
+        if (!portableConnection) throw new Error('Connection export is invalid or corrupted');
+        return clone(portableConnection);
       case 'get_core_connection': return clone(connection);
       case 'test_core_connection': return connectionResult(validateConnection(payload.connection as CoreConnection));
       case 'save_core_connection': {
