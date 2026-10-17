@@ -288,11 +288,11 @@ pub(crate) fn copilot_has_marker(client: AgentClient, paths: &[PathBuf]) -> Resu
 pub(crate) fn inspect_copilot_config(
     client: AgentClient,
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentClientOrigin,
     key: &str,
 ) -> Result<(bool, Option<String>), String> {
     let content = read_optional_text(&paths[0])?;
-    let base = format!("{}/v1", managed_core_loopback_origin(port));
+    let base = format!("{}/v1", port.client_origin());
     if client == AgentClient::CopilotCli {
         let root = parse(&paths[0], content.as_deref())?;
         let model = root

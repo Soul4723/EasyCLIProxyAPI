@@ -301,7 +301,6 @@ pub(crate) fn close_codex_config_modification(
 ) -> Result<AgentConfigActionResult, String> {
     let _target_state = app.state::<GuiConfigState>();
     let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -419,7 +418,7 @@ pub(crate) fn switch_codex_native_oauth(
 // Subsequent model/auth updates retain the original routing until Close is used.
 pub(crate) fn apply_codex_cpa_configuration(
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
     options: AgentConfigurationOptions<'_>,
@@ -483,7 +482,7 @@ pub(crate) fn apply_codex_cpa_configuration(
             path: restored_config.0.clone(),
             after: build_codex_agent_config_with_oauth(
                 text(restored_config.1.as_deref())?,
-                &format!("{}/v1", managed_core_loopback_origin(port)),
+                &format!("{}/v1", port.client_origin()),
                 api_key,
                 model,
                 options.oauth_configuration,
@@ -523,7 +522,6 @@ pub(crate) fn restore_codex_official_config(
 ) -> Result<AgentConfigActionResult, String> {
     let _target_state = app.state::<GuiConfigState>();
     let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()

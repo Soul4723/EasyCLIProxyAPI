@@ -257,3 +257,33 @@ fn antigravity_removal_without_history_keeps_unmanaged_settings() {
     assert_eq!(restored, json!({"externalSetting": 42}));
     assert!(removals[1].1.is_none());
 }
+
+#[test]
+fn remote_antigravity_launch_environment_uses_client_credentials_only() {
+    let fixture = Home::new();
+    let home = &fixture.0;
+    let client = AgentClient::AntigravityCli;
+    let target = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: "https://management.example.test".into(),
+        remote_management_key: "fixture-management-never-client".into(),
+        remote_client_origin: "https://client.example.test:9443".into(),
+        remote_client_key: "fixture-client-key".into(),
+        ..GuiConfigFile::default()
+    };
+    apply_agent_configuration_with_oauth(client, home, &target,
+        effective_agent_api_key(&target), "fixture-model", AgentConfigurationOptions {
+            models: &[], codex_catalog: None, oauth_configuration: false,
+            claude_code_model_mappings: None, claude_desktop_model_mappings: None,
+        }).unwrap();
+    let binary = if cfg!(windows) { home.join("AppData/Local/agy/bin/agy.exe") } else { home.join(".local/bin/agy") };
+    fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    fs::write(&binary, []).unwrap();
+    let args = ["cpa".into(), "--cpa-antigravity-cli".into(), home.clone().into_os_string(), "--print=fixture".into()];
+    let command = antigravity_helper_command(&args).unwrap();
+    let envs = command.get_envs().collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(envs[std::ffi::OsStr::new("GEMINI_API_KEY")], Some(std::ffi::OsStr::new("fixture-client-key")));
+    assert_eq!(envs[std::ffi::OsStr::new("GOOGLE_GEMINI_BASE_URL")], Some(std::ffi::OsStr::new("https://client.example.test:9443")));
+    assert_eq!(envs[std::ffi::OsStr::new("GOOGLE_API_KEY")], None);
+    assert!(!envs.values().flatten().any(|value| *value == std::ffi::OsStr::new("fixture-management-never-client")));
+}

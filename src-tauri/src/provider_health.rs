@@ -1,7 +1,7 @@
 use super::{
     build_http_client_with_proxy, effective_agent_api_key, fetch_agent_model_payload, is_loopback_host,
-    managed_core_loopback_origin, managed_core_tls_enabled, usage, validate_agent_model,
-    GuiConfigFile, GuiConfigState, CoreConnectionMode, APP_USER_AGENT,
+    managed_core_tls_enabled, usage, validate_agent_model,
+    GuiConfigFile, GuiConfigState, AgentClientOrigin, APP_USER_AGENT,
 };
 use chrono::Local;
 use futures_util::StreamExt;
@@ -330,12 +330,9 @@ pub(crate) async fn get_core_models(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<CoreHealthModel>, String> {
     let config = gui_config_state.snapshot()?;
-    if config.connection_mode == CoreConnectionMode::Remote {
-        let payload = crate::core_connection::fetch_client_models(&config).await?;
-        gui_config_state.ensure_target(&config)?;
-        return parse_core_models(&payload);
-    }
-    fetch_core_models(config.port, effective_agent_api_key(&config)).await
+    let result = fetch_agent_model_payload(&config, effective_agent_api_key(&config)).await;
+    gui_config_state.ensure_target(&config)?;
+    parse_core_models(&result?)
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -346,6 +343,7 @@ pub(crate) struct CoreHealthModel {
     display_name: Option<String>,
 }
 
+#[cfg(test)]
 async fn fetch_core_models(port: u16, api_key: &str) -> Result<Vec<CoreHealthModel>, String> {
     let payload = fetch_agent_model_payload(port, api_key).await?;
     parse_core_models(&payload)
@@ -406,20 +404,10 @@ async fn probe_core_model(
     timeout_ms: Option<u64>,
 ) -> Result<ProviderHealthProbeResponse, String> {
     let model = validate_agent_model(model)?;
-    if config.connection_mode == CoreConnectionMode::Local && config.port == 0 {
-        return Err("Invalid kernel port".to_string());
-    }
-    let tls_enabled = config.connection_mode == CoreConnectionMode::Local && managed_core_tls_enabled();
-    let client_origin = if config.connection_mode == CoreConnectionMode::Remote {
-        config.remote_client_origin.trim_end_matches('/').to_string()
-    } else {
-        managed_core_loopback_origin(config.port)
-    };
-    let client_key = if config.connection_mode == CoreConnectionMode::Remote {
-        config.remote_client_key.clone()
-    } else {
-        effective_agent_api_key(config).to_string()
-    };
+    config.validate_client_origin()?;
+    let tls_enabled = config.local_client() && managed_core_tls_enabled();
+    let client_origin = config.client_origin();
+    let client_key = effective_agent_api_key(config);
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -428,13 +416,14 @@ async fn probe_core_model(
         .danger_accept_invalid_certs(tls_enabled)
         .build()
         .map_err(|error| format!("Failed to create kernel health check client: {error}"))?;
+    let mut headers = HashMap::from([
+        ("Content-Type".to_string(), "application/json".to_string()),
+        ("Accept".to_string(), "text/event-stream".to_string()),
+    ]);
+    if !client_key.is_empty() { headers.insert("Authorization".into(), format!("Bearer {client_key}")); }
     let request = ProviderHealthProbeRequest {
         url: format!("{client_origin}/v1/chat/completions"),
-        header: HashMap::from([
-            ("Authorization".to_string(), format!("Bearer {client_key}")),
-            ("Content-Type".to_string(), "application/json".to_string()),
-            ("Accept".to_string(), "text/event-stream".to_string()),
-        ]),
+        header: headers,
         data: serde_json::json!({
             "model": model,
             "messages": [{ "role": "user", "content": "Reply with OK." }],
@@ -533,16 +522,10 @@ async fn execute_health_probe(
         .body(request.data.clone())
         .send()
         .await
-        .map_err(|error| format!("Health check request failed: {error}"))?;
+        .map_err(|_| "Health check request failed".to_string())?;
     let status = response.status();
     if !status.is_success() {
-        let detail = response.text().await.unwrap_or_default();
-        let detail = detail.trim();
-        return Err(if detail.is_empty() {
-            format!("Upstream returned HTTP {}", status.as_u16())
-        } else {
-            format!("Upstream returned HTTP {}: {}", status.as_u16(), detail)
-        });
+        return Err(format!("Upstream returned HTTP {}", status.as_u16()));
     }
     let content_type = response
         .headers()
@@ -557,7 +540,7 @@ async fn execute_health_probe(
     let mut stream = response.bytes_stream();
     let mut received = Vec::new();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| format!("Failed to read health check stream: {error}"))?;
+        let chunk = chunk.map_err(|_| "Failed to read health check stream".to_string())?;
         if received.len().saturating_add(chunk.len()) > MAX_PROVIDER_HEALTH_STREAM_BYTES {
             return Err("Health check did not receive the model's first token within the limit".to_string());
         }

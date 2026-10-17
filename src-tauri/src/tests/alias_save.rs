@@ -697,6 +697,62 @@ impl Drop for DesktopRestoreFixture {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn remote_desktop_backup_restore_uses_non_replaying_v8_writer() {
+    for scenario in ["success", "unknown-write", "local-conflict", "stale-target"] {
+        let failure = if scenario == "unknown-write" { Failure::YamlAfterWrite } else { Failure::None };
+        let fixture = DesktopRestoreFixture::new();
+        let core = MockCore::new_v8(&fixture.core_b, failure);
+        let config = GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: format!("http://127.0.0.1:{}", core.config.port),
+            remote_management_key: "fixture-management".into(),
+            remote_client_origin: "http://client.invalid".into(),
+            remote_client_key: "fixture-client".into(),
+            ..Default::default()
+        };
+        let state = GuiConfigState::new(config.clone());
+        let plan = prepare_restore_plan(&config, "claude-desktop", &fixture.home, &fixture.id)
+            .await.unwrap();
+        let revision = plan.preview.revision.clone();
+        let paths = config_paths("claude-desktop", &fixture.home).unwrap();
+        if scenario == "local-conflict" {
+            fs::write(&paths[0], r#"{"deploymentMode":"3p","external":true}"#).unwrap();
+        }
+        if scenario == "stale-target" {
+            state.inner.lock().unwrap().target_revision += 1;
+        }
+        let local_before = config_images(&paths).unwrap();
+        let result = execute_restore_plan(&state, &config, plan, &revision).await;
+        let (persisted, requests) = core.finish();
+        let writes = requests.iter().filter(|request| request.starts_with("PUT") || request.starts_with("DELETE")).collect::<Vec<_>>();
+        assert!(writes.iter().all(|request| request.starts_with("PUT /v8/management/config/api-keys/") || request.starts_with("PUT /v8/management/config/requests/")), "{writes:?}");
+        if scenario == "success" {
+            result.unwrap();
+            assert_eq!(persisted["openai-compatibility"], yaml_json(&fixture.core_a)["openai-compatibility"]);
+            assert_eq!(current_desktop_mappings(&fixture.home).unwrap().opus, "model-a");
+        } else if scenario == "local-conflict" {
+            assert!(result.unwrap_err().contains("Remote aliases were restored but the local client configuration failed"));
+            assert_eq!(persisted["openai-compatibility"], yaml_json(&fixture.core_a)["openai-compatibility"]);
+            assert_eq!(config_images(&paths).unwrap(), local_before);
+            let unique = writes.iter().collect::<std::collections::HashSet<_>>();
+            assert_eq!(writes.len(), unique.len(), "No rollback: {writes:?}");
+        } else if scenario == "stale-target" {
+            assert!(result.unwrap_err().contains("Core connection changed"));
+            assert!(writes.is_empty());
+            assert_eq!(config_images(&paths).unwrap(), local_before);
+        } else {
+            let error = result.unwrap_err();
+            assert!(error.contains("changes may have applied"), "{error}");
+            assert!(!error.contains("fixture-management"));
+            assert!(!error.contains("fixture-client"));
+            assert_eq!(writes.len(), 1, "No retry or rollback: {writes:?}");
+            assert_ne!(persisted["openai-compatibility"], yaml_json(&fixture.core_b)["openai-compatibility"]);
+            assert_eq!(current_desktop_mappings(&fixture.home).unwrap().opus, "model-b");
+        }
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn desktop_backup_restore_updates_core_routes_and_mapping_metadata() {
     let fixture = DesktopRestoreFixture::new();
     let core = MockCore::new(&fixture.core_b, Failure::None);
@@ -705,7 +761,7 @@ async fn desktop_backup_restore_updates_core_routes_and_mapping_metadata() {
         .unwrap();
     assert!(!plan.preview.differences.is_empty());
     let revision = plan.preview.revision.clone();
-    execute_restore_plan(&core.config, plan, &revision)
+    execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision)
         .await
         .unwrap();
     assert_eq!(
@@ -752,7 +808,7 @@ async fn desktop_legacy_backup_restores_the_routes_referenced_by_its_profile() {
             let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &backup.id)
                 .await.unwrap();
             let revision = plan.preview.revision.clone();
-            execute_restore_plan(&core.config, plan, &revision).await.unwrap();
+            execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision).await.unwrap();
             assert_eq!(config_images(&paths).unwrap(), after);
             assert_eq!(current_desktop_mappings(&fixture.home).unwrap(), mappings);
             let (persisted, _) = core.finish();
@@ -796,7 +852,7 @@ async fn desktop_backup_keeps_a_direct_legacy_id_alongside_a_new_family_route() 
     let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &backup.id)
         .await.unwrap();
     let revision = plan.preview.revision.clone();
-    execute_restore_plan(&core.config, plan, &revision).await.unwrap();
+    execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision).await.unwrap();
     assert_eq!(config_images(&paths).unwrap(), after);
     let (persisted, _) = core.finish();
     let models = persisted["openai-compatibility"][0]["models"].as_array().unwrap();
@@ -817,7 +873,7 @@ async fn desktop_custom_backup_restores_aliases_profile_and_mapping_metadata() {
     assert!(plan.preview.differences.iter().any(|difference|
         difference.field == "modelMappings.claude-sonnet-4-6-model-b"));
     let revision = plan.preview.revision.clone();
-    execute_restore_plan(&core.config, plan, &revision).await.unwrap();
+    execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision).await.unwrap();
     let mappings = current_desktop_mappings(&fixture.home).unwrap();
     let entries = mappings.desktop_models.unwrap();
     assert_eq!(entries.len(), 1);
@@ -839,7 +895,7 @@ async fn desktop_direct_model_backup_restores_without_an_alias_route() {
     let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
         .await.unwrap();
     let revision = plan.preview.revision.clone();
-    execute_restore_plan(&core.config, plan, &revision).await.unwrap();
+    execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision).await.unwrap();
     let mappings = current_desktop_mappings(&fixture.home).unwrap();
     let entry = &mappings.desktop_models.as_ref().unwrap()[0];
     assert!(entry.alias.is_empty());
@@ -871,7 +927,7 @@ async fn desktop_backup_restore_rejects_core_changes_since_preview() {
         .await
         .unwrap();
     assert!(
-        execute_restore_plan(&core.config, plan, &preview.preview.revision)
+        execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &preview.preview.revision)
             .await
             .unwrap_err()
             .contains("changed after preview")
@@ -896,7 +952,7 @@ async fn desktop_backup_restore_rolls_back_core_when_local_files_change() {
     let paths = config_paths("claude-desktop", &fixture.home).unwrap();
     fs::write(&paths[0], r#"{"deploymentMode":"3p","external":true}"#).unwrap();
     let before = config_images(&paths).unwrap();
-    assert!(execute_restore_plan(&core.config, plan, &revision)
+    assert!(execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision)
         .await
         .unwrap_err()
         .contains("Original configuration was restored"));
@@ -920,7 +976,7 @@ async fn desktop_backup_restore_does_not_write_local_files_when_core_save_fails(
     let revision = plan.preview.revision.clone();
     let paths = config_paths("claude-desktop", &fixture.home).unwrap();
     let before = config_images(&paths).unwrap();
-    assert!(execute_restore_plan(&core.config, plan, &revision)
+    assert!(execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision)
         .await
         .is_err());
     assert_eq!(config_images(&paths).unwrap(), before);

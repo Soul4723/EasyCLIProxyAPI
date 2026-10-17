@@ -280,20 +280,7 @@ pub(crate) fn require_local(config: &GuiConfigFile) -> Result<(), String> {
 }
 
 pub(crate) async fn fetch_client_models(config: &GuiConfigFile) -> Result<serde_json::Value, String> {
-    let connection = connection_from_config(config)?;
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(15))
-        .danger_accept_invalid_certs(connection.mode == CoreConnectionMode::Local)
-        .build().map_err(|_| "Failed to create core model client".to_string())?;
-    let mut request = client.get(format!("{}/v1/models", connection.client_origin));
-    if !connection.client_key.is_empty() { request = request.bearer_auth(connection.client_key); }
-    let response = request.send().await.map_err(|_| "Failed to query core models".to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("Core model request failed (HTTP {})", response.status().as_u16()));
-    }
-    response.json().await.map_err(|_| "Core returned an invalid model catalog".to_string())
+    crate::agents::fetch_agent_model_payload(config, crate::effective_agent_api_key(config)).await
 }
 
 pub(crate) async fn read_remote_yaml(config: &GuiConfigFile) -> Result<String, String> {

@@ -235,3 +235,49 @@ describe('browser mock native provider groups', () => {
     expect(await request(runtime, 'GET', '/config/api-keys/openai-compatibility')).toEqual([{ ...group, keys: [group.keys[1]] }]);
   });
 });
+
+describe('remote agent client fixture', () => {
+  const connection = {
+    mode: 'remote', managementOrigin: 'http://management.example.test:8317', managementKey: 'fixture-management-key',
+    clientOrigin: 'https://client.example.test', clientKey: 'fixture-client-key',
+  };
+  test('configures, inspects, fetches, launches and probes the client target without emitting credentials', async () => {
+    const events: Array<{ event: string; payload: unknown }> = [];
+    const runtime = createBrowserMockRuntime('stopped', (event, payload) => events.push({ event, payload }));
+    await runtime.invoke('save_core_connection', { connection });
+    const inspect = async () => (await runtime.invoke('get_agent_config_statuses') as Array<Record<string, unknown>>)
+      .find(status => status.id === 'codex');
+    expect(await inspect()).toMatchObject({ connectionState: 'needs-update' });
+    expect(await runtime.invoke('get_agent_models', { client: 'codex' })).toBeArray();
+    await runtime.invoke('update_agent_config', { client: 'codex', model: 'claude-sonnet-4-6' });
+    expect(await inspect()).toMatchObject({ connectionState: 'configured', currentModel: 'claude-sonnet-4-6' });
+    await runtime.invoke('launch_agent', { client: 'codex', target: 'cli' });
+    await runtime.invoke('core_health_probe', { model: 'claude-sonnet-4-6' });
+    const operations = events.filter(({ event }) => event === 'browser-mock-client-operation');
+    expect(operations).toHaveLength(6);
+    for (const { payload } of operations) expect(payload).toMatchObject({ origin: connection.clientOrigin });
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(connection.managementKey);
+    expect(serialized).not.toContain(connection.clientKey);
+    await runtime.invoke('save_core_connection', { connection: { ...connection, mode: 'local' } });
+    expect(await inspect()).toMatchObject({ connectionState: 'needs-update' });
+    await runtime.invoke('update_agent_config', { client: 'codex', model: 'gpt-5.2-codex' });
+    expect(await inspect()).toMatchObject({ connectionState: 'configured' });
+    expect(events.at(-1)?.payload).toMatchObject({ origin: 'http://127.0.0.1:8317' });
+  });
+  test('does not substitute management credentials or local keys for a missing/wrong client key', async () => {
+    const runtime = createBrowserMockRuntime('stopped');
+    for (const clientKey of ['', 'fixture-management-key', 'wrong-client-key']) {
+      await runtime.invoke('save_core_connection', { connection: { ...connection, clientKey } });
+      await expect(runtime.invoke('get_agent_models', { client: 'codex' })).rejects.toThrow('client authentication rejected');
+      await expect(runtime.invoke('core_health_probe', { model: 'gpt-5.2-codex' })).rejects.toThrow('client authentication rejected');
+    }
+  });
+  test('fences an agent request when a preceding connection save changes target during its delay', async () => {
+    const runtime = createBrowserMockRuntime('stopped', undefined, 5);
+    const saving = runtime.invoke('save_core_connection', { connection });
+    const pending = runtime.invoke('get_agent_models', { client: 'codex' });
+    await saving;
+    await expect(pending).rejects.toThrow('connection changed');
+  });
+});

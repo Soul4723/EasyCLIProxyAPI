@@ -1197,7 +1197,7 @@ async fn restore_rejects_configuration_or_backup_changes_since_confirmation() {
     let revision = plan.preview.revision.clone();
     save(&paths[0], "external='keep'");
     let current = config_images(&paths).unwrap();
-    assert!(execute_restore_plan(&config, plan, &revision)
+    assert!(execute_restore_plan(&GuiConfigState::new(config.clone()), &config, plan, &revision)
         .await
         .is_err());
     assert_eq!(current, config_images(&paths).unwrap());
@@ -1215,7 +1215,7 @@ async fn restore_rejects_configuration_or_backup_changes_since_confirmation() {
         })
         .unwrap(),
     );
-    assert!(execute_restore_plan(&config, plan, &revision)
+    assert!(execute_restore_plan(&GuiConfigState::new(config.clone()), &config, plan, &revision)
         .await
         .is_err());
     assert_eq!(current, config_images(&paths).unwrap());
