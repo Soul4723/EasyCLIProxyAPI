@@ -115,6 +115,13 @@ pub(crate) fn prepare_target_transition<R: tauri::Runtime>(
     use tauri::Manager;
     if mode == CoreConnectionMode::Remote {
         let process = app.state::<crate::CoreProcessState>();
+        prepare_remote_process_transition(process.inner())?;
+    }
+    Ok(())
+}
+
+// Caller holds CORE_OPERATION_LOCK. Kept separate to exercise transition lifecycle without a GUI.
+pub(crate) fn prepare_remote_process_transition(process: &crate::CoreProcessState) -> Result<(), String> {
         let mut child = process.child.lock().map_err(|_| "Core process lock is poisoned".to_string())?;
         if let Some(owned) = child.as_mut() {
             if owned.try_wait().map_err(|_| "Unable to inspect the local core process".to_string())?.is_none() {
@@ -122,8 +129,8 @@ pub(crate) fn prepare_target_transition<R: tauri::Runtime>(
             }
             *child = None;
         }
+        process.disarm_supervision();
         process.clear_adopted_processes()?;
-    }
     Ok(())
 }
 

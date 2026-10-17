@@ -1353,3 +1353,339 @@ fn core_child_wait_errors_retain_managed_handle() {
     assert_eq!(state.child.lock().unwrap().as_ref().unwrap().id(), pid);
     state.take_child();
 }
+
+#[test]
+fn core_supervision_is_disabled_for_remote_connections() {
+    assert!(core_supervision_allowed(&GuiConfigFile::default()));
+    assert!(!core_supervision_allowed(&GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        ..GuiConfigFile::default()
+    }));
+}
+
+#[test]
+fn adopted_child_is_not_auto_restarted() {
+    let state = CoreProcessState::new(false);
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let pid = child.id();
+    state
+        .adopt_process_ids(&std::env::current_exe().unwrap(), vec![pid])
+        .unwrap();
+    assert!(!state.is_supervising());
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(!check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| {
+        panic!("adopted child must not be restarted")
+    })
+    .unwrap());
+}
+
+#[test]
+#[cfg(unix)]
+fn core_child_wait_errors_retain_handle_and_supervision_without_restarting() {
+    let state = CoreProcessState::new(false);
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let pid = child.id();
+    child.kill().unwrap();
+    // Reap outside Child so its next try_wait reports ECHILD instead of an exit status.
+    assert_eq!(unsafe { libc::waitpid(pid as i32, std::ptr::null_mut(), 0) }, pid as i32);
+    assert!(child.try_wait().is_err());
+    state.store_child(child).unwrap();
+
+    assert_eq!(state.managed_pid(), Some(pid));
+    assert!(!check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| panic!("unknown status must not restart"))
+        .unwrap());
+    state.adopt_process_ids(&env::current_exe().unwrap(), vec![std::process::id()]).unwrap();
+    assert!(state.is_supervising());
+    assert_eq!(state.child.lock().unwrap().as_ref().unwrap().id(), pid);
+    assert_eq!(state.crash_restart_attempts.load(Ordering::Acquire), 0);
+    state.clear_adopted_processes().unwrap();
+    state.take_child();
+}
+
+#[test]
+fn core_crash_supervisor_starts_after_status_reaps_a_ready_child() {
+    let state = CoreProcessState::new(false);
+    let child = spawn_core_child(core_child_sleep_command()).unwrap();
+    state.store_child(child).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    assert!(current_core_status(Some(&state), Some(port)).unwrap().ready);
+
+    // Exit after readiness but before the command's final status snapshot.
+    if let Some(child) = state.child.lock().unwrap().as_mut() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+    let status = current_core_status(Some(&state), Some(port)).unwrap();
+    assert!(!status.managed);
+    assert!(state.child.lock().unwrap().is_none());
+
+    let mut supervisor_started = false;
+    start_core_crash_supervisor_if_needed(&state, || {
+        supervisor_started = true;
+        assert!(check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |backoff| {
+            assert_eq!(backoff, Duration::from_secs(1));
+            state.store_child(spawn_core_child(core_child_sleep_command()).unwrap()).map(|_| ())
+        }).unwrap());
+    });
+    assert!(supervisor_started);
+    assert!(state.managed_pid().is_some());
+    if let Some(mut child) = state.take_child() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+    start_core_crash_supervisor_if_needed(&state, || panic!("stopped core must stay unsupervised"));
+}
+
+#[test]
+fn core_crash_supervisor_recovers_unexpected_exit_with_bounded_backoff_and_ignores_stopped_child() {
+    let state = CoreProcessState::new(false);
+    let mut observed_backoffs = Vec::new();
+
+    for expected_backoff in [
+        Duration::from_secs(1),
+        Duration::from_secs(2),
+        Duration::from_secs(5),
+        Duration::from_secs(10),
+        Duration::from_secs(30),
+    ] {
+        let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+        state.store_child(child).unwrap();
+        // Even if managed_pid() is polled before the supervisor tick, supervision state stays armed
+        assert_eq!(state.managed_pid(), None);
+
+        let recovered = check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |backoff| {
+            observed_backoffs.push(backoff);
+            Ok(())
+        })
+        .unwrap();
+        assert!(recovered);
+        assert_eq!(observed_backoffs.last().copied(), Some(expected_backoff));
+    }
+
+    // 6th consecutive crash exceeds MAX_CORE_CRASH_RESTART_ATTEMPTS (5) and disarms supervision
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let _ = child.kill();
+    let _ = child.wait();
+    state.store_child(child).unwrap();
+    let sixth = check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| Ok(()));
+    assert!(sixth.is_err());
+    assert!(!check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| Ok(())).unwrap());
+
+    // Stopping/taking the child clears supervision and resets attempts
+    let child = spawn_core_child(core_child_sleep_command()).unwrap();
+    state.store_child(child).unwrap();
+    let mut stopped_child = state.take_child().unwrap();
+    let _ = stopped_child.kill();
+    let _ = stopped_child.wait();
+    assert!(!check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| Ok(())).unwrap());
+
+    // Failed restart attempts keep Recovering state so later supervisor ticks retry (1s -> 2s -> 5s)
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let _ = child.kill();
+    let _ = child.wait();
+    state.store_child(child).unwrap();
+
+    let mut failed_backoffs = Vec::new();
+    for expected in [Duration::from_secs(1), Duration::from_secs(2)] {
+        let err = check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |backoff| {
+            failed_backoffs.push(backoff);
+            Err("port still busy".to_string())
+        })
+        .unwrap_err();
+        assert_eq!(err, "port still busy");
+        assert_eq!(failed_backoffs.last().copied(), Some(expected));
+    }
+    let mut third_backoff = None;
+    assert!(
+        check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |backoff| {
+            third_backoff = Some(backoff);
+            Ok(())
+        })
+        .unwrap()
+    );
+    assert_eq!(third_backoff, Some(Duration::from_secs(5)));
+}
+
+#[test]
+fn core_crash_supervisor_resets_attempts_after_stable_uptime_and_treats_already_running_as_success() {
+    let state = CoreProcessState::new(false);
+
+    // Exhaust 5 consecutive crash recovery attempts
+    for _ in 0..5 {
+        let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+        state.store_child(child).unwrap();
+        assert!(check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| Ok(())).unwrap());
+    }
+
+    // Spawn a child that runs stably for >= CORE_CRASH_STABLE_UPTIME, then crashes
+    let mut stable_child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let _ = stable_child.kill();
+    let _ = stable_child.wait();
+    state.store_child(stable_child).unwrap();
+    state.set_supervision_started_at(Instant::now() - CORE_CRASH_STABLE_UPTIME);
+
+    let mut backoff_after_stable_run = None;
+    assert!(
+        check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |backoff| {
+            backoff_after_stable_run = Some(backoff);
+            Ok(())
+        })
+        .unwrap()
+    );
+    assert_eq!(backoff_after_stable_run, Some(Duration::from_secs(1)));
+
+    // If the user manually starts the core during the backoff window, restart_crashed_core_locked
+    // sees the running process, treats recovery as complete, and resets the attempt counter.
+    let mut crashed = spawn_core_child(core_child_sleep_command()).unwrap();
+    let _ = crashed.kill();
+    let _ = crashed.wait();
+    state.store_child(crashed).unwrap();
+
+    let recovered = check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_backoff| {
+        let manual_child = spawn_core_child(core_child_sleep_command()).unwrap();
+        state.store_child(manual_child).unwrap();
+        let started_by_supervisor =
+            restart_crashed_core_locked(&state, &GuiConfigFile::default())?;
+        assert!(!started_by_supervisor);
+        Ok(())
+    })
+    .unwrap();
+    assert!(recovered);
+    assert_eq!(state.crash_restart_attempts.load(Ordering::Acquire), 0);
+
+    if let Some(mut live) = state.take_child() {
+        let _ = live.kill();
+        let _ = live.wait();
+    }
+
+    // Adopting a running PID while a live managed child is tracked preserves crash supervision.
+    let live_managed = spawn_core_child(core_child_sleep_command()).unwrap();
+    let live_pid = live_managed.id();
+    state.store_child(live_managed).unwrap();
+    state
+        .adopt_process_ids(&std::env::current_exe().unwrap(), vec![live_pid])
+        .unwrap();
+    if let Ok(mut guard) = state.child.lock() {
+        if let Some(proc) = guard.as_mut() {
+            let _ = proc.kill();
+            let _ = proc.wait();
+        }
+    }
+    assert!(check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| Ok(())).unwrap());
+}
+
+#[test]
+fn core_crash_supervisor_retry_limit_preserves_supervision_of_manually_started_child() {
+    let state = CoreProcessState::new(false);
+
+    for _ in 0..MAX_CORE_CRASH_RESTART_ATTEMPTS {
+        let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+        state.store_child(child).unwrap();
+        assert!(check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| Ok(())).unwrap());
+    }
+
+    let mut crashed = spawn_core_child(core_child_sleep_command()).unwrap();
+    let _ = crashed.kill();
+    let _ = crashed.wait();
+    state.store_child(crashed).unwrap();
+    assert!(state.poll_unexpected_child_exit(CORE_CRASH_STABLE_UPTIME));
+    assert!(core_crash_restart_backoff(state.record_crash_restart_attempt()).is_none());
+
+    // A manual start lands after the retry limit is reached but before recovery is paused.
+    state.reset_crash_restart_attempts();
+    let manual_child = spawn_core_child(core_child_sleep_command()).unwrap();
+    state.store_child(manual_child).unwrap();
+
+    let error = pause_core_crash_recovery(&state);
+    assert!(error.contains("automatic restart paused"));
+    assert!(state.is_supervising());
+
+    if let Ok(mut guard) = state.child.lock() {
+        if let Some(process) = guard.as_mut() {
+            let _ = process.kill();
+            let _ = process.wait();
+        }
+    }
+    let mut backoff = None;
+    assert!(check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |delay| {
+        backoff = Some(delay);
+        Ok(())
+    })
+    .unwrap());
+    assert_eq!(backoff, Some(Duration::from_secs(1)));
+
+    // Without a replacement child, reaching the limit still pauses automatic recovery.
+    let state = CoreProcessState::new(false);
+    for _ in 0..MAX_CORE_CRASH_RESTART_ATTEMPTS {
+        let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+        state.store_child(child).unwrap();
+        assert!(check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| Ok(())).unwrap());
+    }
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let _ = child.kill();
+    let _ = child.wait();
+    state.store_child(child).unwrap();
+    assert!(check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| Ok(())).is_err());
+    assert!(!state.is_supervising());
+}
+
+#[test]
+fn disarming_supervision_prevents_recovery_after_crashed_child_is_removed() {
+    let state = CoreProcessState::new(false);
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    let _ = child.kill();
+    let _ = child.wait();
+    state.store_child(child).unwrap();
+
+    state.disarm_supervision();
+
+    assert!(!state.is_supervising());
+    assert!(!check_and_recover_crashed_core(&state, &GuiConfigFile::default(), |_| {
+        panic!("disarmed supervision must not restart a crashed child")
+    })
+    .unwrap());
+}
+
+#[test]
+fn remote_transition_disarms_recovery_before_returning_to_local() {
+    let state = CoreProcessState::new(false);
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    state.store_child(child).unwrap();
+    assert!(state.poll_unexpected_child_exit(CORE_CRASH_STABLE_UPTIME));
+    let generation = state.supervision_generation.load(Ordering::Acquire);
+    crate::core_connection::prepare_remote_process_transition(&state).unwrap();
+    assert_ne!(generation, state.supervision_generation.load(Ordering::Acquire));
+    let mut config = GuiConfigFile::default();
+    config.connection_mode = CoreConnectionMode::Remote;
+    assert!(!check_and_recover_crashed_core(&state, &config, |_| panic!("remote restart")).unwrap());
+    config.connection_mode = CoreConnectionMode::Local;
+    assert!(!check_and_recover_crashed_core(&state, &config, |_| panic!("stale restart")).unwrap());
+}
+
+#[test]
+fn stop_start_invalidates_a_pending_recovery_generation() {
+    let state = CoreProcessState::new(false);
+    let mut child = spawn_core_child(core_child_sleep_command()).unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    state.store_child(child).unwrap();
+    assert!(state.poll_unexpected_child_exit(CORE_CRASH_STABLE_UPTIME));
+    let generation = state.supervision_generation.load(Ordering::Acquire);
+    state.take_child();
+    state.store_child(spawn_core_child(core_child_sleep_command()).unwrap()).unwrap();
+    assert_ne!(generation, state.supervision_generation.load(Ordering::Acquire));
+    assert!(!state.poll_unexpected_child_exit(CORE_CRASH_STABLE_UPTIME));
+    state.take_child();
+}
