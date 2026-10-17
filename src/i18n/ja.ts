@@ -1408,6 +1408,7 @@ export const jaOverrides = {
   'agents.status.invalid': '設定が無効',
   'agents.status.applied': '適用済み',
   'agents.status.unconfigured': '未設定',
+  "agents.backup.targetMismatch": "バックアップのクライアント接続先またはキーが選択中のコアと一致しません。元の接続先を選択するか、CPA 管理外のバックアップを復元してください。",
   "agents.backup.create": "手動バックアップ",
   "agents.backup.button": "バックアップを復元",
   "agents.backup.description": "管理対象の全ファイルを、独自設定を含む元の内容と存在状態に復元します。接続先とキーも保存時の値になります。自動バックアップは作成しません。",

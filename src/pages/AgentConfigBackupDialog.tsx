@@ -14,6 +14,8 @@ export function AgentConfigBackupDialog({ client, onClose, onRestored }: {
   client: string; onClose: () => void; onRestored: () => Promise<void>;
 }) {
   const { t, formatDate } = useI18n();
+  const restoreError = (cause: unknown) => String(cause) === 'Backup client endpoint or key does not match the selected core. Select the original target or restore an unmanaged backup'
+    ? t('agents.backup.targetMismatch') : String(cause);
   const dialog = useRef<HTMLDialogElement>(null);
   const [listing, setListing] = useState<Listing>({ versions: [] });
   const [selected, setSelected] = useState<Version | null>(null);
@@ -34,7 +36,7 @@ export function AgentConfigBackupDialog({ client, onClose, onRestored }: {
     setBusy(true); setError(''); setSelected(version); setPreview(null); setConfirmation(null);
     try {
       if (version.restorable) setPreview(await invoke<Preview>('preview_agent_config_backup', { client, id: version.id }));
-    } catch (cause) { setError(String(cause)); }
+    } catch (cause) { setError(restoreError(cause)); }
     finally { setBusy(false); }
   };
   const confirm = async () => {
@@ -49,7 +51,7 @@ export function AgentConfigBackupDialog({ client, onClose, onRestored }: {
         setSelected(null); setPreview(null); setConfirmation(null);
         setListing(await invoke<Listing>('list_agent_config_backups', { client }));
       }
-    } catch (cause) { setError(String(cause)); setPreview(null); setConfirmation(null); }
+    } catch (cause) { setError(restoreError(cause)); setPreview(null); setConfirmation(null); }
     finally { setBusy(false); }
   };
   const date = (version: Version) => version.createdAt

@@ -35,6 +35,9 @@ substitutes for a client API key.
 
 **Agent Configuration** inspects and configures supported installed clients on
 the GUI computer to use this target, preserving existing backup and restore
+behavior. Restoring a backup with a CPA-managed endpoint or key for another target
+is rejected before any client files or model routes are changed; unmanaged and
+removal backups remain restorable. Local-to-Local restores retain their existing
 behavior. Model fetching, client launch checks and Home model health use the
 selected client API. Home displays its protocol URLs and explicit client key;
 **Manage Keys** opens connection settings to change them. Saving a target reloads

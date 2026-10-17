@@ -1409,6 +1409,7 @@ export const en: Record<MessageKey, string> = {
   'agents.status.invalid': 'Invalid Configuration',
   'agents.status.applied': 'Applied',
   'agents.status.unconfigured': 'Not Configured',
+  "agents.backup.targetMismatch": "Backup client endpoint or key does not match the selected core. Select the original target or restore an unmanaged backup.",
   "agents.backup.create": "Manual Backup",
   "agents.backup.button": "Restore Backup",
   "agents.backup.description": "Restore the original contents and existence of the entire managed file set, including custom settings. Addresses and keys remain exactly as backed up. No automatic backup is created.",

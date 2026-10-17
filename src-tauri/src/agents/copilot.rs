@@ -485,3 +485,8 @@ pub(crate) fn run_copilot_helper(args: &[std::ffi::OsString]) -> Result<i32, Str
         .map(|s| s.code().unwrap_or(1))
         .map_err(|_| "Failed to start Copilot CLI".into())
 }
+
+// Backup after-images contain a native secret reference, not the plaintext key.
+pub(crate) fn backup_secret_reference_matches(path: &Path, key: &str, reference: &Value) -> bool {
+    setup::vscode_credential_matches(path, key, reference)
+}
