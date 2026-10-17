@@ -1,4 +1,4 @@
-import { useCoreRuntime } from '../coreRuntime';
+import { useCoreTargetRevision } from '../coreRuntime';
 import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConfirmation } from '../components/ConfirmationDialog';
@@ -165,7 +165,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
   const quotas = useQuotaCache();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mountedRef = useRef(true);
-  const { connectionRevision } = useCoreRuntime();
+  const connectionRevision = useCoreTargetRevision();
   const connectionRevisionRef = useRef(connectionRevision);
   connectionRevisionRef.current = connectionRevision;
   const fileRequestRef = useRef(0);
