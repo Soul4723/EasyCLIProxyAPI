@@ -181,10 +181,10 @@ function AppContent() {
       : '',
   ].filter(Boolean).join(' · ');
   useEffect(() => {
-    if (!canOpenAppPage(active, coreReady)) {
+    if ((active === 'easy' && status?.connectionMode === 'remote') || !canOpenAppPage(active, coreReady)) {
       setActive('home');
     }
-  }, [active, coreReady]);
+  }, [active, coreReady, status?.connectionMode]);
 
   useEffect(() => {
     if (!languageMenuOpen) return undefined;
@@ -267,11 +267,11 @@ function AppContent() {
   };
 
   const select = useCallback((pageId: PageId) => {
-    if (!canOpenAppPage(pageId, coreReady)) {
+    if ((pageId === 'easy' && status?.connectionMode === 'remote') || !canOpenAppPage(pageId, coreReady)) {
       return;
     }
     if (pageId !== active) requestAppNavigation(() => setActive(pageId));
-  }, [active, coreReady]);
+  }, [active, coreReady, status?.connectionMode]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -389,6 +389,8 @@ function AppContent() {
                 <button
                   type="button"
                   className="sidebar-link sidebar-easy-entry"
+                  disabled={status?.connectionMode === 'remote'}
+                  aria-describedby={status?.connectionMode === 'remote' ? 'remote-navigation-reason' : undefined}
                   onClick={() => select('easy')}
                 >
                   <Sprout size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -483,6 +485,11 @@ function AppContent() {
                 </div>
               </div>
             </div>
+            {status?.connectionMode === 'remote' ? (
+              <p id="remote-navigation-reason" style={{ gridColumn: '1 / -1', maxWidth: 'calc(100vw - 28px)', margin: 0, fontSize: 'var(--font-size-meta)' }}>
+                {t('connection.agentHint')}
+              </p>
+            ) : null}
           </aside>
         ) : null}
 

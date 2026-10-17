@@ -4,6 +4,13 @@ import { en, ja, zhCN, zhTW, type MessageKey } from '../src/i18n/resources';
 import { jaOverrides } from '../src/i18n/ja';
 
 describe('i18n', () => {
+  it('translates connection guidance into Japanese', () => {
+    for (const key of (Object.keys(en) as MessageKey[]).filter(key => key.startsWith('connection.') && key !== 'connection.originPlaceholder')) {
+      expect(ja[key]).not.toBe(en[key]);
+      expect(ja[key]).toMatch(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u);
+    }
+  });
+
   it('localizes system appearance controls in every language', () => {
     expect(translate('zh-CN', 'app.theme.system')).toBe('自动');
     expect(translate('zh-TW', 'app.theme.system')).toBe('自動');

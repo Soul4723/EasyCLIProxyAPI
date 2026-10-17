@@ -1569,6 +1569,7 @@ export const en: Record<MessageKey, string> = {
   'agents.clientVersion': 'Client Version',
   'agents.cliVersion': 'CLI Version',
   'agents.appVersion': 'App Version',
+  'agents.copilotPluginVersion': 'GitHub Copilot Chat · Plugin Version',
   'agents.pluginVersion': 'Plugin Version',
   'agents.notFetched': 'Not available',
   'agents.useModel': 'Model',
