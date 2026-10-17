@@ -1357,27 +1357,20 @@ pub(crate) fn file_modified_time(path: &Path) -> Option<SystemTime> {
     fs::metadata(path).ok()?.modified().ok()
 }
 
-pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
-    let config_path = gui_config_path()?;
-    let legacy_config_path = legacy_gui_config_path()?;
-    let gui_config_exists = config_path.is_file();
-    let legacy_config_exists = legacy_config_path.is_file();
+fn read_saved_gui_config(config_path: &Path, legacy_config_path: &Path) -> Result<(GuiConfigFile, GuiConfigPresence, bool, bool), String> {
+    let gui_config_exists = config_path.try_exists().map_err(|error| format!("Failed to inspect GUI configuration: {error}"))?;
+    let legacy_config_exists = legacy_config_path.try_exists().map_err(|error| format!("Failed to inspect old GUI configuration: {error}"))?;
     let had_existing_gui_config = gui_config_exists || legacy_config_exists;
 
-    let (mut config, presence, mut changed, gui_parse_failed) = if gui_config_exists {
+    let (config, presence, changed) = if gui_config_exists {
         let content = fs::read_to_string(&config_path)
             .map_err(|err| format!("Failed to read GUI configuration {}: {err}", path_to_string(&config_path)))?;
         match (
             toml::from_str::<GuiConfigFile>(&content),
             toml::from_str::<GuiConfigPresence>(&content),
         ) {
-            (Ok(config), Ok(presence)) => (config, presence, false, false),
-            _ => (
-                GuiConfigFile::default(),
-                GuiConfigPresence::default(),
-                true,
-                true,
-            ),
+            (Ok(config), Ok(presence)) => (config, presence, false),
+            _ => return Err(format!("Failed to parse saved GUI configuration {}; repair it before starting the app", path_to_string(config_path))),
         }
     } else if legacy_config_exists {
         let content = fs::read_to_string(&legacy_config_path).map_err(|err| {
@@ -1390,18 +1383,33 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
             .map_err(|err| format!("Failed to parse old GUI configuration: {err}"))?;
         let presence = serde_yaml::from_str::<GuiConfigPresence>(&content)
             .map_err(|err| format!("Failed to parse old GUI configuration field: {err}"))?;
-        (config, presence, true, false)
+        (config, presence, true)
     } else {
         (
             GuiConfigFile::default(),
             GuiConfigPresence::default(),
             true,
-            false,
         )
     };
 
+    if config.connection_mode == CoreConnectionMode::Remote {
+        crate::core_connection::connection_from_config(&config).map_err(|error| format!("Invalid saved Remote connection: {error}"))?;
+    }
+    Ok((config, presence, changed, had_existing_gui_config))
+}
+
+pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
+    let config_path = gui_config_path()?;
+    let legacy_config_path = legacy_gui_config_path()?;
+    let gui_config_exists = config_path.try_exists().map_err(|error| format!("Failed to inspect GUI configuration: {error}"))?;
+    let (mut config, presence, mut changed, had_existing_gui_config) = read_saved_gui_config(&config_path, &legacy_config_path)?;
+
     // Installed core settings are only a migration/recovery source for Local mode.
     let is_local = config.connection_mode == CoreConnectionMode::Local;
+    if !is_local {
+        validate_gui_config(&config)?;
+        return Ok(config);
+    }
     let saved_management_secret = presence.management_secret_key.as_deref();
 
     if gui_config_exists {
@@ -1424,7 +1432,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     let core_is_newer = file_modified_time(&core_config_path)
         .zip(file_modified_time(&config_path))
         .is_some_and(|(core, gui)| core > gui);
-    if is_local && core_is_newer && !gui_parse_failed {
+    if is_local && core_is_newer {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             apply_core_settings_to_gui_config(&mut config, &core_settings);
             apply_external_core_proxy_override(&mut config, &core_settings)?;
@@ -1455,7 +1463,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         || presence.max_retry_credentials.is_none()
         || presence.max_retry_interval.is_none()
         || presence.streaming_bootstrap_retries.is_none();
-    if is_local && missing_core_settings && !gui_parse_failed {
+    if is_local && missing_core_settings {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             if presence.host.is_none() {
                 config.host = core_settings.host.clone();
@@ -2272,4 +2280,71 @@ pub(crate) fn gui_config_path() -> Result<PathBuf, String> {
 
 pub(crate) fn legacy_gui_config_path() -> Result<PathBuf, String> {
     Ok(core_base_dir()?.join(LEGACY_GUI_CONFIG_FILE))
+}
+
+#[cfg(test)]
+mod saved_config_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_saved_configuration_is_rejected_without_recovery() {
+        let root = std::env::temp_dir().join(format!("cpa-native-config-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.toml");
+        let content = "[connection-mode\nmode = 'remote'";
+        fs::write(&path, content).unwrap();
+        assert!(read_saved_gui_config(&path, &root.join("legacy.yaml")).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), content);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_saved_remote_origin_is_rejected_before_local_migration() {
+        let root = std::env::temp_dir().join(format!("cpa-native-remote-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.toml");
+        let mut config = GuiConfigFile::default();
+        config.connection_mode = CoreConnectionMode::Remote;
+        config.remote_management_origin = "https://remote.example/path".into();
+        config.remote_management_key = "management-secret".into();
+        config.remote_client_origin = "https://remote.example".into();
+        fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+        assert!(read_saved_gui_config(&path, &root.join("legacy.yaml")).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn saved_remote_missing_key_is_rejected_without_rewriting() {
+        let root = std::env::temp_dir().join(format!("cpa-native-key-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.toml");
+        let content = "connection-mode = 'remote'\nremote-management-origin = 'https://remote.example'\nremote-client-origin = 'https://remote.example'\n";
+        fs::write(&path, content).unwrap();
+        let error = read_saved_gui_config(&path, &root.join("legacy.yaml")).err().unwrap();
+        assert!(error.contains("Management key is required"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), content);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_first_run_configuration_still_defaults_to_local() {
+        let root = std::env::temp_dir().join(format!("cpa-native-first-{}", std::process::id()));
+        let (config, _, changed, existed) = read_saved_gui_config(&root.join("config.toml"), &root.join("legacy.yaml")).unwrap();
+        assert_eq!(config.connection_mode, CoreConnectionMode::Local);
+        assert!(config.start_core_on_launch);
+        assert!(changed);
+        assert!(!existed);
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn existing_unreadable_configuration_is_not_treated_as_first_run() {
+        let root = std::env::temp_dir().join(format!("cpa-native-directory-{}", std::process::id()));
+        let path = root.join("config.toml");
+        fs::create_dir_all(&path).unwrap();
+        assert!(read_saved_gui_config(&path, &root.join("legacy.yaml")).is_err());
+        assert!(path.is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
 }

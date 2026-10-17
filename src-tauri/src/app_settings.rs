@@ -764,10 +764,13 @@ pub(crate) fn set_app_locale(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     locale: String,
 ) -> Result<String, String> {
+    let _target = gui_config_state.target_operation.blocking_lock();
     let config = gui_config_state.set_locale(locale)?;
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    if let Ok(status) = current_core_status(Some(process_state.inner()), Some(config.port)) {
-        update_windows_tray_locale(&app, &config.locale, &status);
+    {
+        // Locale changes only re-render the last selected-target status.
+        update_windows_tray_locale(&app, &config);
+        let _ = process_state;
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     let _ = (app, process_state);

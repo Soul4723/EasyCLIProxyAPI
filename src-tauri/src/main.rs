@@ -2690,19 +2690,8 @@ fn main() {
     let gui_config = match load_or_create_gui_config() {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("{error}");
-            if portable_update_ack.is_some() {
-                return;
-            }
-            let mut config = GuiConfigFile::default();
-            // If the GUI configuration cannot be read before the kernel starts,
-            // use the shared recovery key so requests and the generated kernel
-            // configuration stay synchronized.
-            config.management_secret_key = LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY.to_string();
-            if let Err(sanitize_error) = sanitize_gui_config(&mut config) {
-                eprintln!("Failed to initialize fixed credentials directory: {sanitize_error}");
-            }
-            config
+            eprintln!("{error}. Startup stopped without selecting Local. Repair the saved GUI config.toml (or legacy cpa-gui.yaml) and relaunch.");
+            return;
         }
     };
     let initial_window_size = configured_window_size(&gui_config);
