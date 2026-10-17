@@ -171,13 +171,6 @@ const RESTORE_TARGET_MISMATCH: &str = "Backup client endpoint or key does not ma
 // Inspect only the saved after-image, never the currently installed client files.
 // Provider identities scope the fields so arbitrary user endpoints are not retargeted.
 fn validate_restore_target(config: &GuiConfigFile, client: &str, images: &Images) -> Result<(), String> {
-    // Management-only remotes intentionally have no client target to compare against.
-    if config.core_connection.is_remote()
-        && (config.core_connection.client_api_origin.trim().is_empty()
-            || config.core_connection.client_api_key.trim().is_empty())
-    {
-        return Ok(());
-    }
     let roots = images.iter().map(|(path, bytes)| parse(path, text(bytes.as_deref())?))
         .collect::<Result<Vec<_>, String>>()?;
     let empty = serde_json::json!({});
@@ -458,7 +451,7 @@ mod target_tests {
                 let mut management_only = b.clone();
                 management_only.core_connection.client_api_origin.clear();
                 management_only.core_connection.client_api_key.clear();
-                assert!(validate_restore_target(&management_only, client.id(), &after).is_ok(), "{} management-only", client.id());
+                assert!(validate_restore_target(&management_only, client.id(), &after).is_err(), "{} management-only", client.id());
                 if source.core_connection.is_remote() {
                     assert!(validate_restore_target(&a, client.id(), &after).is_ok(), "{}", client.id());
                     let rotated = remote("https://client-a.invalid", "rotated-key");

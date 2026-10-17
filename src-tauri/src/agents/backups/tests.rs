@@ -1346,9 +1346,10 @@ fn nested_model_options_and_third_party_providers_survive_all_updates() {
 async fn remote_management_only_backup_recovery_works_offline_and_rejects_old_target_preview() {
     let home = Home::new();
     let paths = config_paths("codex", &home.0).unwrap();
-    template(&home.0, AgentClient::Codex).unwrap();
+    save(&paths[0], "external='original'");
     let original = config_images(&paths).unwrap();
     let backup = create_backup("codex", &home.0).unwrap();
+    template(&home.0, AgentClient::Codex).unwrap();
     save(&paths[0], "external='keep'");
     let changed = config_images(&paths).unwrap();
     let mut config = GuiConfigFile::default();
