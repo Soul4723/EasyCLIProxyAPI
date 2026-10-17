@@ -2952,6 +2952,8 @@ fn main() {
             detect_core_platform,
             get_core_status,
             core_connection::get_core_connection,
+            core_connection::export_core_connection,
+            core_connection::import_core_connection,
             core_connection::save_core_connection,
             core_connection::test_core_connection,
             get_gui_settings,

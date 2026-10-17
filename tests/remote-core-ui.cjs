@@ -53,7 +53,7 @@ const path = require('node:path');
     const reason = page.locator('#remote-navigation-reason');
     assert.equal(await beginner.isDisabled(), true);
     assert.equal(await beginner.getAttribute('aria-describedby'), 'remote-navigation-reason');
-    assert.match(await reason.innerText(), /Switch to Local/);
+    assert.match(await reason.innerText(), /Beginner Mode requires Local mode\. Configure remote clients from Agent Configuration\./);
     await beginner.evaluate(el => el.click());
     await page.getByRole('button', { name: /^Version Management/ }).focus();
     await page.keyboard.press('Tab');

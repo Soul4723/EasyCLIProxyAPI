@@ -1,7 +1,12 @@
 use crate::{core_origin, current_core_tls_settings, GuiConfigFile, GuiConfigState, CoreConnectionMode, CoreStatus};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::{fs, fs::File, io::{Read, Write}, path::{Component, Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
+
 use tauri::Emitter;
+
+const PORTABLE_CONNECTION_FORMAT: &str = "easycli-proxy-connection";
+const PORTABLE_CONNECTION_VERSION: u8 = 1;
+const MAX_PORTABLE_FILE_BYTES: u64 = 1024 * 1024;
 
 const CONNECTION_CHANGED_EVENT: &str = "core-connection-changed";
 
@@ -13,6 +18,70 @@ pub(crate) struct CoreConnection {
     pub(crate) management_key: String,
     pub(crate) client_origin: String,
     pub(crate) client_key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortableConnectionFile {
+    format: String,
+    version: u8,
+    connection: PortableConnection,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortableConnection {
+    mode: CoreConnectionMode,
+    management_origin: String,
+    client_origin: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    management_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_key: Option<String>,
+}
+
+impl PortableConnectionFile {
+    fn from_connection(connection: &CoreConnection, include_secrets: bool) -> Self {
+        Self {
+            format: PORTABLE_CONNECTION_FORMAT.to_string(),
+            version: PORTABLE_CONNECTION_VERSION,
+            connection: PortableConnection {
+                mode: connection.mode,
+                management_origin: connection.management_origin.clone(),
+                client_origin: connection.client_origin.clone(),
+                management_key: include_secrets.then(|| connection.management_key.clone()),
+                client_key: include_secrets.then(|| connection.client_key.clone()),
+            },
+        }
+    }
+
+    fn into_connection(self) -> Result<CoreConnection, String> {
+        if self.format != PORTABLE_CONNECTION_FORMAT || self.version != PORTABLE_CONNECTION_VERSION {
+            return Err("Unsupported connection export format".to_string());
+        }
+        let mut connection = CoreConnection {
+            mode: self.connection.mode,
+            management_origin: self.connection.management_origin,
+            management_key: self.connection.management_key.unwrap_or_default(),
+            client_origin: self.connection.client_origin,
+            client_key: self.connection.client_key.unwrap_or_default(),
+        };
+        if connection.mode != CoreConnectionMode::Remote {
+            return Err("Portable connection exports must target a remote core".to_string());
+        }
+        if connection.management_origin.chars().any(char::is_control) {
+            return Err("Connection export contains an invalid management origin".to_string());
+        }
+        connection.management_origin = origin(&connection.management_origin, "Management origin")?;
+        if connection.management_key.chars().any(char::is_control) {
+            return Err("Connection export contains invalid management credentials".to_string());
+        }
+        if connection.client_origin.chars().any(char::is_control) || connection.client_key.chars().any(char::is_control) {
+            return Err("Connection export contains invalid client credentials".to_string());
+        }
+        connection.client_origin = origin(&connection.client_origin, "Client origin")?;
+        Ok(connection)
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -106,6 +175,77 @@ fn settings_connection(config: &GuiConfigFile) -> CoreConnection {
         client_origin: config.remote_client_origin.clone(),
         client_key: config.remote_client_key.clone(),
     }
+}
+
+fn portable_path(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err("Connection export path is invalid".to_string());
+    }
+    let path = PathBuf::from(trimmed);
+    if !path.is_absolute() || path.components().any(|component| matches!(component, Component::ParentDir)) || path.file_name().is_none() {
+        return Err("Connection export path must be an absolute file path".to_string());
+    }
+    if let Ok(metadata) = fs::symlink_metadata(&path) {
+        if !metadata.file_type().is_file() { return Err("Connection export path must name a regular file".to_string()); }
+    }
+    let parent = path.parent().ok_or("Connection export path has no parent")?;
+    if !parent.is_dir() { return Err("Connection export directory does not exist".to_string()); }
+    Ok(path)
+}
+
+#[tauri::command]
+pub(crate) fn export_core_connection(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+    path: String,
+    include_secrets: bool,
+) -> Result<(), String> {
+    let path = portable_path(&path)?;
+    let config = gui_config_state.snapshot()?;
+    if config.connection_mode != CoreConnectionMode::Remote {
+        return Err("Switch to Remote mode before exporting connection settings".to_string());
+    }
+    let document = serde_json::to_vec_pretty(&PortableConnectionFile::from_connection(&settings_connection(&config), include_secrets))
+        .map_err(|error| format!("Failed to create connection export: {error}"))?;
+    write_portable_connection(&path, &document)
+}
+
+fn write_portable_connection(path: &Path, document: &[u8]) -> Result<(), String> {
+    portable_path(path.to_str().ok_or("Invalid connection export path")?)?;
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "System clock is unavailable")?.as_nanos();
+    let temporary = path.with_extension(format!("{}.{}.tmp", std::process::id(), nonce));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary).map_err(|error| format!("Failed to create connection export: {error}"))?;
+    let write_result = file.write_all(&[document, b"\n"].concat()).and_then(|_| file.sync_all());
+    drop(file);
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("Failed to write connection export: {error}"));
+    }
+    if let Err(error) = crate::core_config::replace_file_atomically(&temporary, &path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("Failed to finalize connection export: {error}"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn import_core_connection(path: String) -> Result<CoreConnection, String> {
+    let path = portable_path(&path)?;
+    let size = fs::metadata(&path).map_err(|error| format!("Failed to read connection export: {error}"))?.len();
+    if size > MAX_PORTABLE_FILE_BYTES { return Err("Connection export is too large".to_string()); }
+    let mut content = String::new();
+    File::open(path).and_then(|file| file.take(MAX_PORTABLE_FILE_BYTES + 1).read_to_string(&mut content))
+        .map_err(|_| "Failed to read connection export".to_string())?;
+    if content.len() as u64 > MAX_PORTABLE_FILE_BYTES { return Err("Connection export is too large".to_string()); }
+    let export: PortableConnectionFile = serde_json::from_str(&content).map_err(|_| "Connection export is invalid or corrupted".to_string())?;
+    export.into_connection()
 }
 
 // Caller holds target_operation and CORE_OPERATION_LOCK, in that order.
@@ -361,4 +501,106 @@ pub(crate) async fn write_remote_yaml(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod portable_tests {
+    use super::*;
+    use std::env;
+    #[test]
+    fn portable_file_overwrite_is_atomic_and_private() {
+        let directory = env::temp_dir().join(format!("easycli-portable-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("connection.json");
+        write_portable_connection(&path, b"first").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        write_portable_connection(&path, b"second").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"second\n");
+        assert!(write_portable_connection(&directory, b"invalid").is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{symlink, PermissionsExt};
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            let link = directory.join("link.json");
+            symlink(&path, &link).unwrap();
+            assert!(write_portable_connection(&link, b"invalid").is_err());
+            assert!(import_core_connection(link.to_str().unwrap().into()).is_err());
+            assert_eq!(fs::read(&path).unwrap(), b"second\n");
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn portable_connection_export_excludes_secrets_by_default_and_round_trips_when_present() {
+        let connection = CoreConnection {
+            mode: CoreConnectionMode::Remote,
+            management_origin: "https://core.example".into(),
+            management_key: "management-secret".into(),
+            client_origin: "https://client.example".into(),
+            client_key: "client-secret".into(),
+        };
+        let safe = serde_json::to_string(&PortableConnectionFile::from_connection(&connection, false)).unwrap();
+        assert!(!safe.contains("management-secret"));
+        assert!(!safe.contains("client-secret"));
+        let without = PortableConnectionFile::from_connection(&connection, false).into_connection().unwrap();
+        assert!(without.management_key.is_empty());
+        assert!(without.client_key.is_empty());
+        assert_eq!(without.client_origin, connection.client_origin);
+        let with = PortableConnectionFile::from_connection(&connection, true).into_connection().unwrap();
+        assert!(with == connection);
+    }
+
+    #[test]
+    fn portable_connection_rejects_unknown_format_and_relative_paths() {
+        let bad = r#"{"format":"other","version":1,"connection":{"mode":"remote","managementOrigin":"https://core.example","clientOrigin":""}}"#;
+        let parsed: PortableConnectionFile = serde_json::from_str(bad).unwrap();
+        assert!(parsed.into_connection().is_err());
+        assert!(portable_path("connection.json").is_err());
+        assert!(portable_path("/tmp/../connection.json").is_err());
+    }
+
+    #[test]
+    fn portable_connection_validates_format_origins_credentials_and_size() {
+        let valid = serde_json::json!({
+            "format": PORTABLE_CONNECTION_FORMAT, "version": 1,
+            "connection": {"mode": "remote", "managementOrigin": "https://core.example", "clientOrigin": "https://client.example"}
+        });
+        for (field, value) in [
+            ("format", serde_json::json!("other")),
+            ("version", serde_json::json!(2)),
+        ] {
+            let mut document = valid.clone(); document[field] = value;
+            assert!(serde_json::from_value::<PortableConnectionFile>(document).unwrap().into_connection().is_err());
+        }
+        for (field, value) in [
+            ("mode", "local"), ("managementOrigin", "https://core.example/v1"),
+            ("managementOrigin", "https://user:secret@core.example"),
+            ("managementOrigin", "https://core.example?key=secret"),
+            ("managementOrigin", "https://core.ex\nample"),
+            ("clientOrigin", ""), ("clientOrigin", "file:///tmp/core"),
+            ("clientOrigin", "https://client.example/#fragment"),
+            ("managementKey", "bad\nkey"), ("clientKey", "bad\tkey"),
+        ] {
+            let mut document = valid.clone(); document["connection"][field] = serde_json::json!(value);
+            assert!(serde_json::from_value::<PortableConnectionFile>(document).unwrap().into_connection().is_err(), "{field}");
+        }
+        let directory = env::temp_dir().join(format!("easycli-portable-size-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("connection.json");
+        fs::write(&path, serde_json::to_vec(&valid).unwrap()).unwrap();
+        let imported = import_core_connection(path.to_str().unwrap().into()).unwrap();
+        assert!(imported.management_key.is_empty());
+        assert!(imported.client_key.is_empty());
+        assert!(normalized_connection(imported).is_err()); // Saving still requires a management key.
+        fs::write(&path, vec![b' '; MAX_PORTABLE_FILE_BYTES as usize + 1]).unwrap();
+        assert!(matches!(import_core_connection(path.to_str().unwrap().into()), Err(error) if error.contains("too large")));
+        fs::write(&path, b"not JSON").unwrap();
+        assert!(import_core_connection(path.to_str().unwrap().into()).is_err());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
 }

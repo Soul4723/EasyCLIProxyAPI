@@ -487,7 +487,7 @@ function AppContent() {
             </div>
             {status?.connectionMode === 'remote' ? (
               <p id="remote-navigation-reason" style={{ gridColumn: '1 / -1', maxWidth: 'calc(100vw - 28px)', margin: 0, fontSize: 'var(--font-size-meta)' }}>
-                {t('connection.agentHint')}
+                {t('connection.navigationReason')}
               </p>
             ) : null}
           </aside>

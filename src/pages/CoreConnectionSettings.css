@@ -11,3 +11,6 @@
 
 .home-dashboard .home-runtime-details .home-runtime-target { grid-column: 1 / -1; }
 .home-dashboard .home-runtime-target dd { text-align: left; }
+
+.core-connection-body .core-connection-secret-export { display: flex; align-items: center; }
+.core-connection-secret-export input[type="checkbox"] { width: auto; flex: none; }
