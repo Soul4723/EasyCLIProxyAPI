@@ -1188,7 +1188,7 @@ fn linked_configuration_and_backup_directories_are_rejected() {
 async fn restore_rejects_configuration_or_backup_changes_since_confirmation() {
     let home = Home::new();
     let paths = config_paths("codex", &home.0).unwrap();
-    let config = GuiConfigFile::default();
+    let config = restore_target(false);
     template(&home.0, AgentClient::Codex).unwrap();
     let backup = create_backup("codex", &home.0).unwrap();
     let plan = prepare_restore_plan(&config, "codex", &home.0, &backup.id)
@@ -1339,5 +1339,78 @@ fn nested_model_options_and_third_party_providers_survive_all_updates() {
             .unwrap()
             .versions
             .is_empty());
+    }
+}
+
+fn restore_target(remote: bool) -> GuiConfigFile {
+    GuiConfigFile {
+        connection_mode: if remote { CoreConnectionMode::Remote } else { CoreConnectionMode::Local },
+        remote_management_origin: "https://management.example.test".into(),
+        remote_management_key: "management-never-client".into(),
+        remote_client_origin: "https://client.example.test:9443".into(),
+        remote_client_key: "test-secret".into(),
+        api_keys: vec![GuiApiKeyEntry { key: "test-secret".into(), remark: String::new() }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn restore_target_checks_saved_credentials_for_each_supported_client() {
+    for client in clients() {
+        for remote in [false, true] {
+            let home = Home::new();
+            let target = restore_target(remote);
+            let contents = fresh_agent_contents_with_oauth(client, &target, "test-secret", "gpt-one", AgentConfigurationOptions {
+                models: &models(), codex_catalog: None, oauth_configuration: false,
+                claude_code_model_mappings: None, claude_desktop_model_mappings: None,
+            }).unwrap();
+            let images = config_paths(client.id(), &home.0).unwrap().into_iter().zip(contents.into_iter().map(|s| Some(s.into_bytes()))).collect();
+            let validate = |target: &GuiConfigFile| super::target::validate_restore_target(target, client.id(), &images);
+            validate(&target).unwrap_or_else(|e| panic!("{}: {e}", client.id()));
+            let mut other = target.clone();
+            if remote { other.remote_client_origin = "https://other-client.example.test".into(); }
+            else { other.port += 1; }
+            assert!(validate(&other).is_err(), "{} URL", client.id());
+            let mut other = target.clone();
+            if remote { other.remote_client_key = "other-client-key".into(); }
+            else { other.api_keys[0].key = "other-client-key".into(); }
+            assert!(validate(&other).is_err(), "{} key", client.id());
+            assert!(validate(&restore_target(!remote)).is_err(), "{} mode", client.id());
+            if remote {
+                let mut other = target.clone();
+                other.remote_client_key.clear();
+                other.remote_management_key = "test-secret".into();
+                assert!(validate(&other).is_err(), "{} no management key fallback", client.id());
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn restore_rejects_old_target_backup_before_writes_and_allows_unmanaged_removal() {
+    let home = Home::new();
+    let paths = config_paths("claude-code", &home.0).unwrap();
+    let target = restore_target(true);
+    for source in [restore_target(false), GuiConfigFile { remote_client_origin: "https://other.example.test".into(), ..target.clone() }, GuiConfigFile { remote_client_key: "old-key".into(), ..target.clone() }] {
+        let contents = build_claude_agent_config(None, &source.client_origin(), effective_agent_api_key(&source), "gpt-one", &[], None).unwrap();
+        save(&paths[0], contents);
+        let backup = create_backup("claude-code", &home.0).unwrap();
+        save(&paths[0], r#"{"external":"unchanged"}"#);
+        let before = config_images(&paths).unwrap();
+        let error = prepare_restore_plan(&target, "claude-code", &home.0, &backup.id).await.err().unwrap();
+        assert!(error.contains("do not match"));
+        assert!(!error.contains("old-key"));
+        assert_eq!(before, config_images(&paths).unwrap());
+    }
+    // External settings and absent files are not silently rewritten to CPA.
+    for content in [Some(r#"{"env":{"ANTHROPIC_BASE_URL":"https://external.example.test","ANTHROPIC_AUTH_TOKEN":"external"}}"#), None] {
+        if let Some(content) = content { save(&paths[0], content); } else { fs::remove_file(&paths[0]).unwrap(); }
+        let backup = create_backup("claude-code", &home.0).unwrap();
+        let expected = config_images(&paths).unwrap();
+        save(&paths[0], "{}");
+        let plan = prepare_restore_plan(&target, "claude-code", &home.0, &backup.id).await.unwrap();
+        let revision = plan.preview.revision.clone();
+        execute_restore_plan(&GuiConfigState::new(target.clone()), &target, plan, &revision).await.unwrap();
+        assert_eq!(expected, config_images(&paths).unwrap());
     }
 }

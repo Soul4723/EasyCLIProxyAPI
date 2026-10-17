@@ -480,3 +480,8 @@ pub(crate) fn run_copilot_helper(args: &[std::ffi::OsString]) -> Result<i32, Str
         .map(|s| s.code().unwrap_or(1))
         .map_err(|_| "Failed to start Copilot CLI".into())
 }
+
+// Backup validation uses the same target-key-bound native reference as inspection.
+pub(crate) fn copilot_backup_credential_matches(path: &Path, key: &str, reference: &Value) -> bool {
+    setup::vscode_credential_matches(path, key, reference)
+}
