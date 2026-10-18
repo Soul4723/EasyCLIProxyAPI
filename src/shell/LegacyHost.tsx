@@ -29,8 +29,10 @@ export function LegacyHost({ page, titleKey, subs, sub, actions, children }: {
           ? <RouteTabs page={page} subs={subs} active={sub ?? subs[0].id} ariaLabel={t(titleKey)} />
           : undefined}
       />
-      <div className="workspace ec-legacy-workspace">
-        <main className="content">{children}</main>
+      <div className="app-shell ec-legacy-shell">
+        <div className="workspace ec-legacy-workspace">
+          <main className="content">{children}</main>
+        </div>
       </div>
     </div>
   );

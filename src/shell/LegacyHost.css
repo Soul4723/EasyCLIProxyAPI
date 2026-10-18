@@ -1,4 +1,12 @@
-/* Old page bodies keep their own layout; the new shell supplies the header, so hide the old page title row where it duplicates. */
-.ec-legacy { min-height: 100%; display: flex; flex-direction: column; }
-.ec-legacy-workspace { height: auto; overflow: visible; flex: 1; background: var(--ec-bg); }
+/*
+ * Old page bodies keep their own layout contract (.app-shell > .workspace > .content, fixed height with inner
+ * scrolling), so the host recreates it below the new page header. Delete with LegacyHost.
+ */
+.ec-main:has(> .ec-legacy) { overflow: hidden; }
+.ec-legacy { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.ec-legacy > .ec-page-header { position: relative; flex: none; }
+.ec-legacy > .ec-legacy-shell.app-shell.app-shell {
+  display: flex; flex-direction: column; flex: 1 1 auto; height: auto; min-height: 0; overflow: hidden; background: var(--ec-bg);
+}
+.ec-legacy-workspace.workspace { flex: 1 1 auto; min-height: 0; height: auto; overflow: auto; background: var(--ec-bg); }
 .ec-legacy-workspace .content { background: var(--ec-bg); padding: clamp(12px, 1.5vw, 20px) var(--ec-page-pad-x) 32px; }

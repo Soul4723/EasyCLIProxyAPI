@@ -33,7 +33,7 @@
 @keyframes ec-pulse { 50% { opacity: 0.35; } }
 .ec-nav-sep { height: 1px; background: var(--ec-sidebar-border); opacity: 0.6; margin: 8px 6px; flex: none; }
 .ec-sidebar-foot {
-  display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 0 -8px; padding: 4px 10px 4px 16px;
+  display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 0 -8px; padding: 4px 10px 4px 14px; gap: 6px;
   border-top: 1px solid var(--ec-sidebar-border); font-size: var(--ec-fs-sm); color: var(--ec-fg-muted);
 }
 .ec-core-line { flex: 1; }
