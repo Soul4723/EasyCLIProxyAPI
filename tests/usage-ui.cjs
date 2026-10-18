@@ -44,7 +44,7 @@ runUiTest('usage', async ({ base, newPage }) => {
     await reopenApp(page, base, { path });
     await page.getByRole('tab', { selected: true }).waitFor();
     assert.equal(await tabs.nth(TABS.findIndex(([t]) => t === id)).getAttribute('aria-selected'), 'true', `deep link ${path} selects ${id}`);
-    assert.equal(await page.locator('.usage-body').getAttribute('id'), `usage-subtabs-panel-${id}`);
+    assert.equal(await page.locator('.usage-body').getAttribute('id'), 'usage-subtabs-panel');
   }
 
   // ---- Overview

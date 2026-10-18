@@ -2,6 +2,7 @@ import { PageHeader } from '../../shell/PageHeader';
 import { RouteTabs } from '../../shell/RouteTabs';
 import type { SectionPageProps } from '../../shell/types';
 import { useI18n } from '../../i18n';
+import { tabPanelProps } from '../../ui';
 import { CollectorChip, PeriodControl } from './HeaderActions';
 import { DataTab } from './DataTab';
 import { OverviewTab } from './OverviewTab';
@@ -31,7 +32,7 @@ export function UsageSection({ sub, params }: SectionPageProps) {
           tabs={<RouteTabs page="usage" subs={usageSubs} active={active} ariaLabel={t('sec.usage.tabsLabel')} />}
           actions={<><CollectorChip />{showPeriod ? <PeriodControl /> : null}</>}
         />
-        <div className="ec-page-body usage-body" role="tabpanel" id={`usage-subtabs-panel-${active}`}>
+        <div className="ec-page-body usage-body" {...tabPanelProps('usage-subtabs', active)}>
           {active === 'overview' ? <OverviewTab /> : null}
           {active === 'requests' ? <RequestsTab /> : null}
           {active === 'routing' ? <RoutingTab /> : null}

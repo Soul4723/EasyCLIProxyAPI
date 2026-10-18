@@ -74,7 +74,12 @@ const COMMANDS = ['get_agent_config_statuses', 'refresh_agent_config_statuses', 
     // Back to Local: agent operations return to the local endpoint.
     await setLocal(page);
     await waitForCoreStatus(page);
-    await page.evaluate(() => { window.clientOperations.length = 0; });
+    // Saving the connection reloads the document (dev fenced targets), so re-attach the recorder.
+    await page.evaluate(async () => {
+      window.clientOperations = [];
+      const { listen } = await import('/node_modules/@tauri-apps/api/event.js');
+      await listen('browser-mock-client-operation', event => window.clientOperations.push(event.payload));
+    });
     await invoke(page, 'refresh_agent_config_statuses', { executableOverrides: {} });
     const local = await page.evaluate(() => window.clientOperations);
     assert.ok(local.length > 0 && local.every(operation => operation.origin.startsWith('http://127.0.0.1:')), 'local mode uses the local endpoint');
