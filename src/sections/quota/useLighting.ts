@@ -63,7 +63,7 @@ export function useLighting(locale: AppLocale): LightingApi {
   const schedulesRef = useRef(schedules);
   schedulesRef.current = schedules;
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const reload = useCallback(async () => {
     try {

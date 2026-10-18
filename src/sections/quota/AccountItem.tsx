@@ -74,8 +74,7 @@ function CardBody({ account, ctx }: { account: QuotaAccount; ctx: ControlsContex
   if (account.loading && account.windows.length === 0) return <Skeleton lines={2} height={12} />;
   if (account.status === 'notFetched' && account.windows.length === 0) {
     return (
-      <div className="qt-empty">
-        <span>{t('sec.quota.notFetched')}</span>
+      <div className="qt-empty qt-empty--end">
         <Button size="xs" variant="outline" disabled={!account.canFetch} onClick={() => ctx.actions.refresh(account)}>{t('sec.quota.fetch')}</Button>
       </div>
     );

@@ -48,7 +48,7 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
   const filesRequest = useRef(0);
   const onFetchedRef = useRef(onFetched);
   onFetchedRef.current = onFetched;
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const loadFiles = useCallback(async (showSpinner = true) => {
     const request = ++filesRequest.current;
@@ -113,10 +113,8 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
     await commitFetchedQuota(generation, account.file, result);
   }, []);
 
-  const refreshAll = useCallback(async () => {
-    if (Object.values(getQuotaCacheSnapshot()).some((quota) => quota.status === 'loading')) return;
-    const targets = accounts.filter((account) => account.canFetch);
-    if (!targets.length) return;
+  const fetchBatch = useCallback(async (targets: QuotaAccount[]) => {
+    if (!targets.length || Object.values(getQuotaCacheSnapshot()).some((quota) => quota.status === 'loading')) return;
     setRefreshingAll(true);
     setActionError('');
     const generation = captureQuotaCacheGeneration();
@@ -140,7 +138,17 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
     } finally {
       if (mounted.current) setRefreshingAll(false);
     }
-  }, [accounts]);
+  }, []);
+
+  const refreshAll = useCallback(() => fetchBatch(accounts.filter((account) => account.canFetch)), [accounts, fetchBatch]);
+
+  // First visit in this session: read quota for accounts that have never been fetched (cached snapshots are kept).
+  const autoFetched = useRef(false);
+  useEffect(() => {
+    if (autoFetched.current || loading || !accounts.length) return;
+    autoFetched.current = true;
+    void fetchBatch(accounts.filter((account) => account.canFetch && account.quota.status === 'idle'));
+  }, [accounts, loading, fetchBatch]);
 
   const consumeReset = useQuotaReset(askConfirmation, setActionError);
   const resetQuota = useCallback((account: QuotaAccount) => consumeReset(account.file, account.quota), [consumeReset]);
