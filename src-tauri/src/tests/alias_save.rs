@@ -586,7 +586,7 @@ async fn alias_save_succeeds_for_mixed_oauth_only_and_yaml_only_changes() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn alias_save_serializes_concurrent_writers() {
+async fn alias_save_rejects_stale_concurrent_writer() {
     let core = MockCore::new(CURRENT, Failure::None);
     let first = CURRENT.replace("my-alias", "first");
     let second = CURRENT.replace("my-alias", "second");
@@ -594,8 +594,9 @@ async fn alias_save_serializes_concurrent_writers() {
         put_management_alias_config_changes(&core.config, CURRENT, &first),
         put_management_alias_config_changes(&core.config, CURRENT, &second),
     );
-    assert!(a.is_ok());
-    assert!(b.is_ok());
+    assert_ne!(a.is_ok(), b.is_ok());
+    let error = a.err().or_else(|| b.err()).unwrap();
+    assert!(error.contains("Refresh before retrying"));
     let (persisted, requests) = core.finish();
     assert!(persisted == yaml_json(&first) || persisted == yaml_json(&second));
     assert_eq!(
@@ -603,7 +604,7 @@ async fn alias_save_serializes_concurrent_writers() {
             .iter()
             .filter(|request| request.starts_with("PUT"))
             .count(),
-        4
+        2
     );
 }
 
@@ -711,7 +712,7 @@ async fn remote_desktop_backup_restore_uses_non_replaying_v8_writer() {
             ..Default::default()
         };
         let state = GuiConfigState::new(config.clone());
-        let plan = prepare_restore_plan(&config, "claude-desktop", &fixture.home, &fixture.id)
+        let plan = prepare_fixture_restore_plan(&config, "claude-desktop", &fixture.home, &fixture.id)
             .await.unwrap();
         let revision = plan.preview.revision.clone();
         let paths = config_paths("claude-desktop", &fixture.home).unwrap();
@@ -756,7 +757,7 @@ async fn remote_desktop_backup_restore_uses_non_replaying_v8_writer() {
 async fn desktop_backup_restore_updates_core_routes_and_mapping_metadata() {
     let fixture = DesktopRestoreFixture::new();
     let core = MockCore::new(&fixture.core_b, Failure::None);
-    let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
+    let plan = prepare_fixture_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
         .await
         .unwrap();
     assert!(!plan.preview.differences.is_empty());
@@ -805,10 +806,13 @@ async fn desktop_legacy_backup_restores_the_routes_referenced_by_its_profile() {
                 }
             }
             let core = MockCore::new(&serde_norway::to_string(&initial).unwrap(), Failure::None);
-            let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &backup.id)
+            let plan = prepare_fixture_restore_plan(&core.config, "claude-desktop", &fixture.home, &backup.id)
                 .await.unwrap();
             let revision = plan.preview.revision.clone();
             execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision).await.unwrap();
+            profile["inferenceGatewayBaseUrl"] = serde_json::json!(core.config.client_origin());
+            profile["inferenceGatewayApiKey"] = serde_json::json!(effective_agent_api_key(&core.config));
+            after[2].1 = Some(serde_json::to_vec(&profile).unwrap());
             assert_eq!(config_images(&paths).unwrap(), after);
             assert_eq!(current_desktop_mappings(&fixture.home).unwrap(), mappings);
             let (persisted, _) = core.finish();
@@ -849,10 +853,13 @@ async fn desktop_backup_keeps_a_direct_legacy_id_alongside_a_new_family_route() 
     let backup = create_backup("claude-desktop", &fixture.home).unwrap();
     let initial = format!("openai-compatibility:\n  - name: provider\n    models: [{{name: gpt-one}}, {{name: gpt-two}}, {{name: {direct}}}]\n");
     let core = MockCore::new(&initial, Failure::None);
-    let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &backup.id)
+    let plan = prepare_fixture_restore_plan(&core.config, "claude-desktop", &fixture.home, &backup.id)
         .await.unwrap();
     let revision = plan.preview.revision.clone();
     execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision).await.unwrap();
+    profile["inferenceGatewayBaseUrl"] = serde_json::json!(core.config.client_origin());
+    profile["inferenceGatewayApiKey"] = serde_json::json!(effective_agent_api_key(&core.config));
+    after[2].1 = Some(serde_json::to_vec(&profile).unwrap());
     assert_eq!(config_images(&paths).unwrap(), after);
     let (persisted, _) = core.finish();
     let models = persisted["openai-compatibility"][0]["models"].as_array().unwrap();
@@ -866,7 +873,7 @@ async fn desktop_backup_keeps_a_direct_legacy_id_alongside_a_new_family_route() 
 async fn desktop_custom_backup_restores_aliases_profile_and_mapping_metadata() {
     let fixture = DesktopRestoreFixture::build(true);
     let core = MockCore::new(&fixture.core_b, Failure::None);
-    let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
+    let plan = prepare_fixture_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
         .await.unwrap();
     assert!(plan.preview.differences.iter().any(|difference|
         difference.field == "modelMappings.claude-sonnet-4-6-model-a"));
@@ -892,7 +899,7 @@ async fn desktop_custom_backup_restores_aliases_profile_and_mapping_metadata() {
 async fn desktop_direct_model_backup_restores_without_an_alias_route() {
     let fixture = DesktopRestoreFixture::build_with_direct_model(true, true);
     let core = MockCore::new(&fixture.core_b, Failure::None);
-    let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
+    let plan = prepare_fixture_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
         .await.unwrap();
     let revision = plan.preview.revision.clone();
     execute_restore_plan(&GuiConfigState::new(core.config.clone()), &core.config, plan, &revision).await.unwrap();
@@ -914,7 +921,7 @@ async fn desktop_direct_model_backup_restores_without_an_alias_route() {
 async fn desktop_backup_restore_rejects_core_changes_since_preview() {
     let fixture = DesktopRestoreFixture::new();
     let core = MockCore::new(&fixture.core_b, Failure::None);
-    let preview = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
+    let preview = prepare_fixture_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
         .await
         .unwrap();
     let changed = fixture
@@ -923,7 +930,7 @@ async fn desktop_backup_restore_rejects_core_changes_since_preview() {
     put_management_alias_config_changes(&core.config, &fixture.core_b, &changed)
         .await
         .unwrap();
-    let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
+    let plan = prepare_fixture_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
         .await
         .unwrap();
     assert!(
@@ -945,7 +952,7 @@ async fn desktop_backup_restore_rejects_core_changes_since_preview() {
 async fn desktop_backup_restore_rolls_back_core_when_local_files_change() {
     let fixture = DesktopRestoreFixture::new();
     let core = MockCore::new(&fixture.core_b, Failure::None);
-    let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
+    let plan = prepare_fixture_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
         .await
         .unwrap();
     let revision = plan.preview.revision.clone();
@@ -970,7 +977,7 @@ async fn desktop_backup_restore_rolls_back_core_when_local_files_change() {
 async fn desktop_backup_restore_does_not_write_local_files_when_core_save_fails() {
     let fixture = DesktopRestoreFixture::new();
     let core = MockCore::new(&fixture.core_b, Failure::YamlAfterWrite);
-    let plan = prepare_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
+    let plan = prepare_fixture_restore_plan(&core.config, "claude-desktop", &fixture.home, &fixture.id)
         .await
         .unwrap();
     let revision = plan.preview.revision.clone();
@@ -1096,4 +1103,33 @@ async fn alias_transaction_checks_core_before_a_local_only_commit() {
     result.unwrap();
     assert!(committed.load(Ordering::SeqCst));
     assert_eq!(core.finish().0, yaml_json(&current));
+}
+
+// Existing alias-transaction fixtures use independent management servers and
+// client endpoints. Give their backup the selected test client target explicitly.
+async fn prepare_fixture_restore_plan(config: &GuiConfigFile, client: &str, home: &std::path::Path, id: &str) -> Result<crate::agents::RestorePlan, String> {
+    test_bind_desktop_backup_target(config, home, id);
+    prepare_restore_plan(config, client, home, id).await
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn desktop_restore_rejects_wrong_client_target_before_management_requests() {
+    let fixture = DesktopRestoreFixture::new();
+    let core = MockCore::new_v8(&fixture.core_b, Failure::None);
+    let config = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: format!("http://127.0.0.1:{}", core.config.port),
+        remote_management_key: "fixture-management".into(),
+        remote_client_origin: "https://other-client.example.test".into(),
+        remote_client_key: "fixture-client".into(),
+        ..Default::default()
+    };
+    let paths = config_paths("claude-desktop", &fixture.home).unwrap();
+    let before = config_images(&paths).unwrap();
+    let error = prepare_restore_plan(&config, "claude-desktop", &fixture.home, &fixture.id).await.err().unwrap();
+    assert!(error.contains("do not match"));
+    assert_eq!(before, config_images(&paths).unwrap());
+    let (persisted, requests) = core.finish();
+    assert_eq!(persisted, yaml_json(&fixture.core_b));
+    assert!(requests.is_empty(), "Validate saved credentials before fetching/writing aliases");
 }
