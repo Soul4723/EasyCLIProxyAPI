@@ -1,8 +1,7 @@
-// Run Vite on port 1422, then node tests/theme-controls-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = process.env.THEME_TEST_URL || 'http://127.0.0.1:1422';
 const luminance = color => {
   const match = /^rgb\((\d+), (\d+), (\d+)\)$/.exec(color);
   assert.ok(match, `Expected opaque computed color, received ${color}`);
@@ -19,8 +18,8 @@ const settlePaint = locator => locator.evaluate(async element => {
   await Promise.all(element.getAnimations().map(animation => animation.finished));
 });
 
-(async () => {
-  const browser = await chromium.launch({ channel: process.env.THEME_BROWSER || 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
     const errors = [];
@@ -137,4 +136,4 @@ const settlePaint = locator => locator.evaluate(async element => {
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});
