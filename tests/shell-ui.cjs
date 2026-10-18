@@ -41,7 +41,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     } else if (sub) {
       const selected = await page.getByRole('tab', { selected: true }).count() ? page.getByRole('tab', { selected: true }).first() : null;
       assert.ok(selected, `${route}: sub-page tab is selected`);
-      const expectedIndex = { api: 0, oauth: 1 }[sub];
+      const expectedIndex = { overview: 0, all: 1, exclusions: 2 }[sub];
       assert.equal(await page.locator('.ec-page-header').getByRole('tab').evaluateAll((tabs) => tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true')), expectedIndex, `${route}: active sub-page tab`);
     }
     noErrors(page, route);

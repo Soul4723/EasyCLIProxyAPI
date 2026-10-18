@@ -28,26 +28,26 @@ const path = require('node:path');
       const query = `theme=${theme}&locale=${locale}`;
       const suffix = `${width}-${theme}`;
       await page.goto(`${base}/tests/fixtures/plugins.html?${query}&external-repository`);
-      await page.locator('.plugin-card').first().waitFor();
+      await page.locator('ul.pl-list > li').first().waitFor();
       await capture('local-' + suffix);
-      await page.locator('.plugin-tabs button').nth(1).click();
-      await page.locator('.plugin-card').filter({ hasText: 'Community analytics' }).waitFor();
+      await page.getByRole('tab').nth(1).click();
+      await page.locator('ul.pl-grid > li').filter({ hasText: 'Community analytics' }).waitFor();
       await capture('store-' + suffix);
-      await page.locator('.plugin-card').filter({ hasText: 'Sample provider' }).getByRole('button').click();
+      await page.locator('ul.pl-grid > li').filter({ hasText: 'Sample provider' }).getByRole('button').last().click();
       await page.getByRole('dialog').waitFor();
       await capture('install-' + suffix);
       await page.keyboard.press('Escape');
-      await page.locator('.plugin-tabs button').nth(2).click();
-      await page.locator('.plugin-settings textarea').first().waitFor();
+      await page.getByRole('tab').nth(2).click();
+      await page.locator('fieldset.pl-settings input, fieldset.pl-settings textarea').first().waitFor();
       await capture('settings-' + suffix);
-      for (const [fixture, button] of [['plugin-config', 'Open configuration'], ['plugin-oauth', 'Open plugin login']]) {
+      for (const [fixture, button] of [['plugin-config', /^(Configure|配置) · test-plugin$/], ['plugin-oauth', /^(Sign in|账号授权)$/]]) {
         await page.goto(`${base}/tests/fixtures/${fixture}.html?${query}`);
         await page.getByRole('button', { name: button }).click();
         await page.getByRole('dialog').locator('input, textarea').first().waitFor();
         await capture(fixture + '-' + suffix);
       }
       await page.goto(`${base}/tests/fixtures/plugin-oauth-providers.html?${query}`);
-      await page.getByText('ZCode OAuth', { exact: true }).waitFor();
+      await page.locator('[data-provider]').first().waitFor();
       await capture('providers-' + suffix);
     }
     console.log('Plugin display checks passed: all management pages, config/install/OAuth dialogs and OAuth provider cards, desktop light and narrow dark layouts.');
