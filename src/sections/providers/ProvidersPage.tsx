@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, FolderOpen, LogIn, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, FolderOpen, LogIn, RefreshCw } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { PageHeader } from '../../shell/PageHeader';
 import { RouteTabs } from '../../shell/RouteTabs';
@@ -121,7 +121,16 @@ export function ProvidersPage({ sub, params }: SectionPageProps) {
         actions={actions}
         tabs={<RouteTabs page="providers" subs={providersSubs} active={active} ariaLabel={t('sec.providers.title')} />}
       />
-      <div className="ec-page-body">{body}</div>
+      <div className="ec-page-body">
+        {(creds.error || api.error) && !(creds.error && api.error && active === 'overview' && !brandId) ? (
+          <div className="pv-banner" role="alert">
+            <AlertTriangle size={15} aria-hidden="true" />
+            <span className="pv-banner__text"><strong>{t('sec.providers.error')}</strong> {creds.error || api.error}</span>
+            <Button size="sm" variant="ghost" onClick={reloadAll}>{t('sec.providers.action.refresh')}</Button>
+          </div>
+        ) : null}
+        {body}
+      </div>
       {creds.dialogs}
       {api.dialogs}
       {signIn.dialogs}

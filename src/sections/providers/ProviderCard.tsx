@@ -51,7 +51,7 @@ export function ProviderCard({ brand, summary, onSignIn, onAddKey, signInDisable
           {problems > 0 ? <span className="pv-card__flag" title={t('sec.providers.card.attention', { count: problems })}>{problems}</span> : null}
         </div>
         <div className="pv-card__counts">
-          {brand.signInId ? (
+          {brand.signInId || summary.accounts > 0 ? (
             <span className="pv-count"><LogIn size={13} aria-hidden="true" /><b className="ec-num">{summary.accounts}</b> {t(summary.accounts === 1 ? 'sec.providers.card.account' : 'sec.providers.card.accounts')}</span>
           ) : null}
           {brand.kinds.length ? (
