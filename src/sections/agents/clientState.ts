@@ -20,7 +20,7 @@ export function clientState(definition: AgentDefinition, status: AgentConfigStat
   const make = (kind: ClientStateKind, tone: ChipTone): ClientState => ({ kind, tone, labelKey: `sec.agents.state.${kind}`, detected });
   if (!status) return make('detecting', 'outline');
   if (!status.supportedPlatform) return make('unsupported', 'outline');
-  if (!status.installed && !status.configExists) return make('notInstalled', 'outline');
+  if (!status.installed && !status.configExists && !(definition.id === 'pi' && status.pluginInstalled)) return make('notInstalled', 'outline');
   if (definition.id === 'pi') return make(status.pluginInstalled ? 'connected' : 'pluginMissing', status.pluginInstalled ? 'ok' : 'neutral');
   if (status.modificationState === 'invalid' || status.connectionState === 'invalid') return make('invalid', 'danger');
   if (definition.id === 'codex' && status.codexNativeOauth) return make('nativeOauth', 'info');
