@@ -1,0 +1,61 @@
+/* Pagination: see Pagination.tsx. Wraps onto two lines in narrow containers. */
+
+.ec-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--ec-sp-2) var(--ec-sp-3);
+  min-width: 0;
+  font-size: var(--ec-fs-sm);
+  color: var(--ec-fg-muted);
+}
+
+.ec-pager__range {
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ec-fg-muted);
+}
+
+.ec-pager__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+}
+
+.ec-pager__select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: var(--ec-sp-1);
+}
+
+.ec-pager__select {
+  appearance: none;
+  height: var(--ec-ctrl-h-sm);
+  padding: 0 24px 0 var(--ec-sp-2);
+  border: 1px solid var(--ec-input-border);
+  border-radius: var(--ec-r-sm);
+  background: var(--ec-field);
+  color: var(--ec-fg);
+  font: inherit;
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-xs);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.ec-pager__select:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 1px;
+}
+
+.ec-pager__chevron {
+  position: absolute;
+  right: 6px;
+  width: 12px;
+  height: 12px;
+  color: var(--ec-fg-subtle);
+  pointer-events: none;
+}

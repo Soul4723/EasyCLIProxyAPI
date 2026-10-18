@@ -84,7 +84,7 @@ export function Sidebar({ activeId, drawerOpen, onNavigate }: { activeId: string
           <i className={`ec-core-dot ec-core-dot--${line.tone}`} aria-hidden="true" />
           <span className="ec-core-text">{statusText}</span>
         </a>
-        <Chip size="sm" tone={remote ? 'info' : 'neutral'} className="ec-mode-chip">{t(remote ? 'shell.mode.remote' : 'shell.mode.local')}</Chip>
+        <span className="ec-mode-chip"><Chip size="sm" tone={remote ? 'info' : 'neutral'}>{t(remote ? 'shell.mode.remote' : 'shell.mode.local')}</Chip></span>
         <span className="ec-sidebar-foot-spacer" />
         <AppMenu />
       </div>

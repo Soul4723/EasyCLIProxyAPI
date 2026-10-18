@@ -1,0 +1,107 @@
+.ec-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: var(--ec-sp-4);
+}
+
+.ec-dialog-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--ec-scrim);
+  animation: ec-dialog-fade 0.14s ease-out;
+}
+
+.ec-dialog {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  background: var(--ec-raised);
+  color: var(--ec-fg);
+  border: 1px solid var(--ec-edge);
+  border-radius: var(--ec-r-lg);
+  box-shadow: var(--ec-shadow-pop);
+  outline: none;
+  animation: ec-dialog-rise 0.16s ease-out;
+}
+
+.ec-dialog--sm {
+  max-width: 400px;
+}
+
+.ec-dialog--md {
+  max-width: 520px;
+}
+
+.ec-dialog--lg {
+  max-width: 760px;
+}
+
+.ec-dialog__head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ec-sp-3);
+  padding: var(--ec-sp-4) var(--ec-sp-4) 0;
+}
+
+.ec-dialog__title {
+  margin: 0;
+  font-size: var(--ec-fs-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ec-dialog__body {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--ec-sp-3) var(--ec-sp-4);
+  color: var(--ec-fg-2);
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-dialog__message {
+  line-height: 1.5;
+}
+
+.ec-dialog__foot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  padding: var(--ec-sp-3) var(--ec-sp-4) var(--ec-sp-4);
+}
+
+@keyframes ec-dialog-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ec-dialog-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-dialog,
+  .ec-dialog-scrim {
+    animation: none;
+  }
+}

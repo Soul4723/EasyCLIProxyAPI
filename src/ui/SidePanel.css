@@ -1,0 +1,114 @@
+.ec-side-panel-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+}
+
+.ec-side-panel__scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--ec-scrim);
+  animation: ec-side-panel-fade 0.16s ease-out;
+}
+
+.ec-side-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  max-width: 100vw;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: var(--ec-raised);
+  color: var(--ec-fg);
+  border-left: 1px solid var(--ec-edge);
+  box-shadow: var(--ec-shadow-drawer);
+  outline: none;
+  animation: ec-side-panel-in 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.ec-side-panel__head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ec-sp-3);
+  padding: var(--ec-sp-4);
+  border-bottom: 1px solid var(--ec-border-soft);
+}
+
+.ec-side-panel__titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.ec-side-panel__title {
+  margin: 0;
+  font-size: var(--ec-fs-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ec-side-panel__subtitle {
+  margin: var(--ec-sp-1) 0 0;
+  font-size: var(--ec-fs-sm);
+  color: var(--ec-fg-muted);
+}
+
+.ec-side-panel__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+}
+
+.ec-side-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--ec-sp-4);
+}
+
+.ec-side-panel__foot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  padding: var(--ec-sp-3) var(--ec-sp-4);
+  border-top: 1px solid var(--ec-border-soft);
+  background: var(--ec-raised);
+}
+
+@media (max-width: 720px) {
+  .ec-side-panel {
+    width: 100% !important;
+  }
+}
+
+@keyframes ec-side-panel-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ec-side-panel-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-side-panel,
+  .ec-side-panel__scrim {
+    animation: none;
+  }
+}

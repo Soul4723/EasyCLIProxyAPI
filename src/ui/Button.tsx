@@ -11,7 +11,7 @@
  * Use for text actions. Use IconButton for icon-only controls and Chip for tags.
  */
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
-import { Loader2 } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { cx } from './cx';
 import './Button.css';
 
@@ -39,7 +39,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {...rest}
     >
       {loading ? (
-        <Loader2 className="ec-btn__spin" aria-hidden="true" />
+        <LoaderCircle className="ec-btn__spin" aria-hidden="true" />
       ) : icon ? (
         <span className="ec-btn__icon" aria-hidden="true">
           {icon}
