@@ -1,6 +1,7 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const h = require('./helpers/shell.cjs');
 
 (async () => {
   const { createServer } = await import('vite');
@@ -23,8 +24,9 @@ const path = require('node:path');
     });
     await page.addInitScript(() => localStorage.setItem('easy-cli-proxy-api.locale', 'en'));
     await page.goto(`${base}/?mock=running&mockDelay=5`);
-    await page.locator('.app-shell').waitFor();
-    await page.locator('.nav-section button').nth(2).click();
+    await page.locator('.ec-app').waitFor();
+    await h.gotoPage(page, 'oauth');
+    await h.setPrivacy(page, false);
     await page.getByRole('tab', { name: 'Authentication Files', exact: true }).click();
     await page.locator('.auth-file-card').first().waitFor();
     assert.equal(await page.locator('.auth-file-card').count(), 10);
@@ -42,7 +44,18 @@ const path = require('node:path');
     await cooling.getByRole('button', { name: 'Clear cooldown', exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Clear cooldown', exact: true }).click();
     await cooling.locator('.auth-file-health-compact').waitFor({ state: 'hidden' });
-    await page.screenshot({ path: 'bin-work/browser-mock-credentials.png', fullPage: true });
+
+    // Each public mock scenario boots through the shell without live requests.
+    for (const [mock, status] of [['running', 'running'], ['stopped', 'stopped'], ['empty', 'notInstalled'], ['error', 'stopped']]) {
+      await h.openApp(page, base, { mock });
+      if (mock === 'error') {
+        await assert.rejects(() => h.invoke(page, 'get_core_status'), /Browser Mock error scenario/);
+        await h.waitForCoreLine(page, status);
+      } else await h.waitForCoreStatus(page);
+      assert.equal(await h.coreLineKind(page), status, `${mock}: core state`);
+      assert.equal(await page.locator('main#main').count(), 1, `${mock}: main landmark`);
+      assert.equal(await page.locator('.ec-nav [data-nav="settings"]').count(), 1, `${mock}: settings remains available`);
+    }
     assert.deepEqual(errors, []);
     assert.deepEqual(externalRequests, []);
     console.log('PASS: real app browser mock, six provider quotas, pagination, credential toggle and cooldown reset without external requests.');

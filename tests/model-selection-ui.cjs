@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { mkdirSync } = require('node:fs');
 
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+  const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true, args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
     page.setDefaultTimeout(10000);
