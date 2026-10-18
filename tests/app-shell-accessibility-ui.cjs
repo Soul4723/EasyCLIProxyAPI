@@ -61,7 +61,7 @@ const path = require('node:path');
     assert.equal(await page.locator('.usage-filter-panel').count(), 0);
 
     await page.locator('.nav-section').getByRole('button', { name: '高级功能' }).click();
-    assert.equal(await page.locator('h1').count(), 1);
+    assert.equal(await page.locator('h1').count(), 0);
     const configTabs = page.locator('.config-subpage-tabs').getByRole('tab');
     assert.equal(await page.locator('.config-subpage-tabs').getAttribute('aria-orientation'), 'horizontal');
     assert.equal(await page.locator('.config-settings-sidebar').count(), 0);

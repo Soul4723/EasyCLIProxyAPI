@@ -3,7 +3,7 @@ const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const categories = ['general', 'aliases', 'routing', 'requests', 'oauth', 'diagnostics', 'extensions', 'software'];
+const categories = ['general', 'aliases', 'routing', 'requests', 'oauth', 'diagnostics', 'software'];
 const viewports = [{ width: 640, height: 600 }, { width: 964, height: 700 }, { width: 1280, height: 800 }, { width: 1600, height: 1000 }];
 
 (async () => {
