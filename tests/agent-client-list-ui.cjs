@@ -88,7 +88,7 @@ const allIds = Object.keys(allClients);
     await chip('Connected').click();
     assert.equal(await chip('Connected').getAttribute('aria-pressed'), 'true');
     assert.equal(await chip('All').getAttribute('aria-pressed'), 'false');
-    assert.deepEqual((await cards().evaluateAll(nodes => nodes.map(n => n.dataset.client))).sort(), ['claude-code', 'codex', 'opencode']);
+    assert.deepEqual((await cards().evaluateAll(nodes => nodes.map(n => n.dataset.client))).sort(), ['claude-code', 'codex', 'opencode', 'pi']);
     await chip('Detected').click();
     assert.equal(await cards().count(), 5);
     assert.ok(await card('claude-desktop').count() && await card('pi').count(), 'detected includes config-only and plugin-only clients');
