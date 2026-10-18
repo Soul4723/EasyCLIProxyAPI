@@ -284,3 +284,24 @@ fn gui_config_holding_keys_is_private_on_unix() {
     assert_eq!(mode(&path), 0o600, "an unchanged save still restricts the file");
     fs::remove_dir_all(home).unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn gui_config_save_replaces_the_file_atomically() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let home = agent_test_home("gui-config-atomic");
+    let path = home.join("config.toml");
+    let mut config = GuiConfigFile::default();
+    write_gui_config_to_path(&config, &path).unwrap();
+    let inode = fs::metadata(&path).unwrap().ino();
+    config.remote_management_key = "remote-management-secret".into();
+    write_gui_config_to_path(&config, &path).unwrap();
+    let metadata = fs::metadata(&path).unwrap();
+    assert_ne!(metadata.ino(), inode, "a changed save renames a new file over the old one");
+    assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    let reloaded: GuiConfigFile = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(reloaded.remote_management_key, "remote-management-secret");
+    let entries: Vec<_> = fs::read_dir(&home).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+    assert_eq!(entries, vec![std::ffi::OsString::from("config.toml")], "no temporary file is left behind");
+    fs::remove_dir_all(home).unwrap();
+}
