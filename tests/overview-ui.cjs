@@ -1,0 +1,33 @@
+// Overview UI test: node tests/overview-ui.cjs (needs PLAYWRIGHT_MODULE and a vite server at OVERVIEW_TEST_BASE_URL).
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const assert = require('node:assert/strict');
+const { openApp, setPrivacy } = require('./helpers/shell.cjs');
+const base = process.env.OVERVIEW_TEST_BASE_URL || 'http://127.0.0.1:18731/';
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const errors = []; page.on('pageerror', (e) => errors.push(String(e)));
+  await openApp(page, base, { mock: 'running' });
+  await page.getByTestId('overview-page').waitFor();
+  assert.ok(await page.getByTestId('ov-core-version').innerText().then((t) => /v?\d/.test(t)));
+  assert.ok(await page.getByTestId('ov-needs').locator('a.ov-row').count() > 0, 'needs-action rows');
+  assert.match(await page.locator('.ov-provider').first().getAttribute('href'), /#\/quota\?provider=/);
+  assert.match(await page.locator('.ov-usage a').getAttribute('href'), /#\/usage/);
+  assert.match(await page.locator('.ov-connect a.ov-link').getAttribute('href'), /#\/settings\/access/);
+  assert.match(await page.locator('.ov-needs a.ov-row').first().getAttribute('href'), /#\/(quota|providers)\?cred=/);
+  const key = await page.getByTestId('ov-key').innerText();
+  assert.match(key, /…/);
+  await setPrivacy(page, true);
+  assert.doesNotMatch(await page.getByTestId('ov-needs').innerText(), /@example\.test/);
+  await setPrivacy(page, false);
+  await page.getByRole('button', { name: 'Health check' }).click();
+  await page.getByRole('dialog').waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await page.getByRole('button', { name: 'Start' }).first().waitFor();
+  await openApp(page, base, { mock: 'empty' });
+  await page.getByTestId('ov-onboarding').waitFor();
+  assert.equal(errors.length, 0, errors.join('\n'));
+  await browser.close();
+  console.log('overview-ui ok');
+})().catch((e) => { console.error(e); process.exit(1); });
