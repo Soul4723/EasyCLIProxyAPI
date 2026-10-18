@@ -51,3 +51,4 @@
 }
 .ec-sec-usage .data-rows a { color: var(--ec-accent); text-decoration: none; }
 .ec-sec-usage .data-rows a:hover { text-decoration: underline; }
+.ec-sec-usage .data-action-row--split { justify-content: space-between; align-items: center; }

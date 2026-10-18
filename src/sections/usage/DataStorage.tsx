@@ -235,7 +235,7 @@ export function DataStorage({ onNotice }: { onNotice: (notice: DataNotice) => vo
               </div>
             </div>
             <div className="data-action">
-              <div className="data-action-row">
+              <div className="data-action-row data-action-row--split">
                 <strong>{t('sec.usage.data.repair.title')}</strong>
                 <Button variant="outline" size="sm" loading={repairing} onClick={() => setConfirmRepair(true)}>
                   {t('sec.usage.data.repair.action')}
