@@ -13,7 +13,7 @@ runUi(async ({ base }) => {
     const calls = cmd => page.evaluate(cmd => window.fixtureCalls.filter(c => c.cmd === cmd), cmd);
     const tab = name => page.getByRole('tab', { name, exact: true }).click();
     const button = name => page.getByRole('button', { name, exact: true });
-    const dialog = () => page.getByRole('dialog');
+    const dialog = () => page.locator('[role=dialog], [role=alertdialog]');
     const open = async query => { await page.goto(`${base}/tests/fixtures/agent-backups.html?${query}`); await page.getByRole('tab', { name: '配置', exact: true }).waitFor(); };
     const noOverflow = async () => assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
     const backup = async () => {

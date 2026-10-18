@@ -21,7 +21,7 @@ runUi(async ({ base }) => {
     };
     await open('');
     await restart().click();
-    const dialog = page.getByRole('dialog');
+    const dialog = page.locator('[role=dialog], [role=alertdialog]');
     await dialog.waitFor();
     assert.equal(await calls('restart_codex_cli_daemon'), 0);
     await page.evaluate(() => { window.fixtureDeferredCommands = ['restart_codex_cli_daemon']; });
@@ -73,7 +73,7 @@ runUi(async ({ base }) => {
     await open('daemon-error');
     await restart().click();
     await page.getByText(/Codex daemon probe failed/).waitFor();
-    assert.equal(await page.getByRole('dialog').count(), 0);
+    assert.equal(await page.locator('[role=dialog], [role=alertdialog]').count(), 0);
     assert.equal(await calls('restart_codex_cli_daemon'), 0);
     assert.deepEqual(errors, []);
     console.log('PASS: shared daemon confirmation, non-blocking restart that survives remounts, stopped status, and probe errors.');

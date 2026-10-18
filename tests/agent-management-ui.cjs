@@ -23,7 +23,7 @@ runUi(async ({ base }) => {
     };
     const tab = name => page.getByRole('tab', { name, exact: true });
     const button = name => page.getByRole('button', { name, exact: true });
-    const dialog = () => page.getByRole('dialog');
+    const dialog = () => page.locator('[role=dialog], [role=alertdialog]');
     const run = () => page.locator('.ag-run');
     const calls = cmd => page.evaluate(cmd => window.fixtureCalls.filter(call => call.cmd === cmd), cmd);
     const pending = () => page.getByText('待应用', { exact: true }).waitFor();
