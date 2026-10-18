@@ -86,21 +86,41 @@ runUi(async ({ base }) => {
     await expectPending(true);
     await selectModel('gpt-one'); await expectPending(false);
 
-    // Claude role mappings and runtime settings are real form edits, too.
+    // Claude model mappings and runtime settings are real form edits, too.
     await open('client=claude-code');
-    await selectModel('gpt-two', 0); await expectPending(true);
-    await selectModel('gpt-one', 0); await expectPending(false);
-    const context = page.locator('.agent-claude-context-toggle input').first();
-    await context.check(); await expectPending(true);
-    await context.uncheck(); await expectPending(false);
-    await page.getByRole('spinbutton', { name: '最大窗口', exact: true }).fill('300000');
+    // Capture the initial startup model instead of assuming one.
+    const startupInput = page.locator('.agent-model-trigger input').first();
+    const initialStartup = await startupInput.inputValue();
+    const changedStartup = initialStartup === 'gpt-two' ? 'gpt-one' : 'gpt-two';
+    await selectModel(changedStartup, 0); await expectPending(true);
+    await selectModel(initialStartup, 0); await expectPending(false);
+    const roleContext = page.locator('.claude-role-row[data-role="sonnet"] input[type=checkbox]');
+    await roleContext.check(); await expectPending(true);
+    await roleContext.uncheck(); await expectPending(false);
+    await page.locator('.claude-code-context-settings summary').click();
+    await page.getByRole('spinbutton', { name: '自动压缩窗口', exact: true }).fill('300000');
     await expectPending(true);
-    await page.getByRole('spinbutton', { name: '最大窗口', exact: true }).fill('200000');
+    await page.getByRole('spinbutton', { name: '自动压缩窗口', exact: true }).fill('200000');
     await expectPending(false);
     const compact = page.locator('.agent-claude-code-disable-compact input');
     await compact.check(); await expectPending(true);
     await compact.uncheck(); await expectPending(false);
+    // Every role needs a model before the configuration can be applied.
+    for (const role of ['sonnet', 'opus', 'fable', 'haiku']) {
+      await page.locator(`.claude-role-row[data-role=${role}] .agent-model-trigger`).click();
+      await page.getByRole('option').filter({ has: page.getByText('gpt-one', { exact: true }) }).click();
+    }
     await selectModel('gpt-two', 1); await apply();
+    // Capture the applied role baseline and verify a change and revert is clean.
+    const sonnetTrigger = page.locator('.claude-role-row[data-role="sonnet"] .agent-model-trigger');
+    const initialRole = await sonnetTrigger.locator('strong').textContent();
+    const changedRole = initialRole === 'gpt-two' ? 'gpt-one' : 'gpt-two';
+    await sonnetTrigger.click();
+    await page.getByRole('option').filter({ has: page.getByText(changedRole, { exact: true }) }).click();
+    await expectPending(true);
+    await sonnetTrigger.click();
+    await page.getByRole('option').filter({ has: page.getByText(initialRole, { exact: true }) }).click();
+    await expectPending(false);
 
     // A failed write must retain the pending edit; a successful retry clears it.
     await open('fail-apply');

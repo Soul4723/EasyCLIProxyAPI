@@ -149,18 +149,18 @@ runUi(async ({ base }) => {
     }
     for (const query of ['claude-models', 'claude-alias-models']) {
       await open(query);
-      const opusWarning = rows().nth(0).getByText('默认别名「claude-opus-5」已存在于模型列表中，请切换其他别名，避免调用到其他模型。', { exact: true });
-      await opusWarning.waitFor();
-      await rows().nth(1).getByText('默认别名「claude-sonnet-5」已存在于模型列表中，请切换其他别名，避免调用到其他模型。', { exact: true }).waitFor();
+      const opusSuffixNotice = rows().nth(0).getByText('该别名已被占用，已自动改为「claude-opus-5-cc」。', { exact: true });
+      await opusSuffixNotice.waitFor();
+      await rows().nth(1).getByText('该别名已被占用，已自动改为「claude-sonnet-5-cc」。', { exact: true }).waitFor();
       await chooseOriginal(2, 'gpt-one');
       assert.ok(await save().isEnabled());
       assert.equal(await page.getByText('请选择或填写原模型。', { exact: true }).count(), 0);
       await chooseOriginal(0, 'gpt-one');
-      await opusWarning.waitFor();
-      assert.ok(await save().isDisabled());
+      await opusSuffixNotice.waitFor();
+      assert.ok(await save().isEnabled());
       await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-default-conflict-${query}.png`), fullPage: true });
       await fillAlias(0, 'claude-opus-personal');
-      assert.equal(await opusWarning.count(), 0);
+      assert.equal(await opusSuffixNotice.count(), 0);
       assert.ok(await save().isEnabled());
     }
     await open('saved-desktop-alias');
@@ -183,8 +183,8 @@ runUi(async ({ base }) => {
     assert.ok(await save().isEnabled());
     await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), 'claude-desktop-same-model-notice.png'), fullPage: true });
     await fillAlias(0, 'claude-sonnet-5');
-    await rows().first().getByText('默认别名「claude-sonnet-5」已存在于模型列表中，请切换其他别名，避免调用到其他模型。', { exact: true }).waitFor();
-    assert.ok(await save().isDisabled());
+    await rows().first().getByText('该别名已被占用，已自动改为「claude-sonnet-5-cc」。', { exact: true }).waitFor();
+    assert.ok(await save().isEnabled());
     await fillAlias(0, 'claude-personal-model');
     await chooseOriginal(0, 'manual-model-not-in-list');
     assert.ok(await save().isEnabled());

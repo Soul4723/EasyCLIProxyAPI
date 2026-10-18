@@ -130,18 +130,21 @@ runUi(async ({ base }) => {
     };
 
     const assertClientPage = async label => {
-      await page.locator('.agent-list-items button').first().waitFor();
+      await page.locator('.agent-list-items > button').first().waitFor();
       const metrics = await page.locator('.agent-list-items').evaluate(list => {
         const rect = list.getBoundingClientRect();
-        const buttons = Array.from(list.querySelectorAll('button'));
-        return { count: buttons.length,
+        const buttons = Array.from(list.querySelectorAll(':scope > button'));
+        const listed = Number.parseInt(
+          document.querySelector('.agent-client-list-footer small')?.textContent ?? '', 10);
+        return { count: buttons.length, listed,
           overflow: list.scrollHeight > list.clientHeight + 1 || list.scrollWidth > list.clientWidth + 1,
           clipped: buttons.filter(button => {
             const r = button.getBoundingClientRect();
             return r.top < rect.top - 1 || r.bottom > rect.bottom + 1 || r.left < rect.left - 1 || r.right > rect.right + 1;
           }).map(button => button.textContent) };
       });
-      assert.ok(metrics.count >= 1 && metrics.count <= 13, `${label}: render a nonempty client page`);
+      assert.ok(metrics.count >= 1 && metrics.count <= metrics.listed,
+        `${label}: render a nonempty client page within the client catalog`);
       assert.equal(metrics.overflow, false, `${label}: each client page must fit without scrolling`);
       assert.deepEqual(metrics.clipped, [], `${label}: no client row may be clipped`);
     };

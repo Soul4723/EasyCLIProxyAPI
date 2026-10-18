@@ -30,9 +30,9 @@ runUi(async ({ base }) => {
     const context = page.getByRole('switch', { name: '默认模型 1M', exact: true });
     await context.check();
     assert.equal(await startup.inputValue(), 'gpt-two[1m]');
-    assert.equal(await page.getByRole('spinbutton', { name: '全局窗口覆盖', exact: true }).inputValue(), '1000000');
+    assert.equal(await page.getByRole('spinbutton', { name: '自动压缩窗口', exact: true }).inputValue(), '1000000');
     await context.uncheck();
-    assert.equal(await page.getByRole('spinbutton', { name: '全局窗口覆盖', exact: true }).inputValue(), '200000');
+    assert.equal(await page.getByRole('spinbutton', { name: '自动压缩窗口', exact: true }).inputValue(), '200000');
     assert.equal(await startup.inputValue(), 'gpt-two');
     await page.locator('.claude-code-context-settings summary').click();
     assert.equal(await page.locator('.claude-role-row input[type=checkbox]').count(), 4);
