@@ -13,7 +13,7 @@ const path = require('node:path');
 
 const filters = process.argv.slice(2);
 const scripts = fs.readdirSync(__dirname)
-  .filter(name => name.endsWith('-ui.cjs'))
+  .filter(name => name.endsWith('-ui.cjs') && name !== 'run-ui.cjs')
   .filter(name => !filters.length || filters.some(filter => name.includes(filter)))
   .sort();
 if (!scripts.length) {
