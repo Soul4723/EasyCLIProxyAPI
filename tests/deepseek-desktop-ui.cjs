@@ -1,9 +1,9 @@
-// Run Vite on port 1421 before this test.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     for (const scenario of ['desktop', 'both', 'running', 'cli']) {
       const page = await browser.newPage();
@@ -19,7 +19,7 @@ const assert = require('node:assert/strict');
           },
         };
       }, scenario);
-      await page.goto(`http://localhost:1421/tests/fixtures/agent-backups.html?client=deepseek-harness&reset-selections${scenario === 'running' ? '&running' : ''}`);
+      await page.goto(`${base}/tests/fixtures/agent-backups.html?client=deepseek-harness&reset-selections${scenario === 'running' ? '&running' : ''}`);
       const controls = page.locator('.agent-run-controls');
       const app = controls.getByRole('button', { name: '启动 App', exact: true });
       await app.waitFor();
@@ -47,4 +47,4 @@ const assert = require('node:assert/strict');
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});

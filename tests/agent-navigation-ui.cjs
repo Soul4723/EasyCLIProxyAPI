@@ -1,12 +1,12 @@
-// Run Vite on port 1421, then node tests/agent-navigation-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    await page.route('**/*', route => route.request().url().startsWith('http://127.0.0.1:1421/') ? route.continue() : route.abort());
+    await page.route('**/*', route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
     page.setDefaultTimeout(10000);
     page.setDefaultNavigationTimeout(30000);
     const errors = [];
@@ -34,7 +34,7 @@ const assert = require('node:assert/strict');
       return refresh && !refresh.disabled && window.fixtureCalls.some(call => call.cmd === 'get_agent_models');
     });
     const open = async query => {
-      await page.goto('http://127.0.0.1:1421/tests/fixtures/agent-backups.html?reset-selections&' + query, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${base}/tests/fixtures/agent-backups.html?reset-selections&` + query, { waitUntil: 'domcontentloaded' });
       await ready();
     };
     const remount = async embedded => {
@@ -170,4 +170,4 @@ const assert = require('node:assert/strict');
     assert.deepEqual(errors, []);
     console.log('PASS: per-agent tabs, drafts, feedback, help, remounts, compact/full isolation, keyboard, narrow layouts, session pagination/selection and stale response handling');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+});

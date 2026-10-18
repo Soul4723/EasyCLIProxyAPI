@@ -1,9 +1,9 @@
-// Run Vite on port 1421, then node tests/agent-pending-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     page.setDefaultTimeout(10000);
@@ -20,7 +20,7 @@ const assert = require('node:assert/strict');
         : document.querySelector('.agent-desktop-models') && window.fixtureCalls.some(call => call.cmd === 'get_agent_models');
     });
     const open = async query => {
-      await page.goto('http://localhost:1421/tests/fixtures/agent-backups.html?reset-selections&' + query);
+      await page.goto(`${base}/tests/fixtures/agent-backups.html?reset-selections&` + query);
       await ready();
     };
     const manage = () => page.getByRole('tab', { name: '配置管理', exact: true }).click();
@@ -135,4 +135,4 @@ const assert = require('node:assert/strict');
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exit(1); });
+});

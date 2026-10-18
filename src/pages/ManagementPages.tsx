@@ -97,6 +97,8 @@ const OAUTH_CALLBACK_SUPPORTED = new Set<OAuthProviderId>([
   'devin',
 ]);
 const BUILTIN_OAUTH_PROVIDER_IDS = oauthProviders.map(provider => provider.id);
+// Stable identity: PluginOAuthProviders reloads plugins whenever this prop changes.
+const RESERVED_OAUTH_PROVIDER_IDS = [...BUILTIN_OAUTH_PROVIDER_IDS, 'vertex'];
 const XAI_CALLBACK_URL = 'http://127.0.0.1:56121/callback';
 const OAUTH_POLL_INTERVAL_MS = 3000;
 const OAUTH_BROWSER_STORAGE_KEY = 'easy-cli-proxy-api.oauth-browser.v3';
@@ -741,7 +743,7 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
         })}
         <VertexLoginCard />
         <PluginOAuthProviders
-          builtInProviderIds={[...BUILTIN_OAUTH_PROVIDER_IDS, 'vertex']}
+          builtInProviderIds={RESERVED_OAUTH_PROVIDER_IDS}
           browser={selectedBrowser === NO_AUTO_OPEN_BROWSER_ID ? 'default' : selectedBrowser || 'default'}
         />
       </div>

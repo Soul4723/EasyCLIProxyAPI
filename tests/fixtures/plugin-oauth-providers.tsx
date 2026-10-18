@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { OAuthLoginPage } from '../../src/pages/ManagementPages';
+import { fixtureCoreStatus, MockCoreRuntime } from './coreRuntime';
 import { notifyPluginResourcesChanged } from '../../src/services/pluginResources';
 import '../../src/styles/index.css';
 
@@ -51,6 +52,7 @@ window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[
 
 mockIPC(async (cmd, unknownArgs) => {
   const args = (unknownArgs ?? {}) as Record<string, unknown>;
+  if (cmd === 'get_core_status') return fixtureCoreStatus(params);
   fixture.calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'list_oauth_browsers') return [
@@ -95,5 +97,5 @@ mockIPC(async (cmd, unknownArgs) => {
 }, { shouldMockEvents: true });
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider><main style={{ padding: 20 }}><OAuthLoginPage /></main></I18nProvider>,
+  <I18nProvider><MockCoreRuntime><main style={{ padding: 20 }}><OAuthLoginPage /></main></MockCoreRuntime></I18nProvider>,
 );

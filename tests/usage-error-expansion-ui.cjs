@@ -1,4 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
@@ -16,7 +17,7 @@ const path = require('node:path');
   try {
     await server.listen();
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : undefined, headless: true, args: ['--no-proxy-server'] });
+    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 900, height: 800 } });
     await page.addInitScript(() => localStorage.setItem('cpa-gui.usage-events-collapse-errors.v1', '0'));
     await page.goto(`${base}/tests/fixtures/usage-response-model.html?locale=zh-CN&theme=dark`);

@@ -1,8 +1,9 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-(async () => {
-  const browser = await chromium.launch({ channel: process.env.THEME_BROWSER || 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
     const errors = [];
@@ -13,7 +14,7 @@ const assert = require('node:assert/strict');
       if (route.request().method() === 'POST') selection = JSON.parse(route.request().postData());
       await route.fulfill({ json: selection });
     });
-    const open = query => page.goto(`http://127.0.0.1:1422/tests/fixtures/theme.html?${query}`);
+    const open = query => page.goto(`${base}/tests/fixtures/theme.html?${query}`);
     const theme = expected => page.waitForFunction(expected => document.documentElement.dataset.theme === expected, expected);
     const trigger = () => page.locator('.theme-selector-trigger:visible');
     const menu = () => page.locator('.theme-selector-menu');
@@ -259,4 +260,4 @@ const assert = require('node:assert/strict');
     assert.deepEqual(errors, []);
     console.log('Theme UI passed: desktop IPC, persistence, errors, mode and theme picker, focus, 4 locales at 4 widths.');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});

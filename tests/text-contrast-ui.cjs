@@ -1,4 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -85,7 +86,7 @@ async function audit(page, scope, label) {
     });
     server = await preview({ root, build: { outDir }, preview: { host: '127.0.0.1', port: 0, strictPort: false }, logLevel: 'error' });
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await chromium.launch({ channel: 'msedge', headless: true });
+    browser = await launchBrowser(chromium);
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     page.setDefaultTimeout(15000);
     page.setDefaultNavigationTimeout(30000);

@@ -1,15 +1,14 @@
-// Run Vite on port 1421, then node tests/usage-analysis-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const base = 'http://127.0.0.1:1421';
 const screenshots = path.resolve('.codex/request-log-ui');
 fs.mkdirSync(screenshots, { recursive: true });
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true,
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, {
     args: ['--no-proxy-server'], ignoreDefaultArgs: ['--hide-scrollbars'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1266, height: 900 }, timezoneId: 'Asia/Shanghai' });
@@ -167,4 +166,4 @@ fs.mkdirSync(screenshots, { recursive: true });
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});

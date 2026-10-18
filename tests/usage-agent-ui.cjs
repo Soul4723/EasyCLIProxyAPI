@@ -1,9 +1,8 @@
-// Run Vite on port 1421, then PLAYWRIGHT_MODULE=/path/to/playwright node tests/usage-agent-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
-const base = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:1421';
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors = [];
@@ -48,4 +47,4 @@ const base = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:1421';
     assert.deepEqual(errors, []);
     console.log('PASS: Agent column, server query/filter page reset, unknown, all-filtered CSV, column picker, narrow layout.');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.PLAYWRIGHT_BASE_URL });

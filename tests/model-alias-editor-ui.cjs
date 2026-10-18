@@ -1,10 +1,10 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const { mkdirSync } = require('node:fs');
-const base = process.env.ALIAS_TEST_BASE_URL || 'http://127.0.0.1:1423';
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.setDefaultTimeout(10000);
@@ -127,4 +127,4 @@ const base = process.env.ALIAS_TEST_BASE_URL || 'http://127.0.0.1:1423';
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.ALIAS_TEST_BASE_URL });

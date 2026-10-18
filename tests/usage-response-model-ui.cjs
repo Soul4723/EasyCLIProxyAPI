@@ -1,10 +1,9 @@
-// Run Vite on port 1421, then node tests/usage-response-model-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const base = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:1421';
 const locales = {
   'zh-CN': { request: '请求模型', upstream: '路由模型', response: '响应模型' },
   en: { request: 'Requested model', upstream: 'Routed model', response: 'Response model' },
@@ -50,8 +49,8 @@ function parseCsv(text) {
   return rows;
 }
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, timezoneId: 'Asia/Shanghai' });
     const errors = [];
@@ -202,4 +201,4 @@ function parseCsv(text) {
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.PLAYWRIGHT_BASE_URL });

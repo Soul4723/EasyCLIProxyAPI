@@ -1,16 +1,16 @@
-// Run Vite on port 1421, then node tests/agent-executable-paths-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
     for (const client of ['codex', 'opencode', 'deepseek-harness', 'claude-desktop', 'zcode', 'workbuddy']) {
       const dual = ['codex', 'opencode', 'deepseek-harness'].includes(client);
-      await page.goto(`http://localhost:1421/tests/fixtures/agent-backups.html?reset-selections&client=${client}`);
+      await page.goto(`${base}/tests/fixtures/agent-backups.html?reset-selections&client=${client}`);
       await page.getByRole('tab', { name: '配置管理', exact: true }).click();
       const rows = page.locator('.agent-management-row');
       const desktopRow = rows.filter({ has: page.getByRole('heading', { name: dual ? '桌面程序路径' : '手动指定 Agent 程序路径', exact: true }) });
@@ -58,4 +58,4 @@ const assert = require('node:assert/strict');
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});

@@ -1,10 +1,9 @@
-// Run with the Vite dev server at QUOTA_TEST_BASE (default: http://127.0.0.1:1421).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
-const base = process.env.QUOTA_TEST_BASE || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage();
     await page.route('**/*', route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
@@ -50,4 +49,4 @@ const base = process.env.QUOTA_TEST_BASE || 'http://127.0.0.1:1421';
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.QUOTA_TEST_BASE });

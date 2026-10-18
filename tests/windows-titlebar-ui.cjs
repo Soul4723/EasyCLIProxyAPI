@@ -1,4 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs/promises');
@@ -33,7 +34,7 @@ const coversCenterOf = (locator) => locator.evaluate(el => {
   try {
     await server.listen();
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser(chromium);
     const errors = [];
     const newPage = async (options = {}) => {
       const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce', ...options });

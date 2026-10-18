@@ -1,8 +1,7 @@
-// Run Vite on port 1421, then node tests/agent-configuration-layout-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = 'http://127.0.0.1:1421';
 const clients = ['codex', 'claude-desktop', 'deepseek-harness', 'zcode'];
 const desktopViewports = [
   { width: 1280, height: 700 },
@@ -13,8 +12,8 @@ const desktopViewports = [
   { width: 900, height: 1080 },
 ];
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(10000);
@@ -604,4 +603,4 @@ const desktopViewports = [
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});

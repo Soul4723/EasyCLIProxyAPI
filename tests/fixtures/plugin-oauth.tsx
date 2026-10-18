@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { PluginOAuthDialog } from '../../src/pages/PluginOAuthDialog';
+import { fixtureCoreStatus, MockCoreRuntime } from './coreRuntime';
 import type { PluginListEntry } from '../../src/services/plugins';
 import '../../src/styles/index.css';
 
@@ -25,6 +26,7 @@ Object.assign(window, { pluginOAuthFixture: fixture });
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { fixture.copied.push(value); } } });
 mockIPC(async (cmd, unknownArgs) => {
   const args = (unknownArgs ?? {}) as Record<string, unknown>;
+  if (cmd === 'get_core_status') return fixtureCoreStatus(params);
   fixture.calls.push({ cmd, args });
   if (cmd === 'start_oauth_login') {
     const attempt = ++fixture.starts;
@@ -53,7 +55,7 @@ mockIPC(async (cmd, unknownArgs) => {
   }
   if (cmd === 'open_oauth_url' && params.has('openError')) throw new Error('Fixture browser error');
   return null;
-});
+}, { shouldMockEvents: true });
 const plugin: PluginListEntry = {
   id: 'test-plugin', path: '/plugins/test', configured: true, registered: true,
   enabled: true, effectiveEnabled: !params.has('disabled'), supportsOAuth: true,
@@ -62,8 +64,8 @@ const plugin: PluginListEntry = {
 function Fixture() {
   const [open, setOpen] = useState(false);
   fixture.unmount = () => setOpen(false);
-  return <I18nProvider><button type="button" onClick={() => setOpen(true)}>Open plugin login</button>
+  return <I18nProvider><MockCoreRuntime><button type="button" onClick={() => setOpen(true)}>Open plugin login</button>
     {open ? <PluginOAuthDialog plugin={plugin} onClose={() => setOpen(false)} onCompleted={() => { fixture.completed += 1; }} /> : null}
-  </I18nProvider>;
+  </MockCoreRuntime></I18nProvider>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);

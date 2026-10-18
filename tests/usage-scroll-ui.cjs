@@ -1,7 +1,7 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = 'http://127.0.0.1:1421';
 
 function parseCsv(text) {
   const rows = [];
@@ -23,9 +23,9 @@ function parseCsv(text) {
   return rows;
 }
 
-(async () => {
-  const browser = await chromium.launch({
-    channel: 'msedge', headless: true, args: ['--no-proxy-server'],
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, {
+    args: ['--no-proxy-server'],
     ignoreDefaultArgs: ['--hide-scrollbars'],
   });
   try {
@@ -373,7 +373,4 @@ function parseCsv(text) {
   } finally {
     await browser.close();
   }
-})().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
 });

@@ -1,14 +1,14 @@
-// Run Vite on port 1421, then node tests/agent-loading-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
-    await page.goto('http://127.0.0.1:1421/tests/fixtures/agent-backups.html?reset-selections');
+    await page.goto(`${base}/tests/fixtures/agent-backups.html?reset-selections`);
     const picker = page.locator('.agent-model-trigger');
     await page.waitForFunction(() => document.querySelector('.agent-model-trigger strong')?.textContent === 'gpt-one');
     const rows = await page.locator('.agent-list-items').innerText();
@@ -56,4 +56,4 @@ const assert = require('node:assert/strict');
     assert.deepEqual(errors, []);
     console.log('PASS: cached page return, nonblocking revalidation, preserved selection, failed refresh and explicit detection');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+});

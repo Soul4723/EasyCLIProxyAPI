@@ -1,4 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const base = process.env.HOME_DASHBOARD_TEST_BASE_URL || 'http://127.0.0.1:1421';
@@ -13,7 +14,7 @@ const base = process.env.HOME_DASHBOARD_TEST_BASE_URL || 'http://127.0.0.1:1421'
       server = await createServer({ configFile: false, cacheDir: 'node_modules/.vite-home-dashboard', plugins: [react()], logLevel: 'error', optimizeDeps: { noDiscovery: true, include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', '@tauri-apps/api/core', '@tauri-apps/api/mocks', '@tauri-apps/api/event', 'lucide-react', 'react-markdown', '@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'] }, server: { host: '127.0.0.1', port: Number(new URL(base).port), strictPort: true, watch: null } });
       await server.listen();
     }
-    browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge', headless: true, args: ['--no-proxy-server'] });
+    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
     const errors = [];
     const makePage = async (viewport = { width: 1280, height: 1050 }) => {
       const page = await browser.newPage({ viewport });
