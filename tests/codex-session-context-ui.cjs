@@ -2,6 +2,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { mkdirSync } = require('node:fs');
+const { openApp, clickNav, setLanguage, setTheme } = require('./helpers/shell.cjs');
 
 const screenshots = path.resolve(__dirname, '..', 'output', 'playwright');
 mkdirSync(screenshots, { recursive: true });
@@ -30,8 +31,7 @@ mkdirSync(screenshots, { recursive: true });
       localStorage.setItem('easy-cli-proxy-api.locale', 'en');
       localStorage.setItem('cpa-gui.agent-selected-client.v1', 'codex');
     });
-    await page.goto(`${base}/?mock=running&mockDelay=5`);
-    await page.locator('.app-shell').waitFor();
+    await openApp(page, base, { query: 'mockDelay=5' });
     await page.evaluate(() => {
       const invoke = window.__TAURI_INTERNALS__.invoke;
       window.contextReadRequests = [];
@@ -40,23 +40,21 @@ mkdirSync(screenshots, { recursive: true });
         return invoke(command, args, options);
       };
     });
-    await page.locator('.nav-section button').nth(4).click();
+    await clickNav(page, 'agents');
     await page.locator('#agent-subpage-tab-sessions').click();
     await page.locator('.codex-sessions-page').waitFor();
 
     const entry = page.locator('.codex-session-context-button').first();
-    for (const [language, title] of [
-      ['English', 'Edit Context (Experimental)'],
-      ['简体中文', '编辑上下文 (实验性)'],
-      ['日本語', 'コンテキスト編集 (実験的)'],
+    for (const [locale, title] of [
+      ['en', 'Edit Context (Experimental)'],
+      ['zh-CN', '编辑上下文 (实验性)'],
+      ['ja', 'コンテキスト編集 (実験的)'],
     ]) {
-      await page.locator('.sidebar-language-trigger').click();
-      await page.getByRole('option', { name: language, exact: true }).click();
+      await setLanguage(page, locale);
       assert.equal(await entry.getAttribute('title'), title);
       assert.equal((await entry.textContent()).trim(), title);
     }
-    await page.locator('.sidebar-language-trigger').click();
-    await page.getByRole('option', { name: 'English', exact: true }).click();
+    await setLanguage(page, 'en');
 
     assert.deepEqual(await page.evaluate(() => window.contextReadRequests), []);
     await page.locator('.codex-sessions-page').getByRole('button', { name: 'Refresh', exact: true }).click();
@@ -81,7 +79,7 @@ mkdirSync(screenshots, { recursive: true });
     await userCard.getByRole('button', { name: 'Edit', exact: true }).click();
     await userCard.locator('.message-textarea').fill('Mock persistence check');
     for (const navigationButton of [
-      page.locator('.nav-section button').first(),
+      page.locator('.ec-nav a[data-nav="overview"]'),
       page.locator('#agent-subpage-tab-core'),
       page.locator('.agent-list-items button:not(.active)').first(),
     ]) {
@@ -90,11 +88,9 @@ mkdirSync(screenshots, { recursive: true });
       await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click();
       assert.equal(await userCard.locator('.message-textarea').inputValue(), 'Mock persistence check');
     }
-    await page.locator('.sidebar-language-trigger').click();
-    await page.getByRole('option', { name: '简体中文', exact: true }).click();
+    await setLanguage(page, 'zh-CN');
     assert.equal(await userCard.locator('.message-textarea').inputValue(), 'Mock persistence check');
-    await page.locator('.sidebar-language-trigger').click();
-    await page.getByRole('option', { name: 'English', exact: true }).click();
+    await setLanguage(page, 'en');
     assert.equal(await userCard.locator('.message-textarea').inputValue(), 'Mock persistence check');
     await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
     await page.locator('.codex-session-notice.success').waitFor();
@@ -161,13 +157,11 @@ mkdirSync(screenshots, { recursive: true });
     await page.locator('.context-message-card.user', { hasText: 'Add to an empty session' }).waitFor();
 
     for (const theme of ['dark', 'light']) {
-      await page.locator(`.theme-selector-trigger`).click();
-      await page.locator(`.theme-selector-card[data-theme-id="${theme}"]`).click();
-      await page.keyboard.press('Escape');
+      await setTheme(page, theme);
       await page.waitForFunction(expected => document.documentElement.dataset.theme === expected, theme);
-      await page.locator(`.theme-selector-trigger[aria-expanded="false"]`).waitFor();
       const background = await page.locator('.context-meta-card').evaluate(card => getComputedStyle(card).backgroundColor);
-      assert.equal(background, theme === 'dark' ? 'rgb(20, 23, 32)' : 'rgb(255, 255, 255)');
+      // Ember surfaces (src/ui/tokens.css --ec-surface, mapped to --bg-primary by legacy-compat.css).
+      assert.equal(background, theme === 'dark' ? 'rgb(51, 38, 31)' : 'rgb(255, 255, 255)');
       await page.screenshot({ path: path.join(screenshots, `codex-session-context-${theme}.png`), fullPage: true, animations: 'disabled' });
     }
 
@@ -179,7 +173,7 @@ mkdirSync(screenshots, { recursive: true });
     await page.setViewportSize({ width: 1600, height: 1100 });
 
     await page.getByLabel('Session Title', { exact: true }).fill('Discarded title');
-    await page.locator('.nav-section button').first().click();
+    await clickNav(page, 'overview');
     await page.getByRole('alertdialog').getByRole('button', { name: 'Discard', exact: true }).click();
     await page.locator('.codex-session-context-editor').waitFor({ state: 'hidden' });
 
@@ -204,7 +198,7 @@ mkdirSync(screenshots, { recursive: true });
         return result;
       };
     });
-    await page.locator('.nav-section button').nth(4).click();
+    await clickNav(page, 'agents');
     await page.locator('#agent-subpage-tab-sessions').click();
     await page.locator('.codex-session-context-button').first().click();
     for (const count of [43, 1000]) {
@@ -233,11 +227,8 @@ mkdirSync(screenshots, { recursive: true });
       assert.ok(lastCardFits, 'The last message must be reachable by scrolling');
     }
     await page.setViewportSize({ width: 1600, height: 1100 });
-    await page.locator('.theme-selector-trigger').click();
-    await page.locator('.theme-selector-card[data-theme-id="dark"]').click();
-    await page.keyboard.press('Escape');
-    await page.locator('.sidebar-language-trigger').click();
-    await page.getByRole('option', { name: '简体中文', exact: true }).click();
+    await setTheme(page, 'dark');
+    await setLanguage(page, 'zh-CN');
     await page.locator('.context-role-filters .filter-chip.assistant').click();
     await page.locator('.context-message-list').evaluate(list => { list.scrollTop = 0; });
     await page.locator('.context-message-card').first().scrollIntoViewIfNeeded();

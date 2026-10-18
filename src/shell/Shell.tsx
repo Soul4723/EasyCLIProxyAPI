@@ -45,12 +45,18 @@ export function Shell() {
   useEffect(() => { setDrawerOpen(false); }, [route.path]);
   useEffect(() => {
     if (!drawerOpen) return undefined;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    document.querySelector<HTMLElement>('.ec-sidebar a')?.focus();
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawerOpen(false); };
     document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('keydown', close);
+      if (previousFocus?.isConnected) previousFocus.focus();
+      else document.querySelector<HTMLElement>('.ec-page-menu')?.focus();
+    };
   }, [drawerOpen]);
 
-  const shell = useMemo(() => ({ openMenu: () => setDrawerOpen(true) }), []);
+  const shell = useMemo(() => ({ openMenu: () => setDrawerOpen(true), menuOpen: drawerOpen }), [drawerOpen]);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   const sub = current?.subs?.some((entry) => entry.id === route.sub) ? route.sub : null;
 
