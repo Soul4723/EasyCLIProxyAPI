@@ -146,7 +146,7 @@ export function ConnectionTab() {
           <dl className="ec-con-facts">
             <div><dt>{t('sec.settings.connection.target')}</dt><dd>{remoteActive ? <Masked value={hostOf(status?.remoteOrigin)} kind="identifier" mono /> : <span className="ec-mono">{hostPort || '—'}</span>}</dd></div>
             <div><dt>{t('sec.settings.connection.version')}</dt><dd className="ec-mono">{status?.currentVersion ?? t('sec.settings.connection.unknownVersion')}</dd></div>
-            {!remoteActive ? <div><dt>{t('sec.settings.connection.process')}</dt><dd>{status?.running ? (status.managed ? t('sec.settings.connection.managed') : t('sec.settings.connection.external')) : t('sec.settings.connection.notRunning')}{status?.processId ? <span className="ec-mono ec-muted"> · PID {status.processId}</span> : null}</dd></div> : null}
+            {!remoteActive ? <div><dt>{t('sec.settings.connection.process')}</dt><dd>{status?.running ? (status.managed ? t('sec.settings.connection.managed') : t('sec.settings.connection.external')) : t('sec.settings.connection.notRunning')}{status?.processId ? <span className="ec-mono ec-muted">{` · ${t("sec.settings.connection.pid", { pid: status.processId })}`}</span> : null}</dd></div> : null}
           </dl>
         </div>
       </SettingsGroup>
