@@ -45,9 +45,10 @@ function useNarrow() {
   );
 }
 
-export function QuotaSection({ params }: SectionPageProps) {
+export function QuotaSection(_props: SectionPageProps) {
   const { t, formatNumber } = useI18n();
   const route = useRoute();
+  const params = route.params;
   const [density] = useDensity();
   const narrow = useNarrow();
   const { ask, dialog } = useConfirmAsk();
@@ -77,10 +78,21 @@ export function QuotaSection({ params }: SectionPageProps) {
   useEffect(() => {
     const cred = params.get('cred');
     if (!cred || deepLinked.current === cred || !accounts.length) return;
-    const match = accounts.find((account) => account.fileName === cred);
+    const match = accounts.find((account) => account.fileName === cred || account.authIndex === cred);
     deepLinked.current = cred;
     if (match) setSelectedKey(match.key);
   }, [params, accounts, route.path]);
+
+  // Deep link: #/quota?provider=<id> filters to that provider group and scrolls it into view.
+  const providerParam = params.get('provider');
+  useEffect(() => {
+    if (!providerParam) return;
+    const id = providerInfo(providerParam).id;
+    if (!(PROVIDER_ORDER as readonly string[]).includes(id)) return;
+    setProvider(id);
+    setCollapsed((current) => { const next = new Set(current); next.delete(id); return next; });
+    requestAnimationFrame(() => document.querySelector(`.qt-group[data-provider="${id}"]`)?.scrollIntoView({ block: 'start' }));
+  }, [providerParam, route.path]);
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
