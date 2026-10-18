@@ -85,7 +85,7 @@ async function audit(page, scope, label) {
     });
     server = await preview({ root, build: { outDir }, preview: { host: '127.0.0.1', port: 0, strictPort: false }, logLevel: 'error' });
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await chromium.launch({ channel: 'msedge', headless: true });
+    browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     page.setDefaultTimeout(15000);
     page.setDefaultNavigationTimeout(30000);

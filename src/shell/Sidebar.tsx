@@ -66,7 +66,7 @@ export function Sidebar({ activeId, drawerOpen, onNavigate }: { activeId: string
       updateDot={route.id === 'settings' ? updateState : null} dotTitle={updateLabel} />
   );
   return (
-    <aside className={`ec-sidebar${drawerOpen ? ' is-open' : ''}`} aria-label={t('app.navigation')} onClick={(event) => {
+    <aside id="ec-sidebar" className={`ec-sidebar${drawerOpen ? ' is-open' : ''}`} aria-label={t('app.navigation')} onClick={(event) => {
       if ((event.target as Element).closest('a')) onNavigate();
     }}>
       <a className="ec-brand" href={routeHref('overview')} title="EasyCLIProxyAPI">
