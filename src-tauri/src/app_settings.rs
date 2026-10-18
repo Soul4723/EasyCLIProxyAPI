@@ -146,7 +146,7 @@ fn find_api_access_record_remark(
     exact_remark
 }
 
-fn resolve_api_access_remark(
+pub(crate) fn resolve_api_access_remark(
     config: &GuiConfigFile,
     query: &ApiAccessRemarkQuery,
 ) -> Result<String, String> {
@@ -802,9 +802,8 @@ pub(crate) fn resolve_windows_close_request(
     match action {
         WindowsCloseAction::Exit => app.exit(0),
         WindowsCloseAction::MinimizeToTray => {
-            let window = app
-                .get_webview_window("main")
-                .ok_or_else(|| "Main window does not exist".to_string())?;
+            let window =
+                main_window(&app).ok_or_else(|| "Main window does not exist".to_string())?;
             window
                 .hide()
                 .map_err(|error| format!("Failed to hide main window: {error}"))?;

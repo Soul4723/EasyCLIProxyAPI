@@ -30,6 +30,7 @@ export function deriveAccountPresentation(file: AuthFile, quota?: QuotaState) {
     return {
       label: row.label,
       remainingPercent,
+      quotaAvailable: row.quotaAvailable,
       measurement,
       reset: row.reset,
       resetAtMs: row.resetAtMs,
