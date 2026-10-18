@@ -315,6 +315,18 @@ mod tests {
         assert_eq!(config.locale, "zh-CN");
     }
 
+    #[test]
+    fn locale_publication_holds_target_lease_through_status_selection() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let expected = state.snapshot().unwrap();
+        let published = with_target_locale_publication(&state, &expected, |_| {
+            assert!(state.target_operation.try_lock().is_err());
+            "published"
+        })
+        .unwrap();
+        assert_eq!(published, "published");
+    }
+
     fn locator(base_url: &str, api_keys: &[&str]) -> ApiAccessRemarkLocator {
         ApiAccessRemarkLocator {
             provider_name: String::new(),
@@ -783,15 +795,23 @@ pub(crate) fn set_app_locale(
     locale: String,
 ) -> Result<String, String> {
     let config = set_locale_for_tray(gui_config_state.inner(), locale)?;
+    let selected_locale = config.locale.clone();
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
-        // Locale changes only re-render the last selected-target status.
-        update_windows_tray_locale(&app, &config);
+        // Keep the synchronous UI command free of target-operation waits. The
+        // worker fences selection and publication as one target-lease scope.
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let state = app_handle.state::<GuiConfigState>();
+            let _ = with_target_locale_publication(&state, &config, |target| {
+                update_windows_tray_locale(&app_handle, target);
+            });
+        });
         let _ = process_state;
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     let _ = (app, process_state);
-    Ok(config.locale)
+    Ok(selected_locale)
 }
 
 // Locale is a GUI preference, so it must not synchronously wait for the target
@@ -804,6 +824,15 @@ fn set_locale_for_tray(
     let config = gui_config_state.set_locale(locale)?;
     gui_config_state.ensure_target(&config)?;
     Ok(config)
+}
+
+fn with_target_locale_publication<R>(
+    gui_config_state: &GuiConfigState,
+    expected: &GuiConfigFile,
+    publish: impl FnOnce(&GuiConfigFile) -> R,
+) -> Result<R, String> {
+    let _target = gui_config_state.blocking_local_target_operation(expected)?;
+    Ok(publish(expected))
 }
 
 #[tauri::command]
