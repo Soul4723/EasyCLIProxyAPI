@@ -70,15 +70,15 @@ const allIds = Object.keys(allClients);
     assert.equal(await chip('All').getAttribute('aria-pressed'), 'true', 'All is the initial filter');
     assert.equal(await card('codex').getAttribute('aria-label'), 'Codex — Connected');
 
-    // mixed-clients: three connected, Claude Desktop config-only, Pi plugin-only, the rest not installed.
+    // mixed-clients: three connected + Pi (extension installed), Claude Desktop config-only, the rest not installed.
     await open('mixed-clients');
     const mixed = await states();
-    for (const id of ['claude-code', 'codex', 'opencode']) assert.equal(mixed[id], 'connected', `${id} connected`);
+    for (const id of ['claude-code', 'codex', 'opencode', 'pi']) assert.equal(mixed[id], 'connected', `${id} connected`);
     assert.equal(mixed['claude-desktop'], 'notConfigured', 'config-only Claude Desktop is detected but not configured');
     for (const id of allIds.filter(id => !['claude-code', 'codex', 'opencode', 'claude-desktop', 'pi'].includes(id))) {
       assert.equal(mixed[id], 'notInstalled', `${id} not installed`);
     }
-    await assertCounts({ all: 16, connected: 3, detected: 5, notInstalled: 11 }, 'mixed-clients');
+    await assertCounts({ all: 16, connected: 4, detected: 5, notInstalled: 11 }, 'mixed-clients');
     assert.equal(await card('claude-code').locator('.ag-card-chips').textContent(), 'Connected');
     assert.equal(await card('claude-desktop').locator('.ag-card-chips').textContent(), 'Not configured');
     assert.equal(await card('hermes').locator('.ag-card-chips').textContent(), 'Not installed');
