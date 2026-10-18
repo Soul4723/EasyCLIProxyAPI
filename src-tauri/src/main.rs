@@ -10,6 +10,7 @@ mod configuration_watcher;
 mod core_config;
 mod core_runtime;
 mod core_connection;
+mod core_recovery;
 mod desktop_theme;
 mod instance_lock;
 #[cfg(target_os = "linux")]
@@ -24,6 +25,7 @@ mod network_proxy;
 ))]
 mod native_i18n;
 mod oauth_browser;
+mod plugin_webview;
 mod plugins;
 mod privacy_mode;
 mod progress;
@@ -311,6 +313,7 @@ enum ChildSupervision {
 
 #[derive(Default)]
 struct CoreProcessState {
+    recovery: core_recovery::CoreRecovery,
     child: Mutex<Option<CoreChild>>,
     adopted_processes: Mutex<Vec<AdoptedCoreProcess>>,
     starting: AtomicBool,
@@ -453,6 +456,8 @@ struct CoreStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     remote_origin: Option<String>,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recovery: Option<core_recovery::RecoveryStatus>,
 }
 
 #[derive(Serialize)]
@@ -1973,6 +1978,7 @@ impl AppUpdateState {
 impl CoreProcessState {
     fn new(starting: bool) -> Self {
         Self {
+            recovery: core_recovery::CoreRecovery::default(),
             child: Mutex::new(None),
             adopted_processes: Mutex::new(Vec::new()),
             starting: AtomicBool::new(starting),
@@ -2027,6 +2033,7 @@ impl CoreProcessState {
     }
 
     fn disarm_supervision(&self) {
+        self.recovery.cancel();
         self.supervision_generation.fetch_add(1, Ordering::AcqRel);
         self.clear_supervision();
         self.reset_crash_restart_attempts();
@@ -2043,6 +2050,11 @@ impl CoreProcessState {
     fn complete_recovery_when_already_running(&self) {
         self.finish_recovery_pass();
         self.reset_crash_restart_attempts();
+        if self.is_supervising() {
+            self.recovery.running();
+        } else {
+            self.recovery.cancel();
+        }
     }
 
     #[cfg(test)]
@@ -2060,6 +2072,7 @@ impl CoreProcessState {
             if !core_child_has_exited(process.try_wait()) {
                 true
             } else {
+                self.recovery.exited(format!("PID {} exited unexpectedly", process.id()));
                 *child = None;
                 false
             }
@@ -2095,11 +2108,13 @@ impl CoreProcessState {
     fn managed_pid(&self) -> Option<u32> {
         if let Ok(mut child) = self.child.lock() {
             if let Some(process) = child.as_mut() {
-                if !core_child_has_exited(process.try_wait()) {
-                    return Some(process.id());
+                match process.try_wait() {
+                    Ok(None) | Err(_) => return Some(process.id()),
+                    Ok(Some(exit)) => {
+                        self.recovery.exited(format!("PID {}: {exit}", process.id()));
+                        *child = None;
+                    }
                 }
-
-                *child = None;
             }
         }
 
@@ -2156,8 +2171,7 @@ impl CoreProcessState {
             *adopted = adopted_list;
         }
         if has_adopted && !has_live_managed_child {
-            self.clear_supervision();
-            self.reset_crash_restart_attempts();
+            self.disarm_supervision();
         }
         Ok(())
     }
@@ -2190,6 +2204,7 @@ impl CoreProcessState {
         adopted.clear();
         self.supervision_generation.fetch_add(1, Ordering::AcqRel);
         *managed_child = Some(child);
+        self.recovery.running();
         if let Ok(mut supervision) = self.supervision.lock() {
             *supervision = ChildSupervision::Running {
                 started_at: Instant::now(),
@@ -2241,6 +2256,13 @@ impl GuiConfigState {
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())
     }
 
+    fn ensure_revision(&self, expected_revision: u64) -> Result<(), String> {
+        if self.snapshot()?.target_revision != expected_revision {
+            return Err("The core connection changed; request cancelled".to_string());
+        }
+        Ok(())
+    }
+
     fn ensure_target(&self, expected: &GuiConfigFile) -> Result<(), String> {
         let current = self.snapshot()?;
         if current.target_revision != expected.target_revision {
@@ -2252,15 +2274,19 @@ impl GuiConfigState {
     // Acquire in the blocking worker, not its awaiter: cancellation must not
     // release the fence while an accepted filesystem/process write is running.
     fn blocking_client_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
-        let guard = self.target_operation.blocking_lock();
-        self.ensure_target(expected)?;
+        let guard = self.blocking_target_operation(expected)?;
         expected.validate_client_origin()?;
         Ok(guard)
     }
 
-    fn blocking_local_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+    fn blocking_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
         let guard = self.target_operation.blocking_lock();
         self.ensure_target(expected)?;
+        Ok(guard)
+    }
+
+    fn blocking_local_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+        let guard = self.blocking_target_operation(expected)?;
         crate::core_connection::require_local(&self.snapshot()?)?;
         Ok(guard)
     }
@@ -2691,19 +2717,8 @@ fn main() {
     let gui_config = match load_or_create_gui_config() {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("{error}");
-            if portable_update_ack.is_some() {
-                return;
-            }
-            let mut config = GuiConfigFile::default();
-            // If the GUI configuration cannot be read before the kernel starts,
-            // use the shared recovery key so requests and the generated kernel
-            // configuration stay synchronized.
-            config.management_secret_key = LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY.to_string();
-            if let Err(sanitize_error) = sanitize_gui_config(&mut config) {
-                eprintln!("Failed to initialize fixed credentials directory: {sanitize_error}");
-            }
-            config
+            eprintln!("{error}. Startup stopped without selecting Local. Repair the saved GUI config.toml (or legacy cpa-gui.yaml) and relaunch.");
+            return;
         }
     };
     let initial_window_size = configured_window_size(&gui_config);
@@ -2726,6 +2741,7 @@ fn main() {
         .manage(DeepSeekHarnessProcessState::default())
         .manage(usage::UsageCollectorState::default())
         .manage(GuiConfigState::new(gui_config))
+        .manage(plugin_webview::PluginWebviewState::default())
         .manage(MainWindowSizeState::new(initial_window_size))
         .manage(AgentConfigStatusCache::default());
 
@@ -3045,7 +3061,12 @@ fn main() {
             clear_core_management_secret_key,
             management_api::management_request,
             plugins::get_plugin_support,
-            plugins::get_plugin_resource_url,
+            plugins::local_install::install_local_plugin,
+            plugin_webview::show_plugin_webview,
+            plugin_webview::set_plugin_webview_bounds,
+            plugin_webview::hide_plugin_webview,
+            plugin_webview::close_plugin_webview,
+            plugins::get_plugin_latest_releases,
             provider_health::provider_health_probe,
             provider_health::get_core_models,
             provider_health::core_health_probe,
@@ -3125,6 +3146,7 @@ fn main() {
             if process_state.shutting_down.swap(true, Ordering::AcqRel) {
                 return;
             }
+            process_state.recovery.cancel();
             if let Err(error) = persist_main_window_size(app_handle) {
                 eprintln!("Failed to save main window size: {error}");
             }
@@ -3158,6 +3180,24 @@ fn main() {
         }
         _ => {}
     });
+}
+
+/// Returns a path under the system temporary directory that is unique for the
+/// lifetime of the test process. The wall clock alone is not enough: parallel
+/// tests that start within the clock's resolution would otherwise share a
+/// directory and delete or overwrite each other's files.
+#[cfg(test)]
+pub(crate) fn unique_test_temp_path(prefix: &str) -> PathBuf {
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    std::env::temp_dir().join(format!(
+        "{prefix}-{}-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ))
 }
 
 #[cfg(test)]

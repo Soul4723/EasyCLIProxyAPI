@@ -7,12 +7,11 @@ import type { TemplateConfigGroup } from '../../../services/templateConfig';
 import { Badge, Card, Chip } from '../../../ui';
 import type { MessageKey } from '../../../i18n/resources';
 
-export type TemplateSectionId = 'requests' | 'oauth' | 'extensions';
+export type TemplateSectionId = 'requests' | 'oauth';
 
 const SECTIONS: Record<TemplateSectionId, { titleKey: MessageKey; groups: readonly TemplateConfigGroup[] }> = {
   requests: { titleKey: 'sec.settings.models.tpl.requests', groups: settingsTemplateGroups.requests },
   oauth: { titleKey: 'sec.settings.models.tpl.oauth', groups: settingsTemplateGroups.oauth },
-  extensions: { titleKey: 'sec.settings.models.tpl.extensions', groups: settingsTemplateGroups.extensions },
 };
 
 /**

@@ -1,10 +1,10 @@
 import { Activity, Play, RotateCw, Square } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import type { CoreStatus } from '../../coreRuntime';
-import { Button, Card, CardHeader, Chip, Skeleton } from '../../ui';
+import { Button, Card, CardHeader, Chip, ProgressBar, Skeleton } from '../../ui';
 import { routeHref } from '../../shell/router';
 
-export type RuntimeState = 'loading' | 'starting' | 'running' | 'stopped' | 'notInstalled' | 'error' | 'remoteUp' | 'remoteDown';
+export type RuntimeState = 'loading' | 'starting' | 'running' | 'stopped' | 'notInstalled' | 'error' | 'remoteUp' | 'remoteDown' | 'recovering' | 'recoveryFailed';
 
 export type RuntimeCardProps = {
   state: RuntimeState;
@@ -28,7 +28,7 @@ export type RuntimeCardProps = {
 
 const TONE: Record<RuntimeState, 'ok' | 'warn' | 'danger' | 'neutral'> = {
   loading: 'neutral', starting: 'warn', running: 'ok', stopped: 'neutral', notInstalled: 'neutral', error: 'danger',
-  remoteUp: 'ok', remoteDown: 'danger',
+  remoteUp: 'ok', remoteDown: 'danger', recovering: 'warn', recoveryFailed: 'danger',
 };
 
 const version = (value: string | null | undefined) => (value ? (value.startsWith('v') ? value : `v${value}`) : '');
@@ -42,6 +42,33 @@ function Fact({ label, children, testId }: { label: string; children: React.Reac
   );
 }
 
+/** Supervisor recovery: attempt n/limit bar, wait countdown from the payload, exit detail. Limit and delay come from the status, never constants. */
+function RecoveryBlock({ recovery }: { recovery: NonNullable<CoreStatus['recovery']> }) {
+  const { t } = useI18n();
+  const failed = recovery.phase === 'failed';
+  const limit = recovery.limit && recovery.limit > 0 ? recovery.limit : null;
+  const attemptText = limit ? t('sec.overview.recovery.attempt', { attempt: recovery.attempt, limit }) : t('sec.overview.recovery.attemptNoLimit', { attempt: recovery.attempt });
+  const next = recovery.phase === 'restarting' ? t('sec.overview.recovery.restarting')
+    : recovery.phase === 'waiting' ? t('sec.overview.recovery.next', { seconds: recovery.delaySeconds }) : '';
+  return (
+    <div className="ov-recovery" data-testid="ov-recovery" data-phase={recovery.phase} role={failed ? 'alert' : 'status'}>
+      <div className="ov-recovery__line">
+        <strong>{failed ? t('kernel.recovery.failed') : attemptText}</strong>
+        {!failed && next && <span className="ec-muted">{next}</span>}
+        {failed && limit && <span className="ec-muted">{attemptText}</span>}
+      </div>
+      {limit && <ProgressBar value={Math.min(100, (recovery.attempt / limit) * 100)} tone={failed ? 'danger' : 'warn'} label={t('sec.overview.recovery.progress')} />}
+      {failed && <p className="ov-recovery__hint">{t('kernel.recovery.failedHint')}</p>}
+      {recovery.detail && (
+        <details className="ov-recovery__detail">
+          <summary>{t('kernel.recovery.details')}</summary>
+          <p className="ov-error">{recovery.detail}</p>
+        </details>
+      )}
+    </div>
+  );
+}
+
 /** Home of the core runtime: status, versions (+ update links), PID/port or remote host, process controls, health check. */
 export function RuntimeCard(props: RuntimeCardProps) {
   const { t } = useI18n();
@@ -49,6 +76,9 @@ export function RuntimeCard(props: RuntimeCardProps) {
   const running = state === 'running';
   const coreVersion = version(status?.currentVersion) || (state === 'notInstalled' ? '—' : t('sec.overview.unknown'));
   const ready = Boolean(status?.ready);
+  const recovery = !remote && (state === 'recovering' || state === 'recoveryFailed') ? status?.recovery ?? null : null;
+  const recovering = state === 'recovering';
+  const chipLabel = recovering && recovery?.limit ? `${t('sec.overview.state.recovering')} · ${recovery.attempt}/${recovery.limit}` : t(`sec.overview.state.${state}`);
   return (
     <Card as="section" className="ov-runtime" aria-labelledby="ov-runtime-title" data-runtime-state={state}>
       <CardHeader
@@ -56,7 +86,7 @@ export function RuntimeCard(props: RuntimeCardProps) {
         actions={
           <>
             <Chip tone={TONE[state]} icon={<span className={`ov-dot ov-dot--${TONE[state]}`} />}>
-              {t(`sec.overview.state.${state}`)}
+              {chipLabel}
             </Chip>
             <a className="ov-link" href={routeHref('settings', 'connection')}>{t('sec.overview.connectionSettings')} →</a>
           </>
@@ -92,14 +122,15 @@ export function RuntimeCard(props: RuntimeCardProps) {
           )}
         </div>
       )}
+      {recovery && <RecoveryBlock recovery={recovery} />}
       {(props.statusError || (remote && !ready && status?.message)) && (
         <p className="ov-error" role="alert" title={props.statusError || status?.message}>{props.statusError ? t('sec.overview.statusFailed') : status?.message}</p>
       )}
       <div className="ov-runtime__actions">
         {!remote && (
           <>
-            {running ? (
-              <Button variant="danger" size="sm" icon={<Square size={13} />} disabled={busy} onClick={props.onStop}>{t('sec.overview.stop')}</Button>
+            {running || recovering ? (
+              <Button variant="danger" size="sm" icon={<Square size={13} />} disabled={busy} onClick={props.onStop}>{t(recovering ? 'sec.overview.recovery.stop' : 'sec.overview.stop')}</Button>
             ) : state === 'error' ? (
               <Button variant="primary" size="sm" icon={<RotateCw size={13} />} loading={busy} onClick={props.onRetry}>{t('sec.overview.retry')}</Button>
             ) : (

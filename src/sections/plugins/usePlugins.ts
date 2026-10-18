@@ -15,6 +15,7 @@ import { refreshPluginReleaseVersions } from '../../services/pluginReleaseVersio
 import { chooseLocalPluginFile, installLocalPlugin, PLUGIN_DEVELOPMENT_GUIDE_URL } from '../../services/pluginLocalInstall';
 import { getPluginStatus, isPluginInstalled } from '../../services/pluginStatus';
 import { getPluginStoreSources, pluginStoreSourceKey } from '../../services/pluginStoreSources';
+import { pluginPagePath } from '../../services/pluginNavigation';
 import { navigate, routePath } from '../../shell/router';
 import type { PluginTab } from './subs';
 
@@ -70,7 +71,6 @@ export function usePlugins(tab: PluginTab) {
   const [restartOpen, setRestartOpen] = useState(false);
   const [localInstallFile, setLocalInstallFile] = useState<string | null>(null);
   const [restartRequired, setRestartRequired] = useState(false);
-  const [resource, setResource] = useState<{ entry: PluginResourceEntry; url: string } | null>(null);
   const requests = useRef(0);
   const mounted = useRef(false);
   const pending = useRef(false);
@@ -99,12 +99,11 @@ export function usePlugins(tab: PluginTab) {
       const support = await invoke<boolean>('get_plugin_support');
       if (!mounted.current || revision !== requests.current) return;
       setSupported(support);
-      if (!support) { setData(null); setStore(null); setResource(null); return; }
+      if (!support) { setData(null); setStore(null); return; }
       const next = await pluginsApi.list();
       if (!mounted.current || revision !== requests.current) return;
       setData(next);
       notifyPluginResourcesChanged();
-      setResource(previous => previous && collectPluginResourceEntries(next.plugins).some(entry => entry.pluginID === previous.entry.pluginID && entry.menuIndex === previous.entry.menuIndex && entry.menu.path === previous.entry.menu.path) ? previous : null);
       if (target === 'store') {
         const nextStore = await pluginStoreApi.list();
         if (mounted.current && revision === requests.current) applyStore(nextStore);
@@ -209,15 +208,8 @@ export function usePlugins(tab: PluginTab) {
     await mutate(async () => { await invoke('restart_core_process'); if (mounted.current) setRestartRequired(false); }, pt('saved'));
   };
 
-  const openResource = async (entry: PluginResourceEntry) => {
-    if (pending.current) return;
-    pending.current = true; setBusy(true); setError('');
-    try {
-      const url = await invoke<string>('get_plugin_resource_url', { pluginId: entry.pluginID, menuIndex: entry.menuIndex });
-      if (mounted.current) setResource({ entry, url });
-    } catch (reason) { if (mounted.current) setError(errorMessage(reason)); }
-    finally { pending.current = false; if (mounted.current) setBusy(false); }
-  };
+  // A plugin's menu page is a native webview page with its own sidebar entry (#/plugin/<id>), not an inline frame.
+  const openResource = (entry: PluginResourceEntry) => navigate(pluginPagePath(entry));
   const openExternal = (url: string) => void invoke('open_external_url', { url }).catch(reason => { if (mounted.current) setError(errorMessage(reason)); });
   const openLogs = () => void invoke('open_core_logs_directory').catch(reason => { if (mounted.current) setError(errorMessage(reason)); });
 
@@ -314,7 +306,6 @@ export function usePlugins(tab: PluginTab) {
     installedCount, configOnlyCount, updatesCount, activeCount,
     configPlugin, setConfigPlugin, installEntry, setInstallEntry, oauthPlugin, setOAuthPlugin,
     removeTarget, setRemoveTarget, restartOpen, setRestartOpen, restartRequired,
-    resource, setResource,
     load, setGlobalEnabled, setPluginEnabled, confirmRemove, confirmRestart, openResource, openExternal, openLogs,
     localInstallFile, setLocalInstallFile, chooseLocalInstall, confirmLocalInstall, openDevelopmentGuide,
     onInstalled, findInStore, getPluginTitle, getPluginStatus, isPluginInstalled,

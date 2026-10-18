@@ -15,8 +15,12 @@ import './ConnectionTab.css';
 
 type Test = { state: 'idle' } | { state: 'running' } | { state: 'ok'; version: string | null } | { state: 'fail'; failure: ConnectionFailure; https: boolean } | { state: 'error'; message: string };
 
-// A saved connection restarts the section's data (the shell remounts pages on a target change), so the confirmation survives the remount.
-let savedBeforeRemount = false;
+// A successful save reloads the document (the new target owns a fresh revision), so the "Saved" feedback must survive it.
+const SAVED_KEY = 'easy-cli-proxy-api.connection-saved';
+const savedFlag = {
+  get: () => { try { return window.sessionStorage.getItem(SAVED_KEY) === '1'; } catch { return false; } },
+  set: (value: boolean) => { try { if (value) window.sessionStorage.setItem(SAVED_KEY, '1'); else window.sessionStorage.removeItem(SAVED_KEY); } catch { /* feedback only */ } },
+};
 
 const hostOf = (origin: string | null | undefined) => {
   try { return new URL(origin ?? '').host; } catch { return origin ?? ''; }
@@ -31,7 +35,7 @@ export function ConnectionTab() {
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState<'save' | 'import' | 'export' | null>(null);
   const [saveError, setSaveError] = useState('');
-  const [justSaved, setJustSaved] = useState(() => savedBeforeRemount);
+  const [justSaved, setJustSaved] = useState(savedFlag.get);
   const [notice, setNotice] = useState('');
   const [test, setTest] = useState<Test>({ state: 'idle' });
   const [includeSecrets, setIncludeSecrets] = useState(false);
@@ -40,7 +44,7 @@ export function ConnectionTab() {
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
-    const stale = window.setTimeout(() => { savedBeforeRemount = false; }, 2000);
+    const stale = window.setTimeout(() => savedFlag.set(false), 2000);
     return () => { alive.current = false; window.clearTimeout(stale); };
   }, []);
 
@@ -66,7 +70,7 @@ export function ConnectionTab() {
 
   const change = (patch: Partial<CoreConnection>) => {
     setDraft((current) => ({ ...current, ...patch }));
-    setTest({ state: 'idle' }); setSaveError(''); setJustSaved(false); savedBeforeRemount = false; setNotice('');
+    setTest({ state: 'idle' }); setSaveError(''); setJustSaved(false); savedFlag.set(false); setNotice('');
   };
 
   const runTest = async () => {
@@ -85,13 +89,13 @@ export function ConnectionTab() {
     setTouched(true);
     if (invalid || blockedByLocal || busy) return;
     setBusy('save'); setSaveError(''); setNotice('');
-    savedBeforeRemount = true;
+    savedFlag.set(true);
     try {
       const next = await saveCoreConnection(draft);
       if (!alive.current) return;
       setSavedConn(next); setDraft(next); setJustSaved(true); setTest({ state: 'idle' });
       void refreshStatus();
-    } catch (cause) { savedBeforeRemount = false; if (alive.current) setSaveError(String(cause)); }
+    } catch (cause) { savedFlag.set(false); if (alive.current) setSaveError(String(cause)); }
     finally { if (alive.current) setBusy(null); }
   };
 

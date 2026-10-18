@@ -5,7 +5,7 @@ import { commitQuotaCacheIfCurrent, getQuotaCacheSnapshot, updateQuotaCache } fr
 export async function commitFetchedQuota(generation: number, file: AuthFile, quota: QuotaState) {
   if (quota.targetRevision !== undefined) {
     try {
-      if (await managementApi.getTargetRevision() !== quota.targetRevision) return;
+      if (await managementApi.checkTargetRevision() !== quota.targetRevision) return;
     } catch { return; }
   }
   const key = quotaKey(file);

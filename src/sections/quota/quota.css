@@ -273,3 +273,4 @@
 .qt-confirm__details dt { color: var(--ec-fg-muted); }
 .qt-confirm__details dd { margin: 0; }
 .qt-confirm__warn { color: var(--ec-st-limited-fg); font-size: var(--ec-fs-xs); }
+.ec-sec-quota .qt-big__available { font-size: var(--ec-fs-md); font-weight: 600; color: var(--ec-st-available-fg); }

@@ -99,11 +99,12 @@ const { openApp } = require('./helpers/shell.cjs');
       await invoke('stop_core_process', {});
       await invoke('save_core_connection', { connection: { mode: 'remote', managementOrigin: 'https://core.example.test', managementKey: 'fixture-management-key', clientOrigin: 'https://core.example.test', clientKey: 'fixture-client-key' } });
     });
-    await openApp(page, base, { path: '/settings/network' });
-    await page.getByRole('button', { name: 'Choose File' }).first().waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Choose File' }).first().isDisabled(), true);
-    assert.match(await page.getByRole('button', { name: 'Choose File' }).first().getAttribute('title'), /remote host/);
-    assert.equal(await page.locator('#ec-net-tls-cert').isDisabled(), true);
+    // The native save reloads the document onto the new target revision; a hash-only goto would keep the fenced old one.
+    await openApp(page, base, { path: '/settings/network', query: 'retarget=1' });
+    // The reload dropped the in-memory TLS draft/state, so the file pickers are not rendered; the rows carry the remote-host reason.
+    await page.getByText('On remote host').first().waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Choose File' }).count(), 0);
+    assert.equal(await page.getByText('On remote host').count() > 0, true);
     assert.deepEqual(errors, []);
     console.log('settings-network-ui: ok');
   } finally {

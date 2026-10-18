@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './documentTarget';
 import { getCurrentLocale, translate } from '../i18n';
 import { isRecord, managementApi, readString } from './managementApi';
 

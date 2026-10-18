@@ -1,3 +1,4 @@
+import { managementApi } from '../src/services/managementApi';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { fetchModels } from '../src/services/modelService';
@@ -7,9 +8,11 @@ import { providerKeyDraft } from '../src/services/providerGroups';
 
 describe('provider request proxy routing', () => {
   let originalWindow: PropertyDescriptor | undefined;
-  beforeEach(() => {
+  beforeEach(async () => {
     originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
     Object.defineProperty(globalThis, 'window', { value: {}, writable: true, configurable: true });
+    mockIPC(() => 7);
+    await managementApi.getTargetRevision();
   });
   afterEach(() => {
     clearMocks();

@@ -28,7 +28,7 @@ export function WindowMeter({ window, now, stale }: { window: WindowView; now: n
     <div className={`qt-win${stale ? ' qt-stale' : ''}`} title={title || undefined}>
       <span className="qt-win__label">{label}</span>
       <QuotaBar leftPct={window.leftPct} height={6} label={label} />
-      <span className="qt-win__pct ec-num">{window.leftPct === null ? '—' : `${formatNumber(Math.round(window.leftPct))}%`}</span>
+      <span className="qt-win__pct ec-num">{window.quotaAvailable ? t('quota.service.antigravity.available') : window.leftPct === null ? '—' : `${formatNumber(Math.round(window.leftPct))}%`}</span>
       <ResetTime ms={window.resetAtMs} now={now} />
     </div>
   );

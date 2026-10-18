@@ -42,7 +42,10 @@ const { openApp } = require('./helpers/shell.cjs');
     assert.equal(await strategy.getByRole('radio', { name: 'Round Robin', exact: true }).getAttribute('aria-checked'), 'true');
     await strategy.getByRole('radio', { name: 'Fill First', exact: true }).click();
     await page.waitForFunction(() => window.__calls.some((c) => c.command === 'set_core_routing_strategy'));
-    assert.deepEqual((await calls()).find((c) => c.command === 'set_core_routing_strategy').args, { strategy: 'fill-first' });
+    // Fenced commands carry the document's expectedRevision (documentTarget); only the strategy is under test.
+    const { expectedRevision, ...strategyArgs } = (await calls()).find((c) => c.command === 'set_core_routing_strategy').args;
+    assert.equal(typeof expectedRevision, 'number');
+    assert.deepEqual(strategyArgs, { strategy: 'fill-first' });
     await page.waitForFunction(() => document.querySelector('[role="radio"][aria-checked="true"]')?.textContent === 'Fill First');
     assert.equal(await savebar.count(), 0, 'strategy never opens the save bar');
     await strategy.getByRole('radio', { name: 'Weighted round robin' }).click();

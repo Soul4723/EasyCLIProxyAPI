@@ -7,7 +7,7 @@ import { SensitiveWordsPanel } from '../models/SensitiveWordsPanel';
 import { TemplateSection, type TemplateSectionId } from '../models/TemplateSection';
 import './ModelsTab.css';
 
-type View = 'aliases' | 'words' | 'defaults' | 'extensions';
+type View = 'aliases' | 'words' | 'defaults';
 
 /**
  * Settings → Models: aliases (each change is written straight to the core config), sensitive words (draft + save bar)
@@ -17,7 +17,7 @@ type View = 'aliases' | 'words' | 'defaults' | 'extensions';
 export function ModelsTab() {
   const { t } = useI18n();
   const [view, setView] = useState<View>('aliases');
-  const [visited, setVisited] = useState<Record<View, boolean>>({ aliases: true, words: false, defaults: false, extensions: false });
+  const [visited, setVisited] = useState<Record<View, boolean>>({ aliases: true, words: false, defaults: false });
   const [aliasDirty, setAliasDirty] = useState(false);
   const [wordsDirty, setWordsDirty] = useState(false);
   const [templateDirty, setTemplateDirty] = useState<Partial<Record<TemplateSectionId, number>>>({});
@@ -26,8 +26,7 @@ export function ModelsTab() {
     setTemplateDirty((current) => (current[section] === count ? current : { ...current, [section]: count }));
   }, []);
   const defaultsDirty = Boolean(templateDirty.requests || templateDirty.oauth);
-  const extensionsDirty = Boolean(templateDirty.extensions);
-  useReportDirty('models', aliasDirty || wordsDirty || defaultsDirty || extensionsDirty);
+  useReportDirty('models', aliasDirty || wordsDirty || defaultsDirty);
 
   const choose = (next: View) => {
     setView(next);
@@ -40,8 +39,7 @@ export function ModelsTab() {
     { value: 'aliases' as const, label: label('sec.settings.models.view.aliases', aliasDirty) },
     { value: 'words' as const, label: label('sec.settings.models.view.words', wordsDirty) },
     { value: 'defaults' as const, label: label('sec.settings.models.view.defaults', defaultsDirty) },
-    { value: 'extensions' as const, label: label('sec.settings.models.view.extensions', extensionsDirty) },
-  ]), [aliasDirty, wordsDirty, defaultsDirty, extensionsDirty, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  ]), [aliasDirty, wordsDirty, defaultsDirty, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="ec-models-tab">
@@ -61,9 +59,6 @@ export function ModelsTab() {
             <TemplateSection section="oauth" onDirtyChange={onTemplateDirty} />
           </>
         ) : null}
-      </div>
-      <div className="ec-models-view" hidden={view !== 'extensions'}>
-        {visited.extensions ? <TemplateSection section="extensions" defaultOpen onDirtyChange={onTemplateDirty} /> : null}
       </div>
     </div>
   );

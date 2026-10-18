@@ -7,7 +7,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../services/documentTarget";
 import {
   ArrowLeft,
   ArrowRight,

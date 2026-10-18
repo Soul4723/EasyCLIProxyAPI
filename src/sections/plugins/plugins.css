@@ -160,9 +160,6 @@
 .ec-sec-plugins .pl-save-bar { display: flex; align-items: center; gap: var(--ec-sp-2); }
 
 /* resource frame */
-.ec-sec-plugins .pl-resource { display: flex; flex-direction: column; gap: var(--ec-sp-3); min-height: 480px; }
-.ec-sec-plugins .pl-resource-bar { display: flex; align-items: center; gap: var(--ec-sp-3); min-width: 0; }
-.ec-sec-plugins .pl-resource iframe { flex: 1; width: 100%; min-height: 480px; height: 70vh; border: 1px solid var(--ec-border); border-radius: var(--ec-r-lg); background: var(--ec-surface); }
 
 /* narrow */
 @media (max-width: 900px) {

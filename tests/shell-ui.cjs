@@ -21,7 +21,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
   const deepLinks = [
     ['/overview', 'overview', null], ['/providers', 'providers', 'api'], ['/providers/api', 'providers', 'api'],
     ['/providers/oauth', 'providers', 'oauth'], ['/quota', 'quota', null], ['/usage', 'usage', null], ['/agents', 'agents', null],
-    ['/plugins', 'plugins', null], ['/settings', 'settings', 'general'], ['/settings/updates', 'settings', 'updates'],
+    ['/plugins', 'plugins', null], ['/settings', 'settings', 'connection'], ['/settings/updates', 'settings', 'updates'],
     // unknown sub-pages fall back to the section's default sub-page and keep the URL as typed
     ['/providers/nonsense', 'providers', 'api'], ['/usage/unknown-tab', 'usage', null],
   ];
@@ -35,10 +35,13 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     if (await page.locator('main h1').count() !== 1) multipleH1.add(id);
     assert.equal(await page.locator('.ec-sidebar').count(), 1, `${route}: sidebar present`);
     assert.equal(await page.locator('main#main.ec-main').count(), 1, `${route}: main landmark`);
-    if (sub) {
+    if (sub && id === 'settings') {
+      // Settings sub-pages are a vertical nav (links with aria-current), not header tabs.
+      assert.equal(await page.locator(`[data-settings-tab="${sub}"][aria-current="page"]`).count(), 1, `${route}: settings sub-page is current`);
+    } else if (sub) {
       const selected = await page.getByRole('tab', { selected: true }).count() ? page.getByRole('tab', { selected: true }).first() : null;
       assert.ok(selected, `${route}: sub-page tab is selected`);
-      const expectedIndex = { api: 0, oauth: 1, general: 0, updates: 1 }[sub];
+      const expectedIndex = { api: 0, oauth: 1 }[sub];
       assert.equal(await page.locator('.ec-page-header').getByRole('tab').evaluateAll((tabs) => tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true')), expectedIndex, `${route}: active sub-page tab`);
     }
     noErrors(page, route);
@@ -84,10 +87,10 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     const page = await open();
     const nav = page.getByRole('navigation', { name: 'Main navigation' });
     assert.equal(await nav.count(), 1, 'one named navigation landmark');
-    assert.deepEqual(await page.locator('.ec-nav .ec-nav-item').evaluateAll((items) => items.map((item) => item.dataset.nav)), h.NAV_ORDER, 'nav order');
+    assert.deepEqual(await page.locator('.ec-nav .ec-nav-item[data-nav]').evaluateAll((items) => items.map((item) => item.dataset.nav)), h.NAV_ORDER, 'nav order');
     assert.equal(await page.locator('.ec-nav-sep[role="separator"]').count(), 1, 'one divider between main and secondary groups');
-    assert.deepEqual(await page.locator('.ec-nav > *').evaluateAll((items) => items.map((item) => item.classList.contains('ec-nav-sep') ? '|' : item.dataset.nav)),
-      ['overview', 'providers', 'quota', 'usage', '|', 'agents', 'plugins', 'settings'], 'main group, divider, secondary group');
+    assert.deepEqual(await page.locator('.ec-nav > *').evaluateAll((items) => items.map((item) => item.classList.contains('ec-nav-sep') ? '|' : item.classList.contains('ec-plugin-group') ? 'plugin-pages' : item.dataset.nav)),
+      ['overview', 'providers', 'quota', 'usage', '|', 'agents', 'plugins', 'settings', 'plugin-pages'], 'main group, divider, secondary group, plugin pages group');
     for (const [id, title] of Object.entries(TITLES)) {
       const link = page.locator(`.ec-nav a[data-nav="${id}"]`);
       assert.equal(await link.getAttribute('aria-label'), title, `${id}: accessible name`);
@@ -262,11 +265,11 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     assert.deepEqual(await activeNav(page), ['usage']);
     // a sub tab is a history entry too
     await h.gotoPage(page, '/settings');
-    await page.getByRole('tab').nth(1).click();
+    await page.locator('[data-settings-tab="updates"]').click();
     await page.waitForFunction(() => location.hash === '#/settings/updates');
     await page.goBack();
     await page.waitForFunction(() => location.hash === '#/settings');
-    assert.equal(await page.locator('.ec-page-header').getByRole('tab').evaluateAll((tabs) => tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true')), 0);
+    assert.equal(await page.locator('[data-settings-tab][aria-current="page"]').getAttribute('data-settings-tab'), 'connection');
     // the same route does not add history entries
     const length = await page.evaluate(() => history.length);
     await h.clickNav(page, 'settings');
@@ -362,7 +365,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await h.invoke(page, 'stop_core_process');
     await h.waitForCoreLine(page, 'stopped');
     await page.waitForFunction(() => location.hash === '#/overview');
-    assert.equal(await page.locator('.ec-nav button.is-locked').count(), LOCKED.length);
+    assert.equal(await page.locator('.ec-nav button.is-locked[data-nav]').count(), LOCKED.length);
     noErrors(page, 'live gating');
   }
   // Remote mode: Easy mode is local-only, the reason is exposed to assistive tech.
@@ -381,13 +384,13 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await page.evaluate(() => { location.hash = '#/easy'; });
     await page.waitForFunction(() => location.hash === '#/overview');
     // all nav stays usable in remote mode when the remote core is reachable
-    assert.equal(await page.locator('.ec-nav button.is-locked').count(), 0);
+    assert.equal(await page.locator('.ec-nav button.is-locked[data-nav]').count(), 0);
     const down = await newPage();
     await h.openApp(down, base, { mock: 'running', path: '/usage' });
     await h.waitForCoreStatus(down);
     await h.setRemote(down, { offline: true });
     await h.waitForCoreLine(down, 'remoteDown');
-    assert.equal(await down.locator('.ec-nav button.is-locked').count(), LOCKED.length, 'unreachable remote locks like a stopped core');
+    assert.equal(await down.locator('.ec-nav button.is-locked[data-nav]').count(), LOCKED.length, 'unreachable remote locks like a stopped core');
     noErrors(page, 'remote');
   }
 
@@ -463,7 +466,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await h.waitForCoreLine(page, 'starting');
     assert.equal(await text(), 'Core starting…');
     assert.match(await dot(), /ec-core-dot--warn/);
-    assert.equal(await page.locator('.ec-nav button.is-locked').count(), LOCKED.length, 'starting core still locks gated pages');
+    assert.equal(await page.locator('.ec-nav button.is-locked[data-nav]').count(), LOCKED.length, 'starting core still locks gated pages');
 
     await h.invoke(page, 'stop_core_process');
     await h.waitForCoreLine(page, 'stopped');
@@ -520,6 +523,9 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
       if (element.dataset.nav) return `nav:${element.dataset.nav}`;
       if (element.classList.contains('ec-brand')) return 'brand';
       if (element.classList.contains('ec-core-line')) return 'core-line';
+      if (element.classList.contains('ec-plugin-toggle')) return 'plugin-toggle';
+      if (element.classList.contains('ec-plugin-entry')) return 'plugin-entry';
+      if (element.classList.contains('ec-plugin-drag')) return 'plugin-drag';
       if (element.getAttribute('aria-haspopup') === 'dialog') return 'appearance';
       if (element.closest('.ec-page-header')) return 'header';
       return element.closest('main') ? 'main' : (element.tagName.toLowerCase());
@@ -534,8 +540,10 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     // full sidebar: brand -> appearance (brand row) -> nav -> core line -> page
     const full = await open({ path: '/overview' }, { viewport: { width: 1280, height: 800 } });
     await full.locator('.ec-brand').focus();
-    assert.deepEqual(await tabThrough(full, 2 + navIds.length + 2), ['brand', 'appearance', ...navIds, 'core-line', 'header'], 'full sidebar tab order');
-    assert.deepEqual((await tabThrough(full, 3, 'Shift+Tab')).slice(1), ['core-line', 'nav:settings'], 'Shift+Tab walks back');
+    // The plugin pages group (toggle, then entry + drag handle per page) follows the nav and precedes the core line.
+    const pluginStops = ['plugin-toggle', 'plugin-entry', 'plugin-drag', 'plugin-entry', 'plugin-drag'];
+    assert.deepEqual(await tabThrough(full, 2 + navIds.length + pluginStops.length + 2), ['brand', 'appearance', ...navIds, ...pluginStops, 'core-line', 'header'], 'full sidebar tab order');
+    assert.deepEqual((await tabThrough(full, 3, 'Shift+Tab')).slice(1), ['core-line', 'plugin-drag'], 'Shift+Tab walks back');
     // focus ring is visible on keyboard focus
     await full.locator('.ec-nav a[data-nav="quota"]').focus();
     await full.keyboard.press('Tab'); await full.keyboard.press('Shift+Tab');
@@ -550,7 +558,8 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     // icon rail (<=1100px): the appearance button moves from the brand row to the footer, after the core line
     const rail = await open({ path: '/overview' }, { viewport: { width: 1000, height: 700 } });
     await rail.locator('.ec-brand').focus();
-    assert.deepEqual(await tabThrough(rail, 1 + navIds.length + 2), ['brand', ...navIds, 'core-line', 'appearance'], 'icon-rail tab order');
+    // the rail hides the group header and drag handles: only the plugin entries remain
+    assert.deepEqual(await tabThrough(rail, 1 + navIds.length + 2 + 2), ['brand', ...navIds, 'plugin-entry', 'plugin-entry', 'core-line', 'appearance'], 'icon-rail tab order');
     for (const id of h.NAV_ORDER) {
       assert.ok(await rail.locator(`.ec-nav a[data-nav="${id}"]`).getAttribute('title'), `${id}: rail tooltip`);
     }

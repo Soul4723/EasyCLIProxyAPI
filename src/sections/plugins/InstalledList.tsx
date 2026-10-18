@@ -78,7 +78,7 @@ export function InstalledList({ ctl }: { ctl: PluginsController }) {
                       <span className="pl-links">
                         {resources.map(entry => (
                           <Button key={entry.menuIndex} size="xs" variant="ghost" icon={<ExternalLink size={12} />} title={entry.description}
-                            disabled={locked} onClick={() => void ctl.openResource(entry)}>{entry.label}</Button>
+                            disabled={locked} onClick={() => ctl.openResource(entry)}>{entry.label}</Button>
                         ))}
                       </span>
                     ) : null}

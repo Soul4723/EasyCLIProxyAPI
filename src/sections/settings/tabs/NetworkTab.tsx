@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../services/documentTarget';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FolderOpen, Globe, Link2, LockKeyhole, Network, Wifi } from 'lucide-react';

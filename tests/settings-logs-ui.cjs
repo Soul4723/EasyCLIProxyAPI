@@ -87,7 +87,8 @@ const { openApp } = require('./helpers/shell.cjs');
       await invoke('stop_core_process', {});
       await invoke('save_core_connection', { connection: { mode: 'remote', managementOrigin: 'https://core.example.test', managementKey: 'fixture-management-key', clientOrigin: 'https://core.example.test', clientKey: 'fixture-client-key' } });
     });
-    await openApp(page, base, { path: '/settings/logs' });
+    // The native save reloads the document onto the new target revision; a hash-only goto would keep the fenced old one.
+    await openApp(page, base, { path: '/settings/logs', query: 'retarget=1' });
     const folder = page.getByRole('button', { name: 'Open Log Folder' }).last();
     await folder.waitFor();
     assert.equal(await folder.isDisabled(), true);

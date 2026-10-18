@@ -4,8 +4,9 @@ import { loadQuota, quotaRowsFor } from '../src/services/quotaService';
 import payload from './fixtures/codex-business-spend-control.json';
 
 let targetRevisionMock: ReturnType<typeof spyOn>;
-beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); });
-afterEach(() => { targetRevisionMock.mockRestore(); });
+let targetValidationMock: ReturnType<typeof spyOn>;
+beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); targetValidationMock = spyOn(managementApi, 'checkTargetRevision').mockResolvedValue(0); });
+afterEach(() => { targetRevisionMock.mockRestore(); targetValidationMock.mockRestore(); });
 
 afterEach(() => { mock?.mockRestore(); });
 let mock: ReturnType<typeof spyOn> | undefined;

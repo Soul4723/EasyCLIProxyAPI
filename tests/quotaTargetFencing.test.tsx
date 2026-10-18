@@ -1,5 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { managementApi } from '../src/services/managementApi';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { enrichXaiQuotaPlan, loadQuota, consumeClaudeResetCredit, consumeCodexResetCredit, invalidateQuotaRequests, quotaKey, idleQuota } from '../src/services/quotaService';
@@ -31,7 +32,7 @@ const switchTarget = (event = true) => {
   if (event) { invalidateQuotaRequests(); invalidateQuotaCache(); }
 };
 const fileFor = (provider: string) => ({ name: 'shared.json', auth_index: 'shared', provider });
-beforeEach(() => {
+beforeEach(async () => {
   originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
   Object.defineProperty(globalThis, 'window', { value: { navigator: { language: 'en' } }, configurable: true, writable: true });
   revision = 41; reads = 0; accepted = []; attempted = [];
@@ -61,6 +62,8 @@ beforeEach(() => {
       : { plan_type: 'TARGET A PRIVATE', rate_limit: { primary_window: { used_percent: old ? 10 : 70 } }, five_hour: { utilization: old ? 10 : 70 }, cedar_ember: old ? grants : { ...grants, grants: [{ ...grants.grants[0], resets_total: 7, resets_left: 7 }] } };
     return { status_code: 200, body };
   });
+  await managementApi.getTargetRevision(); // this test process is one document at revision 41
+  reads = 0;
 });
 afterEach(() => {
   clearMocks(); invalidateQuotaRequests(); invalidateQuotaCache();
@@ -72,12 +75,12 @@ for (const provider of ['claude', 'codex']) {
   test(`${provider}: every fetch and reset follow-up uses one captured native revision`, async () => {
     const file = fileFor(provider);
     await loadQuota(file);
-    expect(reads).toBe(2); // one capture, one validation (never rebind)
+    expect(reads).toBe(1); // document capture is shared; one completion validation
     expect(accepted.length).toBe(provider === 'claude' ? 3 : 2);
     accepted.forEach(request => expect(request.expectedRevision).toBe(41));
     reads = 0; accepted = [];
     await (provider === 'claude' ? consumeClaudeResetCredit(file) : consumeCodexResetCredit(file));
-    expect(reads).toBe(2);
+    expect(reads).toBe(1);
     expect(accepted.some(request => request.body.method === 'POST')).toBe(true);
     accepted.forEach(request => expect(request.expectedRevision).toBe(41));
   });
@@ -91,19 +94,15 @@ for (const provider of ['claude', 'codex']) {
     for (let i = 0; i < 30 && !accepted.length; i++) await Promise.resolve();
     expect(accepted.length).toBeGreaterThan(0);
     switchTarget(); responseGate = undefined;
-    const current = await loadQuota(file);
-    await commitFetchedQuota(captureQuotaCacheGeneration(), file, { ...current, plan: 'TARGET B' });
+    await expect(loadQuota(file)).rejects.toThrow('connection changed');
     gate.resolve();
     expect(await refused).toBe(true);
     const displayed = getQuotaCacheSnapshot()[quotaKey(file)] ?? idleQuota();
-    expect(displayed.plan).toBe('TARGET B');
-    expect(displayed.rows[0].remainingPercent).toBe(30);
-    expect(displayed.resetCredits).toBe(7);
+    expect(getQuotaCacheSnapshot()[quotaKey(file)]).toBeUndefined();
     for (const html of [
       renderCard(file, displayed),
       renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={file} quota={displayed} disabled={false} onRefresh={() => {}} onReset={() => {}} /></I18nProvider>),
     ]) {
-      expect(html).toContain('30%');
       expect(html).not.toContain('90%');
       expect(html).not.toContain('TARGET A PRIVATE');
     }
@@ -118,30 +117,18 @@ for (const provider of ['claude', 'codex']) {
     expect(getQuotaCacheSnapshot()[quotaKey(file)]).toBeUndefined();
   });
 
-  test(`${provider}: a delayed capture cannot borrow a new same-key operation's revision`, async () => {
-    const gate = deferred<number>();
-    atCapture = () => { atCapture = undefined; return gate.promise; };
-    const file = fileFor(provider);
-    const old = loadQuota(file).then(() => false, () => true);
-    switchTarget();
-    await loadQuota(file);
-    gate.resolve(41);
-    expect(await old).toBe(true);
-    expect(accepted.every(request => request.expectedRevision === 42)).toBe(true);
-  });
-
-  test(`${provider}: without an event, operation A still dispatches revision A after operation B starts`, async () => {
-    const gate = deferred<number>();
-    atCapture = () => { atCapture = undefined; return gate.promise; };
-    const file = fileFor(provider);
-    const old = loadQuota(file).then(() => false, () => true);
-    switchTarget(false); invalidateQuotaRequests();
-    await loadQuota(file);
-    gate.resolve(41);
-    expect(await old).toBe(true);
-    expect(attempted.some(request => request.expectedRevision === 41)).toBe(true);
-    expect(accepted.every(request => request.expectedRevision === 42)).toBe(true);
-  });
+  for (const event of [false, true]) {
+    test(`${provider}: delayed old-document work cannot borrow a switched target (event=${event})`, async () => {
+      const gate = deferred<void>();
+      const file = fileFor(provider);
+      const delayed = gate.promise.then(() => loadQuota(file));
+      switchTarget(event);
+      gate.resolve();
+      await expect(delayed).rejects.toThrow('connection changed');
+      expect(accepted).toHaveLength(0);
+      expect(attempted.every(request => request.expectedRevision === 41)).toBe(true);
+    });
+  }
 
   test(`${provider}: a refused UI reset never restores stale quota or credits`, async () => {
     const file = fileFor(provider);
@@ -181,7 +168,7 @@ for (const provider of ['claude', 'codex']) {
     const file = fileFor(provider);
     await commitFetchedQuota(captureQuotaCacheGeneration(), file, await loadQuota(file));
     switchTarget(false);
-    expect(await resetQuotaWithConfirmation(file, async () => true)).toBe('cancelled');
+    await expect(resetQuotaWithConfirmation(file, async () => true)).rejects.toThrow('connection changed');
     expect(accepted.some(request => request.body.method === 'POST')).toBe(false);
   });
 
@@ -202,14 +189,14 @@ for (const provider of ['claude', 'codex']) {
     expect(accepted.length).toBeGreaterThan(0);
     const reset = (provider === 'claude' ? consumeClaudeResetCredit(file) : consumeCodexResetCredit(file)).then(() => false, () => true);
     switchTarget(); responseGate = undefined;
-    await loadQuota(file);
+    await expect(loadQuota(file)).rejects.toThrow('connection changed');
     gate.resolve(); await old;
     expect(await reset).toBe(true);
     expect(accepted.some(request => request.body.method === 'POST')).toBe(false);
   });
 }
 
-test('revision capture failure is fail-closed: no unfenced fetch, enrichment or reset', async () => {
+test('revision validation failure is fail-closed: no fetched result is accepted', async () => {
   atCapture = async () => { throw new Error('revision unavailable'); };
   for (const provider of ['claude', 'codex']) {
     const file = fileFor(provider);
@@ -217,5 +204,5 @@ test('revision capture failure is fail-closed: no unfenced fetch, enrichment or 
     await expect((provider === 'claude' ? consumeClaudeResetCredit(file) : consumeCodexResetCredit(file))).rejects.toThrow('revision unavailable');
   }
   await expect(enrichXaiQuotaPlan(fileFor('xai'), { status: 'success', rows: [] })).rejects.toThrow('revision unavailable');
-  expect(attempted).toHaveLength(0);
+  expect(attempted.every(request => request.expectedRevision === 41)).toBe(true);
 });

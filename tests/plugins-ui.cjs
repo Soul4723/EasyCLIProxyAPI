@@ -98,13 +98,11 @@ const fs = require('node:fs');
     await dialog().waitFor({ state: 'detached' });
 
     await row('Sample provider').getByRole('button', { name: 'Usage dashboard' }).click();
-    const resourceFrame = page.locator('iframe[title="Usage dashboard"]');
-    await page.frameLocator('iframe[title="Usage dashboard"]').getByRole('heading', { name: 'Sample resource preview' }).waitFor();
-    assert.deepEqual(await page.evaluate(() => window.pluginsFixture.resourceRequests), [{ pluginId: 'sample..plugin', menuIndex: 2 }]);
-    assert.equal(await resourceFrame.getAttribute('referrerpolicy'), 'no-referrer');
-    assert.equal((await resourceFrame.getAttribute('src')).includes('token'), false);
-    await page.getByRole('button', { name: 'Back to plugins' }).click();
-    await resourceFrame.waitFor({ state: 'detached' });
+    // Menu pages are native sidebar pages (#/plugin/<id>), no longer an inline frame.
+    await page.waitForFunction(() => location.hash === '#/plugin/sample..plugin?menu=2');
+    assert.equal(await page.locator('iframe[title="Usage dashboard"]').count(), 0);
+    // (This fixture hosts the section without the shell, so the route page itself is covered by plugin-pages-ui.cjs.)
+    await page.evaluate(() => { location.hash = ''; });
 
     // ---- Global switch and per-plugin switch ----------------------------------------------------------------------
     const globalSwitch = page.getByRole('switch', { name: 'Enable plugins', exact: true });

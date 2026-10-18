@@ -13,7 +13,6 @@ import { InstallDialog } from './InstallDialog';
 import { InstalledList } from './InstalledList';
 import { OAuthDialog } from './OAuthDialog';
 import { Banner, GitHubTokenHint, isGitHubRateLimit } from './parts';
-import { ResourceView } from './ResourceView';
 import { SettingsTab } from './SettingsTab';
 import { StoreList } from './StoreList';
 import { pluginsSubs, type PluginTab } from './subs';
@@ -108,8 +107,7 @@ export function PluginsSection({ sub }: SectionPageProps) {
               title={ctl.remote ? t('sec.plugins.restartRemote') : undefined} onClick={() => ctl.setRestartOpen(true)}>{pt('restartButton')}</Button>
           }>{ctl.remote ? t('connection.lifecycleHint') : pt('restart')}</Banner>
         ) : null}
-        {ctl.resource ? <ResourceView ctl={ctl} />
-          : active === 'settings' ? <SettingsTab onSaved={() => { ctl.notify(pt('saved')); void ctl.load(); }} />
+        {active === 'settings' ? <SettingsTab onSaved={() => { ctl.notify(pt('saved')); void ctl.load(); }} />
           : active === 'store' ? <StoreList ctl={ctl} />
           : <InstalledList ctl={ctl} />}
       </>

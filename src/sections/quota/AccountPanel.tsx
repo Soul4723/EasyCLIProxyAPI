@@ -25,7 +25,7 @@ function BigWindow({ window, now, stale }: { window: WindowView; now: number; st
     <div className={`qt-big${stale ? ' qt-stale' : ''}`}>
       <div className="qt-big__label" title={window.rawLabel}>{label}</div>
       <div className="qt-big__num ec-num">
-        {window.leftPct === null ? '—' : formatNumber(Math.round(window.leftPct))}<small>{window.leftPct === null ? '' : '% '}{t('sec.quota.left')}</small>
+        {window.quotaAvailable ? <span className="qt-big__available">{t('quota.service.antigravity.available')}</span> : <>{window.leftPct === null ? '—' : formatNumber(Math.round(window.leftPct))}<small>{window.leftPct === null ? '' : '% '}{t('sec.quota.left')}</small></>}
       </div>
       <QuotaBar leftPct={window.leftPct} height={8} trackSegments={20} label={label} />
       <div className="qt-big__reset">

@@ -45,6 +45,7 @@ const configFields = params.has('raw') ? [] : [
   ['modes', 'array'], ['headers', 'object'], ['algorithm', 'enum'], ['inherited', 'boolean'],
 ].map(([name, type]) => ({ name, type, description: `${name} configuration`, enum_values: type === 'enum' ? ['fast', 'accurate'] : [] }));
 mockIPC(async (command, args) => {
+  if (command === 'get_management_target_revision') return 0; // documentTarget fences every target command
   if (command === 'get_plugin_support') return true;
   if (command !== 'management_request') return null;
   const request = (args as { request: { method: string; path: string } }).request;

@@ -1,10 +1,13 @@
 import { emit } from '@tauri-apps/api/event';
 import { mockConvertFileSrc, mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import {
+  BROWSER_MOCK_CONNECTION_STORAGE_KEY,
   createBrowserMockRuntime,
   resolveBrowserMockOptions,
   type BrowserMockScenario,
+  type MockRecoveryPhase,
 } from './browserMockRuntime';
+import { clampPluginPages, type PluginWebviewMockState } from './pluginMock';
 import './browserMock.css';
 
 const STORAGE_KEY = 'easy-cli-proxy-api.browser-mock-scenario';
@@ -57,6 +60,7 @@ function installToolbar(scenario: BrowserMockScenario, delayMs: number) {
   });
   select.addEventListener('change', () => {
     const next = select.value as BrowserMockScenario;
+    window.sessionStorage.removeItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
     storeScenario(next);
     const url = new URL(window.location.href);
     url.searchParams.set('mock', next);
@@ -66,14 +70,55 @@ function installToolbar(scenario: BrowserMockScenario, delayMs: number) {
   const hint = document.createElement('span');
   hint.textContent = delayMs > 0 ? `${delayMs} ms` : 'Browser debugging';
 
-  toolbar.append(badge, select, hint);
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.textContent = 'Reset mock data';
+  reset.addEventListener('click', () => {
+    window.sessionStorage.removeItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
+    window.location.reload();
+  });
+
+  toolbar.append(badge, select, hint, reset);
   document.body.append(toolbar);
   document.body.dataset.browserMock = scenario;
+}
+
+const clampRecovery = (value: string | null): MockRecoveryPhase | undefined =>
+  value === 'waiting' || value === 'restarting' || value === 'failed' ? value : undefined;
+
+function installPluginWebviewPlaceholder() {
+  document.querySelector('[data-mock-plugin-webview]')?.remove();
+
+  const placeholder = document.createElement('div');
+  placeholder.dataset.mockPluginWebview = '';
+  placeholder.hidden = true;
+  const title = document.createElement('strong');
+  title.textContent = 'Native plugin webview';
+  const note = document.createElement('p');
+  note.textContent = 'The native plugin webview is not available in browser preview. In the desktop app it covers this area.';
+  const controls = document.createElement('p');
+  controls.textContent = 'Back, reload and open-in-browser controls are injected into the page by the desktop app and can be dragged.';
+  const url = document.createElement('code');
+  placeholder.append(title, note, controls, url);
+  document.body.append(placeholder);
+
+  return (state: PluginWebviewMockState) => {
+    placeholder.hidden = !state.visible;
+    placeholder.style.left = `${state.bounds.x}px`;
+    placeholder.style.top = `${state.bounds.y}px`;
+    placeholder.style.width = `${state.bounds.width}px`;
+    placeholder.style.height = `${state.bounds.height}px`;
+    placeholder.dataset.mockUrl = state.url;
+    placeholder.dataset.mockReloads = String(state.reloads);
+    placeholder.dataset.mockLabels = JSON.stringify(state.labels);
+    url.textContent = state.url;
+  };
 }
 
 export function installBrowserMock(): InstalledBrowserMock | null {
   const options = resolveBrowserMockOptions(window.location.search, readStoredScenario());
   if (options.mode === 'off') {
+    window.sessionStorage.removeItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
     console.info('[Browser Mock] Disabled via ?mock=off.');
     return null;
   }
@@ -90,6 +135,10 @@ export function installBrowserMock(): InstalledBrowserMock | null {
       });
     },
     options.delayMs,
+    clampPluginPages(new URLSearchParams(window.location.search).get('mockPluginPages')),
+    installPluginWebviewPlaceholder(),
+    window.sessionStorage,
+    clampRecovery(new URLSearchParams(window.location.search).get('mockRecovery')),
   );
 
   mockIPC((command, payload) => runtime.invoke(command, payload), {

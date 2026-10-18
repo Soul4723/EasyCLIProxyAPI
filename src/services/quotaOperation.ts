@@ -19,7 +19,7 @@ export function assertQuotaOperation(operation: QuotaOperation) {
 export async function finishQuotaOperation(operation: QuotaOperation) {
   assertQuotaOperation(operation);
   // Validate, do not recapture: native changes may precede the browser event.
-  if (await managementApi.getTargetRevision() !== operation.expectedRevision)
+  if (await managementApi.checkTargetRevision() !== operation.expectedRevision)
     throw new Error('The core connection changed; quota cancelled');
   assertQuotaOperation(operation);
 }
