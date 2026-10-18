@@ -636,13 +636,14 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-haspopup')), 'dialog');
     await page.keyboard.press('Escape');
     await page.locator('.ec-sidebar.is-open').waitFor({ state: 'detached' });
-    h.knownGap(gaps, 'drawer: the closed off-canvas sidebar is still keyboard-focusable (no visibility:hidden / inert)',
-      await sidebar.evaluate((element) => getComputedStyle(element).visibility === 'hidden' || element.inert));
+    assert.equal(await sidebar.evaluate((element) => getComputedStyle(element).visibility === 'hidden' || element.inert), true, 'closed drawer is not keyboard-focusable');
+    assert.equal(await hamburger.getAttribute('aria-expanded'), 'false');
+    assert.equal(await hamburger.evaluate((element) => element === document.activeElement), true, 'Escape restores menu focus');
     await hamburger.click();
     await page.locator('.ec-sidebar.is-open').waitFor();
-    h.knownGap(gaps, 'drawer: opening the drawer does not move keyboard focus into it',
-      await page.evaluate(() => Boolean(document.activeElement?.closest('.ec-sidebar'))));
-    h.knownGap(gaps, 'drawer: hamburger (.ec-page-menu) has no aria-expanded/aria-controls', await hamburger.getAttribute('aria-expanded') !== null);
+    assert.equal(await page.evaluate(() => Boolean(document.activeElement?.closest('.ec-sidebar'))), true, 'opening drawer moves focus into it');
+    assert.equal(await hamburger.getAttribute('aria-expanded'), 'true');
+    assert.equal(await hamburger.getAttribute('aria-controls'), await sidebar.getAttribute('id'));
     await page.context().close();
   }
 

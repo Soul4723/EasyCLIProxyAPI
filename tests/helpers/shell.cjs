@@ -147,8 +147,11 @@ async function reopenApp(page, base, options) {
 /** In-app navigation (hash change). Accepts old ids or paths. */
 async function gotoPage(page, pageOrPath) {
   const target = pathFor(pageOrPath);
+  await page.locator('.ec-app').waitFor();
   await page.evaluate((hash) => { window.location.hash = hash; }, target);
-  await page.waitForFunction((hash) => window.location.hash.startsWith(`#${hash.split('?')[0]}`), target);
+  await page.waitForFunction((hash) => window.location.hash.startsWith(`#${hash.split('?')[0]}`)
+    && document.querySelector('.ec-app')?.dataset.page === hash.split('/')[1].split('?')[0], target);
+  await settle(page);
 }
 
 /** Clicks the sidebar link for a route id (overview, providers, quota, usage, agents, plugins, settings). */

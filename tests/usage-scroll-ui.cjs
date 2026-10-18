@@ -1,3 +1,4 @@
+const h = require('./helpers/shell.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 
@@ -40,7 +41,7 @@ function parseCsv(text) {
     });
     // A delayed real-app mock exposes layout differences before and after data arrives.
     await page.goto(`${base}/?mock=running&mockDelay=400`, { waitUntil: 'domcontentloaded' });
-    await page.locator('.nav-section').getByRole('button', { name: '使用记录', exact: true }).click();
+    await h.gotoPage(page, 'usage-records');
     await page.addStyleTag({ content: '#browser-mock-toolbar { display: none; }' });
 
     const assertSharedFilterLayout = async (label, expectSingleRow) => {

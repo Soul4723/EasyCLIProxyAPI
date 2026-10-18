@@ -31,7 +31,7 @@ export function LegacyHost({ page, titleKey, subs, sub, actions, children }: {
       />
       <div className="app-shell ec-legacy-shell">
         <div className="workspace ec-legacy-workspace">
-          <main className="content">{children}</main>
+          <div className="content">{children}</div>
         </div>
       </div>
     </div>
