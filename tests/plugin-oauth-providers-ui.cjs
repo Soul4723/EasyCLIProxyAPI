@@ -130,12 +130,15 @@ const BASE_PROVIDERS = 8; // seven built-in OAuth providers plus Vertex
       fixture.plugins = [];
       fixture.refresh();
     });
-    await provider('codebuddy').waitFor({ state: 'detached' });
+    // A shared source queues one follow-up instead of starting a competing request.
     await page.evaluate(() => window.pluginOAuthProvidersFixture.releaseList());
+    await provider('codebuddy').waitFor({ state: 'detached' });
     await settle();
     assert.equal(await providerCount(), BASE_PROVIDERS, 'stale provider response must be ignored');
 
-    // Refocusing the window discovers changes made outside this page.
+    // Focus refreshes only stale data, never on every window activation.
+    await page.clock.install();
+    await page.clock.fastForward(31_000);
     await page.evaluate(() => {
       const fixture = window.pluginOAuthProvidersFixture;
       fixture.plugins = structuredClone(fixture.installedPlugins);
@@ -143,6 +146,7 @@ const BASE_PROVIDERS = 8; // seven built-in OAuth providers plus Vertex
     });
     await provider('zcode').waitFor();
     await provider('codebuddy').waitFor();
+    await page.clock.resume();
 
     // A plugin removed while its dialog is open takes the dialog with it (and cancels the session).
     await provider('zcode').click();

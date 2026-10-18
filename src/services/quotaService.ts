@@ -1070,7 +1070,7 @@ export function invalidateQuotaRequests() {
 const quotaRequests = new Map<string, Promise<QuotaState>>();
 const quotaMutationRequests = new Map<string, Promise<QuotaState>>();
 
-export function loadQuota(file: AuthFile, initiatingOperation?: Promise<QuotaOperation>): Promise<QuotaState> {
+export function loadQuota(file: AuthFile, initiatingOperation?: Promise<QuotaOperation>, deferValidation = false): Promise<QuotaState> {
   const key = quotaKey(file);
   const reset = quotaMutationRequests.get(key);
   if (reset) return reset.catch((error): QuotaState => ({
@@ -1081,7 +1081,8 @@ export function loadQuota(file: AuthFile, initiatingOperation?: Promise<QuotaOpe
   const operation = initiatingOperation ?? startQuotaOperation();
   const request = operation.then(async (operation) => {
     const result = await loadQuotaSnapshot(operation, file);
-    await finishQuotaOperation(operation);
+    if (deferValidation) assertQuotaOperation(operation);
+    else await finishQuotaOperation(operation);
     return { ...result, targetRevision: operation.expectedRevision };
   }).finally(() => {
     if (quotaRequests.get(key) === request) quotaRequests.delete(key);

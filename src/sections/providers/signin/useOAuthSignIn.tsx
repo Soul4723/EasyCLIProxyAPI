@@ -1,3 +1,4 @@
+import { credentialsSource } from '../../../services/credentials';
 // Sign-in flow controller. Port of the OAuthLoginPage flow (ManagementPages.tsx) and of the plugin PluginOAuthDialog:
 // snapshot credentials -> start_oauth_login -> poll get_oauth_status every 3s -> default priority 0 on new credentials
 // -> success; refresh link, callback submit with the xAI/Devin validation, browser preference. One flow per provider;
@@ -12,7 +13,7 @@ import {
   snapshotAuthFiles,
   type AuthFileSnapshot,
 } from '../../../services/authFiles';
-import { managementApi, responseList } from '../../../services/managementApi';
+import { managementApi } from '../../../services/managementApi';
 import { createOAuthLoginSuccessCache } from '../../../services/oauthLoginState';
 import { getPluginTitle, notifyPluginResourcesChanged } from '../../../services/pluginResources';
 import {
@@ -207,21 +208,29 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
     // A flow that finished in the background brings its result back up.
     setActiveId((current) => current ?? id);
     notifyPluginResourcesChanged();
+    credentialsSource.invalidate();
     onSuccessRef.current?.(id);
   }, [clearPolling, updateState]);
 
   const captureCredentialSnapshot = useCallback(async (id: string) => {
-    const payload = await managementApi.get('/credentials');
-    credentialSnapshots.current[id] = snapshotAuthFiles(responseList(payload, 'files'));
+    await credentialsSource.refresh();
+    const snapshot = credentialsSource.getSnapshot();
+    const files = snapshot.data?.files;
+    if (snapshot.error || !files) throw new Error(snapshot.error ?? 'Credentials unavailable');
+    credentialSnapshots.current[id] = snapshotAuthFiles(files);
   }, []);
 
   const applyDefaultCredentialPriority = useCallback(async (id: string) => {
     const before = credentialSnapshots.current[id];
     delete credentialSnapshots.current[id];
     if (!before) return;
-    const payload = await managementApi.get('/credentials');
-    const names = changedOAuthAuthFileNames(before, responseList(payload, 'files'), id);
+    await credentialsSource.refresh();
+    const snapshot = credentialsSource.getSnapshot();
+    const files = snapshot.data?.files;
+    if (snapshot.error || !files) throw new Error(snapshot.error ?? 'Credentials unavailable');
+    const names = changedOAuthAuthFileNames(before, files, id);
     await Promise.all(names.map((name) => managementApi.patch('/credentials/fields', { name, priority: 0 })));
+    credentialsSource.invalidate();
   }, []);
 
   const failFlow = useCallback((id: string, message: string, plugin: boolean) => {
@@ -498,6 +507,7 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
   const handleVertexImported = useCallback(() => {
     loginSuccessCache.mark(VERTEX_PROVIDER_ID);
     updateState(VERTEX_PROVIDER_ID, { status: 'success' });
+    credentialsSource.invalidate();
     onSuccessRef.current?.(VERTEX_PROVIDER_ID);
   }, [updateState]);
 

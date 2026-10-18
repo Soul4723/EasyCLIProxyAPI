@@ -97,16 +97,16 @@ function PluginWebviewPage({ entry, reloadToken }: { entry: PluginNavEntry; relo
 function PluginPageRoute() {
   const { t } = useI18n();
   const { sub, params } = useRoute();
-  const { entries, fetched, reloadToken } = usePluginNav();
+  const { entries, fetched, error, retry, reloadToken } = usePluginNav();
   const entry = findPluginEntryForPage(entries, sub, params.get('menu'));
   useEffect(() => {
-    if (fetched && !entry) replaceRoute('/plugins');
-  }, [fetched, entry]);
+    if (fetched && !error && !entry) replaceRoute('/plugins');
+  }, [fetched, error, entry]);
   if (!entry) {
     return (
       <>
         <PageHeader title={t('shell.nav.plugins')} />
-        <div className="ec-page-body"><Skeleton height={64} /></div>
+        <div className="ec-page-body">{error ? <div role="alert"><p>{error}</p><Button onClick={() => void retry()}>{t('common.retry')}</Button></div> : <Skeleton height={64} />}</div>
       </>
     );
   }

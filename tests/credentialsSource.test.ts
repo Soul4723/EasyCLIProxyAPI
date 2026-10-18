@@ -54,7 +54,7 @@ describe('credentials controller behaviour (source contract)', () => {
     expect(source).toContain('resetAuthFileCooldown(index)');
     expect(source).not.toMatch(/managementApi\.post/);
     // Reset invalidates reads started earlier so a stale list cannot bring the cooldown back.
-    expect(source).toMatch(/requestRef\.current \+= 1;\s*setSnapshot/);
+    expect(source).toContain('const setSnapshot = credentialsSource.mutate');
   });
 
   it('keeps quota refresh out of the credentials package (the Quota section owns it)', () => {

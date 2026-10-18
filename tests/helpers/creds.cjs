@@ -84,6 +84,10 @@ async function openCreds(browser, base, { creds = 'states', width = 1440, height
       await invoke('stop_core_process');
       await invoke('save_core_connection', { connection: { mode: 'remote', managementOrigin: 'http://127.0.0.1:9', managementKey: 'fixture-management-key', clientOrigin: 'http://127.0.0.1:9', clientKey: 'fixture-client-key' } });
     });
+    // Stopping the local core gates Providers; the target switch reloads the document.
+    // Wait for the new target before reopening the credentials route.
+    await page.waitForFunction(() => document.querySelector('.ec-core-line')?.dataset.coreStatus === 'remote');
+    await page.evaluate(hash => { location.hash = hash; }, CREDS_HASH);
   }
   await page.waitForSelector('.ec-table tbody tr.ec-table__row, .ec-empty, [role=alert]');
   return { page, errors };

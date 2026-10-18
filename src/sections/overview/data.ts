@@ -1,14 +1,16 @@
+import { credentialsSource } from '../../services/credentials';
+import { createDataSource, useDataSource } from '../../services/dataSource';
 // Data hooks for the Overview. Everything comes from the real services; the Overview owns no state of its own
 // beyond what it reads (connection/runtime details, a credentials snapshot, usage 24h, lighting schedules).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../../services/documentTarget';
 import { listen } from '../../services/platform';
-import { dedupeAuthFiles, type AuthFileRecord } from '../../services/authFiles';
+import { type AuthFileRecord } from '../../services/authFiles';
 import { getCoreConnection, type CoreConnection } from '../../services/coreConnection';
 import { countHomeProviderKeys, normalizeHomeModels, summarizeHomeUsage, type HomeUsageSummary } from '../../services/homeOverview';
 import type { CoreHealthModel } from '../../services/coreHealthCheck';
-import { listLightingSchedules, listenForLightingRunResult, type LightingSchedule } from '../../services/lighting';
-import { managementApi, responseList } from '../../services/managementApi';
+import { lightingSource, type LightingSchedule } from '../../services/lighting';
+import { managementApi } from '../../services/managementApi';
 
 type GuiSettings = { host: string; port: number };
 type CoreConfigSummary = { apiKeys: Array<{ apiKey: string }> };
@@ -24,23 +26,28 @@ export type RuntimeDetails = {
   clientKeyError: boolean;
   /** Bumps when the core config files change on disk. */
   configRevision: number;
+  error: string;
 };
 
 const INITIAL_DETAILS: RuntimeDetails = {
-  connection: null, host: '127.0.0.1', port: 8317, tls: false, clientKey: undefined, clientKeyError: false, configRevision: 0,
+  connection: null, host: '127.0.0.1', port: 8317, tls: false, clientKey: undefined, clientKeyError: false, configRevision: 0, error: '',
 };
 
 /** Connection mode, listen host/port, TLS and the first client key (local mode only). */
-export function useRuntimeDetails(refreshStatus: () => Promise<void>): RuntimeDetails & { reload: () => void } {
+export function useRuntimeDetails(): RuntimeDetails & { reload: () => void } {
   const [details, setDetails] = useState<RuntimeDetails>(INITIAL_DETAILS);
-  const refreshRef = useRef(refreshStatus);
-  refreshRef.current = refreshStatus;
+  const request = useRef(0);
 
   const load = useCallback(async () => {
+    const id = ++request.current;
     let connection: CoreConnection;
-    try { connection = await getCoreConnection(); } catch { return; }
+    try { connection = await getCoreConnection(); } catch (error) {
+      if (id === request.current) setDetails(current => ({ ...current, error: errorText(error) }));
+      return;
+    }
+    if (id !== request.current) return;
     if (connection.mode !== 'local') {
-      setDetails((current) => ({ ...current, connection, clientKey: connection.clientKey || null, clientKeyError: false }));
+      setDetails((current) => ({ ...current, connection, clientKey: connection.clientKey || null, clientKeyError: false, error: '' }));
       return;
     }
     const [gui, tls, config] = await Promise.allSettled([
@@ -48,13 +55,15 @@ export function useRuntimeDetails(refreshStatus: () => Promise<void>): RuntimeDe
       invoke<CoreTlsSettings>('get_core_tls_settings'),
       invoke<CoreConfigSummary>('get_core_config_settings'),
     ]);
+    if (id !== request.current) return;
     setDetails((current) => ({
       ...current,
+      error: [gui, tls, config].filter(result => result.status === 'rejected').map(result => errorText((result as PromiseRejectedResult).reason)).join('; '),
       connection,
       host: gui.status === 'fulfilled' ? gui.value.host : current.host,
       port: gui.status === 'fulfilled' ? gui.value.port : current.port,
-      tls: tls.status === 'fulfilled' ? tls.value.enabled : false,
-      clientKey: config.status === 'fulfilled' ? config.value.apiKeys[0]?.apiKey ?? null : undefined,
+      tls: tls.status === 'fulfilled' ? tls.value.enabled : current.tls,
+      clientKey: config.status === 'fulfilled' ? config.value.apiKeys[0]?.apiKey ?? null : current.clientKey,
       clientKeyError: config.status === 'rejected',
     }));
   }, []);
@@ -66,10 +75,9 @@ export function useRuntimeDetails(refreshStatus: () => Promise<void>): RuntimeDe
       if (disposed) return;
       setDetails((current) => ({ ...current, configRevision: current.configRevision + 1 }));
       void load();
-      void refreshRef.current();
     }).then((stop) => { if (disposed) stop(); else unlisten = stop; });
     void load();
-    return () => { disposed = true; unlisten?.(); };
+    return () => { disposed = true; request.current++; unlisten?.(); };
   }, [load]);
 
   return { ...details, reload: () => void load() };
@@ -87,10 +95,7 @@ export type OverviewSnapshot = {
   /** Set when the credentials list failed (the lists below are then empty, not "all fine"). */
   credentialsError: string;
   usageError: string;
-};
-
-const EMPTY: OverviewSnapshot = {
-  files: [], filesReceivedAt: 0, schedules: [], usage: null, series: [], models: [], providerKeys: null, credentialsError: '', usageError: '',
+  blockErrors: string[];
 };
 
 const errorText = (reason: unknown) => (reason instanceof Error ? reason.message : String(reason));
@@ -115,50 +120,36 @@ async function loadUsage(nowMs: number): Promise<{ usage: HomeUsageSummary; seri
   };
 }
 
-/** 60s polling snapshot of what the Overview summarises. Usage is local and works while the core is stopped. */
-export function useOverviewSnapshot(coreReady: boolean, contextKey: string) {
-  const [snapshot, setSnapshot] = useState<OverviewSnapshot>(EMPTY);
-  const [loading, setLoading] = useState(true);
-  const [revision, setRevision] = useState(0);
-  const scope = `${coreReady}:${contextKey}`;
+const usageSource = createDataSource({
+  load: () => loadUsage(Date.now()), events: ['usage-records-updated'], minIntervalMs: 10_000,
+});
+const modelsSource = createDataSource({
+  load: () => invoke<unknown>('get_core_models').then(normalizeHomeModels), events: ['config-files-changed'], minIntervalMs: 1_000,
+});
+const providerKeysSource = createDataSource({
+  load: loadProviderKeys, events: ['config-files-changed'], minIntervalMs: 1_000,
+});
 
-  useEffect(() => {
-    let active = true;
-    let inFlight = false;
-    const load = async (showLoading: boolean) => {
-      if (inFlight) return;
-      inFlight = true;
-      if (showLoading) setLoading(true);
-      const now = Date.now();
-      const [files, schedules, usage, models, providerKeys] = await Promise.allSettled([
-        coreReady ? managementApi.get('/credentials').then((payload) => dedupeAuthFiles(responseList(payload, 'files'))) : Promise.resolve([] as AuthFileRecord[]),
-        coreReady ? listLightingSchedules() : Promise.resolve([] as LightingSchedule[]),
-        loadUsage(now),
-        coreReady ? invoke<unknown>('get_core_models').then(normalizeHomeModels) : Promise.resolve([] as CoreHealthModel[]),
-        coreReady ? loadProviderKeys() : Promise.resolve(null),
-      ]);
-      inFlight = false;
-      if (!active) return;
-      setSnapshot({
-        files: files.status === 'fulfilled' ? files.value : [],
-        filesReceivedAt: now,
-        schedules: schedules.status === 'fulfilled' ? schedules.value : [],
-        usage: usage.status === 'fulfilled' ? usage.value.usage : null,
-        series: usage.status === 'fulfilled' ? usage.value.series : [],
-        models: models.status === 'fulfilled' ? models.value : [],
-        providerKeys: providerKeys.status === 'fulfilled' ? providerKeys.value : null,
-        credentialsError: files.status === 'rejected' ? errorText(files.reason) : '',
-        usageError: usage.status === 'rejected' ? errorText(usage.reason) : '',
-      });
-      setLoading(false);
-    };
-    void load(true);
-    const timer = window.setInterval(() => { if (!document.hidden) void load(false); }, 60_000);
-    // A finished light changes needs-action/coming-up straight away.
-    let stopLight: (() => void) | null = null;
-    void listenForLightingRunResult(() => { void load(false); }).then((stop) => { if (active) stopLight = stop; else stop(); }).catch(() => undefined);
-    return () => { active = false; window.clearInterval(timer); stopLight?.(); };
-  }, [coreReady, scope, revision]);
-
-  return { snapshot, loading, refresh: useCallback(() => setRevision((value) => value + 1), []) };
+/** Blocks retain their own last successful value and expose failure independently. */
+export function useOverviewSnapshot(coreReady: boolean) {
+  const files = useDataSource(credentialsSource, coreReady);
+  const lighting = useDataSource(lightingSource, coreReady);
+  const usage = useDataSource(usageSource);
+  const models = useDataSource(modelsSource, coreReady);
+  const keys = useDataSource(providerKeysSource, coreReady);
+  const snapshot: OverviewSnapshot = {
+    files: files.data?.files ?? [], filesReceivedAt: files.data?.receivedAtMs ?? 0,
+    schedules: lighting.data?.schedules ?? [], usage: usage.data?.usage ?? null, series: usage.data?.series ?? [],
+    models: models.data ?? [], providerKeys: keys.data ?? null,
+    credentialsError: files.error ?? '', usageError: usage.error ?? '',
+    blockErrors: [lighting.error, lighting.data?.status.error, models.error, keys.error].filter((error): error is string => !!error),
+  };
+  const refresh = useCallback(() => {
+    void usageSource.refresh();
+    if (coreReady) {
+      void credentialsSource.refresh(); void lightingSource.refresh();
+      void modelsSource.refresh(); void providerKeysSource.refresh();
+    }
+  }, [coreReady]);
+  return { snapshot, loading: usage.loading || (coreReady && (files.loading || lighting.loading || models.loading || keys.loading)), refresh };
 }
