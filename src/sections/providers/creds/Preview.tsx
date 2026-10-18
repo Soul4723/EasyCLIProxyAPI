@@ -2,7 +2,7 @@
  * Self-contained harness for the creds package: `#/providers?preview=creds` (+ `&creds=one|states|forty` for the mock data,
  * `&only=<brand>` for a single-provider list). The lead composes the real page from the same exports; remove with the hook.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FolderOpen, RefreshCw, Import } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { PageHeader } from '../../../shell/PageHeader';
@@ -18,7 +18,14 @@ export default function CredentialsPreview() {
   const { t } = useI18n();
   const { params } = useRoute();
   const only = params.get('only') ?? undefined;
-  const controller = useCredentials();
+  const ref = params.get('cred');
+  const [signedIn, setSignedIn] = useState('');
+  const controller = useCredentials({ onReSignIn: setSignedIn });
+  // Deep link: `&cred=<file name or auth index>` opens that credential once the list has loaded.
+  useEffect(() => {
+    if (ref) controller.selectByRef(ref);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref, controller.rows.length]);
   const [tab, setTab] = useState<'list' | 'exclusions'>('list');
   const [filter, setFilter] = useState(defaultCredentialFilter);
   return (
@@ -52,6 +59,7 @@ export default function CredentialsPreview() {
           </>
         ) : <ModelExclusions controller={controller} />}
       </div>
+      <output data-testid="resignin" hidden>{signedIn}</output>
       {controller.dialogs}
     </>
   );

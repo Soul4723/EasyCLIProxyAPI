@@ -1,6 +1,6 @@
 /** Public surface of the Providers → credentials package (OAuth credential files). */
 export { useCredentials } from './useCredentials';
-export type { CredentialsController, CredentialsCore, PanelSection, NoticeTone } from './useCredentials';
+export type { CredentialsController, CredentialsCore, PanelSection, NoticeTone, UseCredentialsOptions } from './useCredentials';
 export { CredentialList } from './CredentialList';
 export type { CredentialListProps } from './CredentialList';
 export { CredentialFilters } from './CredentialFilters';

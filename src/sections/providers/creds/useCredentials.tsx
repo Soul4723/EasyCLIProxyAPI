@@ -52,6 +52,8 @@ export type CredentialsCore = {
   remote: boolean;
   select(name: string | null, section?: PanelSection): void;
   selectedName: string | null;
+  /** Deep link: selects the credential whose file name or auth index equals `ref`; false when none matches (yet). */
+  selectByRef(ref: string): boolean;
   selectedSection: PanelSection | null;
   toggle(row: CredentialRow): Promise<void>;
   /** Asks for confirmation, then deletes. */
@@ -71,7 +73,12 @@ export type CredentialsController = CredentialsCore & { dialogs: ReactNode };
 type Confirm = { kind: 'delete' | 'cooldown'; row: CredentialRow };
 type Notice = { id: number; tone: NoticeTone; text: string };
 
-export function useCredentials(): CredentialsController {
+export type UseCredentialsOptions = {
+  /** Wires the panel's "Sign in again" button (shown for expired/error credentials) to the sign-in flow. */
+  onReSignIn?: (provider: string) => void;
+};
+
+export function useCredentials({ onReSignIn }: UseCredentialsOptions = {}): CredentialsController {
   const { t } = useI18n();
   const mask = usePrivacyMask();
   const { status: coreStatus } = useCoreRuntime();
@@ -148,6 +155,15 @@ export function useCredentials(): CredentialsController {
     setSelectedName(name);
     setSelectedSection(name ? section ?? null : null);
   }, []);
+
+  const selectByRef = useCallback((ref: string) => {
+    const wanted = ref.trim();
+    if (!wanted) return false;
+    const match = rows.find((row) => row.name === wanted) ?? rows.find((row) => row.authIndex === wanted);
+    if (!match) return false;
+    select(match.name);
+    return true;
+  }, [rows, select]);
 
   const openImport = useCallback(() => fileInputRef.current?.click(), []);
 
@@ -291,7 +307,7 @@ export function useCredentials(): CredentialsController {
 
   const core: CredentialsCore = {
     loading, error, busy, rows, summaryByBrand, reload, refresh, openImport, openFolder, openFolderDisabledReason, remote,
-    select, selectedName, selectedSection, toggle, remove, clearCooldown, copyName, cooldownBusy, notify,
+    select, selectedName, selectByRef, selectedSection, toggle, remove, clearCooldown, copyName, cooldownBusy, notify,
     receivedAtMs: snapshot.receivedAtMs,
   };
 
@@ -300,7 +316,7 @@ export function useCredentials(): CredentialsController {
     <>
       <input ref={fileInputRef} type="file" accept=".json,application/json" multiple hidden
         data-testid="creds-import-input" onChange={(event) => void handleUpload(event)} />
-      <CredentialPanel controller={core} suspended={confirm !== null} />
+      <CredentialPanel controller={core} suspended={confirm !== null} onReSignIn={onReSignIn} />
       <ConfirmDialog
         open={confirm !== null}
         danger={confirm?.kind === 'delete'}

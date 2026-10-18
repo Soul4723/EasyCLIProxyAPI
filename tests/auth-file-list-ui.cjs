@@ -173,6 +173,31 @@ const chip = (page, group, label) => page.getByRole('group', { name: group }).ge
     assert.deepEqual(errors, []);
     await page.close();
 
+    // ---- deep link: file name or auth index selects the credential, brings its page into view, highlights the row ------------------------
+    ({ page, errors } = await openCreds(browser, app.base, { creds: 'forty' }));
+    await page.evaluate(() => { window.location.hash = '/providers?preview=creds&cred=mock-xai-account-37'; });
+    await panel(page).waitFor();
+    assert.ok((await panel(page).innerText()).includes('xai-account-37_example_test.json'), 'auth index resolved to the file');
+    assert.equal(await page.locator('tr.ec-table__row--selected').count(), 1, 'the selected row is on the visible page and highlighted');
+    assert.equal(await page.locator('tr.ec-table__row--selected').isVisible(), true);
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { window.location.hash = '/providers?preview=creds&cred=codex-account-09_example_test.json'; });
+    await page.waitForFunction(() => document.querySelector('.ec-side-panel')?.textContent.includes('codex-account-09_example_test.json'));
+    assert.equal(await page.locator('tr.ec-table__row--selected').count(), 1, 'file name resolved too');
+    // Expired and failing credentials get a prominent "Sign in again" action for their provider; healthy ones do not.
+    await page.keyboard.press('Escape');
+    await page.getByPlaceholder('Search by file name, account, or provider').fill('account-19');
+    await rowOf(page, 'account-19@').click();
+    await panel(page).getByRole('button', { name: 'Sign in again' }).click();
+    assert.equal(await page.getByTestId('resignin').textContent(), 'antigravity');
+    await page.keyboard.press('Escape');
+    await rowOf(page, 'account-19@').waitFor();
+    await page.getByPlaceholder('Search by file name, account, or provider').fill('account-01@');
+    await rowOf(page, 'account-01@').click();
+    assert.equal(await panel(page).getByRole('button', { name: 'Sign in again' }).count(), 0, 'no re-sign-in for a healthy credential');
+    assert.deepEqual(errors, []);
+    await page.close();
+
     // ---- 1 credential and the empty / failing states -----------------------------------------------------------------------
     ({ page, errors } = await openCreds(browser, app.base, { creds: 'one' }));
     assert.equal(await rowCount(page), 1);

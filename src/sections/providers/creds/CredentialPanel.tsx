@@ -4,7 +4,7 @@
  * Every field of the former settings/models dialogs is reachable here. Rendered by `controller.dialogs`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowUpRight, RotateCcw } from 'lucide-react';
+import { ArrowUpRight, LogIn, RotateCcw } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { usePrivacyMask } from '../../../privacy';
 import { routeHref } from '../../../shell/router';
@@ -37,12 +37,17 @@ import { requestShare, type CredentialRow } from './model';
 import type { CredentialsCore } from './useCredentials';
 import './creds.css';
 
-type PanelProps = { controller: CredentialsCore; suspended?: boolean };
+type PanelProps = {
+  controller: CredentialsCore;
+  suspended?: boolean;
+  /** Shown as a prominent button for expired/error credentials; the lead opens the sign-in flow for the brand. */
+  onReSignIn?: (provider: string) => void;
+};
 
-export function CredentialPanel({ controller, suspended = false }: PanelProps) {
+export function CredentialPanel({ controller, suspended = false, onReSignIn }: PanelProps) {
   const row = controller.selectedName ? controller.rows.find((item) => item.name === controller.selectedName) : undefined;
   if (!row) return null;
-  return <PanelBody key={row.name} controller={controller} row={row} suspended={suspended} />;
+  return <PanelBody key={row.name} controller={controller} row={row} suspended={suspended} onReSignIn={onReSignIn} />;
 }
 
 function Section({ id, title, children, aside }: { id: string; title: string; children: ReactNode; aside?: ReactNode }) {
@@ -54,7 +59,7 @@ function Section({ id, title, children, aside }: { id: string; title: string; ch
   );
 }
 
-function PanelBody({ controller, row, suspended }: PanelProps & { row: CredentialRow }) {
+function PanelBody({ controller, row, suspended, onReSignIn }: PanelProps & { row: CredentialRow }) {
   const { t, formatNumber } = useI18n();
   const mask = usePrivacyMask();
   const name = row.name;
@@ -182,6 +187,11 @@ function PanelBody({ controller, row, suspended }: PanelProps & { row: Credentia
         )}
         actions={(
           <>
+            {onReSignIn && (row.status === 'expired' || row.status === 'error') ? (
+              <Button size="sm" variant="primary" icon={<LogIn size={13} />} onClick={() => onReSignIn(row.provider)}>
+                {t('sec.providers.creds.signInAgain')}
+              </Button>
+            ) : null}
             {row.quotaProvider ? (
               <a className="ec-cred-link" href={routeHref('quota', null, { cred: row.name })}>
                 {t('sec.providers.creds.quotaLink')}<ArrowUpRight size={12} aria-hidden="true" />

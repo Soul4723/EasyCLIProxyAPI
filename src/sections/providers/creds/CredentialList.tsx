@@ -106,12 +106,27 @@ export function CredentialList({ controller, provider, query, status, pageSize: 
   }, [filtered, sort]);
 
   useEffect(() => setPage(1), [provider, query, status, pageSize]);
+  // A newly selected credential (row click, menu, deep link) is brought onto its page and into view once.
+  const shownSelection = useRef<string | null>(null);
+  useEffect(() => {
+    const name = controller.selectedName;
+    if (!name) { shownSelection.current = null; return; }
+    if (shownSelection.current === name) return;
+    const index = sorted.findIndex((row) => row.name === name);
+    if (index < 0) return;
+    shownSelection.current = name;
+    setPage(Math.floor(index / pageSize) + 1);
+  }, [controller.selectedName, sorted, pageSize]);
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const current = Math.min(page, pages);
   const visible = sorted.slice((current - 1) * pageSize, current * pageSize);
 
   // Reloads keep the current rows on screen; skeletons only cover the very first load.
   const initialLoading = controller.loading && controller.rows.length === 0;
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    listRef.current?.querySelector('.ec-table__row--selected')?.scrollIntoView({ block: 'nearest' });
+  }, [controller.selectedName, current, initialLoading]);
   const stop = (event: MouseEvent) => event.stopPropagation();
   const selectedKey = controller.selectedName
     ? controller.rows.find((row) => row.name === controller.selectedName)?.key
@@ -179,7 +194,7 @@ export function CredentialList({ controller, provider, query, status, pageSize: 
     : <EmptyState compact title={t('authFiles.empty.filtered')} />;
 
   return (
-    <div className="ec-cred-list">
+    <div className="ec-cred-list" ref={listRef}>
       <DataTable<CredentialRow>
         caption={t('authFiles.title')}
         columns={columns}
