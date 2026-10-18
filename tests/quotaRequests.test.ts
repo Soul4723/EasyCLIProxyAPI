@@ -4,8 +4,9 @@ import { consumeCodexResetCredit, loadQuota } from '../src/services/quotaService
 
 
 let targetRevisionMock: ReturnType<typeof spyOn>;
-beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); });
-afterEach(() => { targetRevisionMock.mockRestore(); });
+let targetValidationMock: ReturnType<typeof spyOn>;
+beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); targetValidationMock = spyOn(managementApi, 'checkTargetRevision').mockResolvedValue(0); });
+afterEach(() => { targetRevisionMock.mockRestore(); targetValidationMock.mockRestore(); });
 
 const success = (body: unknown) => ({ status_code: 200, body });
 const codexUsage = {

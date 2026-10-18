@@ -46,6 +46,12 @@ const path = require('node:path');
     await dialog.getByRole('button', { name: 'Save connection', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
     await page.getByText('http://core.example.test:8317', { exact: true }).waitFor();
+    const savedRevision = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('get_management_target_revision'));
+    assert.equal(savedRevision, 1);
+    await page.reload();
+    await page.getByText('http://core.example.test:8317', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('get_management_target_revision')), savedRevision);
+
     assert.equal(await page.locator('[data-runtime="installation"]').count(), 0);
     assert.equal(await page.getByRole('button', { name: /^start$/i }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).count(), 0);
@@ -56,7 +62,8 @@ const path = require('node:path');
     assert.equal(await beginner.getAttribute('aria-describedby'), 'remote-navigation-reason');
     assert.match(await reason.innerText(), /Beginner Mode requires Local mode\. Configure remote clients from Agent Configuration\./);
     await beginner.evaluate(el => el.click());
-    await page.getByRole('button', { name: /^Version Management/ }).focus();
+    // Upstream plugin navigation follows Version Management; tab from the actual last nav control.
+    await page.locator('.sidebar nav button:enabled').last().focus();
     await page.keyboard.press('Tab');
     assert.equal(await page.getByRole('button', { name: 'Join Discord Server', exact: true }).evaluate(el => el === document.activeElement), true);
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'easy' })));
@@ -165,6 +172,10 @@ const path = require('node:path');
           || JSON.stringify(uploads[0].data) !== '[123,125]') throw new Error('Upload command contract changed');
       } finally { window.__TAURI_INTERNALS__.invoke = originalInvoke; }
     });
+    await page.getByRole('button', { name: 'Reset mock data', exact: true }).click();
+    await page.getByRole('button', { name: 'Stop', exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('get_management_target_revision')), 0);
+    assert.equal(await page.locator('[data-runtime="installation"]').count(), 1);
     assert.deepEqual(errors, []);
     assert.deepEqual(externalRequests, []);
     console.log('PASS: draft test leaves local target unchanged; saving remote hides local lifecycle and shows distinct client endpoint, with auth failure, recovery and return to local; remote agent inspection, model selection, configuration repair and launch use only the client target without credential overrides; stale credential reads are cancelled and current uploads preserve the command payload; no external requests.');

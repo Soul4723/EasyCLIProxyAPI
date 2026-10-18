@@ -45,7 +45,8 @@ afterEach(() => {
 test('install confirmation matches source and returned version before declaring ready', async () => {
   Object.defineProperty(globalThis, 'window', { value: {}, configurable: true, writable: true });
   let reads = 0;
-  mockIPC(() => {
+  mockIPC(command => {
+    if (command === 'get_management_target_revision') return 7;
     reads++;
     return { plugins_enabled: true, plugins: [
       { id: 'sample', source_id: 'other', installed: true, configured: true, installed_version: '2.0.0', enabled: true, registered: true, effective_enabled: true },
