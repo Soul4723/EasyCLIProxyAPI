@@ -101,7 +101,7 @@ async function audit(page, scope, label) {
     };
 
     for (const theme of ['light', 'dark']) {
-      await open(`theme.html?reset&platform=browser&saved=${theme}`);
+      await open(`theme.html?reset&platform=windows&saved=${theme}`);
       await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
       await page.locator('.sidebar').waitFor();
       await audit(page, '.app-shell', `${theme} home and sidebar`);
