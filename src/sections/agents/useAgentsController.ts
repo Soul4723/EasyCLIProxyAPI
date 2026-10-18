@@ -1164,7 +1164,8 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
       }
       const confirmed = await askCliRestartConfirmation();
       if (!confirmed) return;
-      const restart = invoke<void>('restart_codex_cli_daemon', { executablePath })
+      // Not the target-guarded invoke: the restart outlives this mount and a remounted section waits on the same promise.
+      const restart = invokeNative<void>('restart_codex_cli_daemon', { executablePath })
         .finally(() => { codexCliServiceRestart = null; });
       codexCliServiceRestart = restart;
       await restart;
