@@ -34,7 +34,7 @@ const { startFixtureServer, launchBrowser, newOfflinePage } = require('./helpers
     await submit();
     await dialog().getByText('Callback submitted. Waiting for authentication to finish.', { exact: true }).waitFor();
     const submitted = (await calls()).find(call => call.cmd === 'submit_oauth_callback');
-    assert.deepEqual(submitted.args, { provider: 'devin', redirectUrl: 'http://127.0.0.1:8317/callback?state=attempt-1&code=code' });
+    assert.deepEqual(submitted.args, { provider: 'devin', redirectUrl: 'http://127.0.0.1:8317/callback?state=attempt-1&code=code', expectedRevision: 0 });
     await page.evaluate(() => { window.devinFixture.status = 'ok'; });
     await dialog().getByText('Devin signed in', { exact: true }).waitFor();
     assert.equal(await dialog().getByRole('textbox').count(), 0);

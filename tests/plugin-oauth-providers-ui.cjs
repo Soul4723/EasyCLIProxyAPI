@@ -1,6 +1,8 @@
 // Plugin-declared OAuth providers inside the Providers sign-in controller: eligibility, dynamic refresh and the plugin
 // flow run through the same SignInDialog as the built-in providers.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+// fenced target calls carry expectedRevision (documentTarget); the assertions below are about the request payload
+const noRev = ({ expectedRevision: _revision, ...rest }) => rest;
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -49,11 +51,11 @@ const BASE_PROVIDERS = 8; // seven built-in OAuth providers plus Vertex
     await dialog().getByText('Sign in to ZCode', { exact: true }).waitFor();
     await dialog().getByText('auth', { exact: false }).first().waitFor();
     await dialog().getByRole('button', { name: 'Open in browser', exact: true }).waitFor();
-    assert.deepEqual((await calls('start_oauth_login'))[0].args, { provider: 'zcode', browser: 'none', pluginProvider: true });
+    assert.deepEqual(noRev((await calls('start_oauth_login'))[0].args), { provider: 'zcode', browser: 'none', pluginProvider: true });
     assert.equal((await calls('open_oauth_url')).length, 0, 'opening the dialog must not launch a browser');
     await dialog().getByLabel('Browser', { exact: true }).selectOption('edge');
     await dialog().getByRole('button', { name: 'Open in browser', exact: true }).click();
-    assert.deepEqual((await calls('open_oauth_url'))[0].args, {
+    assert.deepEqual(noRev((await calls('open_oauth_url'))[0].args), {
       url: 'https://login.example.test/authorize?state=plugin-session-1', browser: 'edge',
     });
     const callback = dialog().getByRole('textbox');
@@ -65,7 +67,7 @@ const BASE_PROVIDERS = 8; // seven built-in OAuth providers plus Vertex
     await callback.fill('http://localhost/callback?code=secret&state=plugin-session-1');
     await dialog().getByRole('button', { name: 'Submit', exact: true }).click();
     await dialog().getByText('Callback submitted. Waiting for authentication to finish.', { exact: true }).waitFor();
-    assert.deepEqual((await calls('submit_oauth_callback'))[0].args, {
+    assert.deepEqual(noRev((await calls('submit_oauth_callback'))[0].args), {
       provider: 'zcode', redirectUrl: 'http://localhost/callback?code=secret&state=plugin-session-1', pluginProvider: true,
     });
     for (let index = 0; index < 12; index += 1) {
@@ -81,7 +83,7 @@ const BASE_PROVIDERS = 8; // seven built-in OAuth providers plus Vertex
     // Device-code plugin: no callback step.
     await provider('codebuddy').click();
     await dialog().getByText('BUDDY-CODE', { exact: true }).waitFor();
-    assert.deepEqual((await calls('start_oauth_login'))[1].args, { provider: 'codebuddy', browser: 'none', pluginProvider: true });
+    assert.deepEqual(noRev((await calls('start_oauth_login'))[1].args), { provider: 'codebuddy', browser: 'none', pluginProvider: true });
     assert.equal(await dialog().getByRole('textbox').count(), 0, 'device flow must not show a callback input');
     await page.evaluate(() => { window.pluginOAuthProvidersFixture.status = 'ok'; });
     await dialog().getByText('CodeBuddy signed in', { exact: true }).waitFor();

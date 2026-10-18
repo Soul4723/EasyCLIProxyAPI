@@ -17,6 +17,7 @@ const sections: Record<string, Record<string, unknown>[]> = {
   ],
 };
 mockIPC((cmd, rawArgs) => {
+  if (cmd === 'get_management_target_revision') return 0; // documentTarget fences every target command
   if (cmd === 'set_app_locale') return null;
   // Remarks come from the app store; the fixture uses the config name so rows are identifiable.
   if (cmd === 'resolve_api_access_remarks') return (rawArgs as { queries: { providerName: string }[] }).queries.map((query) => query.providerName);

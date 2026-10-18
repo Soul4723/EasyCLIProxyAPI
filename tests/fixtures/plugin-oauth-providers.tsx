@@ -49,6 +49,7 @@ window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown
   nativeSetInterval(handler, timeout === 3000 ? 25 : timeout, ...args)) as typeof window.setInterval;
 
 mockIPC(async (cmd, unknownArgs) => {
+  if (cmd === 'get_management_target_revision') return 0; // documentTarget fences every target command
   const args = (unknownArgs ?? {}) as Record<string, unknown>;
   fixture.calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;

@@ -26,6 +26,7 @@ const fixture = {
 };
 Object.assign(window, { devinFixture: fixture });
 mockIPC(async (cmd, args: any) => {
+  if (cmd === 'get_management_target_revision') return 0; // documentTarget fences every target command
   fixture.calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'get_core_status') return coreStatus(params.has('remote'));
