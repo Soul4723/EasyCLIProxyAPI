@@ -1,47 +1,56 @@
 import { providerInfo } from '../../ui';
-import type { ProviderCategory } from './api';
-import type { CredentialStatus } from './creds';
+import { kindsOfBrand, type ApiKind } from './api';
+import type { SignInProvider } from './signin';
 
-/** One card per provider brand. `signInId` = the OAuth/import entry of that brand, `apiKinds` = its API-key config kinds. */
+/** One card per provider brand. `signInId` = the OAuth/import entry of that brand, `kinds` = its API-key config kinds. */
 export type Brand = {
   id: string;
   name: string;
   signInId?: string;
-  apiKinds: readonly ProviderCategory[];
+  kinds: readonly ApiKind[];
 };
 
-const brand = (id: string, signInId: string | undefined, apiKinds: readonly ProviderCategory[], name?: string): Brand => ({
+const brand = (id: string, signInId: string | undefined, name?: string): Brand => ({
   id,
   name: name ?? providerInfo(id).name,
   signInId,
-  apiKinds,
+  kinds: kindsOfBrand(id),
 });
 
-/** Display order: subscriptions first, then API-only brands. */
-export const BRANDS: readonly Brand[] = [
-  brand('codex', 'codex', ['codex-api-key']),
-  brand('claude', 'claude', ['claude-api-key']),
-  brand('antigravity', 'antigravity', []),
-  brand('kimi', 'kimi', []),
-  brand('xai', 'xai', ['xai-api-key']),
-  brand('devin', 'devin', []),
-  brand('meta', 'meta', ['meta-api-key']),
-  brand('gemini', undefined, ['gemini-api-key', 'interactions-api-key']),
-  brand('vertex', 'vertex', ['vertex-api-key']),
-  brand('openai', undefined, ['openai-compatibility'], 'OpenAI-compatible'),
-  brand('deepseek', undefined, ['deepseek']),
+/** Display order: subscription brands first, then API-only brands. */
+export const SUBSCRIPTION_BRANDS: readonly Brand[] = [
+  brand('codex', 'codex'),
+  brand('claude', 'claude'),
+  brand('antigravity', 'antigravity'),
+  brand('kimi', 'kimi'),
+  brand('xai', 'xai'),
+  brand('devin', 'devin'),
+  brand('meta', 'meta'),
+  brand('vertex', 'vertex'),
 ];
 
-export const brandById = (id: string): Brand | undefined => BRANDS.find((entry) => entry.id === id);
+export const API_ONLY_BRANDS: readonly Brand[] = [
+  brand('gemini', undefined),
+  brand('openai', undefined, 'OpenAI-compatible'),
+  brand('deepseek', undefined),
+];
 
-/** Brand id of a free-form provider name (file provider/type, plugin id). Unknown names stay unknown. */
-export const brandIdOf = (provider: string): string => {
-  const id = providerInfo(provider).id;
-  return id === 'other' ? provider || 'other' : id;
-};
-
-export type StatusCounts = Record<CredentialStatus, number>;
-
-export const emptyStatusCounts = (): StatusCounts => ({ available: 0, cooldown: 0, disabled: 0, expired: 0, error: 0 });
-
-export const CREDENTIAL_STATUS_ORDER: readonly CredentialStatus[] = ['available', 'cooldown', 'disabled', 'expired', 'error'];
+/**
+ * Every brand to show: the known ones, plus plugin sign-in providers and any credential provider the section does
+ * not know (so nothing the core holds is hidden).
+ */
+export function resolveBrands(signIn: readonly SignInProvider[], knownProviders: Iterable<string>): { subscriptions: Brand[]; apiOnly: Brand[] } {
+  const subscriptions = [...SUBSCRIPTION_BRANDS];
+  const have = new Set([...subscriptions, ...API_ONLY_BRANDS].map((entry) => entry.id));
+  for (const provider of signIn) {
+    if (have.has(provider.brand)) continue;
+    have.add(provider.brand);
+    subscriptions.push({ id: provider.brand, name: provider.name, signInId: provider.id, kinds: [] });
+  }
+  for (const id of knownProviders) {
+    if (have.has(id)) continue;
+    have.add(id);
+    subscriptions.push({ id, name: providerInfo(id).name, kinds: [] });
+  }
+  return { subscriptions, apiOnly: [...API_ONLY_BRANDS] };
+}

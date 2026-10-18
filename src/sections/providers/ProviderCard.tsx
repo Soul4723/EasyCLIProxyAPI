@@ -2,7 +2,8 @@ import { KeyRound, LogIn, Plus } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { routeHref } from '../../shell/router';
 import { Button, Card, ProviderLogo, statusColor } from '../../ui';
-import { CREDENTIAL_STATUS_ORDER, type Brand, type StatusCounts } from './model';
+import { CREDENTIAL_STATUSES, type StatusCounts } from './creds';
+import type { Brand } from './model';
 
 export type BrandSummary = {
   accounts: number;
@@ -15,10 +16,10 @@ export type BrandSummary = {
 export function StatusBar({ counts, keys, keysDisabled }: { counts: StatusCounts; keys: number; keysDisabled: number }) {
   const { t } = useI18n();
   const segments = [
-    ...CREDENTIAL_STATUS_ORDER.map((status) => ({ status, n: counts[status] + (status === 'available' ? keys - keysDisabled : 0) })),
+    ...CREDENTIAL_STATUSES.map((status) => ({ status, n: counts[status] + (status === 'available' ? keys - keysDisabled : 0) })),
     { status: 'disabled' as const, n: 0 },
   ];
-  segments[CREDENTIAL_STATUS_ORDER.indexOf('disabled')].n += keysDisabled;
+  segments[CREDENTIAL_STATUSES.indexOf('disabled')].n += keysDisabled;
   const total = segments.reduce((sum, segment) => sum + segment.n, 0);
   return (
     <div className="pv-bar" role="img" aria-label={segments.filter((s) => s.n).map((s) => `${s.n} ${t(`ui.status.${s.status}`)}`).join(' · ') || t('sec.providers.card.none')}>
@@ -51,7 +52,7 @@ export function ProviderCard({ brand, summary, onSignIn, onAddKey, signInDisable
           {brand.signInId ? (
             <span className="pv-count"><LogIn size={13} aria-hidden="true" /><b className="ec-num">{summary.accounts}</b> {t(summary.accounts === 1 ? 'sec.providers.card.account' : 'sec.providers.card.accounts')}</span>
           ) : null}
-          {brand.apiKinds.length ? (
+          {brand.kinds.length ? (
             <span className="pv-count"><KeyRound size={13} aria-hidden="true" /><b className="ec-num">{summary.keys}</b> {t(summary.keys === 1 ? 'sec.providers.card.key' : 'sec.providers.card.keys')}</span>
           ) : null}
         </div>
