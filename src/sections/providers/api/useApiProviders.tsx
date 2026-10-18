@@ -75,6 +75,8 @@ export function useApiProviders(): ApiProvidersController {
   const [pendingDelete, setPendingDelete] = useState<ApiRow | null>(null);
   const [checkAll, setCheckAll] = useState<{ items: CheckAllItem[]; running: boolean } | null>(null);
   const checkAllRun = useRef(0);
+  // Unmounting invalidates a running "check all", as closing its dialog does: late probe results are ignored.
+  useEffect(() => () => { checkAllRun.current += 1; }, []);
   const loadRun = useRef(0);
   // Synchronous re-entrancy guard for the write actions: `busy` state lags a rapid second click by a render.
   const writing = useRef(false);
