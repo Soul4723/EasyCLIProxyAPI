@@ -63,7 +63,7 @@ runUi(async ({ base }) => {
     await page.setViewportSize({ width: 540, height: 820 });
     assert.ok(await page.locator('.agent-backup-modal').isVisible());
     assert.ok(await page.locator('.agent-backup-modal').evaluate(el => el.scrollWidth <= el.clientWidth));
-    await page.screenshot({ path: process.env.TEMP + '/agent-backups-narrow.png', fullPage: true });
+    await page.screenshot({ path: require('node:path').join(require('node:os').tmpdir(), 'agent-backups-narrow.png'), fullPage: true });
     await open('client=claude-desktop');
     await page.locator('.agent-desktop-model-row').nth(2).waitFor();
     assert.ok(await page.getByRole('button', { name: '更新配置', exact: true }).isDisabled());

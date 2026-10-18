@@ -135,7 +135,7 @@ const path = require('node:path');
     await aligned();
 
     await page.locator('.nav-plugin-parent > button:not(.nav-plugin-toggle)').click();
-    await page.getByRole('heading', { level: 1, name: '插件' }).waitFor();
+    await page.getByRole('region', { name: '插件', exact: true }).waitFor();
     await hidden();
     await page.locator('.plugin-menus button', { hasText: 'Inspector status' }).first().click();
     await pluginPage.waitFor();

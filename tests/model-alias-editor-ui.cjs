@@ -29,7 +29,7 @@ runUi(async ({ base }) => {
     assert.equal(await dialog.getByRole('button', { name: 'Save', exact: true }).evaluate(el => el === document.activeElement), true);
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     assert.equal((await writes()).length, 0);
-    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(el => el.textContent === 'Edit' && el === document.activeElement));
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(el => el.getAttribute('aria-label') === 'Edit' && el === document.activeElement));
 
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await dialog.locator('#thinking-alias-name').fill('renamed-alias');
@@ -45,7 +45,7 @@ runUi(async ({ base }) => {
     const saved = (await writes()).at(-1).args;
     assert.equal(saved.sourceId, 'alias-edit:my-alias');
     assert.equal(saved.originalAlias, 'my-alias');
-    assert.equal(saved.expectedRevision, undefined);
+    assert.equal(saved.expectedRevision, 1);
     assert.equal(saved.originalEntry.sourceModel, 'upstream-gpt');
     assert.equal(saved.originalEntry.provider, 'Provider');
     assert.equal(saved.alias, 'renamed-alias');
@@ -61,7 +61,7 @@ runUi(async ({ base }) => {
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await dialog.waitFor({ state: 'detached' });
     assert.equal((await writes()).at(-1).args.sourceId, 'openai-compatibility:0:0:provider-revision');
-    assert.equal((await writes()).at(-1).args.expectedRevision, undefined);
+    assert.equal((await writes()).at(-1).args.expectedRevision, 1);
 
     await page.setViewportSize({ width: 640, height: 600 });
     await page.getByRole('button', { name: 'Create Alias', exact: true }).click();
@@ -110,7 +110,7 @@ runUi(async ({ base }) => {
     await dialog.getByRole('button', { name: 'Create Alias', exact: true }).click();
     await dialog.waitFor({ state: 'detached' });
     assert.equal((await writes()).at(-1).args.originalAlias, undefined);
-    assert.equal((await writes()).at(-1).args.expectedRevision, undefined);
+    assert.equal((await writes()).at(-1).args.expectedRevision, 1);
     assert.equal((await writes()).at(-1).args.alias, 'new-alias');
     await page.goto(`${base}/tests/fixtures/model-alias-editor.html?duplicates`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Edit', exact: true }).nth(1).click();

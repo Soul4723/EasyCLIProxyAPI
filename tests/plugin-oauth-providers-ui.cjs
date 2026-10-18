@@ -54,10 +54,10 @@ const path = require('node:path');
     await page.keyboard.press('Enter');
     await page.getByRole('dialog', { name: 'Plugin sign-in', exact: true }).waitFor();
     await page.getByLabel('Sign-in URL', { exact: true }).waitFor();
-    assert.deepEqual((await calls('start_oauth_login'))[0].args, { provider: 'zcode', browser: 'none', pluginProvider: true });
+    assert.deepEqual((await calls('start_oauth_login'))[0].args, { provider: 'zcode', browser: 'none', pluginProvider: true, expectedRevision: 1 });
     await page.getByRole('button', { name: 'Open in browser', exact: true }).click();
     assert.deepEqual((await calls('open_oauth_url'))[0].args, {
-      url: 'https://login.example.test/authorize?state=plugin-session-1', browser: 'edge',
+      url: 'https://login.example.test/authorize?state=plugin-session-1', browser: 'edge', expectedRevision: 1,
     });
     for (let index = 0; index < 10; index += 1) {
       await page.keyboard.press('Tab');
@@ -70,7 +70,7 @@ const path = require('node:path');
 
     await card('CodeBuddy OAuth').getByRole('button', { name: 'Start Sign-In', exact: true }).click();
     await page.getByText('BUDDY-CODE', { exact: true }).waitFor();
-    assert.deepEqual((await calls('start_oauth_login'))[1].args, { provider: 'codebuddy', browser: 'none', pluginProvider: true });
+    assert.deepEqual((await calls('start_oauth_login'))[1].args, { provider: 'codebuddy', browser: 'none', pluginProvider: true, expectedRevision: 1 });
     assert.equal(await page.getByLabel('Callback URL', { exact: true }).count(), 0, 'device flow must not show callback input');
     await page.keyboard.press('Escape');
     await page.getByRole('dialog').waitFor({ state: 'detached' });

@@ -1,23 +1,12 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { launchBrowser } = require('./ui-harness.cjs');
+const { launchBrowser, startDevServer } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
 (async () => {
   let server;
-  let base = 'http://127.0.0.1:1420/';
-  try {
-    const response = await fetch(base);
-    if (!response.ok) throw new Error(String(response.status));
-  } catch {
-    const { createServer } = await import('vite');
-    const react = (await import('@vitejs/plugin-react')).default;
-    const root = path.resolve(__dirname, '..');
-    server = await createServer({ configFile: false, root, plugins: [react()], logLevel: 'error', server: { host: '127.0.0.1', port: 1421, strictPort: false } });
-    await server.listen();
-    const address = server.httpServer.address();
-    base = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 1421}/`;
-  }
+  server = await startDevServer();
+  const base = server.base + '/';
   let browser;
   try {
     browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });

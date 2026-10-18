@@ -129,6 +129,7 @@ const fs = require('node:fs/promises');
     // A legacy group remark must migrate to every individual key before the
     // backend removes group identities that are absent from allRecords.
     await page.goto(`${base}/tests/fixtures/provider-groups.html?scenario=remarks`);
+    await page.locator('.provider-category-panel button').filter({ hasText: 'Codex' }).click();
     const rowRemark = (index) => rows.nth(index).locator('.provider-row-title > strong').filter({ hasText: /note/ });
     await rowRemark(1).waitFor();
     await rows.nth(0).getByRole('button', { name: 'Edit', exact: true }).click();
@@ -180,6 +181,7 @@ const fs = require('node:fs/promises');
     for (const viewport of [{ width: 1280, height: 800 }, { width: 640, height: 600 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(viewport);
       await page.goto(`${base}/tests/fixtures/provider-groups.html?locale=zh-CN`);
+      await page.locator('.provider-category-panel button').filter({ hasText: 'Codex' }).click();
       await rows.first().getByRole('button', { name: '编辑', exact: true }).click();
       const form = page.locator('.api-provider-dialog');
       await page.screenshot({ path: path.resolve(`bin-work/provider-groups-qa/edit-${viewport.width}.png`) });

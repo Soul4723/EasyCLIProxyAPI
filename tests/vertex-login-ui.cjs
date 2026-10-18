@@ -65,6 +65,7 @@ const { mkdirSync } = require('node:fs');
     await dialog.waitFor();
     const bounds = await dialog.boundingBox();
     assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= 640 && bounds.y + bounds.height <= 600);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const first = dialog.getByRole('button', { name: 'Close', exact: true });
     await first.focus();
     await page.keyboard.press('Shift+Tab');

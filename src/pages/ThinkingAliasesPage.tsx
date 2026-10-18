@@ -211,6 +211,7 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
   const [search, setSearch] = useState('');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const modelSearchRef = useRef<HTMLInputElement>(null);
+  const editorOpenerRef = useRef<HTMLElement | null>(null);
   const [activeSourceIndex, setActiveSourceIndex] = useState(0);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const generatedAliasRef = useRef('');
@@ -490,6 +491,7 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
   const editorRef = useDialogFocusTrap<HTMLElement>({
     active: editorOpen,
     initialFocusRef: modelSearchRef,
+    returnFocusRef: editorOpenerRef,
     onEscape: busyAlias ? undefined : () => {
       if (modelPickerOpen) setModelPickerOpen(false);
       else closeEditor();
@@ -498,6 +500,7 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
   });
 
   const addAlias = () => {
+    editorOpenerRef.current = document.activeElement as HTMLElement;
     resetEditor();
     setError('');
     setNotice('');
@@ -505,6 +508,8 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
   };
 
   const editAlias = async (entry: AliasListEntry) => {
+    // Disabling the opener while loading can move focus to body before the dialog mounts.
+    editorOpenerRef.current = document.activeElement as HTMLElement;
     setBusyAlias(entry.alias);
     setBusyAction('edit');
     setError('');

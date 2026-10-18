@@ -56,20 +56,20 @@ runUi(async ({ base }) => {
 
     await open('view=files');
     await page.locator('.auth-file-card').getByText('devin-test.json', { exact: true }).first().waitFor();
-    await page.getByRole('button', { name: 'Fetch Quota', exact: true }).click();
+    await page.locator('.auth-list-icon-actions button').first().click();
     await page.getByText('75%', { exact: false }).first().waitFor();
     assert.equal(await page.locator('.devin-logo').count(), 1);
 
     await open('view=quota');
     await page.getByRole('button', { name: 'Fetch Quota', exact: true }).click();
-    await page.getByText('Daily quota', { exact: true }).waitFor();
+    await page.getByText('Daily quota', { exact: true }).filter({ visible: true }).waitFor();
     assert.ok((await page.locator('.real-quota-card').innerText()).includes('Pro'));
-    assert.equal(await page.locator('.real-quota-track').count(), 2);
-    assert.equal(await page.locator('.real-quota-track span').last().evaluate(node => node.style.width), '0%');
+    assert.equal(await page.locator('.real-quota-track:visible').count(), 2);
+    assert.equal(await page.locator('.real-quota-track:visible span').last().evaluate(node => node.style.width), '0%');
     await page.evaluate(() => { window.devinFixture.quotaError = true; });
     await page.getByRole('button', { name: 'Refresh All', exact: true }).click();
     await page.getByText('Session expired', { exact: false }).waitFor();
-    assert.equal(await page.locator('.real-quota-track').count(), 0);
+    assert.equal(await page.locator('.real-quota-track:visible').count(), 0);
 
     fs.mkdirSync('misc', { recursive: true });
     for (const theme of ['light', 'dark']) {

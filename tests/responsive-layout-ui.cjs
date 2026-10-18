@@ -1,5 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { launchBrowser } = require('./ui-harness.cjs');
+const { launchBrowser, startDevServer } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
@@ -13,24 +13,10 @@ const viewports = [
 (async () => {
   let server;
   let browser;
-  let base = 'http://127.0.0.1:1420/';
+  let base;
   try {
-    try {
-      const response = await fetch(base, { signal: AbortSignal.timeout(3000) });
-      if (!response.ok) throw new Error(String(response.status));
-    } catch {
-      const { createServer } = await import('vite');
-      const react = (await import('@vitejs/plugin-react')).default;
-      server = await createServer({
-        configFile: false,
-        root: path.resolve(__dirname, '..'),
-        plugins: [react()],
-        logLevel: 'error',
-        server: { host: '127.0.0.1', port: 1421, strictPort: false },
-      });
-      await server.listen();
-      base = `http://127.0.0.1:${server.httpServer.address().port}/`;
-    }
+    server = await startDevServer();
+    base = server.base + '/';
     browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
     let page;
     const errors = [];
