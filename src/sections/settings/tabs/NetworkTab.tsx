@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '../../../services/documentTarget';
-import { listen } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { listen } from '../../../services/platform';
+import { open } from '../../../services/platform';
 import { FolderOpen, Globe, Link2, LockKeyhole, Network, Wifi } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime, type CoreStatus } from '../../../coreRuntime';

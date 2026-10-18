@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke } from '../services/platform';
+import { listen } from '../services/platform';
 import { X } from 'lucide-react';
 import { MessageNotice } from '../appNotice';
 import { useI18n } from '../i18n';

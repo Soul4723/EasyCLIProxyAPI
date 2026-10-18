@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../services/platform';
 import { useI18n } from '../../../i18n';
 import { APP_NAVIGATION_REQUEST_EVENT, type AppNavigationRequest } from '../../../navigation';
 import type {

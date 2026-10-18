@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getVersion } from '@tauri-apps/api/app';
+import { getVersion } from '../../services/platform';
 import { invoke } from '../../services/documentTarget';
 import { RefreshCw } from 'lucide-react';
 import { useAppUpdate } from '../../appUpdate';

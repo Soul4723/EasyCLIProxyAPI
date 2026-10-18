@@ -1,8 +1,8 @@
 import { invalidateQuotaCache } from './services/quotaCache';
 import { invalidateQuotaRequests } from './services/quotaService';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke } from './services/platform';
+import { listen } from './services/platform';
 
 export type CoreStatus = {
   connectionMode?: 'local' | 'remote';
