@@ -36,6 +36,9 @@ pub(super) fn validate_restore_target(
         ));
         Ok(())
     };
+    // A loopback host (or matching installed-core host) is not ownership
+    // evidence: users also run unrelated local gateways such as Ollama. Only
+    // CPA's saved markers identify the Claude settings that must be fenced.
     match client {
         "claude-code" => {
             let env = &root["env"];
@@ -43,10 +46,7 @@ pub(super) fn validate_restore_target(
                 .as_object()
                 .is_some_and(|env| env.keys().any(|k| k.starts_with("EASYCLIPROXY_")))
                 || env[CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY_ENV].as_str() == Some("1")
-                || env[CLAUDE_CODE_AUTO_MODE_SERVER_ENV].as_str() == Some("0")
-                || env["ANTHROPIC_BASE_URL"]
-                    .as_str()
-                    .is_some_and(is_managed_agent_base_url);
+                || env[CLAUDE_CODE_AUTO_MODE_SERVER_ENV].as_str() == Some("0");
             if managed {
                 add(env, "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", &origin)?;
             }
@@ -59,10 +59,7 @@ pub(super) fn validate_restore_target(
                     entries
                         .iter()
                         .any(|e| e["id"].as_str() == Some(CLAUDE_DESKTOP_PROFILE_ID))
-                })
-                || profile["inferenceGatewayBaseUrl"]
-                    .as_str()
-                    .is_some_and(is_managed_agent_base_url);
+                });
             if managed {
                 add(
                     profile,

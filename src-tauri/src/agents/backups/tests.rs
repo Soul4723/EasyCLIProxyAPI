@@ -1414,3 +1414,6 @@ async fn restore_rejects_old_target_backup_before_writes_and_allows_unmanaged_re
         assert_eq!(expected, config_images(&paths).unwrap());
     }
 }
+
+#[path = "target_tests.rs"]
+mod target_tests;
