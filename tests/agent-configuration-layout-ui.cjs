@@ -130,6 +130,7 @@ runUi(async ({ base }) => {
     };
 
     const assertClientPage = async label => {
+      await page.locator('.agent-list-items button').first().waitFor();
       const metrics = await page.locator('.agent-list-items').evaluate(list => {
         const rect = list.getBoundingClientRect();
         const buttons = Array.from(list.querySelectorAll('button'));

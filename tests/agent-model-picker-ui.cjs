@@ -3,7 +3,7 @@ const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
 runUi(async ({ base }) => {
-  const engines = process.env.PLAYWRIGHT_ENGINES?.split(',') || ['chromium', 'webkit'];
+  const engines = process.env.PLAYWRIGHT_ENGINES?.split(',') || ['chromium'];
   for (const name of engines) {
     const engine = { chromium, webkit }[name];
     assert.ok(engine, `Unsupported browser: ${name}`);

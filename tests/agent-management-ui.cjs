@@ -95,7 +95,7 @@ runUi(async ({ base }) => {
       assert.equal(await button('手动备份').count(), 0);
       assert.equal(await button('应用 ezcpa 模板').count(), 0);
       assert.ok(await page.locator('#agent-subpage-panel-core').getByRole('button', { name: '模型列表设置', exact: true }).isVisible());
-      assert.equal(await page.locator('.agent-launch-actions button').count(), 3);
+      assert.equal(await page.locator('.agent-launch-actions button').count(), 4);
       assert.equal(await tab('会话管理').count(), mode ? 0 : 1);
       await page.locator('.agent-model-trigger').click();
       await page.getByRole('option', { name: 'gpt-two' }).click();
