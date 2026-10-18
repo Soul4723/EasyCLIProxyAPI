@@ -16,7 +16,7 @@ const path = require('node:path');
   try {
     await server.listen();
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : undefined, headless: true, args: ['--no-proxy-server'] });
+    browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true, args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 900, height: 800 } });
     await page.addInitScript(() => localStorage.setItem('cpa-gui.usage-events-collapse-errors.v1', '0'));
     await page.goto(`${base}/tests/fixtures/usage-response-model.html?locale=zh-CN&theme=dark`);

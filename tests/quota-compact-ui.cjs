@@ -1,3 +1,4 @@
+const h = require('./helpers/shell.cjs');
 // Mock fixtures only. Run: PLAYWRIGHT_MODULE=/path/to/playwright node tests/quota-compact-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
@@ -74,7 +75,7 @@ const path = require('node:path');
     assert.ok(!(await page.locator('.quota-detail-metadata').first().innerText()).includes('long-credential-name@example.com'));
     // Real QuotaPage toggle, backed exclusively by built-in browser mock.
     await page.goto(`${base}/?mock=running&mockDelay=5`);
-    await page.getByRole('button', { name: 'Quota Lookup', exact: true }).click();
+    await h.gotoPage(page, 'quota');
     const toggle = page.getByRole('checkbox', { name: 'Compact cards' });
     await toggle.waitFor();
     assert.equal(await toggle.isChecked(), true);

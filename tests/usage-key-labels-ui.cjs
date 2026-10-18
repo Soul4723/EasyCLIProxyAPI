@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const base = process.env.USAGE_TEST_URL || 'http://127.0.0.1:1427';
 
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1342, height: 762 } });
     const errors = [];

@@ -1,3 +1,4 @@
+const h = require('./helpers/shell.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -42,11 +43,9 @@ const viewports = [{ width: 640, height: 600 }, { width: 964, height: 700 }, { w
         await page.route('**/*', route => route.request().url().startsWith(base) ? route.continue() : route.abort());
         await page.addInitScript(language => localStorage.setItem('easy-cli-proxy-api.locale', language), locale);
         await page.goto(`${base}?mock=running`, { waitUntil: 'domcontentloaded' });
-        await page.locator('.app-shell').waitFor();
+        await page.locator('.ec-app').waitFor();
         await page.addStyleTag({ content: '#browser-mock-toolbar { display: none; }' });
-        await page.locator('.nav-section').getByRole('button', {
-          name: locale === 'en' ? 'Advanced Features' : '高级功能', exact: true,
-        }).click();
+        await h.gotoPage(page, 'config');
         await page.locator('#config-subpage-panel').waitFor();
 
         const settle = () => page.evaluate(async () => {
@@ -457,18 +456,14 @@ const viewports = [{ width: 640, height: 600 }, { width: 964, height: 700 }, { w
           await page.locator('.config-settings-header').scrollIntoViewIfNeeded();
           await settle();
           await page.screenshot({ path: path.join(directory, 'settings-routing.png') });
-          await page.locator('.theme-selector-trigger').click();
-          await page.locator('.theme-selector-card[data-theme-id="dark"]').click();
-          await page.keyboard.press('Escape');
+          await h.setTheme(page, 'dark');
           await settle();
           await page.screenshot({ path: path.join(directory, 'settings-routing-dark.png') });
           await tab('general');
           await page.locator('.config-settings-header').scrollIntoViewIfNeeded();
           await settle();
           await page.screenshot({ path: path.join(directory, 'settings-access-dark.png') });
-          await page.locator('.theme-selector-trigger').click();
-          await page.locator('.theme-selector-card[data-theme-id="light"]').click();
-          await page.keyboard.press('Escape');
+          await h.setTheme(page, 'light');
           await page.setViewportSize(viewport);
         }
 
