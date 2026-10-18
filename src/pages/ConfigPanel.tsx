@@ -7,7 +7,6 @@ import {
   AlertCircle,
   Search,
   ChevronRight,
-  Puzzle,
   SlidersHorizontal,
   Bug,
   Check,
@@ -98,7 +97,7 @@ type ConfigAction =
   | null;
 type ConfigSubpage = SettingsCategory;
 const CONFIG_SUBPAGES = settingsCategories.map(category => category.id);
-const CATEGORY_ICONS = { general: ShieldCheck, aliases: Link2, routing: Route, requests: SlidersHorizontal, oauth: KeyRound, diagnostics: FileText, extensions: Puzzle, software: Settings2 };
+const CATEGORY_ICONS = { general: ShieldCheck, aliases: Link2, routing: Route, requests: SlidersHorizontal, oauth: KeyRound, diagnostics: FileText, software: Settings2 };
 type SettingDestination = { category: ConfigSubpage; target: string; field?: string };
 type SettingSearchEntry = SettingDestination & { title: string; context: string; keywords: string };
 
@@ -1088,7 +1087,6 @@ export function ConfigPanelPage() {
     requests: sensitiveWordsDirty || retrySettingsDirty,
     diagnostics: loggingSettingsDirty,
     oauth: false,
-    extensions: false,
     software: softwareSettingsDirty,
   };
   const categoryDirty = (id: ConfigSubpage) => nativeCategoryDirty[id]
@@ -1111,13 +1109,10 @@ export function ConfigPanelPage() {
   });
 
   return (
-    <section className="page config-page">
+    <section className="page config-page" aria-label={st('title')}>
       {remote && <p className="core-connection-hint">{t('connection.lifecycleHint')} {t('connection.remotePaths')}</p>}
+
       {confirmationDialog}
-      <header className="config-settings-header">
-        <h1>{st('title')}</h1>
-        <div className="config-settings-search"><Search size={18} aria-hidden="true" /><input ref={searchRef} type="search" aria-label={st('search')} placeholder={st('searchHint')} value={settingsSearch} onChange={event => setSettingsSearch(event.currentTarget.value)} onKeyDown={event => { if (event.key === 'Escape') setSettingsSearch(''); }} />{searching ? <button type="button" className="icon-button quiet" aria-label={st('clearSearch')} onClick={() => { setSettingsSearch(''); searchRef.current?.focus(); }}><X size={16} /></button> : null}</div>
-      </header>
       <div className="config-settings-layout">
         <div className="config-settings-topnav">
           <div ref={categoryNavigationRef} className="config-subpage-tabs config-settings-navigation" role="tablist" aria-orientation="horizontal" aria-label={t('config.tabs.label')}>
@@ -1127,6 +1122,7 @@ export function ConfigPanelPage() {
               return <button type="button" key={item.id} id={`config-subpage-tab-${item.id}`} role="tab" className={activeSubpage === item.id ? 'active' : ''} aria-selected={activeSubpage === item.id} aria-controls="config-subpage-panel" tabIndex={activeSubpage === item.id ? 0 : -1} onClick={() => activateConfigSubpage(item.id)} onKeyDown={event => handleConfigTabKeyDown(event, item.id)}><Icon size={17} aria-hidden="true" /><span>{templateText(item.title, locale)}</span>{dirty ? <span className="config-nav-dirty" title={st('dirty')}><span className="sr-only">{st('dirty')}</span></span> : null}</button>;
             })}
           </div>
+          <div className="config-settings-search"><Search size={18} aria-hidden="true" /><input ref={searchRef} type="search" aria-label={st('search')} placeholder={st('searchHint')} value={settingsSearch} onChange={event => setSettingsSearch(event.currentTarget.value)} onKeyDown={event => { if (event.key === 'Escape') setSettingsSearch(''); }} />{searching ? <button type="button" className="icon-button quiet" aria-label={st('clearSearch')} onClick={() => { setSettingsSearch(''); searchRef.current?.focus(); }}><X size={16} /></button> : null}</div>
         </div>
         <div className="config-settings-content" id="config-subpage-panel" role="tabpanel" aria-labelledby={`config-subpage-tab-${activeSubpage}`}>
           {searching ? <section className="config-search-results" aria-label={st('results')}><div className="config-search-heading"><h2>{st('results')}</h2><span role="status">{searchResults.length}</span></div>{searchResults.length ? <div className="config-search-result-list">{searchResults.map(entry => <button type="button" key={`${entry.target}-${entry.field ?? ''}`} onClick={() => navigateToSetting(entry)}><span className="config-search-result-copy"><strong>{entry.title}</strong><small>{templateText(settingsCategories.find(item => item.id === entry.category)!.title, locale)}{entry.context ? ` / ${entry.context}` : ''}</small></span><ChevronRight size={17} aria-hidden="true" /></button>)}</div> : <p className="config-search-empty">{st('noResults')}</p>}</section> : null}
