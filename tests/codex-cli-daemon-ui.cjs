@@ -1,17 +1,13 @@
+// AGENT_TEST_URL, when set, reuses an existing dev server:
+// AGENT_TEST_URL=http://127.0.0.1:5391 node tests/codex-cli-daemon-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { launchBrowser } = require('./ui-harness.cjs');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
-const path = require('node:path');
 
-(async () => {
-  const { createServer } = await import('vite');
-  const react = (await import('@vitejs/plugin-react')).default;
-  const server = await createServer({ configFile: false, root: path.resolve(__dirname, '..'),
-    plugins: [react()], logLevel: 'error', server: { host: '127.0.0.1', port: 0, watch: null } });
+
+runUi(async ({ base }) => {
   let browser;
   try {
-    await server.listen();
-    const base = `http://127.0.0.1:${server.httpServer.address().port}`;
     browser = await launchBrowser(chromium);
     const page = await browser.newPage();
     const errors = [];
@@ -25,7 +21,7 @@ const path = require('node:path');
     };
     await open('');
     await restart().click();
-    const dialog = page.getByRole('alertdialog');
+    const dialog = page.locator('[role=dialog], [role=alertdialog]');
     await dialog.waitFor();
     assert.equal(await calls('restart_codex_cli_daemon'), 0);
     await page.evaluate(() => { window.fixtureDeferredCommands = ['restart_codex_cli_daemon']; });
@@ -40,7 +36,8 @@ const path = require('node:path');
     assert.equal(await waiting.isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: 'Start CLI', exact: true }).isDisabled(), true);
     await page.evaluate(() => {
-      localStorage.setItem('cpa-gui.agent-selected-client.v1', 'opencode');
+      // The Agents section selects its client from the route (#/agents?client=<id>).
+      location.hash = '/agents?client=opencode';
       window.fixtureRemount();
     });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -48,7 +45,7 @@ const path = require('node:path');
     await page.evaluate(() => { window.fixtureDeferredCommands = []; window.fixturePendingCommands.splice(0).forEach(entry => entry.resolve()); });
     const restarted = page.getByText('Codex CLI background service restarted. Start Codex CLI again to use the latest configuration.', { exact: true });
     assert.equal(await restarted.count(), 0);
-    await page.getByText('Codex', { exact: true }).click();
+    await page.evaluate(() => { location.hash = '/agents?client=codex'; });
     await restarted.waitFor();
     assert.equal(await calls('restart_codex_cli_daemon'), 1);
     await page.evaluate(() => {
@@ -59,7 +56,8 @@ const path = require('node:path');
     await page.getByRole('alertdialog').getByRole('button', { name: 'Restart service', exact: true }).click();
     await page.getByRole('button', { name: 'Waiting for tasks', exact: true }).waitFor();
     await page.evaluate(() => {
-      localStorage.setItem('cpa-gui.agent-selected-client.v1', 'opencode');
+      // The Agents section selects its client from the route (#/agents?client=<id>).
+      location.hash = '/agents?client=opencode';
       window.fixtureRemount();
     });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -68,7 +66,7 @@ const path = require('node:path');
       window.fixturePendingCommands.splice(0).forEach(entry => entry.resolve());
     });
     assert.equal(await page.getByText(/模拟后台刷新失败/).count(), 0);
-    await page.getByText('Codex', { exact: true }).click();
+    await page.evaluate(() => { location.hash = '/agents?client=codex'; });
     await page.getByText(/模拟后台刷新失败/).waitFor();
     await open('daemon-stopped');
     await restart().click();
@@ -77,12 +75,11 @@ const path = require('node:path');
     await open('daemon-error');
     await restart().click();
     await page.getByText(/Codex daemon probe failed/).waitFor();
-    assert.equal(await page.getByRole('alertdialog').count(), 0);
+    assert.equal(await page.locator('[role=dialog], [role=alertdialog]').count(), 0);
     assert.equal(await calls('restart_codex_cli_daemon'), 0);
     assert.deepEqual(errors, []);
     console.log('PASS: shared daemon confirmation, non-blocking restart that survives remounts, stopped status, and probe errors.');
   } finally {
     await browser?.close();
-    await server.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

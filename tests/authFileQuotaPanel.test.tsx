@@ -2,49 +2,32 @@ import { expect, it } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AuthFileQuotaPanel } from '../src/components/AuthFileQuotaPanel';
 import { I18nProvider } from '../src/i18n';
-import type { QuotaState } from '../src/services/quotaService';
-import { QuotaCard } from '../src/pages/QuotaPage';
+import { quotaResetExpiries, type QuotaState } from '../src/services/quotaService';
+import { accountFor, renderCard } from './helpers/quotaAccount';
 
 const render = (quota: QuotaState) => renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={{ name: 'test.json' }} quota={quota} disabled={false} onRefresh={() => {}} /></I18nProvider>);
 
-it('shows every reset expiry in chronological order, including duplicates, on both surfaces', () => {
+it('shows every reset expiry in chronological order, including duplicates, on the panel', () => {
   const quota: QuotaState = {
     status: 'success', rows: [], resetCredits: 3,
     resetCreditExpiries: ['2030-12-20T00:00:00Z', '2030-10-10T00:00:00Z', '2030-10-10T00:00:00Z'],
   };
   const file = { name: 'codex.json', provider: 'codex' };
-  for (const content of [
-    <AuthFileQuotaPanel file={file} quota={quota} disabled={false} compact dense onRefresh={() => {}} />,
-    <QuotaCard file={file} quota={quota} onRefresh={() => {}} />,
-  ]) {
-    const html = renderToStaticMarkup(<I18nProvider>{content}</I18nProvider>);
-    expect(html.match(/<li>/g)).toHaveLength(3);
-    expect(html).toContain('Reset 3 expires');
-    expect(html).not.toContain('Earliest expiry');
-    expect(html.indexOf('10/10/2030')).toBeLessThan(html.indexOf('12/20/2030'));
-  }
+  const html = renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={file} quota={quota} disabled={false} compact dense onRefresh={() => {}} /></I18nProvider>);
+  expect(html.match(/<li>/g)).toHaveLength(3);
+  expect(html).toContain('Reset 3 expires');
+  expect(html).not.toContain('Earliest expiry');
+  expect(html.indexOf('10/10/2030')).toBeLessThan(html.indexOf('12/20/2030'));
+  expect(quotaResetExpiries(quota)).toEqual(['2030-10-10T00:00:00Z', '2030-10-10T00:00:00Z', '2030-12-20T00:00:00Z']);
 });
 
-it('shows the OAuth credential priority on the quota card', () => {
-  const html = renderToStaticMarkup(<I18nProvider><QuotaCard
-    file={{ name: 'priority.json', provider: 'codex', priority: 7 }}
-    quota={{ status: 'success', rows: [] }} onRefresh={() => {}}
-  /></I18nProvider>);
-  expect(html).toContain('Priority 7');
-  expect(html).not.toContain('Priority 0');
+it('normalizes the OAuth credential priority on the account model', () => {
+  expect(accountFor({ name: 'priority.json', provider: 'codex', priority: 7 }, { status: 'success', rows: [] }).priority).toBe(7);
 });
 
 it('normalizes a string priority and keeps zero as the default', () => {
-  const stringPriority = renderToStaticMarkup(<I18nProvider><QuotaCard
-    file={{ name: 'priority.json', provider: 'codex', priority: '3' }}
-    quota={{ status: 'idle', rows: [] }} onRefresh={() => {}}
-  /></I18nProvider>);
-  const missingPriority = renderToStaticMarkup(<I18nProvider><QuotaCard
-    file={{ name: 'default.json', provider: 'codex' }}
-    quota={{ status: 'idle', rows: [] }} onRefresh={() => {}}
-  /></I18nProvider>);
-  expect(stringPriority).toContain('Priority 3');
-  expect(missingPriority).toContain('Priority 0');
+  expect(accountFor({ name: 'priority.json', provider: 'codex', priority: '3' }, { status: 'idle', rows: [] }).priority).toBe(3);
+  expect(accountFor({ name: 'default.json', provider: 'codex' }, { status: 'idle', rows: [] }).priority).toBe(0);
 });
 
 it('renders measured quota values and keeps malformed readings unavailable, distinct from zero', () => {
@@ -91,13 +74,11 @@ it.each([
   };
   const onReset = file.provider === 'codex' ? () => {} : undefined;
   const credentialHtml = renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={file} quota={quota} disabled={file.disabled} onRefresh={() => {}} onReset={onReset} /></I18nProvider>);
-  const quotaHtml = renderToStaticMarkup(<I18nProvider><QuotaCard file={file} quota={quota} onRefresh={() => {}} onReset={onReset} /></I18nProvider>);
   const buttonState = (html: string) => {
     const button = html.match(/<button[^>]*title="Reset Quota"[^>]*>Reset Quota<\/button>/)?.[0];
     return { visible: Boolean(button), disabled: Boolean(button?.includes('disabled=""')) };
   };
   expect(buttonState(credentialHtml)).toEqual({ visible: values.visible, disabled: values.disabled });
-  expect(buttonState(credentialHtml)).toEqual(buttonState(quotaHtml));
   if (values.loading) expect(credentialHtml).toContain('Submitting reset and refreshing quota');
 });
 
@@ -105,12 +86,10 @@ it.each([
 it('both quota surfaces gate refresh and reset on core disabled status without a boolean flag', () => {
   const file = { name: 'disabled.json', provider: 'codex', status: 'disabled' };
   const quota: QuotaState = { status: 'success', rows: [], resetCredits: 2 };
-  for (const content of [
-    <AuthFileQuotaPanel file={file} quota={quota} disabled={false} onRefresh={() => {}} onReset={() => {}} />,
-    <QuotaCard file={file} quota={quota} onRefresh={() => {}} onReset={() => {}} />,
-  ]) {
-    const html = renderToStaticMarkup(<I18nProvider>{content}</I18nProvider>);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="Reset Quota"/);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="[^"]*disabled[^"]*"/i);
-  }
+  const html = renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={file} quota={quota} disabled={false} onRefresh={() => {}} onReset={() => {}} /></I18nProvider>);
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="Reset Quota"/);
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="[^"]*disabled[^"]*"/i);
+  const card = renderCard(file, quota);
+  expect(card).toContain('is-disabled');
+  expect(card).toContain('Disabled accounts cannot be refreshed');
 });

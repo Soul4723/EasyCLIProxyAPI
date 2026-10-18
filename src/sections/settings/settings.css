@@ -1,0 +1,115 @@
+/* Settings section styles. Every rule is scoped under .ec-sec-settings (kit ec-* classes + --ec-* tokens only). */
+.ec-sec-settings .ec-set-layout {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: var(--ec-sp-5);
+  align-items: start;
+  padding: var(--ec-pad) var(--ec-page-pad-x) 72px;
+}
+.ec-sec-settings .ec-set-nav {
+  position: sticky;
+  top: calc(var(--ec-pad) + 56px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ec-sec-settings .ec-set-nav a {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  height: var(--ec-ctrl-h);
+  padding: 0 var(--ec-sp-3);
+  border-radius: var(--ec-r-sm);
+  color: var(--ec-fg-2);
+  text-decoration: none;
+  font-size: var(--ec-fs-sm);
+  white-space: nowrap;
+}
+.ec-sec-settings .ec-set-nav a:hover { background: var(--ec-hover); color: var(--ec-fg); }
+.ec-sec-settings .ec-set-nav a[aria-current='page'] { background: var(--ec-accent-soft); color: var(--ec-fg); font-weight: 600; }
+.ec-sec-settings .ec-set-nav a:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: -2px; }
+.ec-sec-settings .ec-set-nav-dot {
+  width: 7px; height: 7px; margin-left: auto; border-radius: var(--ec-r-pill); background: var(--ec-st-limited);
+}
+.ec-sec-settings .ec-set-content { min-width: 0; display: flex; flex-direction: column; gap: var(--ec-gap); max-width: 880px; }
+
+/* group card */
+.ec-sec-settings .ec-set-group { padding: 0; }
+.ec-sec-settings .ec-set-group-head {
+  display: flex; align-items: center; gap: var(--ec-sp-2);
+  padding: var(--ec-sp-3) var(--ec-pad);
+  border-bottom: 1px solid var(--ec-border-soft);
+}
+.ec-sec-settings .ec-set-group-head h3 { margin: 0; font-size: var(--ec-fs-md); font-weight: 600; }
+.ec-sec-settings .ec-set-group-icon { display: inline-flex; color: var(--ec-fg-muted); }
+.ec-sec-settings .ec-set-spacer { flex: 1; }
+.ec-sec-settings .ec-set-rows { display: flex; flex-direction: column; }
+.ec-sec-settings .ec-set-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--ec-sp-4);
+  row-gap: var(--ec-sp-1);
+  min-height: calc(var(--ec-row-h) + 12px);
+  padding: var(--ec-sp-2) var(--ec-pad);
+  border-bottom: 1px solid var(--ec-border-soft);
+}
+.ec-sec-settings .ec-set-row:last-child { border-bottom: 0; }
+.ec-sec-settings .ec-set-row.is-stacked { grid-template-columns: minmax(0, 1fr); }
+.ec-sec-settings .ec-set-row-label { display: flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; flex-wrap: wrap; }
+.ec-sec-settings .ec-set-row-label label { font-size: var(--ec-fs-sm); color: var(--ec-fg); }
+.ec-sec-settings .ec-set-row-icon { display: inline-flex; color: var(--ec-fg-muted); }
+.ec-sec-settings .ec-set-hint { display: inline-flex; color: var(--ec-fg-subtle); cursor: help; border-radius: var(--ec-r-pill); }
+.ec-sec-settings .ec-set-hint:hover, .ec-sec-settings .ec-set-hint:focus-visible { color: var(--ec-fg); }
+.ec-sec-settings .ec-set-row-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-settings .ec-set-row.is-stacked .ec-set-row-control { justify-content: stretch; }
+.ec-sec-settings .ec-set-row-error, .ec-sec-settings .ec-set-savebar-error { grid-column: 1 / -1; margin: 0; color: var(--ec-danger-fg); font-size: var(--ec-fs-xs); }
+
+/* inputs */
+.ec-sec-settings .ec-set-input {
+  height: var(--ec-ctrl-h);
+  min-width: 0;
+  width: 220px;
+  padding: 0 var(--ec-sp-3);
+  background: var(--ec-field);
+  color: var(--ec-fg);
+  border: 1px solid var(--ec-input-border);
+  border-radius: var(--ec-r-sm);
+  font: inherit;
+  font-size: var(--ec-fs-sm);
+}
+.ec-sec-settings .ec-set-input.is-short { width: 110px; text-align: right; font-family: var(--ec-mono); }
+.ec-sec-settings .ec-set-input.is-wide { width: 100%; }
+.ec-sec-settings .ec-set-input.is-mono { font-family: var(--ec-mono); }
+.ec-sec-settings .ec-set-input:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 0; }
+.ec-sec-settings .ec-set-input[aria-invalid='true'] { border-color: var(--ec-danger); }
+.ec-sec-settings .ec-set-input:disabled { opacity: 0.55; cursor: not-allowed; }
+.ec-sec-settings select.ec-set-input { padding-right: var(--ec-sp-2); }
+.ec-sec-settings textarea.ec-set-input { height: auto; padding: var(--ec-sp-2) var(--ec-sp-3); min-height: 80px; }
+
+/* save bar */
+.ec-sec-settings .ec-set-savebar {
+  position: sticky; bottom: var(--ec-sp-3); z-index: 5;
+  display: flex; align-items: center; gap: var(--ec-sp-3); flex-wrap: wrap;
+  padding: var(--ec-sp-2) var(--ec-sp-3) var(--ec-sp-2) var(--ec-pad);
+  background: var(--ec-popover); border: 1px solid var(--ec-border); border-radius: var(--ec-r-md);
+  box-shadow: 0 8px 24px var(--ec-scrim);
+  font-size: var(--ec-fs-sm);
+}
+.ec-sec-settings .ec-set-savebar.is-dirty { border-color: var(--ec-st-limited); }
+.ec-sec-settings .ec-set-savebar-text { display: inline-flex; align-items: center; gap: var(--ec-sp-1); }
+
+/* empty / loading helpers */
+.ec-sec-settings .ec-set-skel { padding: var(--ec-pad); display: flex; flex-direction: column; gap: var(--ec-sp-3); }
+
+@container workspace (max-width: 760px) {
+  .ec-sec-settings .ec-set-layout { grid-template-columns: minmax(0, 1fr); gap: var(--ec-sp-3); }
+  .ec-sec-settings .ec-set-nav {
+    position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; padding-bottom: var(--ec-sp-1);
+    border-bottom: 1px solid var(--ec-border-soft);
+  }
+  .ec-sec-settings .ec-set-nav a { flex: none; }
+  .ec-sec-settings .ec-set-row { grid-template-columns: minmax(0, 1fr); }
+  .ec-sec-settings .ec-set-row-control { justify-content: flex-start; flex-wrap: wrap; }
+  .ec-sec-settings .ec-set-input, .ec-sec-settings .ec-set-input.is-short { width: 100%; max-width: 100%; text-align: left; }
+}

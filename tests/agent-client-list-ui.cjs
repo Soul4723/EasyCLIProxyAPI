@@ -1,4 +1,10 @@
-// PLAYWRIGHT_MODULE and AGENT_CLIENT_TEST_URL can target an existing local setup.
+// Agents client grid. AGENT_TEST_URL, when set, reuses an existing dev server.
+// PLAYWRIGHT_MODULE can target an existing local Playwright install.
+//
+// Dropped with the old Agents page (no equivalent in the AgentsSection): the "Manage clients" dialog (visibility
+// checkboxes, draft/cancel/Escape, empty-selection guard, focus trap/return, "restore automatic"), the persisted
+// `cpa-gui.agent-visible-clients.v1` list, and the client pagination (previous/next page). Every client is now on the
+// grid and "Not installed" is a filter instead.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
@@ -6,14 +12,20 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const storageKey = 'cpa-gui.agent-visible-clients.v1';
-const automaticClients = ['Claude Code', 'Codex', 'OpenCode', 'Claude Desktop', 'Pi'];
 const screenshots = path.join(os.tmpdir(), 'easycliproxy-agent-clients');
+// Catalogue order (agentDefinitions in src/sections/agents/model.ts).
+const allClients = {
+  'claude-code': 'Claude Code', 'claude-desktop': 'Claude Desktop', codex: 'Codex', 'deepseek-harness': 'DeepSeek Harness',
+  opencode: 'OpenCode', omp: 'Oh My Pi', pi: 'Pi', 'grok-build': 'Grok Build', 'copilot-cli': 'Copilot CLI',
+  'vscode-copilot': 'VSCode Copilot', 'antigravity-cli': 'Antigravity CLI', workbuddy: 'WorkBuddy', zcode: 'ZCode',
+  'kimi-code': 'Kimi Code', openclaw: 'OpenClaw', hermes: 'Hermes Agent',
+};
+const allIds = Object.keys(allClients);
 
 runUi(async ({ base }) => {
   const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
-    const page = await browser.newPage({ viewport: { width: 1460, height: 1060 } });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultTimeout(10000);
     page.setDefaultNavigationTimeout(30000);
     const errors = [];
@@ -21,279 +33,173 @@ runUi(async ({ base }) => {
     await page.route('**/*', route => route.request().url().startsWith(base + '/') ? route.continue() : route.abort());
     fs.mkdirSync(screenshots, { recursive: true });
 
-    const activeClient = () => page.locator('.agent-list-items button.active strong').textContent();
-    const stored = () => page.evaluate(key => localStorage.getItem(key), storageKey);
-    const manage = () => page.getByRole('button', { name: /^(管理客户端|Manage Clients)$/, exact: true });
-    const dialog = () => page.getByRole('dialog', { name: /^(管理客户端|Manage Clients)$/, exact: true });
-    const checkbox = name => dialog().getByRole('checkbox', { name, exact: true });
-    const save = () => dialog().getByRole('button', { name: '保存', exact: true });
-    const cancel = () => dialog().getByRole('button', { name: /^(取消|Cancel)$/, exact: true });
-    const search = () => dialog().getByRole('searchbox', { name: '搜索客户端', exact: true });
-    const automatic = () => dialog().getByRole('button', { name: '恢复自动显示', exact: true });
+    const cards = () => page.locator('ul.ag-grid a.ag-card');
+    const card = id => page.locator(`ul.ag-grid a.ag-card[data-client="${id}"]`);
+    const chip = label => page.getByRole('group', { name: /^(筛选客户端|Filter clients)$/ })
+      .getByRole('button', { name: new RegExp(`^${label}\\s*\\d*$`) });
+    const search = () => page.getByRole('searchbox', { name: /^(搜索客户端|Search clients)$/ });
+    const states = async () => Object.fromEntries(await cards().evaluateAll(nodes => nodes.map(n => [n.dataset.client, n.dataset.state])));
     const ready = () => page.waitForFunction(() => window.fixtureCalls?.some(call => call.cmd === 'get_agent_config_statuses')
-      && document.querySelector('.agent-client-list-heading button')
-      && !document.querySelector('.agent-client-list-heading button').disabled);
-    const waitClients = async names => {
-      await page.waitForFunction(expected => {
-        const list = document.querySelector('.agent-list-items');
-        const actual = Array.from(list.querySelectorAll('button strong'), node => node.textContent);
-        const selected = list.querySelector('button.active strong')?.textContent;
-        return actual.length > 0 && actual.length <= expected.length && actual.every(name => expected.includes(name))
-          && expected.includes(selected) && list.scrollHeight <= list.clientHeight + 1;
-      }, names);
-      await manage().click();
-      assert.deepEqual(await dialog().locator('label:has(input:checked) strong').allTextContents(), names);
-      await cancel().click();
-    };
-    const open = async (extra = 'mixed-clients', saved = null) => {
-      if (page.url() !== 'about:blank') {
-        await page.evaluate(({ key, saved }) => {
-          if (saved === null) localStorage.removeItem(key);
-          else localStorage.setItem(key, saved);
-        }, { key: storageKey, saved });
-      }
-      await page.goto(`${base}/tests/fixtures/agent-backups.html?reset-selections&client=codex&${extra}`, { waitUntil: 'domcontentloaded' });
-      await ready();
+      && document.querySelectorAll('ul.ag-grid a.ag-card').length > 0
+      && !document.querySelector('ul.ag-grid a.ag-card[data-state="detecting"]'));
+    const open = async (extra = '', hash = '') => {
+      const locale = /(^|&)locale=/.test(extra) ? '' : 'locale=en&';
+      await page.goto(`${base}/tests/fixtures/agent-backups.html?grid&${locale}${extra}${hash}`, { waitUntil: 'domcontentloaded' });
+      if (hash) await page.waitForFunction(() => window.fixtureCalls?.some(call => call.cmd === 'get_agent_config_statuses'));
+      else await ready();
       await page.evaluate(() => document.fonts.ready);
     };
-    const refresh = async override => {
-      await page.evaluate(value => { window.fixtureClientStatusesOverride = value; }, override);
-      await page.locator('.agent-client-list-heading button').click();
-      await ready();
-    };
-    const closeAndFocus = async close => {
-      await close();
-      await dialog().waitFor({ state: 'hidden' });
-      assert.equal(await manage().evaluate(node => node === document.activeElement), true,
-        'closing the client manager returns keyboard focus to its trigger');
+    const count = async label => Number(((await chip(label).textContent()) || '').replace(/\D/g, ''));
+    const assertCounts = async (expected, label) => {
+      assert.deepEqual({ all: await count('All'), connected: await count('Connected'), detected: await count('Detected'),
+        notInstalled: await count('Not installed') }, expected, `${label}: filter counts`);
     };
     const assertNoHorizontalOverflow = async label => {
       const metrics = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
       assert.ok(metrics.scrollWidth <= metrics.width + 1, `${label}: the page must fit the viewport`);
-      const shown = page.getByRole('dialog');
-      if (await shown.count()) {
-        const bounds = await shown.evaluate(node => {
-          const rect = node.getBoundingClientRect();
-          return { left: rect.left, right: rect.right, width: innerWidth, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth };
-        });
-        assert.ok(bounds.left >= -1 && bounds.right <= bounds.width + 1, `${label}: the dialog must fit the viewport`);
-        assert.ok(bounds.scrollWidth <= bounds.clientWidth + 1, `${label}: the dialog must not scroll horizontally`);
-      }
     };
 
-    // Installation, config-only and Pi plugin-only detection all keep clients accessible.
+    // Default fixture: every one of the 16 clients is on the grid, in the catalogue order, all connected.
     await open();
-    await waitClients(automaticClients);
-    assert.equal(await activeClient(), 'Codex');
-    assert.equal(await page.locator('.agent-list-items button.active').getAttribute('aria-pressed'), 'true');
-    assert.equal(await stored(), null, 'automatic defaults do not become a custom preference');
+    assert.deepEqual(await cards().evaluateAll(nodes => nodes.map(n => n.dataset.client)), allIds, 'all 16 clients on the grid');
+    for (const [id, name] of Object.entries(allClients)) {
+      assert.equal(await card(id).locator('strong').textContent(), name, `${id} shows its name`);
+    }
+    assert.deepEqual(new Set(Object.values(await states())), new Set(['connected']));
+    await assertCounts({ all: 16, connected: 16, detected: 16, notInstalled: 0 }, 'default');
+    assert.equal(await chip('All').getAttribute('aria-pressed'), 'true', 'All is the initial filter');
+    assert.equal(await card('codex').getAttribute('aria-label'), 'Codex — Connected');
 
-    // Sorting applies to custom lists and detection refresh, without changing membership or selection.
-    const customIds = ['claude-desktop', 'codex', 'hermes'];
-    await open('mixed-clients', JSON.stringify(customIds));
-    await waitClients(['Codex', 'Claude Desktop', 'Hermes Agent']);
-    assert.deepEqual(await page.locator('.agent-list-items strong').allTextContents(), ['Codex', 'Claude Desktop', 'Hermes Agent']);
-    await refresh({ hermes: { installed: true } });
-    await waitClients(['Codex', 'Hermes Agent', 'Claude Desktop']);
-    assert.deepEqual(await page.locator('.agent-list-items strong').allTextContents(), ['Codex', 'Hermes Agent', 'Claude Desktop']);
-    assert.equal(await activeClient(), 'Codex');
-    assert.deepEqual(JSON.parse(await stored()), customIds, 'sorting must not rewrite saved membership');
-    await open();
-    await waitClients(automaticClients);
+    // mixed-clients: three connected + Pi (extension installed), Claude Desktop config-only, the rest not installed.
+    await open('mixed-clients');
+    const mixed = await states();
+    for (const id of ['claude-code', 'codex', 'opencode', 'pi']) assert.equal(mixed[id], 'connected', `${id} connected`);
+    assert.equal(mixed['claude-desktop'], 'notConfigured', 'config-only Claude Desktop is detected but not configured');
+    for (const id of allIds.filter(id => !['claude-code', 'codex', 'opencode', 'claude-desktop', 'pi'].includes(id))) {
+      assert.equal(mixed[id], 'notInstalled', `${id} not installed`);
+    }
+    await assertCounts({ all: 16, connected: 4, detected: 5, notInstalled: 11 }, 'mixed-clients');
+    assert.equal(await card('claude-code').locator('.ag-card-chips').textContent(), 'Connected');
+    assert.equal(await card('claude-desktop').locator('.ag-card-chips').textContent(), 'Not configured');
+    assert.equal(await card('hermes').locator('.ag-card-chips').textContent(), 'Not installed');
+    assert.equal(await card('hermes').getAttribute('aria-label'), 'Hermes Agent — Not installed');
 
-    // Search reaches uninstalled clients; a cancelled draft never affects navigation or storage.
-    await manage().click();
-    assert.equal(await dialog().getByRole('checkbox').count(), 16);
+    // Filter chips narrow the grid and mark the active chip.
+    await chip('Connected').click();
+    assert.equal(await chip('Connected').getAttribute('aria-pressed'), 'true');
+    assert.equal(await chip('All').getAttribute('aria-pressed'), 'false');
+    assert.deepEqual((await cards().evaluateAll(nodes => nodes.map(n => n.dataset.client))).sort(), ['claude-code', 'codex', 'opencode', 'pi']);
+    await chip('Detected').click();
+    assert.equal(await cards().count(), 5);
+    assert.ok(await card('claude-desktop').count() && await card('pi').count(), 'detected includes config-only and plugin-only clients');
+    await chip('Not installed').click();
+    assert.equal(await cards().count(), 11);
+    assert.equal(await card('codex').count(), 0);
+    await chip('All').click();
+    assert.equal(await cards().count(), 16);
+
+    // Search is a case-insensitive name match that combines with the active filter.
     await search().fill('herMES');
-    assert.equal(await dialog().getByRole('checkbox').count(), 1);
-    await checkbox('Hermes Agent').check();
+    assert.deepEqual(await cards().evaluateAll(nodes => nodes.map(n => n.dataset.client)), ['hermes'], 'search reaches uninstalled clients');
+    await search().fill('claude');
+    assert.deepEqual(await cards().evaluateAll(nodes => nodes.map(n => n.dataset.client)), ['claude-code', 'claude-desktop']);
+    await chip('Connected').click();
+    assert.deepEqual(await cards().evaluateAll(nodes => nodes.map(n => n.dataset.client)), ['claude-code'], 'search combines with the filter');
     await search().fill('no-such-client');
-    assert.equal(await dialog().getByRole('checkbox').count(), 0);
+    assert.equal(await cards().count(), 0);
+    await page.getByText('No matching clients', { exact: true }).waitFor();
     await search().fill('');
-    assert.equal(await checkbox('Hermes Agent').isChecked(), true, 'search preserves pending choices');
-    await closeAndFocus(() => cancel().click());
-    await waitClients(automaticClients);
-    assert.equal(await stored(), null);
-    assert.equal(await activeClient(), 'Codex');
-    await manage().click();
-    assert.equal(await checkbox('Hermes Agent').isChecked(), false, 'cancel discards the draft');
-    await checkbox('Hermes Agent').check();
-    await closeAndFocus(() => page.keyboard.press('Escape'));
-    assert.equal(await stored(), null, 'Escape also discards changes');
+    await chip('All').click();
+    assert.equal(await cards().count(), 16);
 
-    // A keyboard user cannot escape the dialog, and cannot save an empty client list.
-    await manage().click();
-    for (let index = 0; index < 20; index++) {
-      await page.keyboard.press('Tab');
-      assert.equal(await dialog().evaluate(node => node.contains(document.activeElement)), true, 'Tab stays in the modal');
-    }
-    for (const control of await dialog().getByRole('checkbox').all()) {
-      if (await control.isChecked() && await control.isEnabled()) await control.uncheck();
-    }
-    const remaining = await dialog().getByRole('checkbox', { checked: true }).count();
-    assert.ok(remaining <= 1);
-    if (remaining === 0) assert.equal(await save().isDisabled(), true, 'empty selection must disable Save');
-    else assert.equal(await dialog().getByRole('checkbox', { checked: true }).isDisabled(), true,
-      'if the last client cannot be removed, its checkbox must communicate that state');
-    await checkbox('Hermes Agent').check();
-    for (const name of automaticClients) if (await checkbox(name).isChecked()) await checkbox(name).uncheck();
-    assert.equal(await checkbox('Hermes Agent').isChecked(), true);
-    await closeAndFocus(() => save().click());
-    await waitClients(['Hermes Agent']);
-    assert.equal(await activeClient(), 'Hermes Agent', 'removing the active client selects the first remaining client');
-    assert.deepEqual(JSON.parse(await stored()), ['hermes']);
-    await page.reload();
-    await ready();
-    await waitClients(['Hermes Agent']);
-    assert.equal(await activeClient(), 'Hermes Agent', 'saved visibility is restored on reload');
-
-    // Detection updates automatic mode but never overrides a manually curated list.
-    const override = { 'kimi-code': { installed: true, configExists: true, version: '2.0' } };
-    await refresh(override);
-    await waitClients(['Hermes Agent']);
-    await manage().click();
-    await automatic().click();
-    assert.equal(await checkbox('Kimi Code').isChecked(), true);
-    assert.equal(await checkbox('Claude Desktop').isChecked(), true);
-    await closeAndFocus(() => cancel().click());
-    assert.deepEqual(JSON.parse(await stored()), ['hermes'], 'restoring automatic visibility is still a cancellable draft');
-    await manage().click();
-    await automatic().click();
-    await closeAndFocus(() => save().click());
-    assert.equal(await stored(), null, 'saving automatic mode clears the custom preference');
-    await waitClients(['Claude Code', 'Codex', 'OpenCode', 'Kimi Code', 'Claude Desktop', 'Pi', 'Hermes Agent']);
-    await refresh({ ...override,
-      'claude-code': { installed: false, configured: false, configExists: false },
-      openclaw: { installed: true },
-    });
-    await waitClients(['Codex', 'OpenCode', 'Kimi Code', 'OpenClaw', 'Claude Desktop', 'Pi', 'Hermes Agent']);
-
-    // Detection failure and a clean machine still offer a usable selected client and the full catalog.
+    // not-installed (clean machine): nothing is detected, every card is "not installed", the full catalogue is still listed.
     await open('not-installed&no-plugin&fresh');
-    await waitClients(['Codex']);
-    await manage().click();
-    assert.equal(await dialog().getByRole('checkbox').count(), 16);
-    await closeAndFocus(() => cancel().click());
-    await open('mixed-clients&fail-detection');
-    await page.getByText(/模拟客户端检测失败/).waitFor();
-    await waitClients(['Codex']);
-    await refresh({});
-    await waitClients(automaticClients);
+    assert.equal(await cards().count(), 16);
+    assert.deepEqual(new Set(Object.values(await states())), new Set(['notInstalled']));
+    await assertCounts({ all: 16, connected: 0, detected: 0, notInstalled: 16 }, 'not-installed');
+    await chip('Connected').click();
+    await page.getByText('No matching clients', { exact: true }).waitFor();
+    assert.equal(await cards().count(), 0);
 
-    await open('mixed-clients&shell');
-    await waitClients(automaticClients);
-    await page.screenshot({ path: path.join(screenshots, 'automatic-desktop.png'), fullPage: true });
-    await manage().click();
-    await dialog().waitFor();
-    await page.screenshot({ path: path.join(screenshots, 'manager-desktop.png'), fullPage: true });
-    await closeAndFocus(() => cancel().click());
+    // config-only: a client with only a config file counts as detected, even though the binary is missing.
+    await open('not-installed&no-plugin&fresh&config-only=hermes');
+    assert.equal((await states()).hermes, 'notConfigured', 'config-only client is detected (not "not installed")');
+    await assertCounts({ all: 16, connected: 0, detected: 1, notInstalled: 15 }, 'config-only');
+    await chip('Detected').click();
+    assert.deepEqual(await cards().evaluateAll(nodes => nodes.map(n => n.dataset.client)), ['hermes']);
 
-    // Every saved client is reachable exactly once, in the same order, without a second switcher.
-    await page.setViewportSize({ width: 1368, height: 912 });
-    const savedClients = ['claude-code', 'claude-desktop', 'codex', 'deepseek-harness', 'opencode', 'omp', 'pi',
-      'grok-build', 'copilot-cli', 'vscode-copilot', 'antigravity-cli', 'workbuddy', 'zcode', 'kimi-code', 'openclaw'];
-    const savedNames = ['Claude Code', 'Claude Desktop', 'Codex', 'DeepSeek Harness', 'OpenCode', 'Oh My Pi', 'Pi',
-      'Grok Build', 'Copilot CLI', 'VSCode Copilot', 'Antigravity CLI', 'WorkBuddy', 'ZCode', 'Kimi Code', 'OpenClaw'];
-    await page.evaluate(({ key, ids }) => localStorage.setItem(key, JSON.stringify(ids)), { key: storageKey, ids: savedClients });
-    await page.goto(`${base}/tests/fixtures/agent-backups.html?shell&client=claude-code`, { waitUntil: 'domcontentloaded' });
+    // Clicking a card opens that client's detail; the back link returns to the grid.
+    await open('mixed-clients');
+    await card('opencode').click();
+    await page.waitForFunction(() => location.hash.startsWith('#/agents?') && new URLSearchParams(location.hash.split('?')[1]).get('client') === 'opencode');
+    await page.getByRole('tab', { name: /^Setup$/ }).waitFor();
+    assert.equal(await cards().count(), 0, 'the grid is replaced by the detail');
+    assert.equal(await page.getByRole('heading', { name: 'OpenCode' }).count() >= 1 || await page.getByText('OpenCode', { exact: true }).count() >= 1, true);
+    await page.getByRole('link', { name: /All clients/ }).click();
+    await page.waitForFunction(() => location.hash === '#/agents');
     await ready();
-    const previous = () => page.getByRole('button', { name: '上一页客户端', exact: true });
-    const next = () => page.getByRole('button', { name: '下一页客户端', exact: true });
-    const namesOnPage = () => page.locator('.agent-list-items strong').allTextContents();
-    const assertFits = async () => {
-      const metrics = await page.locator('.agent-list-items').evaluate(list => {
-        const rect = list.getBoundingClientRect();
-        return { height: list.clientHeight, scrollHeight: list.scrollHeight, scrollWidth: list.scrollWidth,
-          width: list.clientWidth, clipped: Array.from(list.children).some(child => {
-            const r = child.getBoundingClientRect();
-            return r.top < rect.top - 1 || r.bottom > rect.bottom + 1;
-          }) };
-      });
-      assert.ok(metrics.scrollHeight <= metrics.height + 1 && metrics.scrollWidth <= metrics.width + 1);
-      assert.equal(metrics.clipped, false, 'all rows are fully visible on each page');
-    };
-    const collectPages = async () => {
-      while (await previous().isEnabled()) await previous().click();
-      const names = [];
-      for (let index = 0; index < savedClients.length; index++) {
-        await assertFits();
-        names.push(...await namesOnPage());
-        if (await next().isDisabled()) break;
-        await next().click();
-      }
-      return names;
-    };
-    assert.equal(await page.getByRole('button', { name: '切换客户端', exact: true }).count(), 0);
-    assert.deepEqual(await collectPages(), savedNames, 'no saved client is omitted, duplicated or reordered');
-    assert.deepEqual(JSON.parse(await stored()), savedClients, 'browsing leaves the management list unchanged');
-    assert.equal(await page.evaluate(() => localStorage.getItem('cpa-gui.agent-selected-client.v1')), 'claude-code',
-      'browsing pages does not select a different client');
-    const lastPage = await namesOnPage();
-    await page.locator('.agent-list-items button').filter({ has: page.getByText('OpenClaw', { exact: true }) }).click();
-    assert.deepEqual(await namesOnPage(), lastPage, 'selecting a client does not replace or shuffle any row');
-    assert.equal(await activeClient(), 'OpenClaw');
-    assert.deepEqual(JSON.parse(await stored()), savedClients, 'selecting leaves the management list unchanged');
-    await page.setViewportSize({ width: 360, height: 600 });
-    await page.waitForFunction(() => document.querySelector('.agent-list-items button.active strong')?.textContent === 'OpenClaw'
-      && document.querySelectorAll('.agent-list-items button').length <= 2);
-    await assertFits();
-    assert.deepEqual(await collectPages(), savedNames, 'all managed clients remain reachable after resizing');
-    assert.deepEqual(JSON.parse(await stored()), savedClients);
-    // Add/remove only in management. Cancel is inert; Save controls the entire list.
-    await manage().click();
-    await checkbox('Hermes Agent').check();
-    await checkbox('OpenClaw').uncheck();
-    await closeAndFocus(() => cancel().click());
-    assert.deepEqual(JSON.parse(await stored()), savedClients);
-    assert.equal(await activeClient(), 'OpenClaw');
-    await manage().click();
-    await checkbox('Hermes Agent').check();
-    await checkbox('OpenClaw').uncheck();
-    await closeAndFocus(() => save().click());
-    const updatedNames = [...savedNames.filter(name => name !== 'OpenClaw'), 'Hermes Agent'];
-    assert.equal(await activeClient(), 'Claude Code', 'explicitly removing the current client selects a remaining client');
-    assert.deepEqual(await collectPages(), updatedNames);
-    await page.locator('.agent-list-items button').filter({ has: page.getByText('Hermes Agent', { exact: true }) }).click();
+    assert.equal(await cards().count(), 16, 'back link restores the full grid');
+    // A not-installed client still opens its detail.
+    await card('hermes').click();
+    await page.getByRole('tab', { name: /^Setup$/ }).waitFor();
+    await page.getByRole('link', { name: /All clients/ }).waitFor();
+
+    // Direct deep link to a detail, and an unknown client id → not-found state with a way back.
+    await open('mixed-clients', '#/agents?client=claude-code&tab=backups');
+    await page.getByRole('tab', { name: /^Backups$/ }).waitFor();
+    assert.equal(await page.getByRole('tab', { name: /^Backups$/ }).getAttribute('aria-selected'), 'true');
+    await open('mixed-clients', '#/agents?client=no-such-client');
+    await page.getByText('Client not found', { exact: true }).waitFor();
+    assert.equal(await cards().count(), 0);
+    assert.equal(await page.getByRole('tab', { name: /^Setup$/ }).count(), 0, 'no detail tabs for an unknown client');
+    await page.getByRole('button', { name: 'All clients', exact: true }).click();
+    await page.waitForFunction(() => location.hash === '#/agents');
+    await ready();
+    assert.equal(await cards().count(), 16, 'not-found state links back to the grid');
+
+    // Detection failure: error state with a message, retry succeeds and fills the grid.
+    await page.goto(`${base}/tests/fixtures/agent-backups.html?grid&locale=en&mixed-clients&fail-detection`, { waitUntil: 'domcontentloaded' });
+    const alert = page.getByRole('alert').filter({ hasText: 'Client detection failed' });
+    await alert.waitFor();
+    assert.match(await alert.textContent(), /模拟客户端检测失败/, 'the detection error message is shown');
+    assert.equal(await cards().evaluateAll(nodes => nodes.every(n => n.dataset.state === 'detecting')), true,
+      'without statuses no client claims a state');
+    await alert.getByRole('button', { name: /^Retry$/ }).click();
+    await ready();
+    await alert.waitFor({ state: 'hidden' });
+    assert.equal(await cards().count(), 16);
+    assert.equal((await states()).codex, 'connected', 'retry loads the statuses');
+    // The header Rescan button re-runs detection too.
+    const detections = () => page.evaluate(() => window.fixtureCalls.filter(c => c.cmd === 'refresh_agent_config_statuses').length);
+    const before = await detections();
+    await page.getByRole('button', { name: 'Rescan', exact: true }).click();
+    await page.waitForFunction(n => window.fixtureCalls.filter(c => c.cmd === 'refresh_agent_config_statuses').length > n, before);
+
+    // Browsing the grid never writes config or launches a client.
     assert.equal(await page.evaluate(() => window.fixtureCalls.some(call =>
       /^(update_agent_config|set_agent_config_enabled|launch_agent)$/.test(call.cmd))), false,
-      'list management and navigation must not write config or launch a client');
-    const savedAfterManagement = await stored();
-    await page.reload();
-    await ready();
-    assert.equal(await stored(), savedAfterManagement);
-    assert.deepEqual(await collectPages(), updatedNames, 'saved management choices survive reload');
-    await page.setViewportSize({ width: 1368, height: 912 });
-    await page.locator('.agent-workbench').screenshot({ path: path.join(screenshots, 'client-pagination.png') });
-    assert.equal(await page.evaluate(() => window.fixtureCalls.some(call =>
-      /^(update_agent_config|set_agent_config_enabled|launch_agent)$/.test(call.cmd))), false,
-      'list management and navigation must not write config or launch a client');
+      'listing and navigation must not write config or launch a client');
 
-    // Both entry points remain usable with narrow windows and English text in dark mode.
-    for (const embedded of [false, true]) {
+    // Layout: no horizontal overflow on desktop and narrow windows, in zh-CN light and English dark.
+    for (const [width, height] of [[1280, 900], [680, 900]]) {
       for (const english of [false, true]) {
-        await page.setViewportSize({ width: 360, height: 800 });
-        await open(`mixed-clients&shell&${embedded ? 'embedded&' : ''}${english ? 'locale=en&theme=dark' : ''}`);
-        await waitClients(automaticClients);
-        const label = `${embedded ? 'embedded' : 'full'}-${english ? 'dark-en' : 'light-zh'}`;
+        await page.setViewportSize({ width, height });
+        await open(`mixed-clients&${english ? 'theme=dark' : 'locale=zh-CN'}`);
+        const label = `${width}px ${english ? 'dark-en' : 'light-zh'}`;
         await assertNoHorizontalOverflow(label);
-        const trigger = page.getByRole('button', { name: english ? 'Manage Clients' : '管理客户端', exact: true });
-        await trigger.click();
-        const modal = page.getByRole('dialog', { name: english ? 'Manage Clients' : '管理客户端', exact: true });
-        await modal.waitFor();
-        await assertNoHorizontalOverflow(`${label} manager`);
-        const hermes = modal.getByRole('checkbox', { name: 'Hermes Agent', exact: true });
-        await hermes.check();
-        assert.equal(await hermes.isChecked(), true, `${label}: the last catalog entry is reachable`);
-        await page.screenshot({ path: path.join(screenshots, `${label}-manager.png`), fullPage: true });
-        await page.keyboard.press('Escape');
-        await modal.waitFor({ state: 'hidden' });
-        assert.equal(await trigger.evaluate(node => node === document.activeElement), true);
+        assert.equal(await cards().count(), 16, `${label}: all clients reachable`);
+        for (const control of [search(), page.getByRole('button', { name: english ? 'Rescan' : '重新检测', exact: true })]) {
+          assert.equal(await control.isVisible(), true, `${label}: controls visible`);
+          assert.equal(await control.isEnabled(), true, `${label}: controls enabled`);
+        }
+        await card('codex').scrollIntoViewIfNeeded();
+        await page.screenshot({ path: path.join(screenshots, `grid-${width}-${english ? 'dark-en' : 'light-zh'}.png`), fullPage: true });
       }
     }
     assert.deepEqual(errors, []);
-    console.log('PASS: automatic detection, custom visibility, persistence, active selection, search, cancellation, empty selection, modal focus, retry, narrow layouts and dark English');
+    console.log('PASS: 16-client grid, state chips (mixed/not-installed/config-only), filter counts, search, detail navigation, not-found, detection failure retry, narrow layouts, dark English');
     console.log(`Screenshots: ${screenshots}`);
   } finally {
     await browser.close();
   }
-}, { url: process.env.AGENT_CLIENT_TEST_URL });
+}, { url: process.env.AGENT_TEST_URL });

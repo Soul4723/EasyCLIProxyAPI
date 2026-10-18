@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { I18nProvider } from '../src/i18n';
-import { QuotaCard } from '../src/pages/QuotaPage';
+import { renderCard } from './helpers/quotaAccount';
 import { quotaRowsFor } from '../src/services/quotaService';
 import { antigravityDescription } from '../src/services/antigravityQuotaLabels';
 
@@ -29,12 +27,9 @@ describe('Antigravity current quota response', () => {
     const rows = rowsFor(0);
     expect(rows[0].remainingPercent).toBe(100);
     expect(rows[0].quotaAvailable).toBe(false);
-    const render = (weekly: number) => renderToStaticMarkup(
-      <I18nProvider><QuotaCard file={{ name: 'test.json', provider: 'antigravity' }}
-        quota={{ status: 'success', rows: rowsFor(weekly) }} onRefresh={() => {}} onReset={() => {}} /></I18nProvider>,
-    );
+    const render = (weekly: number) => renderCard({ name: 'test.json', provider: 'antigravity' }, { status: 'success', rows: rowsFor(weekly) });
     expect(render(0)).not.toContain('Quota available');
-    expect(render(0)).toContain('100% remaining');
+    expect(render(0)).toContain('100%');
     expect(render(0.4)).toContain('Quota available');
   });
 });

@@ -1,34 +1,17 @@
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
-const path = require('node:path');
+const { startFixtureServer, launchBrowser, openPage, selectors } = require('./helpers/apiFixture.cjs');
 
+// DeepSeek needs a manual model before it can be saved, a config can be created without any discovery request, and a
+// failed discovery while editing never blocks saving the manual models (fixture: tests/fixtures/provider-manual-models.tsx).
 (async () => {
-  const { createServer } = await import('vite');
-  const react = (await import('@vitejs/plugin-react')).default;
-  const server = await createServer({
-    configFile: false,
-    root: path.resolve(__dirname, '..'),
-    plugins: [react()],
-    optimizeDeps: { entries: ['tests/fixtures/provider-manual-models.html'] },
-    logLevel: 'error',
-    server: { host: '127.0.0.1', port: 1421, strictPort: false, watch: null },
-  });
+  const { server, base } = await startFixtureServer(['tests/fixtures/provider-manual-models.html']);
   let browser;
   try {
-    await server.listen();
-    const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    await (await fetch(base)).text();
-    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    page.setDefaultTimeout(10000);
-    const errors = [];
-    page.on('pageerror', (error) => errors.push(String(error)));
-    await page.route('**/*', (route) => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
-    await page.goto(`${base}/tests/fixtures/provider-manual-models.html`, { waitUntil: 'domcontentloaded' });
-    await page.locator('.provider-category-panel button').filter({ hasText: 'DeepSeek' }).click();
-    await page.getByRole('button', { name: 'Add API Key', exact: true }).click();
-    const form = page.getByRole('dialog', { name: 'Add API Key', exact: true });
+    browser = await launchBrowser();
+    const { page, errors } = await openPage(browser, base, { width: 1280, height: 800 });
+    await page.goto(`${base}/tests/fixtures/provider-manual-models.html?brand=deepseek`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'Add API Key', exact: true }).first().click(); // toolbar button (the empty state repeats it)
+    const form = page.getByRole('dialog', { name: /^Add API Key/ });
     await form.getByLabel('API Key', { exact: true }).fill('test-manual-key');
     await form.getByLabel('Base URL', { exact: true }).fill('https://relay.example.test');
     await form.getByRole('button', { name: 'Save', exact: true }).click();
@@ -40,12 +23,12 @@ const path = require('node:path');
     await form.waitFor({ state: 'detached' });
     assert.equal(await page.evaluate(() => window.providerFixture.discoveryCalls), 0);
     assert.equal(await page.evaluate(() => window.providerFixture.records.at(-1).keys[0].models[0].name), 'custom-model');
-    await page.locator('.real-provider-row').getByRole('button', { name: 'Edit', exact: true }).click();
-    const edit = page.getByRole('dialog', { name: 'Edit API Key', exact: true });
+    await page.locator(selectors.row).getByRole('button', { name: 'Edit', exact: true }).click();
+    const edit = page.getByRole('dialog', { name: /^Edit API Key/ });
     await edit.getByLabel('Base URL', { exact: true }).fill('https://another-relay.example.test');
     await edit.getByLabel('API Key', { exact: true }).fill('test-updated-key');
     await edit.getByRole('button', { name: 'Fetch Models', exact: true }).click();
-    const models = page.getByRole('dialog', { name: 'Select Models', exact: true });
+    const models = page.getByRole('dialog', { name: /^Select Models/ });
     await models.getByText(/Model listing disabled/).waitFor();
     await page.keyboard.press('Escape');
     await models.waitFor({ state: 'detached' });
@@ -58,7 +41,7 @@ const path = require('node:path');
     assert.equal(saved.keys[0].models[0].name, 'custom-model');
     assert.equal(saved['base-url'], 'https://another-relay.example.test');
     assert.deepEqual(errors, []);
-    console.log('Manual provider models: create without discovery, empty validation, edit after failed discovery passed');
+    console.log('PASS: manual provider models: create without discovery, empty validation, edit after failed discovery.');
   } finally {
     await browser?.close();
     await server.close();

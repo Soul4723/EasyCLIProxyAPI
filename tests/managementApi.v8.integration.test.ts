@@ -7,7 +7,7 @@ import { join, resolve, sep } from 'node:path';
 import {
   applyProviderPreset, buildProviderRecord, buildProviderGroupRecord, createProviderDraft, providerDraftFromRecord,
   type ProviderSection,
-} from '../src/pages/ApiAccessPage';
+} from '../src/sections/providers/api/logic';
 import { flattenV8ProviderGroups, groupLegacyProviderRecords } from './fixtures/legacyProviderRecords';
 
 const executable = process.env.CPA_V8_TEST_CORE;

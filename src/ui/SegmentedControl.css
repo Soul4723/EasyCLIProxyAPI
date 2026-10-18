@@ -1,0 +1,88 @@
+/* SegmentedControl: see SegmentedControl.tsx. Item height is the control height minus the track border and padding. */
+
+.ec-seg {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px;
+  box-sizing: border-box;
+  border: 1px solid var(--ec-border);
+  border-radius: var(--ec-r-md);
+  background: var(--ec-muted-bg);
+}
+
+.ec-seg__item {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+  height: calc(var(--ec-ctrl-h) - 6px);
+  min-width: 0;
+  padding: 0 var(--ec-sp-2);
+  border: 0;
+  border-radius: var(--ec-r-sm);
+  background: transparent;
+  color: var(--ec-fg-muted);
+  font: inherit;
+  font-size: var(--ec-fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.ec-seg--sm .ec-seg__item {
+  height: calc(var(--ec-ctrl-h-sm) - 6px);
+  font-size: var(--ec-fs-xs);
+}
+
+.ec-seg__item:hover {
+  color: var(--ec-fg);
+}
+
+.ec-seg__item:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 1px;
+}
+
+.ec-seg__item--on,
+.ec-seg__item--on:hover {
+  background: var(--ec-raised);
+  color: var(--ec-fg);
+  box-shadow: var(--ec-shadow-xs);
+}
+
+.ec-seg__icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.ec-seg__icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ec-seg__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ec-seg__count {
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-2xs);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--ec-fg-subtle);
+}
+
+.ec-seg__item--on .ec-seg__count {
+  color: var(--ec-fg-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-seg__item {
+    transition: none;
+  }
+}

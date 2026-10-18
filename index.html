@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
       (() => {
-        let paint = { system: false, appearance: 'light', light: '#ffffff', dark: '#0b0d11' };
+        let paint = { system: false, appearance: 'dark', light: '#fbf8f5', dark: '#291e1a' };
         const read = (key, parse) => {
           try {
             return parse(localStorage.getItem(key));
@@ -24,6 +24,7 @@
           ? window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
           : paint.appearance;
         document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.density = read('easy-cli-proxy-api.density', (value) => value) === 'compact' ? 'compact' : 'comfortable';
         document.documentElement.style.colorScheme = theme;
         document.documentElement.style.backgroundColor = paint[theme];
       })();

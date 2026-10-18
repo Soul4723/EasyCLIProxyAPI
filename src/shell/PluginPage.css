@@ -1,0 +1,10 @@
+/* Plugin webview page: header + a host that fills the rest of the main area (the native webview is laid over it). */
+.ec-main:has(> .ec-plugin-page) { overflow: hidden; }
+.ec-plugin-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.ec-plugin-host { position: relative; flex: 1 1 auto; min-height: 0; }
+.ec-plugin-status { margin: var(--ec-sp-5); color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
+.ec-plugin-error {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--ec-sp-3); margin: var(--ec-sp-4);
+  padding: var(--ec-sp-3) var(--ec-sp-4); border: 1px solid var(--ec-danger); border-radius: var(--ec-r-md);
+  background: var(--ec-muted-bg); color: var(--ec-danger-fg); font-size: var(--ec-fs-sm); overflow-wrap: anywhere;
+}

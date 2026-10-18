@@ -1,0 +1,48 @@
+/* Providers section styles. Every rule is scoped under .ec-sec-providers (kit ec-* classes + --ec-* tokens only). */
+.ec-sec-providers .pv-group { display: flex; flex-direction: column; gap: var(--ec-sp-2); }
+.ec-sec-providers .pv-group__title {
+  margin: 0; font-size: var(--ec-fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ec-fg-muted);
+}
+.ec-sec-providers .pv-grid {
+  display: grid; gap: var(--ec-gap); grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+}
+.ec-sec-providers .pv-card { display: flex; flex-direction: column; gap: var(--ec-sp-3); padding: 0; }
+.ec-sec-providers .pv-card__link {
+  display: flex; flex-direction: column; gap: var(--ec-sp-3); padding: var(--ec-pad) var(--ec-pad) 0;
+  color: inherit; text-decoration: none; border-radius: var(--ec-r-md);
+}
+.ec-sec-providers .pv-card__link:hover .pv-card__name { color: var(--ec-accent); }
+.ec-sec-providers .pv-card__link:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: -2px; }
+.ec-sec-providers .pv-card__head { display: flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-providers .pv-card__name { font-size: var(--ec-fs-md); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-sec-providers .pv-card__flag {
+  margin-left: auto; min-width: 18px; padding: 0 6px; border-radius: var(--ec-r-pill); text-align: center;
+  background: var(--ec-st-error); color: var(--ec-bg); font-size: var(--ec-fs-2xs); font-weight: 700; line-height: 18px;
+}
+.ec-sec-providers .pv-card__counts { display: flex; flex-wrap: wrap; gap: var(--ec-sp-3); color: var(--ec-fg-2); font-size: var(--ec-fs-sm); }
+.ec-sec-providers .pv-count { display: inline-flex; align-items: center; gap: var(--ec-sp-1); }
+.ec-sec-providers .pv-count b { color: var(--ec-fg); font-size: var(--ec-fs-lg); }
+.ec-sec-providers .pv-bar { display: flex; gap: 2px; height: 6px; border-radius: var(--ec-r-pill); overflow: hidden; }
+.ec-sec-providers .pv-bar__seg { display: block; min-width: 6px; border-radius: var(--ec-r-pill); }
+.ec-sec-providers .pv-bar__seg--empty { background: var(--ec-muted-bg); }
+.ec-sec-providers .pv-card__actions { display: flex; gap: var(--ec-sp-2); padding: 0 var(--ec-pad) var(--ec-pad); min-height: calc(var(--ec-ctrl-h) + var(--ec-pad)); align-items: flex-start; }
+.ec-sec-providers .pv-detail-head { display: flex; align-items: center; gap: var(--ec-sp-3); flex-wrap: wrap; }
+.ec-sec-providers .pv-detail-head h2 { margin: 0; font-size: var(--ec-fs-xl); }
+.ec-sec-providers .pv-detail-head .pv-detail-actions { margin-left: auto; display: flex; gap: var(--ec-sp-2); flex-wrap: wrap; }
+.ec-sec-providers .pv-back { display: inline-flex; align-items: center; gap: var(--ec-sp-1); color: var(--ec-fg-muted); text-decoration: none; font-size: var(--ec-fs-sm); }
+.ec-sec-providers .pv-back:hover { color: var(--ec-fg); }
+.ec-sec-providers .pv-section { display: flex; flex-direction: column; gap: var(--ec-sp-2); }
+.ec-sec-providers .pv-toolbar { display: flex; flex-wrap: wrap; gap: var(--ec-sp-2); align-items: center; }
+.ec-sec-providers .pv-menu-reason { color: var(--ec-fg-muted); }
+.pv-add-anchor { display: inline-flex; }
+
+.ec-sec-providers .pv-card--empty .pv-card__name { color: var(--ec-fg-2); }
+.ec-sec-providers .pv-card--empty .pv-count b { color: var(--ec-fg-muted); }
+
+.ec-sec-providers .pv-banner {
+  display: flex; align-items: center; gap: var(--ec-sp-2); padding: var(--ec-sp-2) var(--ec-sp-3);
+  border: 1px solid var(--ec-st-error); border-radius: var(--ec-r-md); background: var(--ec-muted-bg); color: var(--ec-fg);
+  font-size: var(--ec-fs-sm);
+}
+.ec-sec-providers .pv-banner svg { color: var(--ec-st-error-fg); flex: none; }
+.ec-sec-providers .pv-banner__text { flex: 1; min-width: 0; overflow-wrap: anywhere; }

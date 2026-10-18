@@ -1,0 +1,68 @@
+/* Usage → Requests tab. Every rule is scoped under .ec-sec-usage (kit tokens only). */
+.ec-sec-usage .req-tab { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; }
+.ec-sec-usage .req-toolbar { display: flex; align-items: center; gap: var(--ec-sp-3); min-width: 0; }
+.ec-sec-usage .req-count { font-size: var(--ec-fs-sm); font-weight: 600; color: var(--ec-fg-2); font-variant-numeric: tabular-nums; margin-right: auto; white-space: nowrap; }
+.ec-sec-usage .req-notice { display: inline-flex; align-items: center; gap: var(--ec-sp-1); min-width: 0; max-width: 60%; padding: 2px var(--ec-sp-2); border-radius: var(--ec-r-sm); font-size: var(--ec-fs-xs); }
+.ec-sec-usage .req-notice.is-ok { background: var(--ec-muted-bg); color: var(--ec-ok-fg); }
+.ec-sec-usage .req-notice.is-danger { background: var(--ec-muted-bg); color: var(--ec-danger-fg); }
+
+.ec-sec-usage .req-table { min-width: 0; border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface); overflow-x: auto; transition: opacity 0.15s; }
+.ec-sec-usage .req-table.is-fetching { opacity: 0.8; }
+.ec-sec-usage .req-table .ec-table-wrap { border: 0; border-radius: 0; }
+.ec-sec-usage .req-table .ec-table { min-width: 1100px; table-layout: fixed; }
+/* Fixed layout: numeric columns keep their widths (Cost is never pushed off the card); Model and Account share the rest and truncate. */
+.ec-sec-usage .req-table .ec-table td { overflow: hidden; text-overflow: ellipsis; }
+.ec-sec-usage .req-table .ec-table .req-model, .ec-sec-usage .req-table .ec-table .req-stack { min-width: 0; max-width: 100%; }
+.ec-sec-usage .req-table .ec-table td { padding-top: var(--ec-sp-1); padding-bottom: var(--ec-sp-1); }
+
+.ec-sec-usage .req-stack { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.ec-sec-usage .req-stack--end { align-items: flex-end; }
+.ec-sec-usage .req-stack small { font-size: var(--ec-fs-xs); }
+.ec-sec-usage .req-model { display: flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-usage .req-line { display: flex; align-items: center; gap: var(--ec-sp-1); min-width: 0; }
+.ec-sec-usage .req-chip { display: inline-flex; flex: none; }
+.ec-sec-usage .req-metrics { display: inline-flex; align-items: center; gap: var(--ec-sp-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ec-sec-usage .req-metrics span { display: inline-flex; align-items: center; gap: 2px; }
+.ec-sec-usage .req-in svg { color: var(--ec-s4); }
+.ec-sec-usage .req-out svg { color: var(--ec-s1); }
+.ec-sec-usage .req-cache svg { color: var(--ec-s3); }
+.ec-sec-usage .req-dur.is-warn { color: var(--ec-warn-fg); }
+.ec-sec-usage .req-dur.is-bad { color: var(--ec-danger-fg); }
+
+/* Detail drawer (portaled: content carries its own .ec-sec-usage root) */
+.ec-sec-usage.req-drawer { display: flex; flex-direction: column; gap: var(--ec-sp-4); }
+.ec-sec-usage.req-drawer-title { display: inline-flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-usage.req-drawer-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--ec-sp-3); width: 100%; }
+.ec-sec-usage .req-link { display: inline-flex; align-items: center; gap: var(--ec-sp-1); color: var(--ec-accent); font-size: var(--ec-fs-sm); text-decoration: none; }
+.ec-sec-usage .req-link:hover { text-decoration: underline; }
+.ec-sec-usage .req-section { display: flex; flex-direction: column; gap: var(--ec-sp-2); padding-bottom: var(--ec-sp-3); border-bottom: 1px solid var(--ec-border-soft); }
+.ec-sec-usage .req-section:last-child { border-bottom: 0; }
+.ec-sec-usage .req-section__title { margin: 0; font-size: var(--ec-fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ec-fg-muted); }
+.ec-sec-usage .req-kvs { margin: 0; display: flex; flex-direction: column; }
+.ec-sec-usage .req-kv { display: flex; align-items: center; justify-content: space-between; gap: var(--ec-sp-3); min-height: 26px; font-size: var(--ec-fs-sm); }
+.ec-sec-usage .req-kv dt { display: inline-flex; align-items: center; gap: var(--ec-sp-2); color: var(--ec-fg-muted); flex: none; }
+.ec-sec-usage .req-kv dd { margin: 0; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: var(--ec-sp-2); color: var(--ec-fg); text-align: right; }
+.ec-sec-usage .req-id, .ec-sec-usage .req-prov { display: inline-flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-usage .req-dot { width: 8px; height: 8px; border-radius: var(--ec-r-pill); display: inline-block; }
+.ec-sec-usage .req-tokens-total { display: flex; align-items: baseline; gap: var(--ec-sp-2); }
+.ec-sec-usage .req-tokens-total strong { font-size: var(--ec-fs-xl); }
+.ec-sec-usage .req-stackbar { display: flex; height: 8px; border-radius: var(--ec-r-pill); overflow: hidden; background: var(--ec-muted-bg); gap: 1px; }
+.ec-sec-usage .req-stackbar span { display: block; height: 100%; min-width: 2px; }
+.ec-sec-usage .req-timeline { display: flex; height: 8px; border-radius: var(--ec-r-pill); overflow: hidden; background: var(--ec-muted-bg); }
+.ec-sec-usage .req-timeline__ttft { background: var(--ec-s4); min-width: 3px; }
+.ec-sec-usage .req-timeline__rest { flex: 1; background: var(--ec-s1); opacity: 0.55; }
+
+.ec-sec-usage .req-error { display: flex; flex-direction: column; gap: var(--ec-sp-2); padding: var(--ec-sp-3); border: 1px solid var(--ec-st-error); border-radius: var(--ec-r-md); background: var(--ec-code); }
+.ec-sec-usage .req-error__head { display: flex; align-items: center; justify-content: space-between; }
+.ec-sec-usage .req-code { margin: 0; font-family: var(--ec-mono); font-size: var(--ec-fs-xs); color: var(--ec-fg-2); white-space: pre-wrap; word-break: break-word; }
+.ec-sec-usage .req-code.is-collapsed { max-height: calc(8 * 1.5em); overflow: hidden; line-height: 1.5; mask-image: linear-gradient(to bottom, var(--ec-fg) 70%, transparent); -webkit-mask-image: linear-gradient(to bottom, var(--ec-fg) 70%, transparent); }
+
+.ec-sec-usage .req-table .ec-table td { white-space: nowrap; }
+.ec-sec-usage .req-table .ec-table .req-stack > small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ec-sec-usage .req-drawer-title strong, .ec-sec-usage.req-drawer-title > .ec-trunc { font-size: var(--ec-fs-base); }
+@media (max-width: 720px) {
+  .ec-sec-usage .req-toolbar { flex-wrap: wrap; }
+  .ec-sec-usage .req-notice { max-width: 100%; order: 3; }
+}
+.ec-sec-usage .req-account { max-width: 230px; }
+.ec-sec-usage .req-table .ec-table th.ec-table__cell--end { text-align: end; }

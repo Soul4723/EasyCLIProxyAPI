@@ -1,8 +1,8 @@
 import { MessageNotice } from '../appNotice';
 import { CodexSessionContextEditor } from './CodexSessionContextEditor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke } from '../services/platform';
+import { listen } from '../services/platform';
 import {
   ArrowLeft,
   ArrowRight,

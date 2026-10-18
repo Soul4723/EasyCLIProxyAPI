@@ -1,42 +1,33 @@
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
-const path = require('node:path');
+const { startFixtureServer, launchBrowser, openPage, selectors } = require('./helpers/apiFixture.cjs');
 
+// #276: a second route that shares a credential and URL with an existing one must be creatable, editable after an
+// external reorder, disableable, draggable and deletable without touching its sibling. Drives the real
+// useApiProviders controller, ApiKeyList and ApiProviderForm (fixture: tests/fixtures/provider-duplicates.tsx).
 (async () => {
-  const { createServer } = await import('vite');
-  const react = (await import('@vitejs/plugin-react')).default;
-  const server = await createServer({ configFile: false, root: path.resolve(__dirname, '..'), plugins: [react()],
-    optimizeDeps: { entries: ['tests/fixtures/provider-duplicates.html'] }, logLevel: 'error',
-    server: { host: '127.0.0.1', port: 0, watch: null } });
+  const { server, base } = await startFixtureServer(['tests/fixtures/provider-duplicates.html']);
   let browser;
   try {
-    await server.listen();
-    const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
-    const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
-    page.setDefaultTimeout(10000);
-    const errors = [];
-    page.on('pageerror', (error) => errors.push(String(error)));
-    page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
-    await page.route('**/*', (route) => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
-    await page.goto(`${base}/tests/fixtures/provider-duplicates.html`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.locator('.provider-category-panel button').filter({ hasText: 'Claude' }).click();
-    const rows = page.locator('.real-provider-row');
+    browser = await launchBrowser();
+    const { page, errors } = await openPage(browser, base, { width: 1280, height: 1000 }, { consoleErrors: true });
+    await page.goto(`${base}/tests/fixtures/provider-duplicates.html?brand=claude`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const rows = page.locator(selectors.row);
     const records = () => page.evaluate(() => window.providerFixture.records);
-    const form = page.locator('.api-provider-dialog');
+    const form = page.getByRole('dialog', { name: /^(Add|Edit) API Key/ });
     const waitForSave = () => form.waitFor({ state: 'detached' });
+    const advanced = () => form.locator(selectors.advancedSummary).click();
+    await rows.first().waitFor();
 
     await page.getByRole('button', { name: 'Add API Key', exact: true }).click();
     assert.equal(await form.getByLabel('Group Name', { exact: true }).count(), 0);
     await form.getByLabel('API Key', { exact: true }).fill('shared-test-key');
     await form.getByLabel('Base URL', { exact: true }).fill('https://claude.example.test');
-    await form.locator('.provider-advanced-settings > summary').click();
+    await advanced();
     await form.getByLabel('Priority', { exact: true }).fill('1');
     await form.getByLabel('Remark', { exact: true }).fill('Second route');
     await form.getByRole('button', { name: 'Add Custom Model', exact: true }).click();
-    await form.locator('.model-config-entry input').nth(0).fill('upstream-b');
-    await form.locator('.model-config-entry input').nth(1).fill('claude-b');
+    await form.locator(selectors.modelEntryInputs).nth(0).fill('upstream-b');
+    await form.locator(selectors.modelEntryInputs).nth(1).fill('claude-b');
     await form.getByRole('button', { name: 'Save', exact: true }).click();
     await waitForSave();
     assert.equal((await records()).length, 2, 'A shared key and URL can have a second model/priority route');
@@ -44,9 +35,9 @@ const path = require('node:path');
     assert.equal(await rows.count(), 2);
 
     await rows.filter({ hasText: 'Second route' }).getByRole('button', { name: 'Edit', exact: true }).click();
-    await form.locator('.provider-advanced-settings > summary').click();
+    await advanced();
     await form.getByLabel('Priority', { exact: true }).fill('2');
-    await form.locator('.model-config-entry input').nth(1).fill('claude-b-edited');
+    await form.locator(selectors.modelEntryInputs).nth(1).fill('claude-b-edited');
     await page.evaluate(() => window.providerFixture.records.reverse());
     await form.getByRole('button', { name: 'Save', exact: true }).click();
     await waitForSave();
@@ -56,13 +47,14 @@ const path = require('node:path');
     assert.equal(saved[1].priority, 10);
     assert.equal(saved[1].models[0].alias, 'claude-a');
 
-    await rows.filter({ hasText: 'Second route' }).getByRole('checkbox').uncheck();
+    await rows.filter({ hasText: 'Second route' }).getByRole('switch').click();
     await page.waitForFunction(() => window.providerFixture.records[0].keys[0]['excluded-models']?.includes('*'));
     assert.equal((await records())[1]['excluded-models'], undefined);
     await rows.filter({ hasText: 'Second route' }).waitFor();
+    assert.equal(await rows.filter({ hasText: 'Second route' }).getByRole('switch').getAttribute('aria-checked'), 'false');
 
-    const handle = rows.filter({ hasText: 'Second route' }).locator('.provider-drag-handle');
-    await page.waitForFunction(() => [...document.querySelectorAll('.provider-drag-handle')].every((button) => !button.disabled));
+    const handle = rows.filter({ hasText: 'Second route' }).locator('.ec-api-grip');
+    await page.waitForFunction(() => [...document.querySelectorAll('.ec-api-grip')].every((button) => !button.disabled));
     await handle.focus();
     await page.keyboard.press('Space');
     await page.waitForTimeout(100);
@@ -73,7 +65,7 @@ const path = require('node:path');
     assert.equal((await records())[0].priority, 10);
 
     await rows.filter({ hasText: 'Second route' }).getByRole('button', { name: 'Delete', exact: true }).click();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('alertdialog', { name: 'Delete', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
     await page.waitForFunction(() => window.providerFixture.records.length === 1);
     saved = await records();
     assert.equal(saved[0].models[0].alias, 'claude-a', 'Deleting the second route preserves the first');

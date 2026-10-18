@@ -31,7 +31,7 @@ import {
   responseList,
 } from "../services/managementApi";
 import { appendNativeProviderGroup } from '../services/providerGroups';
-import { providerRowsFromGroups, type ProviderSection } from './ApiAccessPage';
+import { providerRowsFromGroups, type ProviderSection } from '../sections/providers/api/logic';
 import {
   DEEPSEEK_BASE_URL,
   fetchModels,
@@ -106,12 +106,15 @@ const apiSectionOptions: ApiSectionOption[] = [
 ];
 
 export function EasyModePage({
+  inShell = false,
   onExit,
   theme,
   setTheme,
   locale,
   setLocale,
 }: {
+  /** Rendered inside the app shell: the shell's PageHeader/appearance menu replace the brand bar, theme and language menus. */
+  inShell?: boolean;
   onExit?: () => void;
   theme?: ThemePreference;
   setTheme?: (theme: ThemePreference) => void;
@@ -711,6 +714,20 @@ export function EasyModePage({
       <h1 className="sr-only">{t('app.nav.easy')}</h1>
       {guideActive ? <div className="guide-dimmed-overlay" /> : null}
 
+      {inShell ? (
+        <div className="simple-mode-shell-bar">
+          <button
+            type="button"
+            className={`simple-mode-guide-toggle simple-mode-highlight-button${guideActive ? " active" : ""}`}
+            title={guideActive ? t("easyMode.guide.toggleClose") : t("easyMode.guide.toggleOpen")}
+            onClick={() => {
+              handleGuideToggle();
+            }}
+          >
+            <span>{guideActive ? t("easyMode.guide.buttonRunning") : t("easyMode.guide.button")}</span>
+          </button>
+        </div>
+      ) : (
       <header className="simple-mode-topbar">
         <div className="simple-mode-topbar-left">
           <div className="simple-mode-brand">
@@ -801,6 +818,7 @@ export function EasyModePage({
           </button>
         </div>
       </header>
+      )}
 
       <nav className="simple-mode-step-status" aria-label={t("easyMode.steps.label")}>
         <div className="simple-mode-step-status-heading">

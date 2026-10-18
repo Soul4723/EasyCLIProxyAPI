@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import { ThemePreferences } from '../src/services/themePreferences';
-import type { SystemThemes, ThemeSelection } from '../src/themes/types';
+import type { SystemThemes, type ThemeSelection } from '../src/themes/types';
 
 const record = (selectedId: string, remembered: SystemThemes = { light: 'light', dark: 'dark' }): ThemeSelection =>
   ({ version: 1, selectedId, lastLightId: remembered.light, lastDarkId: remembered.dark });
 
 describe('desktop theme selections', () => {
-  test('defaults to light without creating a configuration', async () => {
+  test('defaults to dark without creating a configuration', async () => {
     const writes: ThemeSelection[] = [];
     const preferences = new ThemePreferences();
     await preferences.initialize({ load: async () => null, save: async (value) => { writes.push(value); } });
-    expect(preferences.get()).toBe('light');
+    expect(preferences.get()).toBe('dark');
     expect(preferences.getSystemThemes()).toEqual({ light: 'light', dark: 'dark' });
     expect(preferences.getIssue()).toBeNull();
     expect(writes).toEqual([]);
@@ -31,7 +31,7 @@ describe('desktop theme selections', () => {
       const writes: unknown[] = [];
       const preferences = new ThemePreferences();
       await preferences.initialize({ load: async () => value, save: async (next) => { writes.push(next); } });
-      expect(preferences.get()).toBe('light');
+      expect(preferences.get()).toBe('dark');
       expect(preferences.getIssue()).toBe('read');
       expect(writes).toEqual([]);
     }
@@ -78,7 +78,7 @@ describe('desktop theme selections', () => {
     const writes: ThemeSelection[] = [];
     const preferences = new ThemePreferences();
     await preferences.initialize({ load: async () => { throw new Error('unreadable'); }, save: async (next) => { writes.push(next); } });
-    expect(preferences.get()).toBe('light');
+    expect(preferences.get()).toBe('dark');
     expect(writes).toEqual([]);
     preferences.set('dark');
     await preferences.flush();

@@ -3,9 +3,9 @@ import {
   combineModelAliasEntries,
   combineModelAliasSources,
   defaultModelAlias,
-  thinkingAliasSourceKindLabel,
+  sourceKindLabel as thinkingAliasSourceKindLabel,
   uniqueModelAlias,
-} from '../src/pages/ThinkingAliasesPage';
+} from '../src/sections/settings/models/aliasLogic';
 
 describe('模型别名默认名称', () => {
   test('按思考强度和 Fast 选项生成可编辑的默认名称', () => {

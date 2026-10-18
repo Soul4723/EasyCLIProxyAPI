@@ -14,16 +14,17 @@ runUi(async ({ base }) => {
   const open = async (query = '') => {
     await page.goto(`${base}/tests/fixtures/agent-backups.html?client=deepseek-harness&reset-selections&${query}`);
     await page.getByRole('button', { name: '配置模型', exact: true }).click();
-    await page.getByRole('option', { name: /gpt-one/ }).waitFor();
+    await dialog().getByRole('option', { name: /gpt-one/ }).waitFor();
   };
   const dialog = () => page.getByRole('dialog', { name: 'DeepSeek Harness 模型配置' });
+  // Save / validation / failure feedback is an inline notice in the dialog footer (no floating notice stack any more).
   const save = async () => {
     await dialog().getByRole('button', { name: '保存', exact: true }).click();
-    await page.locator('.app-notice-stack').getByRole('status').filter({ hasText: /已保存/ }).waitFor();
+    await dialog().getByRole('status').filter({ hasText: /已保存/ }).waitFor();
   };
   try {
-    for (const mode of ['', 'embedded&']) {
-      await open(mode);
+    {
+      await open();
       const context = () => dialog().getByRole('spinbutton', { name: '上下文窗口（tokens）' });
       assert.equal(await context().inputValue(), '128000');
       await dialog().getByText('来源：内核模型目录 / 模型 API', { exact: true }).waitFor();
@@ -69,7 +70,7 @@ runUi(async ({ base }) => {
       assert.equal(request.provider.defaultContextWindow, 512000);
       assert(request.models.every(m => m.configuration.contextWindow === undefined));
       assert.equal(await page.evaluate(() => window.fixtureCalls.some(c => c.cmd === 'update_agent_config')), false);
-      await dialog().getByRole('button', { name: '关闭', exact: true }).click();
+      await dialog().getByRole('button', { name: '取消', exact: true }).click();
       assert.match(await page.locator('.agent-model-trigger').innerText(), /gpt-one/);
       await page.evaluate(() => window.fixtureRemount());
       await page.getByRole('button', { name: '配置模型', exact: true }).click();
@@ -80,45 +81,28 @@ runUi(async ({ base }) => {
       assert.equal(await dialog().getByRole('combobox', { name: '输入类型', exact: true }).inputValue(), '');
       await dialog().getByRole('spinbutton', { name: '上下文窗口（tokens）' }).fill('0');
       await dialog().getByRole('button', { name: '保存', exact: true }).click();
-      const validation = page.locator('.app-notice-stack').getByRole('alert').filter({ hasText: /contextWindow/ });
+      const validation = dialog().getByRole('alert').filter({ hasText: /contextWindow/ });
       await validation.waitFor();
-      await dialog().getByRole('button', { name: '保存', exact: true }).focus();
-      await page.keyboard.press('Tab');
-      assert.equal(await validation.locator('.action-feedback-text').evaluate(el => el === document.activeElement), true);
-      await page.keyboard.press('Tab');
-      assert.equal(await validation.getByRole('button').evaluate(el => el === document.activeElement), true);
-      await page.keyboard.press('Enter');
-      await validation.waitFor({ state: 'detached' });
-      assert.equal(await dialog().getByRole('button', { name: '保存', exact: true }).evaluate(el => el === document.activeElement), true);
       const invalidWrites = await page.evaluate(() => window.fixtureCalls.filter(c => c.cmd === 'save_deepseek_harness_model_catalog_editor').length);
-      await page.keyboard.press('Enter');
+      await validation.getByRole('button', { name: '关闭', exact: true }).click();
+      await validation.waitFor({ state: 'detached' });
+      await dialog().getByRole('button', { name: '保存', exact: true }).click();
       await validation.waitFor();
       assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c.cmd === 'save_deepseek_harness_model_catalog_editor').length), invalidWrites);
       await dialog().getByRole('spinbutton', { name: '上下文窗口（tokens）' }).fill('64000');
       await page.evaluate(() => window.fixtureFailHarnessSave = true);
       await dialog().getByRole('button', { name: '保存', exact: true }).click();
-      await page.locator('.app-notice-stack').getByRole('alert').filter({ hasText: /模拟模型配置保存失败/ }).waitFor();
+      await dialog().getByRole('alert').filter({ hasText: /模拟模型配置保存失败/ }).waitFor();
       assert.equal(await dialog().getByRole('spinbutton', { name: '上下文窗口（tokens）' }).inputValue(), '64000');
       await page.evaluate(() => { window.fixtureFailHarnessSave = false; window.fixtureStaleHarnessSave = true; });
       await dialog().getByRole('button', { name: '保存', exact: true }).click();
-      await page.locator('.app-notice-stack').getByRole('alert').filter({ hasText: /模型列表或配置已变化/ }).waitFor();
+      await dialog().getByRole('alert').filter({ hasText: /模型列表或配置已变化/ }).waitFor();
       await page.evaluate(() => window.fixtureStaleHarnessSave = false);
       await page.keyboard.press('Escape');
-      const confirmation = page.getByRole('alertdialog');
+      const confirmation = page.getByRole('alertdialog', { name: '有尚未保存的修改。' });
       await confirmation.waitFor();
-      const nestedNotice = confirmation.locator('.app-notice-stack');
-      await nestedNotice.waitFor();
-      const nestedBounds = await nestedNotice.boundingBox();
-      const viewport = page.viewportSize();
-      assert.ok(Math.abs(viewport.width - nestedBounds.x - nestedBounds.width - 24) < 1, 'Nested modal notices stay at the viewport right edge');
-      assert.ok(nestedBounds.y >= 0 && nestedBounds.y + nestedBounds.height <= viewport.height, 'Nested notices fit the viewport');
-      const discard = confirmation.getByRole('button', { name: '放弃修改', exact: true });
-      await discard.focus();
-      await page.keyboard.press('Tab');
-      assert.equal(await nestedNotice.locator('.action-feedback-text').evaluate(el => el === document.activeElement), true);
-      await page.keyboard.press('Tab');
-      await page.keyboard.press('Tab');
-      assert.equal(await confirmation.getByRole('button', { name: '继续编辑', exact: true }).evaluate(el => el === document.activeElement), true, 'Notification remains within the nested focus trap');
+      assert.equal(await confirmation.getByRole('button', { name: '放弃修改', exact: true }).isVisible(), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.getByRole('button', { name: '继续编辑', exact: true }).click();
       await save();
       assert.equal(await context().inputValue(), '64000');
@@ -134,11 +118,11 @@ runUi(async ({ base }) => {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await page.screenshot({ path: path.join(screenshots, `${width}-${theme}-model.png`) });
       await dialog().getByRole('button', { name: '供应商设置', exact: true }).click();
-      assert.equal(await page.evaluate(() => document.querySelector('.codex-catalog-editor').scrollWidth > document.querySelector('.codex-catalog-editor').clientWidth), false);
+      assert.equal(await page.evaluate(() => document.querySelector('.cd-editor').scrollWidth > document.querySelector('.cd-editor').clientWidth), false);
       await page.screenshot({ path: path.join(screenshots, `${width}-${theme}-provider.png`) });
     }
     assert.deepEqual(errors, []);
     console.log('PASS: default model preserved, catalog overrides, API reset, reasoning, validation, retry, stale save, responsive themes');
     console.log(screenshots);
   } finally { await browser.close(); }
-});
+}, { url: process.env.AGENT_TEST_URL });

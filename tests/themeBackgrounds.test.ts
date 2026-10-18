@@ -7,9 +7,6 @@ const semanticPaint = new Set([
   'components/AuthFileUsageSummary.css|.auth-file-usage-metric.rate svg',
   'components/WindowFrame.css|.window-controls .window-close:hover',
   'components/WindowFrame.css|.window-controls .window-close:active',
-  'pages/QuotaPage.css|.quota-page .quota-status-badge.ready',
-  'pages/QuotaPage.css|.quota-page .quota-status-badge.error',
-  'pages/QuotaPage.css|.quota-page .real-quota-track span',
   'styles/feature-pages.css|.simple-guide-pulse-dot',
   'styles/ui-refinements.css|.state-pill.success',
   'styles/ui-refinements.css|.state-pill.error',
@@ -25,7 +22,6 @@ const semanticPaint = new Set([
 ]);
 
 const semanticPalettePaint = new Set([
-  'pages/PluginsPage.css|.plugin-badge.warning',
   'styles/feature-pages.css|.easy-mode-core-alert',
   'styles/feature-pages.css|.easy-mode-alert-icon',
   'styles/feature-pages.css|.easy-mode-choice-icon.oauth',

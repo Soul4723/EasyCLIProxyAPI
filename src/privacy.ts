@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from './services/platform';
 import { PrivacyPreferences } from './services/privacyPreferences';
 import { maskIdentifier, maskSensitiveText } from './services/privacyMask';
 import { authFileIdentities, authFileName, type AuthFileRecord } from './services/authFiles';

@@ -1,6 +1,6 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 runUi(async ({ base }) => {
   const browser = await launchBrowser(chromium);
   try {
@@ -51,3 +51,4 @@ runUi(async ({ base }) => {
     console.log('PASS: five filters, clipped/transformed containers, wheel and long-list selection, resize, ancestor scroll, scoped theme, outside focus/click.');
   } finally { await browser.close(); }
 }, { url: process.env.USAGE_TEST_URL });
+

@@ -1,14 +1,18 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { AgentsPage } from '../../src/pages/AgentsPage';
-import { I18nProvider } from '../../src/i18n';
+import { AgentsSection } from '../../src/sections/agents';
+import { resetRouterForTests, useRoute } from '../../src/shell/router';
+import { I18nProvider, useI18n } from '../../src/i18n';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
 const params = new URLSearchParams(location.search);
 if(params.has('reset-selections'))localStorage.removeItem('cpa-gui.agent-model-selections.v1');
 localStorage.setItem('easy-cli-proxy-api.locale',params.get('locale') || 'zh-CN');
 document.documentElement.dataset.theme = params.get('theme') || 'light';
-localStorage.setItem('cpa-gui.agent-selected-client.v1', params.get('client') || 'codex');
+if(!location.hash)location.hash=params.has('grid')?'/agents':params.has('sessions')?'/agents/sessions':`/agents?client=${params.get('client')||'codex'}${params.get('tab')?`&tab=${params.get('tab')}`:''}`;
+resetRouterForTests(location.hash);
+document.documentElement.dataset.density=params.get('density')||'comfortable';
 const ids = ['claude-code','claude-desktop','codex','opencode','openclaw','hermes','deepseek-harness','antigravity-cli','copilot-cli','vscode-copilot','workbuddy','zcode','kimi-code','grok-build','omp','pi'];
 let count=0; let backupCount=0; const backups:any[]=[]; let currentModel=params.has('fresh')?null:'gpt-one';
 let nativeOauth=params.has('native-oauth'); let nativeSwitchCount=0; let codexClosed=false; let closeCount=0;
@@ -19,9 +23,9 @@ const claudeAliasLayoutModels = [
  {name:'provider/very-long-upstream-model-name-with-reasoning-high',alias:'provider/very-long-original-model-name-with-context-window',isAlias:true},
 ];
 if(params.has('claude-alias-layout'))currentMappings['claude-code']={opus:claudeAliasLayoutModels[0].name,sonnet:claudeAliasLayoutModels[0].name,fable:claudeAliasLayoutModels[1].name,haiku:claudeAliasLayoutModels[2].name,startupModel:'opus',subagentModel:''};
-if(params.has('legacy-desktop'))currentMappings['claude-desktop']={opus:'gpt-one',sonnet:'gpt-two',haiku:'gpt-one',opus1m:true};
-if(params.has('legacy-desktop-direct'))currentMappings['claude-desktop']={opus:'',sonnet:'claude-sonnet-custom-7',haiku:'',desktopModels:[{model:'',alias:'claude-sonnet-custom-7',context1m:false}]};
-if(params.has('saved-desktop-alias'))currentMappings['claude-desktop']={opus:'',sonnet:'gpt-one',haiku:'',desktopModels:[{model:'gpt-one',alias:'claude-opus-5',context1m:false}]};
+if(params.has('legacy-desktop'))currentMappings['claude-desktop']={opus:'gpt-one',sonnet:'gpt-two',fable:'',haiku:'gpt-one',opus1m:true};
+if(params.has('legacy-desktop-direct'))currentMappings['claude-desktop']={opus:'',sonnet:'claude-sonnet-custom-7',fable:'',haiku:'',desktopModels:[{model:'',alias:'claude-sonnet-custom-7',context1m:false}]};
+if(params.has('saved-desktop-alias'))currentMappings['claude-desktop']={opus:'',sonnet:'gpt-one',fable:'',haiku:'',desktopModels:[{model:'gpt-one',alias:'claude-opus-5',context1m:false}]};
 let harnessProvider:Record<string,unknown>={};
 const harnessConfigurations:Record<string,Record<string,unknown>>={};
 let harnessRevision=1;
@@ -36,7 +40,6 @@ let appliedCount=0;
 let detectionCount=0;
 (window as any).fixtureOauthLoggedIn=!params.has('no-oauth-login');
 const calls:any[]=[];(window as any).fixtureCalls=calls;
-let embedded=params.has('embedded');
 (window as any).fixtureSessionIds=Array.from({length:61},(_,index)=>`session-${index+1}`);
 mockIPC(async (cmd,args:any) => {
   if (cmd === 'get_management_target_revision') return 1;
@@ -97,6 +100,46 @@ mockIPC(async (cmd,args:any) => {
    if((window as any).fixtureFailSessionLoad)throw new Error('模拟会话读取失败');
    return {codexHome:'C:/test/.codex',databasePaths:['C:/test/.codex/state.sqlite'],totalCount:sessionIds.length,offset,limit,hasMore:offset+limit<sessionIds.length,warnings:[],sessions:sessionIds.slice(offset,offset+limit).map(id=>({id,title:id,cwd:'C:/test/project',modelProvider:'test',archived:false,updatedAtMs:null,databasePath:'C:/test/.codex/state.sqlite'}))};
  }
+ if(cmd==='get_codex_session_context') {
+   const sessionId=args.request.sessionId;
+   const count=(window as any).fixtureSessionMessageCount;
+   if(count!==undefined) {
+     const messages=Array.from({length:count},(_,index)=>({id:`layout-message-${index}`,lineNumber:index,role:['user','assistant','reasoning','tool'][index%4],content:index%5?`Message ${index}`:'Long message\n'.repeat(40),rawType:'response_item',timestamp:'2026-10-07T12:00:00Z',model:'mock-model',callId:null}));
+     const of=(role:string)=>messages.filter(m=>m.role===role).length;
+     return {id:sessionId,title:sessionId,cwd:'C:/test/project',modelProvider:'test',model:'mock-model',archived:false,updatedAtMs:1760000000000,rolloutPath:'C:/test/.codex/sessions/'+sessionId+'.jsonl',databasePath:'C:/test/.codex/state.sqlite',messages,stats:{totalLines:count,messageCount:count-of('tool'),userMessageCount:of('user'),assistantMessageCount:of('assistant'),reasoningCount:of('reasoning'),toolCount:of('tool'),fileSizeBytes:count*20},rawJsonlAvailable:true,rolloutSha256:'sha-layout',rawJsonl:''};
+   }
+   const sessionContexts=((window as any).fixtureSessionContexts??={});
+   return JSON.parse(JSON.stringify(sessionContexts[sessionId]??=(()=>{
+     const messages=[
+       {id:'msg-2',lineNumber:2,role:'user',timestamp:'2026-10-07T11:00:00Z',content:'Hello Codex, can you help me refactor the database module?',rawType:'response_item',model:'mock-model',callId:null},
+       {id:'msg-3',lineNumber:3,role:'assistant',timestamp:'2026-10-07T11:01:00Z',content:'Sure, I will inspect the current database schema first.',rawType:'response_item',model:'mock-model',callId:null},
+       {id:'tool-4',lineNumber:4,role:'tool',timestamp:'2026-10-07T11:02:00Z',content:'exec_command(cmd="ls")',rawType:'response_item',model:'mock-model',callId:'call-1'},
+     ];
+     return {id:sessionId,title:sessionId,cwd:'C:/test/project',modelProvider:'test',model:'mock-model',archived:false,updatedAtMs:1760000000000,rolloutPath:'C:/test/.codex/sessions/'+sessionId+'.jsonl',databasePath:'C:/test/.codex/state.sqlite',messages,stats:{totalLines:messages.length+2,messageCount:2,userMessageCount:1,assistantMessageCount:1,reasoningCount:0,toolCount:1,fileSizeBytes:900},rawJsonlAvailable:true,rolloutSha256:'sha-0',rawJsonl:'{}\n'};
+   })()));
+ }
+ if(cmd==='open_codex_session_rollout') {
+   if((window as any).fixtureFailRolloutOpen)throw new Error('No default application is configured');
+   return null;
+ }
+ if(cmd==='save_codex_session_context') {
+   const req=args.request;
+   const context=((window as any).fixtureSessionContexts??={})[req.sessionId];
+   for(const key of ['title','cwd','model','modelProvider','archived'])if(req[key]!==undefined)context[key]=req[key];
+   for(const update of req.messageUpdates??[]) {
+     const index=context.messages.findIndex((m:any)=>m.lineNumber===update.lineNumber);
+     if(index<0)continue;
+     if(update.deleted)context.messages.splice(index,1);
+     else if(typeof update.content==='string')context.messages[index].content=update.content;
+   }
+   for(const message of req.newMessages??[])context.messages.push({id:'new',lineNumber:0,role:message.role,timestamp:'2026-10-07T12:00:00Z',content:message.content,rawType:'response_item',model:context.model,callId:null});
+   context.messages.forEach((m:any,index:number)=>{m.lineNumber=index+2;m.id=`msg-${m.lineNumber}`;});
+   const countOf=(role:string)=>context.messages.filter((m:any)=>m.role===role).length;
+   context.stats={...context.stats,messageCount:context.messages.length-countOf('tool'),userMessageCount:countOf('user'),assistantMessageCount:countOf('assistant'),toolCount:countOf('tool')};
+   (window as any).fixtureSessionSaves=((window as any).fixtureSessionSaves??0)+1;
+   context.rolloutSha256='sha-'+(window as any).fixtureSessionSaves;
+   return {success:true,sessionId:req.sessionId,backupPath:'C:/test/.codex/backups/'+req.sessionId,message:'saved'};
+ }
  if(cmd==='get_deepseek_harness_process_status') return harnessStatus;
  if(cmd==='restart_agent_app'||cmd==='restart_deepseek_harness_process') {
    if(params.has('defer-restart'))await new Promise<void>(resolve=>{(window as any).fixtureFinishRestart=resolve;});
@@ -150,14 +193,11 @@ mockIPC(async (cmd,args:any) => {
  throw new Error('Unhandled fixture command: '+cmd);
 });
 let root=createRoot(document.getElementById('root')!);
-const render=()=>{
- const agents=<AgentsPage embedded={embedded} onConfigurationApplied={()=>{document.documentElement.dataset.fixtureApplied=String(++appliedCount);}}/>;
- root.render(<I18nProvider>{params.has('shell')?(
-  <div className="app-shell">
-   <aside className="sidebar" aria-hidden="true" />
-   <div className="workspace"><main className="content">{agents}</main></div>
-  </div>
- ):agents}</I18nProvider>);
-};
-(window as any).fixtureRemount=(nextEmbedded=embedded)=>{embedded=nextEmbedded;root.unmount();root=createRoot(document.getElementById('root')!);render();};
+function Host(){
+ const route=useRoute();
+ (window as any).fixtureSetLocale=useI18n().setLocale;
+ return <AgentsSection sub={route.sub} params={route.params}/>;
+}
+const render=()=>{ root.render(<I18nProvider><Host/></I18nProvider>); };
+(window as any).fixtureRemount=()=>{root.unmount();root=createRoot(document.getElementById('root')!);render();};
 render();

@@ -32,6 +32,12 @@ const rgbContrast = (foreground: number[], background: number[]) => {
 const contrast = (foreground: string, background: string) => rgbContrast(rgb(foreground), rgb(background));
 
 describe('theme registry and application', () => {
+  test('ships Ember dark/light first and keeps the upstream themes selectable', () => {
+    const ids = themeRegistry.themes.map((theme) => theme.id);
+    expect(ids.slice(0, 2)).toEqual(['dark', 'light']);
+    expect(ids.slice(2).sort()).toEqual(additionalThemes.map((theme) => theme.id).sort());
+    for (const theme of additionalThemes) expect(themeRegistry.get(theme.id)).toBeDefined();
+  });
   test('configured thumbs apply to both states and permit an independent active override', () => {
     for (const theme of [customControl, { ...sakura, tokens: { ...sakura.tokens, ...customControl.tokens } }]) {
       expect(themeMaterialTokens(theme).controlThumb).toBe('#843E64');
@@ -80,18 +86,19 @@ describe('theme registry and application', () => {
     } })).toEqual({ surface: '#7f7f7f', workspaceBackground: '#7f7f7f', softSurface: '#bfbfbf', hoverBackground: '#3f3f3f' });
   });
   test('system selection uses the remembered theme only when it matches the appearance', () => {
+    const localRegistry = themeRegistry;
     const remembered = { light: 'sakura-light', dark: 'midnight-dark' };
-    expect(themeRegistry.resolve('system', 'light', remembered).id).toBe('sakura-light');
-    expect(themeRegistry.resolve('system', 'dark', remembered).id).toBe('midnight-dark');
-    expect(themeRegistry.resolveSystem('light', { ...remembered, light: 'sakura-light' }).id).toBe('sakura-light');
-    expect(themeRegistry.resolve('graphite-dark', 'light', remembered).id).toBe('graphite-dark');
+    expect(localRegistry.resolve('system', 'light', remembered).id).toBe('sakura-light');
+    expect(localRegistry.resolve('system', 'dark', remembered).id).toBe('midnight-dark');
+    expect(localRegistry.resolveSystem('light', { ...remembered, light: 'sakura-light' }).id).toBe('sakura-light');
+    expect(localRegistry.resolve('graphite-dark', 'light', remembered).id).toBe('graphite-dark');
     for (const id of ['removed-theme', 'midnight-dark', 'system']) {
       const unavailable = { ...remembered, light: id };
-      expect(themeRegistry.resolve('system', 'light', unavailable).id).toBe('light');
-      expect(themeRegistry.resolve('system', 'dark', unavailable).id).toBe('midnight-dark');
+      expect(localRegistry.resolve('system', 'light', unavailable).id).toBe('light');
+      expect(localRegistry.resolve('system', 'dark', unavailable).id).toBe('midnight-dark');
     }
     for (const id of ['removed-theme', 'sakura-light', 'system']) {
-      expect(themeRegistry.resolveSystem('dark', { ...remembered, dark: id }).id).toBe('dark');
+      expect(localRegistry.resolveSystem('dark', { ...remembered, dark: id }).id).toBe('dark');
     }
   });
   test('rejects collisions, reserved IDs, unsupported slots and invalid native colors', () => {

@@ -16,6 +16,7 @@ mod instance_lock;
 #[cfg(target_os = "linux")]
 mod linux_graphics;
 mod management_api;
+mod lighting;
 mod network_proxy;
 #[cfg(any(
     target_os = "linux",
@@ -2846,6 +2847,7 @@ fn main() {
                 eprintln!("Failed to start configuration file watcher: {error}");
             }
 
+            lighting::start(app.handle())?;
             network_proxy::start_monitor(app.handle().clone());
             let connection_app = app.handle().clone();
             app.listen("core-connection-changed", move |_| {
@@ -2964,6 +2966,16 @@ fn main() {
             desktop_theme::save_theme_selection,
             privacy_mode::get_privacy_mode,
             privacy_mode::save_privacy_mode,
+            lighting::lighting_list,
+            lighting::lighting_get,
+            lighting::lighting_save,
+            lighting::lighting_delete,
+            lighting::lighting_set_enabled,
+            lighting::lighting_run_now,
+            lighting::lighting_report_reset,
+            lighting::lighting_history,
+            lighting::lighting_capabilities,
+            lighting::lighting_status,
             health_check,
             detect_core_platform,
             get_core_status,

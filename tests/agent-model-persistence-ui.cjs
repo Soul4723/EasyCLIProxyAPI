@@ -1,16 +1,18 @@
+// AGENT_TEST_URL, when set, reuses an existing dev server: AGENT_TEST_URL=<vite url> node tests/agent-model-persistence-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
+
 
 runUi(async ({ base }) => {
   const browser = await launchBrowser(chromium);
   try {
     for (const client of ['codex', 'antigravity-cli', 'copilot-cli', 'vscode-copilot']) {
-      for (const embedded of [false, true]) {
+      {
         const page = await browser.newPage();
         const errors = [];
         page.on('pageerror', error => errors.push(String(error)));
-        const url = `${base}/tests/fixtures/agent-backups.html?client=${client}${embedded ? '&embedded' : ''}`;
+        const url = `${base}/tests/fixtures/agent-backups.html?client=${client}&tab=setup`;
         await page.goto(url);
         const picker = page.locator('.agent-model-trigger');
         const missing = page.getByText('当前选择已不在可用模型列表中，请刷新模型后重新选择', { exact: true });
@@ -55,6 +57,6 @@ runUi(async ({ base }) => {
         await page.close();
       }
     }
-    console.log('PASS: Codex, Antigravity and Copilot clients preserve selections across empty/partial lists, remount, reload and recovery in both page layouts');
+    console.log('PASS: Codex, Antigravity and Copilot clients preserve selections across empty/partial lists, remount, reload and recovery in the Setup tab');
   } finally { await browser.close(); }
-}, { url: process.env.AGENT_CLIENT_TEST_URL });
+}, { url: process.env.AGENT_TEST_URL });

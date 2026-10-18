@@ -1,263 +1,145 @@
+// Theme switching through the shell's appearance menu (AppMenu): Ember Dark / Light / System, "More themes",
+// persistence across reloads, keyboard behaviour, localized menu at the shell breakpoints and legible text in both
+// Ember appearances. Runs against the browser mock: node tests/theme-ui.cjs (needs PLAYWRIGHT_MODULE; starts its own vite).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
+const {
+  EMBER, LANGUAGE_LABELS, openApp, gotoPage, setTheme, setLanguage, openAppMenu, closeAppMenu, appMenuTrigger, openDrawerIfNeeded,
+  themeState, STORAGE, colorsOf, contrastRatio, horizontalOverflow, isReachable, settle, waitForCoreStatus,
+} = require('./helpers/shell.cjs');
+
+const IGNORED = [/favicon/i, /Failed to load resource: the server responded with a status of 404/];
 
 runUi(async ({ base }) => {
-  const browser = await launchBrowser(chromium);
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
-    const errors = [];
-    let selection = null;
-    page.on('pageerror', error => errors.push(String(error)));
-    page.setDefaultTimeout(10000);
-    await page.route('**/__theme_fixture_selection', async route => {
-      if (route.request().method() === 'POST') selection = JSON.parse(route.request().postData());
-      await route.fulfill({ json: selection });
-    });
-    const open = query => page.goto(`${base}/tests/fixtures/theme.html?${query}`);
-    const theme = expected => page.waitForFunction(expected => document.documentElement.dataset.theme === expected, expected);
-    const trigger = () => page.locator('.theme-selector-trigger:visible');
-    const menu = () => page.locator('.theme-selector-menu');
-    const mode = id => page.locator(`.theme-selector-mode[data-mode="${id}"]`);
-    const card = id => page.locator(`.theme-selector-card[data-theme-id="${id}"]`);
-    const openMenu = async () => {
-      if (await trigger().getAttribute('aria-expanded') !== 'true') await trigger().click();
-      await menu().waitFor();
+    const open = async (viewport = { width: 1280, height: 800 }, colorScheme = 'dark', locale = 'en') => {
+      const context = await browser.newContext({ viewport, colorScheme, reducedMotion: 'reduce' });
+      const page = await context.newPage();
+      page.setDefaultTimeout(10000);
+      page.errors = [];
+      page.on('pageerror', (error) => page.errors.push(`pageerror: ${error}`));
+      page.on('console', (message) => {
+        if (message.type() === 'error' && !IGNORED.some((pattern) => pattern.test(message.text()))) page.errors.push(`console.error: ${message.text()}`);
+      });
+      await page.addInitScript((value) => {
+        try {
+          if (sessionStorage.getItem('__seeded')) return;
+          sessionStorage.setItem('__seeded', '1');
+          localStorage.setItem('easy-cli-proxy-api.locale', value);
+        } catch { /* opaque origin */ }
+      }, locale);
+      await openApp(page, base, { path: '/overview' });
+      await waitForCoreStatus(page);
+      return page;
     };
-    const select = async id => {
-      await openMenu();
-      if (id === 'system') await mode('system').click();
-      else {
-        await card(id).click();
-        const appearance = id.includes('dark') ? 'dark' : 'light';
-        if (await mode(appearance).getAttribute('aria-pressed') !== 'true') await mode(appearance).click();
-      }
-      assert.equal(await trigger().getAttribute('aria-expanded'), 'true', 'selection keeps the theme picker open');
-      await page.keyboard.press('Escape');
+    const pressed = async (page, id) => {
+      const popover = await openAppMenu(page);
+      const value = await popover.locator(`.ec-theme-card[data-theme-id="${id}"]`).getAttribute('aria-pressed');
+      await closeAppMenu(page);
+      return value;
     };
-    const assign = async id => {
-      await openMenu();
-      assert.equal(await mode('system').getAttribute('aria-pressed'), 'true', 'assignment happens while following the system');
-      await card(id).click();
-      assert.equal(await card(id).getAttribute('aria-pressed'), 'true');
-      await page.keyboard.press('Escape');
-    };
-    const system = value => page.evaluate(value => window.themeFixture.setSystem(value), value);
-    const nativeReady = () => page.waitForFunction(() => window.themeFixture?.calls.some(call => call.cmd.includes('background_color')));
-    const saved = id => page.waitForFunction(id => window.themeFixture.calls.some(call => call.cmd === 'save_theme_selection' && call.args.selection.selectedId === id), id);
 
-    for (const platform of ['windows', 'macos', 'linux']) {
-      console.log(`Checking desktop IPC: ${platform}`);
-      selection = null;
-      await open(`platform=${platform}`);
-      await nativeReady(); await theme('light');
-      assert.equal(selection, null);
-      await system('dark'); await theme('light');
-      for (const [id, appearance] of [['warm-sand-light', 'light'], ['graphite-dark', 'dark'], ['sakura-light', 'light'], ['midnight-dark', 'dark']]) {
-        await select(id); await saved(id);
-        await page.waitForFunction(id => document.documentElement.dataset.themeId === id, id);
-        await system(appearance === 'dark' ? 'light' : 'dark');
-        assert.equal(await page.locator('html').getAttribute('data-theme-id'), id);
-        await open(`platform=${platform}&system=${appearance === 'dark' ? 'light' : 'dark'}`); await nativeReady();
-        assert.equal(await page.locator('html').getAttribute('data-theme-id'), id);
-        await theme(appearance);
-        await page.waitForFunction(value => window.themeFixture.appearance === value, appearance);
-      }
-      await theme('dark');
-      await page.waitForFunction(() => window.themeFixture.appearance === 'dark');
-      await openMenu(); await card('warm-sand-light').click();
-      assert.equal(await page.locator('html').getAttribute('data-theme-id'), 'warm-sand-light', 'picking a theme of the other appearance switches to it');
-      assert.equal(await mode('light').getAttribute('aria-pressed'), 'true');
-      await page.keyboard.press('Escape');
-      await select('system'); await saved('system');
-      await assign('sakura-light'); await assign('midnight-dark');
-      await system('light'); await theme('light');
-      assert.equal(await page.locator('html').getAttribute('data-theme-id'), 'sakura-light');
-      await open(`platform=${platform}&system=dark`);
-      await nativeReady(); await theme('dark');
-      assert.equal(await page.locator('html').getAttribute('data-theme-id'), 'midnight-dark');
-      assert.deepEqual(selection, { version: 1, selectedId: 'system', lastLightId: 'sakura-light', lastDarkId: 'midnight-dark' });
-      await openMenu();
-      assert.equal(await mode('system').getAttribute('aria-pressed'), 'true');
-      await page.keyboard.press('Escape');
-      await page.locator('.sidebar-easy-entry').click();
-      await select('light'); await theme('light'); await saved('light');
-      await page.locator('.simple-mode-exit-btn').click();
-      await openMenu();
-      assert.equal(await mode('light').getAttribute('aria-pressed'), 'true');
-      assert.equal(await card('light').getAttribute('aria-pressed'), 'true');
-      await page.keyboard.press('Escape');
-      const writes = await page.evaluate(() => window.themeFixture.calls.filter(call => call.cmd === 'plugin:window|set_theme').length);
-      assert.ok(writes < 30, `${platform}: native theme echo loop (${writes} writes)`);
-    }
+    // ---- Ember Dark is the default and paints the shell ---------------------------------------------------------------------
+    let page = await open();
+    let state = await themeState(page);
+    assert.equal(state.theme, 'dark');
+    assert.equal(state.themeId, 'dark');
+    assert.equal(state.appBg, EMBER.dark.bg, 'Ember Dark paints the shell');
+    assert.equal(state.scheme.includes('dark'), true, 'native controls follow the appearance');
 
-    selection = { version: 1, selectedId: 'removed-dark' };
-    await open('platform=macos'); await nativeReady(); await theme('light');
-    assert.match(await trigger().getAttribute('aria-label'), /主题不可用/);
-    assert.equal(selection.selectedId, 'removed-dark');
-    await select('light'); await saved('light');
+    // ---- Light applies to the new UI, persists, and survives navigation -------------------------------------------------------
+    await setTheme(page, 'light');
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+    state = await themeState(page);
+    assert.equal(state.appBg, EMBER.light.bg, 'Ember Light paints the shell');
+    assert.equal(state.scheme.includes('light'), true);
+    const sidebarBg = await page.locator('.ec-sidebar').evaluate((element) => getComputedStyle(element).backgroundColor);
+    assert.equal(sidebarBg, EMBER.light.sidebar, 'the sidebar follows the theme');
+    assert.match(await page.evaluate((key) => localStorage.getItem(key) ?? '', STORAGE.themePaint), /light/, 'the first-paint cache records the selection');
+    await gotoPage(page, '/quota');
+    assert.equal((await themeState(page)).theme, 'light', 'Light persists across pages (the browser mock has no native store; reloads rely on the first-paint cache)');
+    assert.equal((await themeState(page)).appBg, EMBER.light.bg);
 
-    await open('platform=macos&read-error'); await nativeReady(); await theme('light');
-    await trigger().click();
-    assert.match(await page.locator('.theme-selector-notice').innerText(), /无法读取/);
-    await page.keyboard.press('Escape');
-    await open('platform=macos&save-error'); await nativeReady();
-    await select('dark');
-    await page.waitForFunction(() => document.querySelector('.theme-selector-warning'));
-    await trigger().click();
-    assert.match(await page.locator('.theme-selector-notice').innerText(), /未能保存/);
-    const retry = () => page.getByRole('button', { name: '重试保存', exact: true });
-    const isFocused = locator => locator.evaluate(element => element === document.activeElement);
-    assert.ok(await isFocused(mode('dark')), 'opening the picker focuses the active mode');
-    await page.keyboard.press('Escape');
-    assert.ok(await isFocused(trigger()));
-    assert.equal(await trigger().getAttribute('aria-expanded'), 'false');
+    // ---- System follows prefers-color-scheme live; an explicit choice stops following ---------------------------------------
+    await setTheme(page, 'system');
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+    await setTheme(page, 'dark');
+    await page.emulateMedia({ colorScheme: 'light' });
+    await settle(page);
+    assert.equal((await themeState(page)).theme, 'dark', 'an explicit theme ignores the system appearance');
+
+    // ---- More themes: pick, persist, pressed state, back to Ember ----------------------------------------------------------
+    let popover = await openAppMenu(page);
+    assert.equal(await popover.locator('.ec-theme-card').count(), 4, 'Warm Sand, Sakura, Graphite and Midnight stay selectable');
+    await popover.locator('.ec-theme-card[data-theme-id="warm-sand-light"]').click();
+    await closeAppMenu(page);
+    state = await themeState(page);
+    assert.equal(state.themeId, 'warm-sand-light');
+    assert.equal(state.theme, 'light');
+    assert.notEqual(state.appBg, EMBER.light.bg, 'a restored theme repaints the Ember shell');
+    assert.equal(await pressed(page, 'warm-sand-light'), 'true');
+    await gotoPage(page, '/quota');
+    assert.equal((await themeState(page)).themeId, 'warm-sand-light', 'a restored theme persists across pages');
+    await setTheme(page, 'dark');
+    assert.equal((await themeState(page)).themeId, 'dark');
+    assert.equal((await themeState(page)).appBg, EMBER.dark.bg, 'the bridge is cleared when returning to Ember');
+    assert.equal(await pressed(page, 'warm-sand-light'), 'false');
+
+    // ---- keyboard: open, focus moves in, Escape closes and returns focus ----------------------------------------------------
+    const trigger = appMenuTrigger(page);
+    await trigger.focus();
     await page.keyboard.press('Enter');
-    await menu().waitFor();
-    await retry().focus();
-    const saveAttempts = await page.evaluate(() => window.themeFixture.calls.filter(call => call.cmd === 'save_theme_selection').length);
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(count => window.themeFixture.calls.filter(call => call.cmd === 'save_theme_selection').length > count, saveAttempts);
-    assert.ok(await isFocused(trigger()), 'retry must return focus to a stable control');
-    assert.equal(await trigger().getAttribute('aria-expanded'), 'true');
-    assert.equal(await retry().count(), 1, 'a failed retry remains available');
-    await page.evaluate(() => window.themeFixture.setSaveError(false));
-    await retry().focus(); await page.keyboard.press(' ');
-    await page.waitForFunction(() => !document.querySelector('.theme-selector-warning'));
-    assert.ok(await isFocused(trigger()), 'removing a successful retry must preserve focus');
-    assert.equal(await retry().count(), 0);
-    assert.equal(selection.selectedId, 'dark');
+    popover = page.getByRole('dialog', { name: 'Appearance' });
+    await popover.waitFor();
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+    assert.ok(await popover.evaluate((element) => element.contains(document.activeElement)), 'focus moves into the menu');
     await page.keyboard.press('Escape');
-    assert.equal(await trigger().getAttribute('aria-expanded'), 'false', 'Escape closes the picker after a retry moved focus to the trigger');
+    await popover.waitFor({ state: 'detached' });
+    assert.ok(await trigger.evaluate((element) => element === document.activeElement), 'Escape returns focus to the trigger');
+    assert.deepEqual(page.errors, []);
+    await page.context().close();
 
-    selection = { version: 1, selectedId: 'light' };
-    await open('platform=macos'); await nativeReady(); await theme('light');
-    await openMenu();
-    const check = await card('light').locator('.theme-selector-check').evaluate(element => getComputedStyle(element).color);
-    const contrast = await page.evaluate(() => {
-      const probe = document.createElement('span'); probe.style.color = 'var(--primary-contrast)'; document.body.append(probe);
-      const value = getComputedStyle(probe).color; probe.remove(); return value;
-    });
-    assert.equal(check, contrast, 'the selected check uses the accent contrast color in the default theme');
-    await page.keyboard.press('Escape');
+    // ---- legibility: core text keeps WCAG AA contrast in both Ember appearances ---------------------------------------------
+    for (const which of ['dark', 'light']) {
+      page = await open({ width: 1280, height: 800 }, which);
+      await setTheme(page, which);
+      for (const selector of ['.ec-page-title', '.ec-nav-item[aria-current="page"]', '.ec-nav-item:not([aria-current])', '.ec-core-line']) {
+        const { fg, bg } = await colorsOf(page.locator(selector).first());
+        assert.ok(contrastRatio(fg, bg) >= 4.5, `${which}: ${selector} contrast ${contrastRatio(fg, bg).toFixed(2)} (${fg} on ${bg})`);
+      }
+      await page.context().close();
+    }
 
-    selection = { version: 1, selectedId: 'warm-sand-light' };
-    await open('platform=macos'); await nativeReady(); await theme('light');
-    await openMenu();
-    assert.equal(await card('warm-sand-light').getAttribute('aria-pressed'), 'true');
-    await mode('dark').click(); await theme('dark');
-    assert.equal(await card('warm-sand-light').getAttribute('aria-pressed'), 'true', 'switching mode keeps the fixed theme in its group');
-    await mode('light').click(); await theme('light');
-    assert.equal(await page.locator('html').getAttribute('data-theme-id'), 'warm-sand-light');
-    await page.keyboard.press('Escape');
+    // ---- 4 locales x 4 widths: the appearance menu stays reachable, inside the viewport, with no page overflow ---------------
+    for (const locale of Object.keys(LANGUAGE_LABELS)) {
+      for (const width of [1280, 1000, 680, 390]) {
+        page = await open({ width, height: 800 }, 'dark', locale);
+        await openDrawerIfNeeded(page);
+        assert.ok(await isReachable(appMenuTrigger(page)), `${locale}@${width}: appearance trigger is reachable`);
+        const menu = await openAppMenu(page);
+        const rect = await menu.boundingBox();
+        assert.ok(rect && rect.x >= -1 && rect.x + rect.width <= width + 1 && rect.y >= -1 && rect.y + rect.height <= 800 + 1, `${locale}@${width}: menu inside the viewport`);
+        await closeAppMenu(page);
+        assert.deepEqual(await horizontalOverflow(page), [], `${locale}@${width}: no page-level horizontal overflow`);
+        assert.deepEqual(page.errors, [], `${locale}@${width}: no console errors`);
+        await page.context().close();
+      }
+    }
+    // Language switching from the menu keeps the picked theme.
+    page = await open();
+    await setTheme(page, 'light');
+    await setLanguage(page, 'ja');
+    await page.waitForFunction(() => document.documentElement.lang === 'ja');
+    assert.equal((await themeState(page)).theme, 'light', 'changing language keeps the theme');
+    await page.context().close();
 
-    selection = null;
-    for (const locale of ['zh-CN', 'zh-TW', 'en', 'ja']) for (const width of [1440, 1100, 900, 640]) {
-      await page.setViewportSize({ width, height: 760 });
-      await open(`platform=windows&locale=${locale}`); await nativeReady();
-      await trigger().focus(); await page.keyboard.press('Enter');
-      await menu().waitFor();
-      assert.ok(await mode('light').evaluate(element => element === document.activeElement), 'keyboard opening focuses the active mode');
-      assert.equal(await page.locator('.theme-selector-group[data-appearance="light"] .theme-selector-card').count(), 3);
-      assert.equal(await page.locator('.theme-selector-group[data-appearance="dark"] .theme-selector-card').count(), 3);
-      assert.ok((await card('warm-sand-light').getAttribute('title')).includes('\n'), 'the tooltip contains the name and description');
-      const menuBox = await menu().boundingBox();
-      assert.ok(menuBox.x >= 0 && menuBox.y >= 0 && menuBox.x + menuBox.width <= width && menuBox.y + menuBox.height <= 760, `${locale} at ${width}: menu outside viewport`);
-      await card('sakura-light').focus(); await page.keyboard.press(' ');
-      await saved('sakura-light');
-      assert.equal(await trigger().getAttribute('aria-expanded'), 'true');
-      await page.keyboard.press('Escape');
-      assert.ok(await trigger().evaluate(element => element === document.activeElement));
-      await trigger().click();
-      await page.locator('.sidebar-privacy-toggle').click();
-      assert.equal(await trigger().getAttribute('aria-expanded'), 'false');
-      assert.ok(await page.locator('.sidebar-privacy-toggle').evaluate(element => element === document.activeElement));
-      await trigger().click(); await page.locator('.sidebar-privacy-toggle').focus();
-      assert.equal(await trigger().getAttribute('aria-expanded'), 'false', 'focus leaving the picker closes it');
-      const controls = await page.locator('.sidebar-language-trigger, .sidebar-privacy-toggle, .theme-selector').evaluateAll(elements => elements.map(element => {
-        const { x, right, width } = element.getBoundingClientRect(); return { x, right, width, fits: element.scrollWidth <= element.clientWidth };
-      }));
-      assert.ok(controls[0].width >= 48 && controls[1].width >= 28 && controls[2].width <= 140 && controls.every(control => control.width > 0 && control.fits), 'sidebar controls remain compact and content is unclipped');
-      assert.ok(controls[0].right < controls[1].x && controls[1].right < controls[2].x, `${locale} at ${width}: controls overlap`);
-      selection = null;
-    }
-    selection = null;
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await open('platform=macos&extensions'); await nativeReady();
-    const chooseId = async id => {
-      await select(id);
-      await page.waitForFunction(id => document.documentElement.dataset.themeId === id, id);
-    };
-    const color = selector => page.locator(selector).evaluate(element => {
-      const style = getComputedStyle(element); return { background: style.backgroundColor, color: style.color, border: style.borderTopColor };
-    });
-    const defaultDialog = await color('.config-dialog');
-    const legacySurfaces = ['.version-metric-tile', '.app-release-notes-footer', '.agent-core-setting-section', '.model-config-card'];
-    const defaultSurfaces = await Promise.all(legacySurfaces.map(color));
-    await chooseId('graphite-dark'); await saved('graphite-dark');
-    for (const selector of legacySurfaces) {
-      assert.equal((await color(selector)).background, 'rgb(40, 44, 49)', `${selector} must use graphite's secondary surface`);
-    }
-    await chooseId('dark'); await saved('dark');
-    for (const selector of legacySurfaces) {
-      assert.equal((await color(selector)).background, 'rgb(11, 13, 17)', `${selector} must restore the default dark palette`);
-    }
-    await chooseId('light'); await saved('light');
-    assert.deepEqual(await Promise.all(legacySurfaces.map(color)), defaultSurfaces);
-    await chooseId('test-light'); await saved('test-light');
-    assert.equal((await color('.workspace')).background, 'rgb(233, 239, 255)');
-    assert.equal((await color('.panel')).background, 'rgb(220, 232, 250)');
-    assert.equal((await color('.config-dialog')).background, 'rgb(220, 232, 250)');
-    assert.equal((await color('.usage-analysis-card')).background, 'rgb(220, 232, 250)');
-    assert.equal((await color('.panel-heading h2')).color, 'rgb(18, 37, 68)');
-    assert.equal((await color('.panel-heading p')).color, 'rgb(35, 54, 85)');
-    await page.waitForFunction(() => getComputedStyle(document.querySelector('.panel')).borderTopColor === 'rgb(69, 103, 137)');
-    assert.equal(await trigger().innerText(), '外观', 'the trigger retains its localized action label rather than a long theme name');
-    await chooseId('test-dark'); await saved('test-dark');
-    assert.equal((await color('.config-dialog')).background, 'rgb(32, 48, 64)');
-    assert.equal((await color('.usage-analysis-card')).background, 'rgb(32, 48, 64)');
-    await system('light');
-    assert.equal(await page.locator('html').getAttribute('data-theme-id'), 'test-dark');
-    await chooseId('test-dark-2'); await saved('test-dark-2');
-    assert.equal((await color('.panel')).background, 'rgb(37, 68, 51)');
-    await page.reload(); await nativeReady();
-    assert.equal(await page.locator('html').getAttribute('data-theme-id'), 'test-dark-2');
-    await chooseId('light'); await saved('light');
-    assert.deepEqual(await color('.config-dialog'), defaultDialog);
-    assert.equal(await page.locator('html').evaluate(element => element.style.getPropertyValue('--theme-surface')), '');
-    await chooseId('midnight-dark'); await saved('midnight-dark');
-    await page.setViewportSize({ width: 1280, height: 320 });
-    await trigger().click(); await menu().waitFor();
-    const menuState = () => page.evaluate(() => {
-      const element = document.querySelector('.theme-selector-menu');
-      const { top, bottom } = element.getBoundingClientRect();
-      return { scroll: element.scrollTop, pageScroll: window.scrollY, top, bottom, overflow: element.scrollHeight > element.clientHeight };
-    });
-    const beforeHover = await menuState();
-    assert.ok(beforeHover.overflow, 'the picker scrolls in a short window');
-    assert.ok(beforeHover.top >= 0 && beforeHover.bottom <= 320, 'the picker stays inside a short window');
-    const menuBounds = await menu().boundingBox();
-    await page.mouse.move(menuBounds.x + menuBounds.width / 2, menuBounds.y + menuBounds.height - 4);
-    await page.mouse.move(menuBounds.x + menuBounds.width / 2, menuBounds.y + menuBounds.height / 2);
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    assert.deepEqual(await menuState(), beforeHover, 'hover must not scroll or reposition the picker');
-    await page.mouse.wheel(0, 160);
-    await page.waitForFunction(() => document.querySelector('.theme-selector-menu').scrollTop > 0);
-    const afterWheel = await menuState();
-    assert.deepEqual({ ...afterWheel, scroll: 0 }, beforeHover, 'only the picker may scroll');
-    await card('midnight-dark').click(); await saved('midnight-dark');
-    assert.equal(await trigger().getAttribute('aria-expanded'), 'true');
-    await page.keyboard.press('Escape');
-    selection = null;
-
-    if (process.env.THEME_SCREENSHOT_DIR) {
-      await page.setViewportSize({ width: 1440, height: 960 });
-      await open('platform=macos'); await nativeReady(); await trigger().click();
-      await page.screenshot({ path: `${process.env.THEME_SCREENSHOT_DIR}/theme-picker-light.png`, animations: 'disabled' });
-      await page.keyboard.press('Escape'); await select('dark'); await theme('dark'); await trigger().click();
-      await page.screenshot({ path: `${process.env.THEME_SCREENSHOT_DIR}/theme-picker-dark.png`, animations: 'disabled' });
-    }
-    assert.deepEqual(errors, []);
-    console.log('Theme UI passed: desktop IPC, persistence, errors, mode and theme picker, focus, 4 locales at 4 widths.');
-  } finally { await browser.close(); }
+    console.log('Theme UI passed: Ember Dark/Light/System, More themes, persistence, keyboard, contrast, 4 locales at 4 widths.');
+  } finally {
+    await browser.close();
+  }
 });

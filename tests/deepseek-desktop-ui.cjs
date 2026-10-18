@@ -20,13 +20,14 @@ runUi(async ({ base }) => {
         };
       }, scenario);
       await page.goto(`${base}/tests/fixtures/agent-backups.html?client=deepseek-harness&reset-selections${scenario === 'running' ? '&running' : ''}`);
-      const controls = page.locator('.agent-run-controls');
+      const controls = page.locator('.ag-run');
       const app = controls.getByRole('button', { name: '启动 App', exact: true });
       await app.waitFor();
       if (scenario === 'cli') {
         assert.ok(await app.isDisabled());
       } else {
-        await page.locator('.agent-status-grid').getByText('0.2.0-rc.2', { exact: true }).waitFor();
+        // The Setup tab lists the desktop app version next to the CLI version.
+        await page.getByRole('tabpanel').getByText('0.2.0-rc.2', { exact: true }).waitFor();
         await app.click();
         await page.waitForFunction(() => window.fixtureCalls.some(call => call.cmd === 'launch_agent'));
         const calls = await page.evaluate(() => window.fixtureCalls.filter(call => call.cmd === 'launch_agent'));
@@ -47,4 +48,4 @@ runUi(async ({ base }) => {
   } finally {
     await browser.close();
   }
-});
+}, { url: process.env.AGENT_TEST_URL });

@@ -1,0 +1,116 @@
+/* Card: see Card.tsx. Padding and gap come from the density tokens. */
+
+.ec-card {
+  display: block;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: var(--ec-pad);
+  border: 1px solid var(--ec-border);
+  border-radius: var(--ec-r-lg);
+  background: var(--ec-surface);
+  color: var(--ec-fg);
+}
+
+.ec-card--raised {
+  background: var(--ec-raised);
+}
+
+.ec-card--plain {
+  border-color: transparent;
+  background: transparent;
+}
+
+.ec-card--flush {
+  padding: 0;
+}
+
+.ec-card--interactive {
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.ec-card--interactive:hover {
+  border-color: var(--ec-input-border);
+}
+
+.ec-card--interactive:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 2px;
+}
+
+.ec-card--selected,
+.ec-card--selected:hover {
+  border-color: var(--ec-accent);
+  box-shadow: inset 0 0 0 1px var(--ec-accent);
+}
+
+.ec-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ec-sp-3);
+  min-width: 0;
+  margin-bottom: var(--ec-sp-3);
+}
+
+.ec-card__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  min-width: 0;
+}
+
+.ec-card__icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--ec-fg-muted);
+}
+
+.ec-card__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ec-card__titles {
+  min-width: 0;
+}
+
+.ec-card__title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+  font-size: var(--ec-fs-md);
+  font-weight: 600;
+  color: var(--ec-fg);
+}
+
+.ec-card__count {
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-xs);
+  font-style: normal;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--ec-fg-subtle);
+}
+
+.ec-card__subtitle {
+  margin-top: 2px;
+  font-size: var(--ec-fs-xs);
+  color: var(--ec-fg-muted);
+}
+
+.ec-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+  flex: none;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-card--interactive {
+    transition: none;
+  }
+}

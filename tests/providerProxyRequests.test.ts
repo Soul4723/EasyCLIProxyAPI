@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { fetchModels } from '../src/services/modelService';
 import { checkProviderModelHealth } from '../src/services/providerHealthCheck';
-import { providerDraftConnection } from '../src/pages/ApiAccessPage';
+import { providerDraftConnection } from '../src/sections/providers/api/logic';
 import { providerKeyDraft } from '../src/services/providerGroups';
 
 describe('provider request proxy routing', () => {

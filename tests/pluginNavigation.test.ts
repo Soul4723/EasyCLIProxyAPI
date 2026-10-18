@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
   orderPluginNavEntries, mergePluginNavOrder,
   findPluginNavEntry,
+  findPluginEntryForPage,
+  pluginPagePath,
+  pluginPagePathFromLegacyRoute,
   isPluginRoute,
   pluginNavLayout,
   readCachedPluginNavEntries,
@@ -119,3 +122,28 @@ describe('plugin entry cache', () => {
   const hidden = entry('hidden', 0).route;
   expect(mergePluginNavOrder([order[0], hidden, order[1]], [order[1], order[0], entries[2].route])).toEqual([order[1], hidden, order[0], entries[2].route]);
  });
+
+describe('shell plugin page routes', () => {
+  test('builds /plugin/<id> with a menu param after the first menu', () => {
+    expect(pluginPagePath(entry('request-inspector', 0))).toBe('/plugin/request-inspector');
+    expect(pluginPagePath(entry('request-inspector', 2))).toBe('/plugin/request-inspector?menu=2');
+    expect(pluginPagePath(entry('a b', 0))).toBe('/plugin/a%20b');
+  });
+
+  test('maps legacy plugin-pages routes and rejects malformed ones', () => {
+    expect(pluginPagePathFromLegacyRoute('/plugin-pages/request-inspector/1')).toBe('/plugin/request-inspector?menu=1');
+    expect(pluginPagePathFromLegacyRoute('/plugin-pages/x')).toBe('/plugin/x');
+    expect(pluginPagePathFromLegacyRoute('/plugin-pages/x/-1')).toBeNull();
+    expect(pluginPagePathFromLegacyRoute('/plugin-pages/%E0%A4%A/0')).toBeNull();
+    expect(pluginPagePathFromLegacyRoute('/settings')).toBeNull();
+  });
+
+  test('finds the entry for a route sub and menu param', () => {
+    const entries = [entry('p', 0), entry('p', 1), entry('q', 0)];
+    expect(findPluginEntryForPage(entries, 'p', null)?.menuIndex).toBe(0);
+    expect(findPluginEntryForPage(entries, 'p', '1')?.menuIndex).toBe(1);
+    expect(findPluginEntryForPage(entries, 'q', '1')).toBeUndefined();
+    expect(findPluginEntryForPage(entries, 'p', 'x')).toBeUndefined();
+    expect(findPluginEntryForPage(entries, null, null)).toBeUndefined();
+  });
+});

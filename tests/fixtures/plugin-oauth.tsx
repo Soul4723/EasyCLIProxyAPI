@@ -1,20 +1,24 @@
-import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
-import { PluginOAuthDialog } from '../../src/pages/PluginOAuthDialog';
-import { fixtureCoreStatus, MockCoreRuntime } from './coreRuntime';
-import type { PluginListEntry } from '../../src/services/plugins';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
+import { PluginsSection } from '../../src/sections/plugins';
+import { resetRouterForTests, useRoute } from '../../src/shell/router';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
 
 const params = new URLSearchParams(location.search);
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'en');
 document.documentElement.dataset.theme = params.get('theme') ?? 'light';
+if (!location.hash) location.hash = '/plugins';
+resetRouterForTests(location.hash);
 const nativeSetTimeout = window.setTimeout.bind(window);
 window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => nativeSetTimeout(handler, timeout === 3000 ? 25 : timeout, ...args)) as typeof window.setTimeout;
 const fixture = {
   calls: [] as { cmd: string; args: Record<string, unknown> }[],
-  starts: 0, completed: 0, polls: 0,
+  starts: 0, polls: 0, lists: 0,
+  /** Sign-in completions: the section re-reads the plugin list once after each one (the first read is the initial load). */
+  get completed() { return Math.max(0, this.lists - 1); },
   status: 'wait',
   cancelled: [] as string[],
   copied: [] as string[],
@@ -25,9 +29,8 @@ const fixture = {
 Object.assign(window, { pluginOAuthFixture: fixture });
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { fixture.copied.push(value); } } });
 mockIPC(async (cmd, unknownArgs) => {
-  if (cmd === 'get_management_target_revision') return 1;
+  if (cmd === 'get_management_target_revision') return 0; // documentTarget fences every target command
   const args = (unknownArgs ?? {}) as Record<string, unknown>;
-  if (cmd === 'get_core_status') return fixtureCoreStatus(params);
   fixture.calls.push({ cmd, args });
   if (cmd === 'start_oauth_login') {
     const attempt = ++fixture.starts;
@@ -49,24 +52,31 @@ mockIPC(async (cmd, unknownArgs) => {
     if (params.has('pollError')) throw new Error('Fixture poll error');
     return { status: fixture.status, error: fixture.status === 'error' ? 'Fixture authorization denied' : null };
   }
+  if (cmd === 'get_plugin_support') return true;
   if (cmd === 'management_request') {
     const request = args.request as { method: string; path: string; query: { state: string } };
+    if (request.method === 'GET' && request.path === '/plugins') {
+      fixture.lists += 1;
+      return {
+        plugins_enabled: true, plugins_dir: 'plugins',
+        plugins: [{
+          id: 'test-plugin', path: '/plugins/test', configured: true, registered: true, enabled: true, effective_enabled: !params.has('disabled'),
+          supports_oauth: true, oauth_provider: 'grok', metadata: null, menus: [], config_fields: [],
+        }],
+      };
+    }
+    if (request.method === 'GET' && request.path === '/plugins/store') return { plugins_enabled: true, plugins_dir: 'plugins', plugins: [], sources: [], source_errors: [] };
     if (request.method === 'DELETE' && request.path === '/oauth/session') fixture.cancelled.push(request.query.state);
     return { status: 'ok', cancelled: true };
   }
   if (cmd === 'open_oauth_url' && params.has('openError')) throw new Error('Fixture browser error');
   return null;
-}, { shouldMockEvents: true });
-const plugin: PluginListEntry = {
-  id: 'test-plugin', path: '/plugins/test', configured: true, registered: true,
-  enabled: true, effectiveEnabled: !params.has('disabled'), supportsOAuth: true,
-  oauthProvider: 'grok', supportsQuota: false, logo: '', menus: [], metadata: null, configFields: [],
-};
-function Fixture() {
-  const [open, setOpen] = useState(false);
-  fixture.unmount = () => setOpen(false);
-  return <I18nProvider><MockCoreRuntime><button type="button" onClick={() => setOpen(true)}>Open plugin login</button>
-    {open ? <PluginOAuthDialog plugin={plugin} onClose={() => setOpen(false)} onCompleted={() => { fixture.completed += 1; }} /> : null}
-  </MockCoreRuntime></I18nProvider>;
+});
+// The installed row's Sign in button opens the OAuth dialog; the plugin comes from the faked /plugins list above.
+function Host() {
+  const route = useRoute();
+  return <PluginsSection sub={route.sub} params={route.params} />;
 }
-createRoot(document.getElementById('root')!).render(<Fixture />);
+const root = createRoot(document.getElementById('root')!);
+fixture.unmount = () => root.unmount();
+root.render(<I18nProvider><CoreRuntimeProvider><Host /></CoreRuntimeProvider></I18nProvider>);

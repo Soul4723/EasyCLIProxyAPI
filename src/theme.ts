@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import { invoke, isTauri } from '@tauri-apps/api/core';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke, isTauri } from './services/platform';
+import { getCurrentWebview } from './services/platform';
+import { getCurrentWindow } from './services/platform';
 import { createThemeController, type AppTheme, type ThemePreference } from './themeController';
 import { ThemePreferences } from './services/themePreferences';
 import { createThemeApplicator } from './themes/applyTheme';

@@ -1,15 +1,17 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { listen } from '@tauri-apps/api/event';
+import { listen } from './services/platform';
 import { documentTarget } from './services/documentTarget';
-import { isTauri } from '@tauri-apps/api/core';
+import { isTauri } from './services/platform';
 import { AppErrorBoundary } from './AppErrorBoundary';
 import App from './App';
 import { I18nProvider } from './i18n';
 import { initializeTheme, initializeThemePreferences } from './theme';
 import { initializeUsagePreferences } from './services/usagePreferences';
 import { initializePrivacyMode } from './privacy';
+import { initializeDensity } from './density';
 import './styles/index.css';
+import './ui/index.css';
 
 async function bootstrap() {
   await Promise.all([initializeUsagePreferences(), initializeThemePreferences().then(() => initializeTheme()), initializePrivacyMode()]);
@@ -25,6 +27,7 @@ async function bootstrap() {
   });
   await documentTarget.getRevision();
   initializeTheme();
+  initializeDensity();
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

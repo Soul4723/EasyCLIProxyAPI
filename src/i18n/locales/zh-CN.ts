@@ -1,9 +1,27 @@
 import { connectionZhCN } from "../coreConnection";
+import { uiZhCN } from '../../ui/i18n';
+import { shellZhCN } from '../../shell/i18n';
+import { overviewZhCN } from '../../sections/overview/i18n';
+import { providersZhCN } from '../../sections/providers/i18n';
+import { quotaZhCN } from '../../sections/quota/i18n';
+import { usageZhCN } from '../../sections/usage/i18n';
+import { agentsZhCN } from '../../sections/agents/i18n';
+import { pluginsZhCN } from '../../sections/plugins/i18n';
+import { settingsZhCN } from '../../sections/settings/i18n';
 import { easyModeZhCN } from '../easyMode';
 import { homeZhCN } from '../home';
 import { authFileListZhCN } from '../authFileList';
 
 export const zhCN = {
+  ...uiZhCN,
+  ...shellZhCN,
+  ...overviewZhCN,
+  ...providersZhCN,
+  ...quotaZhCN,
+  ...usageZhCN,
+  ...agentsZhCN,
+  ...pluginsZhCN,
+  ...settingsZhCN,
   'app.nav.plugins': '插件',
   'app.nav.pluginPages': '插件页面',
   'oauth.vertex.title': 'Vertex JSON 登录',

@@ -1,9 +1,12 @@
+// Text contrast audit against the real app (browser mock, `?mock=running`): Overview, Quota, Usage overview + requests and
+// Settings in Ember Dark and Ember Light, plus a placeholder probe. Every Ember gray text role must reach WCAG AA (4.5:1).
+// node tests/text-contrast-ui.cjs (needs PLAYWRIGHT_MODULE; starts its own vite). CONTRAST_SCREENSHOT_DIR saves screenshots.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
+const { openApp, gotoPage, setTheme, setDensity, settle, waitForCoreStatus } = require('./helpers/shell.cjs');
 
 async function audit(page, scope, label) {
   const result = await page.evaluate(scope => {
@@ -29,8 +32,9 @@ async function audit(page, scope, label) {
     };
     const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
     const root = getComputedStyle(document.documentElement);
-    const grayColors = new Set(['primary', 'secondary', 'tertiary', 'quaternary', 'muted', 'placeholder']
-      .map(role => rgba(root.getPropertyValue(`--text-${role}`)).join(',')));
+    // The Ember text roles; coloured status/accent text is audited by its own tokens elsewhere.
+    const grayColors = new Set(['fg', 'fg-2', 'fg-muted', 'fg-subtle']
+      .map(role => rgba(root.getPropertyValue(`--ec-${role}`)).join(',')));
     const failures = [];
     let samples = 0;
     const check = (element, pseudo) => {
@@ -39,6 +43,8 @@ async function audit(page, scope, label) {
       const style = getComputedStyle(element, pseudo);
       if (!rect.width || !rect.height || style.visibility !== 'visible' || style.display === 'none') return;
       if (!pseudo && !Array.from(element.childNodes).some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim())) return;
+      // Decorative empty-value marks (a lone dash or dot) carry no information.
+      if (!pseudo && /^[\s—–·•-]+$/.test(element.textContent)) return;
       const foreground = rgba(style.color);
       if (!grayColors.has(foreground.join(','))) return;
       const ancestors = [];
@@ -70,87 +76,67 @@ async function audit(page, scope, label) {
   console.log(`${label}: ${result.samples} text samples passed`);
 }
 
-(async () => {
-  const { build, preview } = await import('vite');
-  const root = path.resolve(__dirname, '..');
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cpa-contrast-fixtures-'));
-  let browser;
-  let server;
+const PAGES = [
+  ['overview', '/overview', '[data-testid=overview-page]'],
+  ['quota', '/quota', '.qt-card'],
+  ['usage overview', '/usage', '.ec-page-body'],
+  ['usage requests', '/usage/requests', '.req-table tbody tr'],
+  ['settings', '/settings/connection', '.ec-set-content'],
+];
+
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
-    await build({
-      root, logLevel: 'error',
-      build: {
-        outDir, emptyOutDir: true,
-        rollupOptions: { input: ['theme', 'auth-file-requests', 'usage-layout'].map(name => path.join(__dirname, 'fixtures', `${name}.html`)) },
-      },
-    });
-    server = await preview({ root, build: { outDir }, preview: { host: '127.0.0.1', port: 0, strictPort: false }, logLevel: 'error' });
-    const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await launchBrowser(chromium);
-    const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, colorScheme: 'dark', reducedMotion: 'reduce' });
     page.setDefaultTimeout(15000);
-    page.setDefaultNavigationTimeout(30000);
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
-    await page.route('**/*', route => route.request().url().startsWith(base + '/') ? route.continue() : route.abort());
-    await page.route('**/__theme_fixture_selection', route => {
-      const selectedId = new URL(route.request().headers().referer).searchParams.get('saved') || 'light';
-      return route.fulfill({ json: { version: 1, selectedId, lastLightId: 'light', lastDarkId: 'dark' } });
-    });
-    const open = fixture => page.goto(`${base}/tests/fixtures/${fixture}`, { waitUntil: 'domcontentloaded' });
+    await page.route('**/*', route => route.request().url().startsWith(base + '/') || route.request().url().startsWith('data:') ? route.continue() : route.abort());
     const screenshot = async name => {
       if (!process.env.CONTRAST_SCREENSHOT_DIR) return;
       fs.mkdirSync(process.env.CONTRAST_SCREENSHOT_DIR, { recursive: true });
       await page.screenshot({ path: path.join(process.env.CONTRAST_SCREENSHOT_DIR, `${name}.png`), animations: 'disabled' });
     };
 
-    for (const theme of ['light', 'dark']) {
-      await open(`theme.html?reset&platform=windows&saved=${theme}`);
+    await openApp(page, base, { path: '/overview' });
+    await waitForCoreStatus(page);
+    for (const theme of ['dark', 'light']) {
+      await setTheme(page, theme);
       await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
-      await page.locator('.sidebar').waitFor();
-      await audit(page, '.app-shell', `${theme} home and sidebar`);
+      for (const [label, route, ready] of PAGES) {
+        await gotoPage(page, route);
+        await page.locator(ready).first().waitFor();
+        await settle(page);
+        await audit(page, '.ec-app', `${theme} ${label}`);
+        await screenshot(`${label.replace(/ /g, '-')}-${theme}`);
+      }
 
+      // Compact density keeps the same contrast (it only changes sizes).
+      await setDensity(page, 'compact');
+      await gotoPage(page, '/quota');
+      await page.locator('.qt-card, .qt-row').first().waitFor();
+      await audit(page, '.ec-app', `${theme} quota compact`);
+      await setDensity(page, 'comfortable');
+
+      // Placeholder probe: the real search field plus generic controls inside a page body.
+      await gotoPage(page, '/quota');
+      await page.locator('.ec-page-body input[placeholder]').first().waitFor();
       await page.evaluate(() => {
         const section = document.createElement('section');
         section.id = 'placeholder-probes';
-        section.style.cssText = 'padding:16px;background:var(--bg-card)';
-        section.innerHTML = '<input placeholder="Generic input"><textarea placeholder="Generic textarea"></textarea><input class="compact-text-input" placeholder="Compact input"><div class="simple-mode-field"><input class="text-input" placeholder="Simple mode input"></div>';
-        document.body.append(section);
+        section.style.cssText = 'padding:16px;background:var(--ec-surface)';
+        section.innerHTML = '<input placeholder="Generic input"><textarea placeholder="Generic textarea"></textarea>';
+        document.querySelector('.ec-page-body').append(section);
       });
-      await audit(page, '#placeholder-probes', `${theme} shared placeholders`);
-      for (const input of await page.locator('#placeholder-probes input, #placeholder-probes textarea').all()) {
-        assert.equal(await input.evaluate(element => getComputedStyle(element, '::placeholder').opacity), '1');
+      await audit(page, '#placeholder-probes', `${theme} generic placeholders`);
+      await audit(page, '.ec-page-body', `${theme} quota search placeholder`);
+      for (const input of await page.locator('.ec-page-body input[placeholder], #placeholder-probes textarea').all()) {
+        assert.equal(await input.evaluate(element => getComputedStyle(element, '::placeholder').opacity), '1', 'placeholders are not faded further');
       }
-
-      await open(`auth-file-requests.html?cards&theme=${theme}&locale=zh-CN`);
-      await page.locator('.auth-file-card').first().waitFor();
-      await audit(page, '.auth-files-page', `${theme} credential cards`);
-      await screenshot(`credential-cards-${theme}`);
-      await page.locator('.auth-file-card').first().getByRole('button', { name: '设置', exact: true }).click();
-      await page.locator('.credential-settings-body[aria-busy="false"]').waitFor();
-      await audit(page, '.credential-settings-dialog', `${theme} credential settings`);
-      await screenshot(`credential-settings-${theme}`);
-
-      await open(`usage-layout.html?theme=${theme}&locale=zh-CN`);
-      const legend = page.locator('.usage-trend-legend-item').first();
-      await legend.waitFor();
-      await audit(page, '.usage-records-page', `${theme} usage overview`);
-      await legend.click();
-      await page.locator('.usage-trend-legend-item.is-hidden').waitFor();
-      assert.equal(await legend.evaluate(element => getComputedStyle(element).opacity), '1');
-      assert.ok((await legend.evaluate(element => getComputedStyle(element).textDecorationLine)).includes('line-through'));
-      await audit(page, '.usage-trend-legend', `${theme} interactive hidden-series label`);
-      await screenshot(`usage-overview-${theme}`);
-
-      await open(`usage-layout.html?tab=events&theme=${theme}&locale=zh-CN`);
-      await page.locator('.usage-events-table tbody tr').first().waitFor();
-      await audit(page, '.usage-records-page', `${theme} usage records`);
     }
     assert.deepEqual(errors, []);
-    console.log('PASS: light/dark contrast, shared placeholders, credential cards/settings, usage tables and interactive legend labels.');
+    console.log('PASS: Ember Dark/Light contrast on Overview, Quota (comfortable + compact), Usage overview/requests, Settings and placeholders.');
   } finally {
-    if (browser) await browser.close();
-    if (server) await new Promise((resolve, reject) => server.httpServer.close(error => error ? reject(error) : resolve()));
-    fs.rmSync(outDir, { recursive: true, force: true });
+    await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});

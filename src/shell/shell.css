@@ -1,0 +1,43 @@
+/* App shell layout: sidebar + scrolling main. Breakpoints: <1100px icon rail, <720px drawer. */
+.ec-app {
+  display: grid;
+  grid-template-columns: var(--ec-sidebar-w) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: var(--ec-bg);
+  color: var(--ec-fg);
+  font-family: var(--ec-font);
+  font-size: var(--ec-fs-base);
+  line-height: 1.43;
+  -webkit-font-smoothing: antialiased;
+}
+.ec-app--bare { grid-template-columns: minmax(0, 1fr); }
+.ec-main {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  position: relative;
+  container-type: inline-size;
+  container-name: workspace;
+  scrollbar-width: thin;
+}
+.ec-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ec-gap);
+  padding: var(--ec-pad) var(--ec-page-pad-x) 48px;
+}
+.ec-sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.ec-drawer-scrim { display: none; }
+
+@media (max-width: 1100px) {
+  .ec-app { --ec-sidebar-w: 56px; }
+}
+@media (max-width: 720px) {
+  .ec-app { grid-template-columns: minmax(0, 1fr); }
+  .ec-drawer-scrim {
+    display: block; position: fixed; inset: 0; z-index: var(--ec-z-scrim); background: var(--ec-scrim);
+  }
+}
