@@ -30,6 +30,11 @@ export function FilterBar() {
       {filters.provider ? (
         <Chip tone="accent" onRemove={() => setFilter('provider', '')} removeLabel={t('sec.usage.filter.reset')}>{providerInfo(filters.provider).name}</Chip>
       ) : null}
+      {filters.source ? (
+        <Chip tone="accent" onRemove={() => setFilter('source', '')} removeLabel={t('sec.usage.filter.reset')}>
+          {mask.text(sources.find((x) => x.key === filters.source)?.label ?? filters.source.replace(/^(auth|provider):/, ''))}
+        </Chip>
+      ) : null}
       {filters.range === 'custom' ? (
         <span className="usage-custom-range">
           <input type="datetime-local" value={filters.customStart} aria-label={t('sec.usage.filter.start')} onChange={(e) => setFilter('customStart', e.currentTarget.value)} />

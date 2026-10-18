@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { managementApi } from '../../services/managementApi';
 import { usagePreferences } from '../../services/usagePreferences';
 import type { CollectorStatus, UsageAnalysis, UsageQuery, UsageRange } from './types';
 import { rangeQuery } from './format';
@@ -77,7 +78,19 @@ const defaultFilters = (range: UsageRange): UsageFilters => ({
   range, customStart: '', customEnd: '', model: '', agent: '', source: '', apiKeyHash: '', provider: '', result: 'all',
 });
 
-/** `params` carries deep links: ?account=<auth_index> ?provider=<p> ?model=<m> ?result=failed. */
+/** ?account may be an auth file name (Quota links) or an auth_index; resolve a file name to its auth_index. */
+async function resolveAccountSource(account: string): Promise<string> {
+  try {
+    const payload = await managementApi.get('/credentials') as { files?: Array<Record<string, unknown>> };
+    const file = (payload.files ?? []).find((f) => f.name === account || f.auth_index === account || f.authIndex === account);
+    const index = file?.auth_index ?? file?.authIndex;
+    if (typeof index === 'string' && index) return `auth:${index}`;
+    if (typeof index === 'number') return `auth:${index}`;
+  } catch { /* keep the raw value */ }
+  return `auth:${account}`;
+}
+
+/** `params` carries deep links: ?account=<auth file name | auth_index> ?provider=<p> ?model=<m> ?result=failed. */
 export function UsageProvider({ params, children }: { params: URLSearchParams; children: ReactNode }) {
   const [filters, setFilters] = useState<UsageFilters>(() => {
     const base = defaultFilters(loadRange());
@@ -97,6 +110,15 @@ export function UsageProvider({ params, children }: { params: URLSearchParams; c
   const [options, setOptions] = useState<UsageAnalysis>(emptyAnalysis);
   const [tick, setTick] = useState(0);
   const [clock, setClock] = useState(0);
+
+  // Resolve a file-name account link to the collector's auth_index source key.
+  const accountParam = params.get('account');
+  useEffect(() => {
+    if (!accountParam) return;
+    let cancelled = false;
+    resolveAccountSource(accountParam).then((source) => { if (!cancelled) setFilters((f) => (f.source === source ? f : { ...f, source })); });
+    return () => { cancelled = true; };
+  }, [accountParam]);
 
   // Deep links arriving while the page is open (same hash route, new query) re-apply their filters.
   const paramsKey = params.toString();
