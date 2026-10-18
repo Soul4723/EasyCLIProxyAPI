@@ -134,6 +134,7 @@ fn next_run(s: &Schedule, after: i64) -> Option<i64> {
 fn finish(s: &mut Schedule, result: &RunResult) {
     s.last_run = Some(result.clone());
     if result.ok {
+        if s.mode == "after_reset" { s.consumed_reset = s.observed_reset; }
         s.attempt = 0; s.circuit_until = None; s.next_run = next_run(s, result.at);
     } else if result.attempt < s.retry.max_attempts {
         let delay = (s.retry.interval_seconds as f64 * s.retry.backoff.powi(result.attempt.saturating_sub(1) as i32)).min(86400.0) as i64 * 1000;
@@ -294,8 +295,8 @@ async fn run<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: &str, manual: boo
         if !manual && (!s.enabled || !s.next_run.is_some_and(|v| v <= now()) || s.circuit_until.is_some_and(|v| v > now())) { return Err("Schedule is not due".into()); }
         if manual { s.attempt = 0; s.circuit_until = None; }
         s.attempt += 1;
-        // Persist consumed reset before HTTP; a process crash must not replay it.
-        if s.mode == "after_reset" { s.consumed_reset = s.observed_reset; }
+        // Keep an observed reset available while transient failures retry; successful
+        // completion consumes it in finish().
         s.next_run = None;
         g.running.insert(id.to_owned()); Ok(s.clone())
     })?;
@@ -378,4 +379,6 @@ mod tests {
     #[test] fn active_hours_bound() { let mut s=rule("schedule"); s.active_hours=Some(ActiveHours{start:"07:00".into(),end:"22:00".into()}); let at=chrono_tz::Australia::Melbourne.with_ymd_and_hms(2026,10,20,23,0,0).unwrap().timestamp_millis(); let next=next_run(&s,at).unwrap(); let dt=DateTime::from_timestamp_millis(next).unwrap().with_timezone(&chrono_tz::Australia::Melbourne); assert_eq!(dt.hour(),9); }
     #[test] fn retry_backoff_then_circuit() { let mut s=rule("schedule"); let r=RunResult{schedule_id:"x".into(),at:now(),ok:false,http_status:Some(500),message:"x".into(),attempt:1}; finish(&mut s,&r); assert!(s.next_run.is_some()); let r2=RunResult{attempt:3,..r}; finish(&mut s,&r2); assert!(s.circuit_until.is_some()); }
     #[test] fn schedule_identity_is_stable() { let s=rule("schedule"); assert_eq!(schedule_id(&s),schedule_id(&s)); }
+    #[test] fn persistence_round_trip_is_lossless() { let mut store=Store::default(); store.schedules.push(rule("schedule")); let bytes=serde_json::to_vec(&store).unwrap(); let restored:Store=serde_json::from_slice(&bytes).unwrap(); assert_eq!(restored.schedules[0].credential,store.schedules[0].credential); assert_eq!(restored.schedules[0].timezone,"Australia/Melbourne"); }
+    #[test] fn target_fencing_changes_identity() { let s=rule("schedule"); let mut moved=s.clone(); moved.target="different-target".into(); assert_ne!(schedule_id(&s),schedule_id(&moved)); }
 }
