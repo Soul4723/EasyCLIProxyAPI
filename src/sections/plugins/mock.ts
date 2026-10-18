@@ -24,6 +24,11 @@ export const pluginsMock: SectionMockFactory = (host) => {
         const source = String(payload.source ?? '');
         return { handled: true, value: `plugins/${source.split(/[\\/]/).pop() ?? source}` };
       }
+      // Latest GitHub releases for the installed-tab update check (the mock store lists request-inspector 1.0.0 → 1.1.0).
+      if (command === 'get_plugin_latest_releases') {
+        const repositories = (payload.repositories ?? []) as string[];
+        return { handled: true, value: repositories.map(repository => ({ repository, version: repository.endsWith('request-inspector') ? '1.2.0' : null, error: null })) };
+      }
       return { handled: false };
     },
   };

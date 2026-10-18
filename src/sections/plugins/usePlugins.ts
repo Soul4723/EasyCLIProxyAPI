@@ -5,11 +5,13 @@ import { useI18n } from '../../i18n';
 import { pluginText } from '../../i18n/plugins';
 import {
   pluginsApi, pluginStoreApi,
-  type PluginListEntry, type PluginListResponse, type PluginStoreEntry, type PluginStoreResponse,
+  type PluginListEntry, type PluginListResponse, type PluginStoreEntry, type PluginStoreInstallResult, type PluginStoreResponse,
 } from '../../services/plugins';
 import {
   collectPluginResourceEntries, getPluginTitle, notifyPluginResourcesChanged, type PluginResourceEntry,
 } from '../../services/pluginResources';
+import { waitForPluginInstall, waitForPluginToggle, type PluginActionStatus } from '../../services/pluginPolling';
+import { refreshPluginReleaseVersions } from '../../services/pluginReleaseVersions';
 import { chooseLocalPluginFile, installLocalPlugin, PLUGIN_DEVELOPMENT_GUIDE_URL } from '../../services/pluginLocalInstall';
 import { getPluginStatus, isPluginInstalled } from '../../services/pluginStatus';
 import { getPluginStoreSources, pluginStoreSourceKey } from '../../services/pluginStoreSources';
@@ -18,10 +20,20 @@ import type { PluginTab } from './subs';
 
 export type InstalledFilter = 'all' | 'updates' | 'local' | 'configOnly';
 export type StoreFilter = 'all' | 'installed' | 'updates';
-export type PluginNotice = { tone: 'success' | 'error'; text: string };
+export type PluginNotice = { tone: 'success' | 'error' | 'info'; text: string };
 export type PluginStatusKey = ReturnType<typeof getPluginStatus>;
 /** What the store knows about an installed plugin (only available once the store listing was read). */
 export type InstalledStoreInfo = { entry: PluginStoreEntry; updateAvailable: boolean };
+
+/** Replaces the version / update state of installed store entries with the latest GitHub release (the store index can lag behind). */
+async function withLatestReleases(store: PluginStoreResponse, installedPlugins: PluginListEntry[]): Promise<PluginStoreResponse> {
+  const installedIds = new Set(installedPlugins.filter(isPluginInstalled).map(plugin => plugin.id));
+  const refreshed = await refreshPluginReleaseVersions({ ...store, plugins: store.plugins.filter(entry =>
+    installedIds.has(entry.id) && entry.installed && ['matched', 'assumed'].includes(entry.installSourceStatus),
+  ) });
+  const byKey = new Map(refreshed.plugins.map(entry => [entry.storeId, entry]));
+  return { ...store, plugins: store.plugins.map(entry => byKey.get(entry.storeId) ?? entry), sourceErrors: refreshed.sourceErrors };
+}
 
 export const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -80,7 +92,7 @@ export function usePlugins(tab: PluginTab) {
     setSourceFilter(known); setInstalledSource(known);
   }, []);
 
-  const load = useCallback(async (target: PluginTab = tabRef.current) => {
+  const load = useCallback(async (target: PluginTab = tabRef.current, refreshVersions = false) => {
     const revision = ++requests.current;
     setLoading(true); setError('');
     try {
@@ -96,11 +108,13 @@ export function usePlugins(tab: PluginTab) {
       if (target === 'store') {
         const nextStore = await pluginStoreApi.list();
         if (mounted.current && revision === requests.current) applyStore(nextStore);
-      } else if (storeRef.current) {
+      } else if (storeRef.current || (target === 'installed' && refreshVersions)) {
         // Keep update badges honest after a change; a failing store read must not hide the installed list.
+        // An explicit refresh on the installed tab also asks GitHub for the latest release of each installed plugin.
         try {
           const nextStore = await pluginStoreApi.list();
-          if (mounted.current && revision === requests.current) applyStore(nextStore);
+          if (!mounted.current || revision !== requests.current) return;
+          applyStore(target === 'installed' && refreshVersions ? await withLatestReleases(nextStore, next.plugins) : nextStore);
         } catch (reason) { if (mounted.current && revision === requests.current) setStoreError(errorMessage(reason)); }
       }
     } catch (reason) { if (mounted.current && revision === requests.current) setError(errorMessage(reason)); }
@@ -125,7 +139,7 @@ export function usePlugins(tab: PluginTab) {
     ? data.plugins.filter(plugin => plugin.path && plugin.enabled && !plugin.effectiveEnabled).map(plugin => plugin.id).sort().join('|')
     : '';
   useEffect(() => {
-    if (!pendingPlugins || busy || loading || restartRequired) return;
+    if (!pendingPlugins || busy || loading || restartRequired || installEntry) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     let attempts = 0;
@@ -141,7 +155,7 @@ export function usePlugins(tab: PluginTab) {
     };
     timer = setTimeout(() => void poll(), 1500);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [pendingPlugins, busy, loading, restartRequired]);
+  }, [pendingPlugins, busy, loading, restartRequired, installEntry]);
 
   const mutate = useCallback(async (operation: () => Promise<unknown>, success: string) => {
     if (pending.current) return;
@@ -157,8 +171,27 @@ export function usePlugins(tab: PluginTab) {
   }, [load, notify]);
 
   const setGlobalEnabled = (enabled: boolean) => void mutate(() => pluginsApi.updateSettings({ enabled }), pt('saved'));
-  const setPluginEnabled = (plugin: PluginListEntry, enabled: boolean) =>
-    void mutate(() => pluginsApi.updateEnabled(plugin.id, enabled), pt('saved'));
+  /** A successful write is not proof the runtime applied it: follow the plugin for a bounded time and report what the core says. */
+  const reportStatus = (status: PluginActionStatus, success: string) => {
+    if (!mounted.current || status === 'cancelled') return;
+    if (status === 'ready') notify(success);
+    else notify(status === 'restart' ? pt('restart') : status === 'globalDisabled' ? pt('disabledHint') : t('sec.plugins.runtimePending'), 'info');
+  };
+  const setPluginEnabled = async (plugin: PluginListEntry, enabled: boolean) => {
+    if (pending.current) return;
+    pending.current = true; setBusy(true); setError('');
+    ++requests.current;
+    let written = false;
+    try {
+      await pluginsApi.updateEnabled(plugin.id, enabled);
+      written = true;
+      const status = await waitForPluginToggle(plugin.id, enabled, () => !mounted.current);
+      reportStatus(status, t('sec.plugins.runtimeReady'));
+      if (mounted.current) await load();
+    } catch (reason) {
+      if (mounted.current) setError(`${written ? pt('refreshFailed') + ' ' : ''}${errorMessage(reason)}`);
+    } finally { pending.current = false; if (mounted.current) setBusy(false); }
+  };
 
   const confirmRemove = async () => {
     const plugin = removeTarget;
@@ -218,11 +251,18 @@ export function usePlugins(tab: PluginTab) {
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   };
 
-  const onInstalled = (result: { restartRequired: boolean }) => {
-    setInstallEntry(null);
+  /** Install already succeeded when this runs: wait (bounded) for the runtime to pick the plugin up, never invite a duplicate install. */
+  const onInstalled = async (result: PluginStoreInstallResult) => {
+    ++requests.current;
     setRestartRequired(previous => previous || result.restartRequired);
-    notify(pt('installedSuccess'));
-    void load();
+    try {
+      reportStatus(await waitForPluginInstall(result, () => !mounted.current), pt('installedSuccess'));
+    } catch (reason) {
+      if (mounted.current) notify(`${pt('refreshFailed')} ${errorMessage(reason)}`, 'info');
+    } finally {
+      if (mounted.current) { setInstallEntry(null); notifyPluginResourcesChanged(); }
+    }
+    if (mounted.current) await load();
   };
 
   // What the store says about each installed plugin (version, source, update state).

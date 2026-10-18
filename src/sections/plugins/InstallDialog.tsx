@@ -18,7 +18,7 @@ import { errorMessage } from './usePlugins';
 export function InstallDialog({ entry, onClose, onInstalled, onOpenExternal }: {
   entry: PluginStoreEntry;
   onClose: () => void;
-  onInstalled: (result: PluginStoreInstallResult) => void;
+  onInstalled: (result: PluginStoreInstallResult) => void | Promise<void>;
   onOpenExternal: (url: string) => void;
 }) {
   const { t, locale } = useI18n();
@@ -48,7 +48,7 @@ export function InstallDialog({ entry, onClose, onInstalled, onOpenExternal }: {
     pending.current = true; setBusy(true); setError('');
     try {
       const result = await pluginStoreApi.install(entry.id, { sourceId: entry.sourceId, version: canSelectVersion ? version.trim() : undefined });
-      if (mounted.current) onInstalled(result);
+      if (mounted.current) await onInstalled(result);
     } catch (reason) {
       if (mounted.current) setError(errorMessage(reason));
     } finally { pending.current = false; if (mounted.current) setBusy(false); }

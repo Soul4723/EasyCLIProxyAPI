@@ -114,6 +114,7 @@
   border-left: 3px solid var(--ec-ok);
 }
 .ec-sec-plugins .pl-toast--error { border-left-color: var(--ec-danger); }
+.ec-sec-plugins .pl-toast--info { border-left-color: var(--ec-info); }
 
 /* forms (config panel, dialogs, settings) */
 .ec-sec-plugins .pl-form { display: flex; flex-direction: column; gap: var(--ec-sp-3); min-width: 0; }
