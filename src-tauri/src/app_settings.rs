@@ -31,11 +31,6 @@ pub(crate) fn save_usage_view_preferences(values: UsageViewPreferences) -> Resul
 }
 
 #[tauri::command]
-pub(crate) fn health_check() -> &'static str {
-    "EasyCLIProxyAPI Rust backend is ready"
-}
-
-#[tauri::command]
 pub(crate) fn detect_core_platform() -> Result<CorePlatform, String> {
     current_core_platform()
 }
@@ -60,11 +55,33 @@ pub(crate) async fn get_core_status(app: tauri::AppHandle) -> Result<CoreStatus,
         .map_err(|_| "Kernel status background task failed".to_string())??
     };
     app.state::<GuiConfigState>().ensure_target(&config)?;
-    emit_core_status(&app, &status);
+    // The caller already gets the status as the return value; a periodic poll must not
+    // re-broadcast an unchanged status to every listener.
+    if remember_emitted_core_status(&status) {
+        emit_core_status_unrecorded(&app, &status);
+    }
     Ok(status)
 }
 
+static LAST_EMITTED_CORE_STATUS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+// Returns whether `status` differs from the last emitted one, and records it.
+fn remember_emitted_core_status(status: &CoreStatus) -> bool {
+    let Ok(serialized) = serde_json::to_string(status) else { return true };
+    let Ok(mut last) = LAST_EMITTED_CORE_STATUS.lock() else { return true };
+    if last.as_deref() == Some(serialized.as_str()) {
+        return false;
+    }
+    *last = Some(serialized);
+    true
+}
+
 pub(crate) fn emit_core_status(app: &tauri::AppHandle, status: &CoreStatus) {
+    remember_emitted_core_status(status);
+    emit_core_status_unrecorded(app, status);
+}
+
+fn emit_core_status_unrecorded(app: &tauri::AppHandle, status: &CoreStatus) {
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     update_windows_tray_status(app, status);
     let _ = app.emit(CORE_STATUS_EVENT, status);
@@ -306,6 +323,19 @@ fn apply_api_access_remark_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_core_status_is_not_rebroadcast() {
+        let status = |message: &str| CoreStatus {
+            installed: true, running: true, ready: true, starting: false, managed: false,
+            process_id: Some(1), current_version: None, install_dir: String::new(), binary_path: None,
+            connection_mode: None, remote_origin: None, message: message.into(), recovery: None,
+        };
+        assert!(remember_emitted_core_status(&status("first")));
+        assert!(!remember_emitted_core_status(&status("first")));
+        assert!(remember_emitted_core_status(&status("second")));
+        assert!(remember_emitted_core_status(&status("first")));
+    }
 
     #[test]
     fn locale_update_does_not_wait_for_target_lease() {

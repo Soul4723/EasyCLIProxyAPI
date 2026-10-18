@@ -248,7 +248,13 @@ changes made outside this window.
   even when switching back to identical settings.
 - Lock order is `target_operation`, then `CORE_OPERATION_LOCK`. Long provider calls must not
   hold `target_operation` (lighting runs its provider request unlocked and discards its
-  result if the target changed meanwhile).
+  result if the target changed meanwhile). `management_request` follows the same rule for
+  reads: `GET` requests and the `POST /requests/api-call` provider proxy hold the lock only to
+  validate the revision and build the request, send unlocked, and re-check the revision before
+  returning (a moved target fails with "Core connection changed; discard the previous target
+  response"). `get_oauth_status` does the same. Writes (`PUT`/`PATCH`/`DELETE` and other
+  `POST`s) and uploads keep the lock across the request, so a connection switch waits for them
+  and they reach the core in submission order.
 - The frontend routes fenced calls through `services/documentTarget`, which binds
   `expectedRevision`. `tests/platformBoundary.test.ts` fails when any `src/` code calls a
   fenced command through an unfenced `invoke`, and checks the browser mock's list of fenced

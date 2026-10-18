@@ -91,7 +91,7 @@ async fn management_request_for_target(
     if request.expected_revision != config.target_revision {
         return Err("The core connection changed; request cancelled".to_string());
     }
-    let _target_operation = gui_config_state.target_operation.lock().await;
+    let target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
     let method = match request.method.trim().to_ascii_uppercase().as_str() {
         "GET" => reqwest::Method::GET,
@@ -108,6 +108,7 @@ async fn management_request_for_target(
     {
         return Err("Invalid management API path".to_string());
     }
+    let read_only = is_read_only_request(&method, path);
 
     match (method.as_str(), path.trim_start_matches('/')) {
         ("GET", "oauth/status") | ("DELETE", "oauth/session") => {
@@ -136,6 +137,16 @@ async fn management_request_for_target(
         builder = management_request_body(builder, path, body)?;
     }
 
+    // Reads only hold the fence while the target is validated and the request built: a slow
+    // upstream call must not stall other management traffic, connection saves or crash recovery.
+    // A target change during the call is caught by the revision re-check below. Writes keep the
+    // fence so a switch waits for them and they reach the core in submission order.
+    let _write_fence = if read_only {
+        drop(target_operation);
+        None
+    } else {
+        Some(target_operation)
+    };
     let response = builder
         .send()
         .await
@@ -143,6 +154,13 @@ async fn management_request_for_target(
     let value = read_management_value(response).await;
     gui_config_state.ensure_target(&config)?;
     value
+}
+
+// `requests/api-call` is the core's proxy to a provider's own API (quota, model lists): it
+// changes nothing in the core, so it is treated like a read.
+fn is_read_only_request(method: &reqwest::Method, path: &str) -> bool {
+    *method == reqwest::Method::GET
+        || (*method == reqwest::Method::POST && path.trim_start_matches('/') == "requests/api-call")
 }
 
 fn management_request_body(
@@ -406,14 +424,17 @@ pub(crate) async fn get_oauth_status(
     if config.target_revision != expected_revision {
         return Err("The core connection changed; request cancelled".to_string());
     }
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    gui_config_state.ensure_target(&config)?;
-    ensure_oauth_target(&gui_config_state, &config, &state)?;
-    let client = management_http_client_for(&config)?;
-    let response = client
-        .get(management_endpoint(&config, "oauth/status")?)
-        .header("Authorization", management_authorization(&config)?)
-        .query(&[("state", state)])
+    // Polled every few seconds: the fence only validates the target; the request runs unlocked.
+    let request = {
+        let _target_operation = gui_config_state.target_operation.lock().await;
+        gui_config_state.ensure_target(&config)?;
+        ensure_oauth_target(&gui_config_state, &config, &state)?;
+        management_http_client_for(&config)?
+            .get(management_endpoint(&config, "oauth/status")?)
+            .header("Authorization", management_authorization(&config)?)
+            .query(&[("state", state)])
+    };
+    let response = request
         .send()
         .await
         .map_err(|err| format_management_request_error("Failed to query OAuth status", &err))?;
@@ -809,6 +830,70 @@ server.serve_forever()
                     assert!(management_request_for_target(&state, request).await.unwrap_err().contains("connection changed"));
                 }
             }
+        }
+    }
+
+    // Remote core that accepts one request, reports that it arrived, and answers only when released.
+    async fn run_held_request(method: &str, path: &str, switch_target: bool) -> (bool, Result<serde_json::Value, String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut config = GuiConfigFile::default();
+        config.connection_mode = super::super::CoreConnectionMode::Remote;
+        config.remote_management_origin = format!("http://{}", listener.local_addr().unwrap());
+        config.remote_management_key = "management-secret".into();
+        config.remote_client_origin = config.remote_management_origin.clone();
+        let state = GuiConfigState::new(config);
+        let revision = state.snapshot().unwrap().target_revision;
+        let request = serde_json::from_value(serde_json::json!({
+            "method": method, "path": path, "expectedRevision": revision, "body": {}
+        })).unwrap();
+        let (arrived_tx, arrived_rx) = tokio::sync::oneshot::channel::<()>();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            socket.read(&mut [0; 4096]).await.unwrap();
+            arrived_tx.send(()).unwrap();
+            release_rx.await.unwrap();
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+        });
+        let call = management_request_for_target(&state, request);
+        tokio::pin!(call);
+        tokio::select! {
+            result = &mut call => panic!("request finished before the core answered: {result:?}"),
+            arrived = arrived_rx => arrived.unwrap(),
+        }
+        let fence_free = state.target_operation.try_lock().is_ok();
+        if switch_target {
+            state.replace_external(state.snapshot().unwrap()).unwrap();
+        }
+        release_tx.send(()).unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap();
+        server.await.unwrap();
+        (fence_free, result)
+    }
+
+    #[tokio::test]
+    async fn slow_reads_do_not_hold_the_target_fence() {
+        for (method, path) in [("GET", "/config"), ("POST", "/requests/api-call")] {
+            let (fence_free, result) = run_held_request(method, path, false).await;
+            assert!(fence_free, "{method} {path} held the fence during the request");
+            assert!(result.is_ok(), "{result:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn read_whose_target_changed_while_in_flight_is_discarded() {
+        let (fence_free, result) = run_held_request("GET", "/config", true).await;
+        assert!(fence_free);
+        assert!(result.unwrap_err().contains("connection changed"));
+    }
+
+    #[tokio::test]
+    async fn writes_keep_the_target_fence_for_the_whole_request() {
+        for (method, path) in [("PUT", "/config"), ("PATCH", "/config/plugins"), ("DELETE", "/credentials"), ("POST", "/oauth/callback-x")] {
+            let (fence_free, result) = run_held_request(method, path, false).await;
+            assert!(!fence_free, "{method} {path} released the fence during the request");
+            assert!(result.is_ok(), "{result:?}");
         }
     }
 

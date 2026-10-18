@@ -396,13 +396,6 @@ pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), Strin
     validate_codex_oauth_login(&home)
 }
 
-#[tauri::command]
-pub(crate) async fn update_codex_model_catalog(
-    app: tauri::AppHandle,
-) -> Result<CodexModelCatalogUpdateResult, String> {
-    update_codex_model_catalog_inner(&app).await
-}
-
 pub(crate) async fn update_codex_model_catalog_inner(
     app: &tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
@@ -1287,7 +1280,7 @@ pub(crate) fn prepare_codex_agent_models(
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn apply_agent_config(
+pub(crate) async fn update_agent_config(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     client: String,
@@ -1436,30 +1429,6 @@ pub(crate) async fn set_agent_config_enabled(
         app.state::<AgentConfigStatusCache>().clear()?;
         Ok(result)
     }
-}
-
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn update_agent_config(
-    app: tauri::AppHandle,
-    gui_config_state: tauri::State<'_, GuiConfigState>,
-    client: String,
-    model: String,
-    oauth_configuration: bool,
-    claude_code_model_mappings: Option<ClaudeDesktopModelMappings>,
-    claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
-    executable_overrides: Option<HashMap<String, String>>,
-) -> Result<AgentConfigActionResult, String> {
-    apply_agent_config(
-        app,
-        gui_config_state,
-        client,
-        model,
-        oauth_configuration,
-        claude_code_model_mappings,
-        claude_desktop_model_mappings,
-        executable_overrides,
-    ).await
 }
 
 pub(crate) fn validate_agent_can_enable(
