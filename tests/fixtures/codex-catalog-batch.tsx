@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { CodexModelCatalogDialog } from '../../src/pages/CodexModelCatalogDialog';
+import { CodexCatalogDialog } from '../../src/sections/agents/CodexCatalogDialog';
 import { I18nProvider } from '../../src/i18n';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
 
 const params = new URLSearchParams(location.search);
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') || 'en');
@@ -41,7 +42,7 @@ mockIPC((cmd, args: any) => {
 function Fixture() {
   const [open, setOpen] = useState(true);
   return <I18nProvider>{open
-    ? <CodexModelCatalogDialog onClose={() => setOpen(false)} onSaved={() => {}} />
+    ? <CodexCatalogDialog onClose={() => setOpen(false)} onSaved={() => {}} />
     : <button onClick={() => setOpen(true)}>Reopen catalog</button>}</I18nProvider>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);

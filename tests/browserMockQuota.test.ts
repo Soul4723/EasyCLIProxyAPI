@@ -5,8 +5,9 @@ import { consumeClaudeResetCredit, consumeCodexResetCredit, loadQuota, type Auth
 import { resetAuthFileCooldown } from '../src/services/authFiles';
 
 let targetRevisionMock: ReturnType<typeof spyOn>;
-beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); });
-afterEach(() => { targetRevisionMock.mockRestore(); });
+let targetValidationMock: ReturnType<typeof spyOn>;
+beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); targetValidationMock = spyOn(managementApi, 'checkTargetRevision').mockResolvedValue(0); });
+afterEach(() => { targetRevisionMock.mockRestore(); targetValidationMock.mockRestore(); });
 
 let runtime: ReturnType<typeof createBrowserMockRuntime>;
 let get: ReturnType<typeof spyOn>;

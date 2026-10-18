@@ -7,8 +7,9 @@ import { managementApi } from '../src/services/managementApi';
 import { loadOAuthModelSettings, saveOAuthModelSettings } from '../src/services/oauthModelSettings';
 
 let targetRevisionMock: ReturnType<typeof spyOn>;
-beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); });
-afterEach(() => { targetRevisionMock.mockRestore(); });
+let targetValidationMock: ReturnType<typeof spyOn>;
+beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); targetValidationMock = spyOn(managementApi, 'checkTargetRevision').mockResolvedValue(0); });
+afterEach(() => { targetRevisionMock.mockRestore(); targetValidationMock.mockRestore(); });
 
 const liveStatus = (fields: Record<string, unknown>) => ({ userStatus: { planStatus: fields } });
 const file = { name: 'devin-test.json', provider: 'devin', auth_index: 'devin-index' };

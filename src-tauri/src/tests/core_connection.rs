@@ -101,7 +101,7 @@ async fn remote_settings_read_returns_remote_values_without_importing_them_into_
     let app = tauri::test::mock_builder().manage(state)
         .manage(AgentConfigStatusCache::default()).manage(CoreProcessState::default())
         .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
-    let view = get_core_config_settings(app.state()).await.unwrap();
+    let view = get_core_config_settings(app.state(), app.state::<GuiConfigState>().snapshot().unwrap().target_revision).await.unwrap();
     assert_eq!(view.port, 9999);
     assert_eq!(view.api_keys[0].api_key, "remote-client");
     let local = crate::core_connection::save_core_connection(app.handle().clone(), app.state(), CoreConnection {
@@ -163,9 +163,9 @@ async fn isolated_remote_core_connection_command() {
         remote_client_key: candidate.client_key.clone(),
         ..GuiConfigFile::default()
     })).build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
-    let settings = get_core_config_settings(app.state()).await.unwrap();
+    let settings = get_core_config_settings(app.state(), app.state::<GuiConfigState>().snapshot().unwrap().target_revision).await.unwrap();
     assert_eq!(settings.port, reqwest::Url::parse(&candidate.management_origin).unwrap().port().unwrap());
-    let extended = get_extended_core_config(app.state()).await.unwrap();
+    let extended = get_extended_core_config(app.state(), app.state::<GuiConfigState>().snapshot().unwrap().target_revision).await.unwrap();
     assert_eq!(extended.get("config-version").and_then(serde_json::Value::as_u64), Some(8));
     let rejected = test_core_connection(CoreConnection { management_key: "incorrect-isolated-fixture-key".into(), ..candidate }).await.unwrap();
     assert!(!rejected.connected);
@@ -215,7 +215,7 @@ async fn remote_setting_writes_only_changed_leaf_without_etag_and_detects_observ
             remote_client_origin: origin, remote_client_key: "fixture-client".into(), ..GuiConfigFile::default() });
         let app = tauri::test::mock_builder().manage(state)
             .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
-        let result = set_core_plugins_enabled(app.state(), true).await;
+        let result = set_core_plugins_enabled(app.state(), app.state::<GuiConfigState>().snapshot().unwrap().target_revision, true).await;
         if conflict { assert!(result.err().unwrap().contains("Remote configuration changed")); }
         else { assert!(result.unwrap().plugins_enabled); }
         server.join().unwrap();
@@ -240,12 +240,12 @@ async fn remote_multiwrite_failure_reports_partial_save_without_retry_or_rollbac
         ..GuiConfigFile::default()
     })).manage(AgentConfigStatusCache::default())
         .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
-    let error = save_network_endpoint_settings(app.state(), app.state(), GuiNetworkEndpointSettings {
+    let error = save_network_endpoint_settings(app.state(), app.state::<GuiConfigState>().snapshot().unwrap().target_revision, app.state(), GuiNetworkEndpointSettings {
         host: "10.0.0.9".into(), port: 9999, proxy_url: None, proxy_override: None,
     }).await.err().unwrap();
     assert!(error.contains("1 of 2 confirmed changes"));
     assert!(!error.contains("sensitive server details"));
-    let current = get_core_config_settings(app.state()).await.unwrap();
+    let current = get_core_config_settings(app.state(), app.state::<GuiConfigState>().snapshot().unwrap().target_revision).await.unwrap();
     assert_eq!(current.host, "10.0.0.9");
     assert_eq!(current.port, 8317);
     server.join().unwrap();
@@ -258,10 +258,10 @@ async fn remote_oauth_rejects_callback_and_poll_from_unknown_target_without_expo
         remote_management_origin: "http://127.0.0.1:1".into(), remote_management_key: "fixture-management".into(),
         remote_client_origin: "http://127.0.0.1:1".into(), ..GuiConfigFile::default()
     })).build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
-    let poll = crate::management_api::get_oauth_status(app.state(), "old-state".into()).await.err().unwrap();
+    let poll = crate::management_api::get_oauth_status(app.state(), "old-state".into(), 0).await.err().unwrap();
     assert!(poll.contains("different or expired core connection"));
     let callback = crate::management_api::submit_oauth_callback(app.state(), "codex".into(),
-        "http://localhost:1455/auth/callback?state=old-state&code=sensitive-fixture-code".into(), None).await.err().unwrap();
+        "http://localhost:1455/auth/callback?state=old-state&code=sensitive-fixture-code".into(), None, 0).await.err().unwrap();
     assert!(callback.contains("different or expired core connection"));
     assert!(!callback.contains("sensitive-fixture-code"));
 }
@@ -304,9 +304,9 @@ async fn remote_alias_removal_uses_remote_management_without_local_rollback() {
         remote_management_key: "fixture-management".into(), remote_client_origin: origin,
         ..GuiConfigFile::default()
     })).build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
-    let entries = get_thinking_aliases(app.state()).await.unwrap();
+    let entries = get_thinking_aliases(app.state(), app.state::<GuiConfigState>().snapshot().unwrap().target_revision).await.unwrap();
     assert_eq!(entries.len(), 1);
-    let after = delete_thinking_alias(app.state(), "fixture-alias".into(), Some("codex".into()), None).await.unwrap();
+    let after = delete_thinking_alias(app.state(), app.state::<GuiConfigState>().snapshot().unwrap().target_revision, "fixture-alias".into(), Some("codex".into()), None).await.unwrap();
     assert!(after.is_empty());
     server.join().unwrap();
 }
@@ -464,4 +464,59 @@ fn portable_commands_export_saved_remote_settings_without_changing_active_target
     assert_eq!(imported.management_key, "saved-management-secret");
     assert_eq!(imported.client_key, "saved-client-secret");
     fs::remove_dir_all(directory).unwrap();
+}
+
+#[tokio::test]
+async fn stale_document_revision_rejects_typed_and_alias_commands_before_target_io() {
+    for mode in [CoreConnectionMode::Local, CoreConnectionMode::Remote] {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let app = tauri::test::mock_builder().manage(GuiConfigState::new(GuiConfigFile {
+            connection_mode: mode,
+            target_revision: 7,
+            remote_management_origin: origin.clone(),
+            remote_management_key: "fixture-management".into(),
+            remote_client_origin: origin,
+            ..GuiConfigFile::default()
+        })).build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+        // A mounted document belongs to revision 6, although revision 7 is now selected.
+        let stale = 6;
+        assert!(get_core_config_settings(app.state(), stale).await.err().unwrap().contains("connection changed"));
+        assert!(get_core_tls_settings(app.state(), stale).await.err().unwrap().contains("connection changed"));
+        assert!(get_core_sensitive_words_settings(app.state(), stale).await.err().unwrap().contains("connection changed"));
+        assert!(get_extended_core_config(app.state(), stale).await.err().unwrap().contains("connection changed"));
+        assert!(save_extended_core_config(app.state(), stale, Vec::new()).await.err().unwrap().contains("connection changed"));
+        assert!(set_core_plugins_enabled(app.state(), stale, true).await.err().unwrap().contains("connection changed"));
+        assert!(get_thinking_aliases(app.state(), stale).await.err().unwrap().contains("connection changed"));
+        assert!(delete_thinking_alias(app.state(), stale, "fixture".into(), None, None).await.err().unwrap().contains("connection changed"));
+        assert!(set_core_management_secret_key(app.state(), stale, "new-fixture".into()).err().unwrap().contains("connection changed"));
+        assert_eq!(app.state::<GuiConfigState>().snapshot().unwrap().target_revision, 7);
+        assert!(matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
+    }
+}
+
+#[tokio::test]
+async fn queued_typed_and_alias_commands_revalidate_revision_before_dispatch() {
+    let app = tauri::test::mock_builder().manage(GuiConfigState::new(GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: "http://127.0.0.1:1".into(),
+        remote_management_key: "fixture-management".into(),
+        remote_client_origin: "http://127.0.0.1:1".into(),
+        ..GuiConfigFile::default()
+    })).build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let state = app.state::<GuiConfigState>();
+    let guard = state.target_operation.lock().await;
+    let typed = set_core_plugins_enabled(app.state(), 0, true);
+    let alias = delete_thinking_alias(app.state(), 0, "fixture".into(), None, None);
+    tokio::pin!(typed, alias);
+    // Poll both until they are queued behind the target lock; retain their futures.
+    assert!(tokio::time::timeout(Duration::from_millis(10), &mut typed).await.is_err());
+    assert!(tokio::time::timeout(Duration::from_millis(10), &mut alias).await.is_err());
+    let mut next = state.snapshot().unwrap();
+    next.remote_management_key = "next-fixture-management".into();
+    state.replace_external(next).unwrap();
+    drop(guard);
+    assert!(typed.await.err().unwrap().contains("connection changed"));
+    assert!(alias.await.err().unwrap().contains("connection changed"));
 }

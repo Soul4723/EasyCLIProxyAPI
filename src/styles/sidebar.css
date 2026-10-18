@@ -388,6 +388,44 @@
   color: var(--ui-accent);
 }
 
+.nav-plugin-parent {
+  position: relative;
+  flex: none;
+}
+
+.nav-plugin-parent > button:first-child {
+  padding-right: 38px;
+}
+
+.nav-section button.nav-plugin-toggle {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.nav-plugin-toggle > svg {
+  transition: transform 150ms ease;
+}
+
+.nav-plugin-toggle[aria-expanded='true'] > svg {
+  transform: rotate(90deg);
+}
+
+.nav-plugin-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-section .nav-plugin-children button {
+  padding-left: 36px;
+}
+
 @keyframes sidebar-popover-in-up {
   from {
     opacity: 0;
@@ -570,6 +608,23 @@
     padding: 0 12px;
     scroll-snap-align: start;
   }
+
+  .nav-plugin-parent {
+    display: flex;
+  }
+
+  .nav-plugin-parent > button:first-child,
+  .nav-section .nav-plugin-children button {
+    padding: 0 12px;
+  }
+
+  .nav-section button.nav-plugin-toggle {
+    display: none;
+  }
+
+  .nav-plugin-children {
+    display: contents;
+  }
 }
 
 @media (max-width: 900px) and (prefers-reduced-motion: reduce) {
@@ -583,3 +638,13 @@
     display: none;
   }
 }
+
+.nav-plugin-row { position: relative; min-width: 0; }
+.nav-plugin-row.dragging { z-index: 5; background: var(--bg-card); border-radius: 8px; box-shadow: none; }
+.nav-section .nav-plugin-row .nav-plugin-entry { width: 100%; padding-right: 28px; }
+.nav-section .nav-plugin-row .nav-plugin-drag { position: absolute; top: 50%; right: 3px; transform: translateY(-50%); width: 22px; height: 26px; min-height: 0; padding: 0; display: flex; align-items: center; justify-content: center; opacity: .35; color: var(--text-tertiary); touch-action: none; cursor: grab; border: 0; background: transparent; }
+.nav-plugin-row:hover .nav-plugin-drag, .nav-plugin-row:focus-within .nav-plugin-drag { opacity: 1; }
+.nav-section .nav-plugin-row .nav-plugin-drag:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+.nav-section .nav-plugin-row.dragging .nav-plugin-drag { cursor: grabbing; opacity: 1; }
+@media (max-width: 900px) { .nav-plugin-row { flex-shrink: 0; } }
+@media (prefers-reduced-motion: reduce) { .nav-plugin-row { transition: none !important; } }

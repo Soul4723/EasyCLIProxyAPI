@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../services/documentTarget';
 import { BarChart3, FolderOpen, ScrollText } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime, type CoreStatus } from '../../../coreRuntime';

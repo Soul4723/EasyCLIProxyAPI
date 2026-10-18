@@ -1,9 +1,9 @@
-// Run Vite on port 1421, then node tests/operation-feedback-ui.cjs.
+// Run with AGENT_TEST_URL pointing at a Vite dev server of this checkout.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
-const base = process.env.FEEDBACK_TEST_BASE_URL || 'http://127.0.0.1:1421';
+const base = process.env.AGENT_TEST_URL || process.env.FEEDBACK_TEST_BASE_URL || 'http://127.0.0.1:1421';
 (async () => {
-  const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true, args: ['--no-proxy-server'] });
+  const browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultTimeout(10000);

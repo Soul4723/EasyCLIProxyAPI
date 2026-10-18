@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/documentTarget';
 import { listen } from '@tauri-apps/api/event';
 
 /** Core config values returned by `get_core_config_settings` and by every native save command. */

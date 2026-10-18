@@ -3,7 +3,7 @@
 // -> success; refresh link, callback submit with the xAI/Devin validation, browser preference. One flow per provider;
 // the dialog shows the active one. Behaviour matches the old page, only the surface changed.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../services/documentTarget';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime } from '../../../coreRuntime';
 import { providerInfo } from '../../../ui';

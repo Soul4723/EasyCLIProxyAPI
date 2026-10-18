@@ -64,7 +64,7 @@ async function runConfirmedQuotaAction(
   } catch (error) {
     if (!pending) throw error;
     // Do not restore old rows/credits after a native target change, even before its event.
-    const revision = await managementApi.getTargetRevision().catch(() => undefined);
+    const revision = await managementApi.checkTargetRevision().catch(() => undefined);
     if (previous.targetRevision === undefined || revision === previous.targetRevision)
       commit({ ...previous, actionResult: { action, status: 'error', error: error instanceof Error ? error.message : String(error) } });
     else commit(idleQuota());

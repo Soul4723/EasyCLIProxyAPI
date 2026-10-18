@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../services/documentTarget';
 import { useI18n } from '../../../i18n';
 import { FloatingNotice, useAppNotice } from '../../../appNotice';
 import { ConfirmDialog } from '../../../ui';

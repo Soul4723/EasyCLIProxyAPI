@@ -30,6 +30,8 @@ export type WindowView = {
   /** Text before the 5h/weekly part, such as a model group ("Code review "). Empty for the plain windows. */
   prefix: string;
   leftPct: number | null;
+  /** Antigravity bucket that is untouched (shown as "Quota available" instead of 100%). */
+  quotaAvailable?: boolean;
   resetAtMs?: number;
   resetText?: string;
   detail?: string;
@@ -139,6 +141,7 @@ export function windowsOf(quota: QuotaState, now: number, locale: AppLocale): Wi
       rawLabel: row.label,
       prefix,
       leftPct: validPct(row.remainingPercent),
+      quotaAvailable: row.quotaAvailable,
       resetAtMs: row.resetAtMs,
       resetText: row.reset,
       detail: row.detail,

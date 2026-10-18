@@ -1,6 +1,6 @@
 // Plugin-declared OAuth providers: the list/refresh logic of the old PluginOAuthProviders card grid, as a hook.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../services/documentTarget';
 import { pluginsApi, type PluginListEntry } from '../../../services/plugins';
 import { collectPluginOAuthProviders } from '../../../services/pluginOAuthProviders';
 import { PLUGIN_RESOURCES_REFRESH_EVENT } from '../../../services/pluginResources';

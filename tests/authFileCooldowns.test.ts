@@ -1,3 +1,4 @@
+import { managementApi } from '../src/services/managementApi';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { authFileCooldownResetIndex, resetAuthFileCooldown } from '../src/services/authFiles';
@@ -10,9 +11,11 @@ import {
 
 describe('credential cooldown reset', () => {
   let originalWindow: PropertyDescriptor | undefined;
-  beforeEach(() => {
+  beforeEach(async () => {
     originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
     Object.defineProperty(globalThis, 'window', { value: {}, writable: true, configurable: true });
+    mockIPC(() => 7);
+    await managementApi.getTargetRevision();
   });
   afterEach(() => {
     clearMocks();
@@ -43,7 +46,7 @@ describe('credential cooldown reset', () => {
     });
     expect(requests).toEqual([{
       method: 'POST', path: '/routing/cooldown/reset', body: { auth_index: 'auth-one' },
-      query: undefined, timeoutMs: undefined,
+      query: undefined, timeoutMs: undefined, expectedRevision: 7,
     }]);
   });
 

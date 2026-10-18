@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/documentTarget';
 import { RefreshCw } from 'lucide-react';
 import { useAppUpdate } from '../../appUpdate';
 import { useCoreRuntime, type CoreStatus } from '../../coreRuntime';
@@ -124,6 +124,8 @@ export function OverviewSection(_props: SectionPageProps) {
     ? (coreReady ? 'remoteUp' : status ? 'remoteDown' : statusError ? 'error' : 'loading')
     : statusError ? 'error'
       : !status ? 'loading'
+        : status.recovery?.phase === 'waiting' || status.recovery?.phase === 'restarting' ? 'recovering'
+          : status.recovery?.phase === 'failed' ? 'recoveryFailed'
         : status.starting || busy ? 'starting'
           : status.running ? 'running'
             : status.installed ? 'stopped' : 'notInstalled';
@@ -156,7 +158,7 @@ export function OverviewSection(_props: SectionPageProps) {
             <UsageTile usage={snapshot.usage} series={snapshot.series} loading={loading && !snapshot.usage && !snapshot.usageError} error={snapshot.usageError} />
           </div>
         )}
-        {!firstRun && !coreReady && <p className="ov-offline" data-testid="ov-offline">{t(state === 'error' ? 'sec.overview.offlineError' : remote ? 'sec.overview.offlineRemote' : 'sec.overview.offline')}</p>}
+        {!firstRun && !coreReady && state !== 'recovering' && state !== 'recoveryFailed' && <p className="ov-offline" data-testid="ov-offline">{t(state === 'error' ? 'sec.overview.offlineError' : remote ? 'sec.overview.offlineRemote' : 'sec.overview.offline')}</p>}
         {!firstRun && coreReady && (
           <div className="ov-grid ov-grid--lists">
             <NeedsActionCard rows={needs} loading={loading && coreReady && snapshot.files.length === 0 && !snapshot.credentialsError} error={coreReady ? snapshot.credentialsError : ''} />

@@ -164,7 +164,7 @@ function RowMeter({ account, kind, ctx }: { account: QuotaAccount; kind: '5h' | 
   return (
     <div className={`qt-rowmeter${account.stale ? ' qt-stale' : ''}`} title={windowLabel(window, t)}>
       <div className="qt-rowmeter__top">
-        <span className="qt-win__pct ec-num">{window.leftPct === null ? '—' : `${formatNumber(Math.round(window.leftPct))}%`}</span>
+        <span className="qt-win__pct ec-num">{window.quotaAvailable ? t('quota.service.antigravity.available') : window.leftPct === null ? '—' : `${formatNumber(Math.round(window.leftPct))}%`}</span>
         <ResetTime ms={window.resetAtMs} now={ctx.now} />
       </div>
       <QuotaBar leftPct={window.leftPct} height={5} label={windowLabel(window, t)} />

@@ -38,7 +38,7 @@ test('Vertex import preserves bytes, location and response for the captured targ
   const calls: unknown[] = [];
   mockIPC((command, args) => {
     calls.push({ command, args });
-    if (command === 'get_management_target_revision') return 12;
+    if (command === 'get_management_target_revision') return 7;
     if (command === 'import_vertex_credential') return {
       status: 'ok', project_id: 'project', email: 'account@example.invalid',
       location: 'us-central1', 'auth-file': 'vertex-project.json',
@@ -49,9 +49,8 @@ test('Vertex import preserves bytes, location and response for the captured targ
     projectId: 'project', email: 'account@example.invalid', location: 'us-central1', authFile: 'vertex-project.json',
   });
   expect(calls).toEqual([
-    { command: 'get_management_target_revision', args: {} },
     { command: 'import_vertex_credential', args: {
-      name: 'account.json', data: [123, 125], expectedRevision: 12, location: 'us-central1',
+      name: 'account.json', data: [123, 125], expectedRevision: 7, location: 'us-central1',
     } },
   ]);
 });

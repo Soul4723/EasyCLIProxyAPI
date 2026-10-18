@@ -1,12 +1,18 @@
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
-import { PluginsPage } from '../../src/pages/PluginsPage';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
+import { PluginsSection } from '../../src/sections/plugins';
+import { resetRouterForTests, useRoute } from '../../src/shell/router';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
 
 const params = new URLSearchParams(location.search);
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'en');
 document.documentElement.dataset.theme = params.get('theme') ?? 'light';
+// `?sub=store|settings` picks the sub-page; the default is the installed list (`#/plugins`).
+if (!location.hash) location.hash = `/plugins${params.get('sub') ? `/${params.get('sub')}` : ''}`;
+resetRouterForTests(location.hash);
 type Request = { method: string; path: string; query?: Record<string, string>; body?: unknown };
 const state = {
   supported: !params.has('unsupported'),
@@ -62,7 +68,7 @@ const pluginEntries: Record<string, unknown>[] = [
 const storeEntries: Record<string, unknown>[] = [
   { id: 'sample..plugin', name: 'Sample provider', source_id: 'official', source_name: 'Official',
     source_url: 'https://official.example.test/plugins.json', repository: 'router-for-me/sample',
-    version: '2.0.0', install_type: 'github-release', installed: true, installed_version: '1.0.0', update_available: true,
+    version: '2.0.0', install_type: 'github-release', installed: true, installed_version: '1.0.0', update_available: true, install_source_status: 'matched',
     description: 'Official fixture provider', platforms: [{ goos: 'windows', goarch: 'amd64' }], tags: ['chat'],
   },
   { id: 'analytics', name: 'Community analytics', source_id: 'community', source_name: 'Community',
@@ -84,6 +90,7 @@ const storeEntries: Record<string, unknown>[] = [
 ];
 
 mockIPC(async (command, args) => {
+  if (command === 'get_management_target_revision') return 0; // documentTarget fences every target command
   state.commands.push({ command, args });
   if (command === 'start_oauth_login') return { url: 'https://login.example.test/authorize?state=sample-state', state: 'sample-state' };
   if (command === 'get_oauth_status') return { status: 'wait' };
@@ -92,6 +99,12 @@ mockIPC(async (command, args) => {
     state.resourceRequests.push(args);
     if (args?.pluginId !== 'sample..plugin' || args?.menuIndex !== 2) throw new Error('Wrong original menu index');
     return `${location.origin}/tests/fixtures/plugins.html?resource=1`;
+  }
+  if (command === 'plugin:dialog|open') return (window as unknown as { pluginsFixture: { dialogFile?: string } }).pluginsFixture.dialogFile ?? null;
+  if (command === 'install_local_plugin') return `plugins/${String(args?.source).split(/[\\/]/).pop()}`;
+  if (command === 'get_plugin_latest_releases') {
+    const repositories = (args?.repositories ?? []) as string[];
+    return repositories.map(repository => ({ repository, version: repository === 'router-for-me/sample' ? '3.0.0' : null, error: null }));
   }
   if (command === 'open_external_url' || command === 'restart_core_process') return null;
   if (command !== 'management_request') return null;
@@ -158,6 +171,11 @@ mockIPC(async (command, args) => {
   throw new Error(`Unhandled fixture request: ${request.method} ${request.path}`);
 });
 
+function Host() {
+  const route = useRoute();
+  return <PluginsSection sub={route.sub} params={route.params} />;
+}
+
 createRoot(document.getElementById('root')!).render(params.has('resource')
   ? <h1>Sample resource preview</h1>
-  : <I18nProvider><main style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}><PluginsPage /></main></I18nProvider>);
+  : <I18nProvider><CoreRuntimeProvider><Host /></CoreRuntimeProvider></I18nProvider>);

@@ -16,9 +16,11 @@ import {
 
 describe('v8 Management API requests', () => {
   let originalWindow: PropertyDescriptor | undefined;
-  beforeEach(() => {
+  beforeEach(async () => {
     originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
     Object.defineProperty(globalThis, 'window', { value: {}, writable: true, configurable: true });
+    mockIPC(() => 7);
+    await managementApi.getTargetRevision();
   });
   afterEach(() => {
     clearMocks();

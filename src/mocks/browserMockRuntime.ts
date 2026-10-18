@@ -1,6 +1,7 @@
 import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type TemplateConfigChange } from '../services/templateConfig';
 import type { CoreConnection } from '../services/coreConnection';
-import { createPluginMock } from './pluginMock';
+import { createPluginMock, type PluginWebviewMockState } from './pluginMock';
+
 import { createQuotaMock, createQuotaMockFiles } from './quotaMock';
 import { sectionMocks } from './sectionMocks';
 import { createLightingMock } from './lightingMock';
@@ -20,6 +21,9 @@ export type BrowserMockRuntime = {
   scenario: BrowserMockScenario;
   invoke: (command: string, payload?: unknown) => Promise<unknown>;
 };
+
+export const BROWSER_MOCK_CONNECTION_STORAGE_KEY = 'easy-cli-proxy-api.browser-mock-connection';
+type ConnectionStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 const SCENARIOS = new Set<BrowserMockScenario>(['running', 'stopped', 'empty', 'error']);
 const BUNDLED_CORE = { version: '7.3.15', assetName: 'CLIProxyAPI_7.3.15_windows_amd64.zip' };
@@ -114,6 +118,8 @@ export function resolveBrowserMockOptions(
 }
 
 type BrowserMockState = ReturnType<typeof createState>;
+
+export type MockRecoveryPhase = 'waiting' | 'restarting' | 'failed';
 
 function createCoreStatus(scenario: BrowserMockScenario) {
   const installed = scenario !== 'empty';
@@ -607,6 +613,7 @@ function createState(scenario: BrowserMockScenario) {
           input_modalities: ['text', 'image'],
           visibility: 'list',
           supports_parallel_tool_calls: true,
+          supports_search_tool: true,
           base_instructions: 'You are Codex, a coding assistant.',
         };
         return {
@@ -956,8 +963,19 @@ export function createBrowserMockRuntime(
   scenario: BrowserMockScenario,
   emitEvent: EmitMockEvent = () => {},
   delayMs = 0,
+  pluginPages = 0,
+  onPluginWebview?: (state: PluginWebviewMockState) => void,
+  connectionStorage?: ConnectionStorage,
+  recovery?: MockRecoveryPhase,
 ): BrowserMockRuntime {
   const state = createState(scenario);
+  // Shape of the native RecoveryStatus (core_recovery.rs): the supervisor's own attempt/limit/delay.
+  if (recovery) {
+    Object.assign(state.coreStatus, {
+      running: false, ready: false, managed: true, processId: null, message: 'Browser Mock core exited unexpectedly',
+      recovery: { phase: recovery, attempt: recovery === 'failed' ? 5 : 3, limit: 5, delaySeconds: recovery === 'waiting' ? 5 : 0, detail: 'PID 42817 exited with code 1 (mock)' },
+    });
+  }
   let connection: CoreConnection = { mode: 'local', managementOrigin: '', managementKey: '', clientOrigin: '', clientKey: '' };
   let localStatus = clone(state.coreStatus);
   let portableConnection: CoreConnection | null = null;
@@ -995,6 +1013,36 @@ export function createBrowserMockRuntime(
     const connected = value.mode === 'local' || (value.managementKey === 'fixture-management-key' && !value.managementOrigin.includes('offline'));
     return { connected, version: connected ? '8.0.29' : null, message: 'Browser fixture only; no network request' };
   };
+  const applyConnectionStatus = () => {
+    usagePaused = connection.mode === 'remote' && connection.managementOrigin.includes('usage-uncertain');
+    if (connection.mode === 'local') Object.assign(state.coreStatus, localStatus);
+    else {
+      const result = connectionResult(connection);
+      Object.assign(state.coreStatus, { connectionMode: 'remote', remoteOrigin: connection.managementOrigin,
+        installed: false, running: result.connected, ready: result.connected, managed: false, starting: false,
+        processId: null, currentVersion: result.connected ? result.version : null, binaryPath: null, installDir: '',
+        message: result.connected ? result.message : 'Browser fixture: authentication rejected or target offline' });
+    }
+  };
+  // Only the selected target and its saved local process snapshot survive a document reload.
+  // Storage is supplied by the browser installer; standalone runtimes remain isolated by default.
+  const storedConnection = connectionStorage?.getItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
+  if (storedConnection) {
+    try {
+      const saved = JSON.parse(storedConnection);
+      if (saved.scenario !== scenario || !Number.isSafeInteger(saved.revision) || saved.revision < 0
+        || !['managementOrigin', 'managementKey', 'clientOrigin', 'clientKey'].every(key => typeof saved.connection?.[key] === 'string')
+        || !['installed', 'running', 'ready', 'managed', 'starting'].every(key => typeof saved.localStatus?.[key] === 'boolean')) {
+        throw new Error('Invalid saved mock connection');
+      }
+      connection = validateConnection(saved.connection);
+      connectionRevision = saved.revision;
+      localStatus = { ...localStatus, ...saved.localStatus };
+      applyConnectionStatus();
+    } catch {
+      connectionStorage?.removeItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
+    }
+  }
   if (scenario === 'empty') {
     state.usageEvents = [];
     state.usagePrices = [];
@@ -1006,7 +1054,7 @@ export function createBrowserMockRuntime(
     state.usageStorage.totalRecords = 0;
     state.coreConfig.apiKeys = [];
   }
-  const pluginMock = createPluginMock(state);
+  const pluginMock = createPluginMock(state, pluginPages, onPluginWebview);
   const sectionHandlers = sectionMocks.map(create => create(state as never));
   const emit = (event: string, payload: unknown) => emitEvent(event, clone(payload));
   const lightingMock = createLightingMock(scenario, emit, () => connectionRevision);
@@ -1077,18 +1125,16 @@ export function createBrowserMockRuntime(
       case 'save_core_connection': {
         const next = validateConnection(payload.connection as CoreConnection);
         if (next.mode === 'remote' && state.coreStatus.connectionMode === 'local' && state.coreStatus.running && state.coreStatus.managed) throw new Error('Stop the GUI-managed local core before switching to Remote; its lifetime is tied to this application');
-        if (connection.mode === 'local') localStatus = clone(state.coreStatus);
+        const nextLocalStatus = connection.mode === 'local' ? clone(state.coreStatus) : localStatus;
+        const nextRevision = connectionRevision + 1;
+        // Persist before activating/emitting, just as native save does. A storage failure is a failed save.
+        connectionStorage?.setItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY, JSON.stringify({
+          scenario, connection: next, revision: nextRevision, localStatus: nextLocalStatus,
+        }));
+        localStatus = nextLocalStatus;
         connection = next;
-        ++connectionRevision;
-        usagePaused = connection.mode === 'remote' && connection.managementOrigin.includes('usage-uncertain');
-        if (connection.mode === 'local') Object.assign(state.coreStatus, localStatus);
-        else {
-          const result = connectionResult(connection);
-          Object.assign(state.coreStatus, { connectionMode: 'remote', remoteOrigin: connection.managementOrigin,
-            installed: false, running: result.connected, ready: result.connected, managed: false, starting: false,
-            processId: null, currentVersion: result.connected ? result.version : null, binaryPath: null, installDir: '',
-            message: result.connected ? result.message : 'Browser fixture: authentication rejected or target offline' });
-        }
+        connectionRevision = nextRevision;
+        applyConnectionStatus();
         emit('core-connection-changed', null);
         emit('core-status-changed', state.coreStatus);
         return clone(connection);
@@ -1097,14 +1143,14 @@ export function createBrowserMockRuntime(
       case 'start_core_process': {
         if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
-        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42817, message: 'Browser Mock core is running' });
+        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42817, message: 'Browser Mock core is running', recovery: null });
         state.guiSettings.runOnStartup = true;
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }
       case 'stop_core_process': {
         if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
-        Object.assign(state.coreStatus, { running: false, ready: false, managed: false, starting: false, processId: null, message: 'Browser Mock core is stopped' });
+        Object.assign(state.coreStatus, { running: false, ready: false, managed: false, starting: false, processId: null, message: 'Browser Mock core is stopped', recovery: null });
         state.guiSettings.runOnStartup = false;
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
@@ -1112,7 +1158,7 @@ export function createBrowserMockRuntime(
       case 'restart_core_process': {
         if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
-        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42818, message: 'Browser Mock core restarted' });
+        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42818, message: 'Browser Mock core restarted', recovery: null });
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }

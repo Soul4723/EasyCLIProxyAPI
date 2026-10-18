@@ -1,5 +1,28 @@
 use super::*;
 
+// Compare only sections owned by the alias transaction. Unrelated settings may
+// change while an editor is open and are preserved by the targeted writers.
+fn validate_alias_snapshot(current: &str, latest: &str) -> Result<(), String> {
+    let parse = |yaml: &str| serde_norway::from_str::<serde_norway::Value>(yaml)
+        .map_err(|_| "Invalid alias configuration".to_string());
+    let current = parse(current)?;
+    let latest = parse(latest)?;
+    for key in ["oauth-model-alias", "payload"].into_iter()
+        .chain(V8_PROVIDER_FAMILIES.iter().map(|(legacy, _)| *legacy)) {
+        // The v8 projection normalizes absent provider sections to empty lists.
+        let empty = serde_norway::Value::Sequence(Vec::new());
+        let value = |root: &serde_norway::Value| root.get(key).cloned().unwrap_or_else(|| {
+            if V8_PROVIDER_FAMILIES.iter().any(|(legacy, _)| *legacy == key) {
+                empty.clone()
+            } else { serde_norway::Value::Mapping(serde_norway::Mapping::new()) }
+        });
+        if value(&current) != value(&latest) {
+            return Err("Alias configuration changed since it was read. Refresh before retrying; no changes were written".into());
+        }
+    }
+    Ok(())
+}
+
 fn alias_config_is_unchanged(current: &str, latest: &str) -> Result<bool, String> {
     let changes = management_alias_config_changes(current, latest)?;
     Ok(changes.oauth_model_aliases.is_none() && !changes.update_config_yaml)
@@ -106,6 +129,8 @@ pub(crate) async fn commit_management_alias_config_changes<T>(
     // Do not reject an edit merely because an unrelated setting changed while the
     // editor was open; the targeted writer preserves those unrelated sections.
     let native_before = fetch_management_raw_config_yaml(config).await?;
+    let latest = management_v8_yaml_to_legacy_view(&native_before)?;
+    validate_alias_snapshot(current, &latest)?;
     let result = async {
         if let Some(aliases) = changes.oauth_model_aliases.as_ref() {
             put_management_oauth_model_aliases(config, aliases).await?;

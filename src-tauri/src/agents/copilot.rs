@@ -217,20 +217,40 @@ pub(crate) fn build_copilot_config(
     let entries = root.as_array_mut().unwrap();
     let previous = entries.iter().find(|v| managed_group(v)).cloned();
     let mut group = previous.unwrap_or_else(|| json!({"name": GROUP_NAME, "vendor": "customendpoint"}));
-    let metadata = models.iter().find(|m| m.name == model);
-    let context = metadata.and_then(|m| m.context_window).filter(|value| *value > 0).unwrap_or(128_000);
-    let vision = metadata
-        .and_then(|m| m.input_modalities.as_ref())
-        .is_some_and(|m| m.iter().any(|s| s == "image"));
     // The one-time helper supplies a native secret reference, never a plaintext key.
     if key.starts_with("${input:chat.lm.secret.") && key.ends_with('}') {
         group["apiKey"] = json!(key);
     }
-    group["models"] = json!([{"id": model, "name": model,
-        "url": format!("{}/chat/completions", base.trim_end_matches('/')),
-        "apiType": "chat-completions",
-        "toolCalling": true, "vision": vision,
-        "contextWindow": context, "maxOutputTokens": 16_384_u64.min(context / 2)}]);
+    // Inspection uses the first entry as CPA's selected model. Keep it first,
+    // including when it is absent from the catalog, then expose every public ID
+    // (including aliases) without filtering by model family.
+    let mut seen = std::collections::HashSet::new();
+    group["models"] = Value::Array(
+        std::iter::once(model)
+            .chain(models.iter().map(|m| m.name.as_str()))
+            .filter(|id| !id.trim().is_empty() && seen.insert(*id))
+            .map(|id| {
+                let metadata = models.iter().find(|m| m.name == id);
+                let context = metadata
+                    .and_then(|m| m.context_window)
+                    .filter(|value| *value > 0)
+                    .unwrap_or(128_000);
+                // CustomEndpointModelConfig uses `vision` for image input;
+                // text is always supported. Unknown capabilities default to both.
+                let vision = metadata
+                    .and_then(|m| m.input_modalities.as_ref())
+                    .filter(|modalities| !modalities.is_empty())
+                    .map_or(true, |modalities| {
+                        modalities.iter().any(|s| s.eq_ignore_ascii_case("image"))
+                    });
+                json!({"id": id, "name": id,
+                    "url": format!("{}/chat/completions", base.trim_end_matches('/')),
+                    "apiType": "chat-completions",
+                    "toolCalling": true, "vision": vision,
+                    "contextWindow": context, "maxOutputTokens": 16_384_u64.min(context / 2)})
+            })
+            .collect(),
+    );
     entries.retain(|v| !managed_group(v));
     entries.push(group);
     render(path, &root)
@@ -479,4 +499,9 @@ pub(crate) fn run_copilot_helper(args: &[std::ffi::OsString]) -> Result<i32, Str
         .status()
         .map(|s| s.code().unwrap_or(1))
         .map_err(|_| "Failed to start Copilot CLI".into())
+}
+
+// Backup validation uses the same target-key-bound native reference as inspection.
+pub(crate) fn copilot_backup_credential_matches(path: &Path, key: &str, reference: &Value) -> bool {
+    setup::vscode_credential_matches(path, key, reference)
 }

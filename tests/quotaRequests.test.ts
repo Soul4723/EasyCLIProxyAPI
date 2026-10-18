@@ -4,8 +4,9 @@ import { consumeCodexResetCredit, loadQuota } from '../src/services/quotaService
 
 
 let targetRevisionMock: ReturnType<typeof spyOn>;
-beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); });
-afterEach(() => { targetRevisionMock.mockRestore(); });
+let targetValidationMock: ReturnType<typeof spyOn>;
+beforeEach(() => { targetRevisionMock = spyOn(managementApi, 'getTargetRevision').mockResolvedValue(0); targetValidationMock = spyOn(managementApi, 'checkTargetRevision').mockResolvedValue(0); });
+afterEach(() => { targetRevisionMock.mockRestore(); targetValidationMock.mockRestore(); });
 
 const success = (body: unknown) => ({ status_code: 200, body });
 const codexUsage = {
@@ -106,6 +107,16 @@ describe('quota API compatibility', () => {
     const requests = calls.filter((request) => request.url.endsWith(':retrieveUserQuotaSummary'));
     expect(requests).toHaveLength(2);
     expect(requests[1].url).toContain('sandbox.googleapis.com');
+    expect(calls.filter((request) => request.url.endsWith(':loadCodeAssist'))).toHaveLength(1);
+    expect(calls).toHaveLength(3);
+    for (const request of calls) {
+      expect(request.method).toBe('POST');
+      expect(request.header).toMatchObject({
+        'User-Agent': 'antigravity/hub/2.23.0 darwin/arm64',
+        Authorization: 'Bearer $TOKEN$',
+        'Content-Type': 'application/json',
+      });
+    }
     requests.forEach((request) => expect(JSON.parse(request.data!)).toEqual({ project: 'project-test' }));
     expect(Math.abs((result.serverTimeOffsetMs ?? 0) - (Date.parse(serverTime) - Date.now()))).toBeLessThan(1000);
   });
