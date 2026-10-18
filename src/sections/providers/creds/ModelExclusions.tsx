@@ -124,7 +124,7 @@ export function ModelExclusions({ controller }: { controller: Pick<CredentialsCo
   };
 
   if (error) return <ErrorState message={mask.text(error)} onRetry={() => void load()} />;
-  if (loading || controller.loading) {
+  if (loading || (controller.loading && controller.rows.length === 0)) {
     return <div className="ec-cred-exclusions">{[0, 1, 2].map((key) => <Card key={key}><Skeleton lines={3} /></Card>)}</div>;
   }
   if (providers.length === 0) {

@@ -36,7 +36,7 @@ export function statesFixture(): Rec[] {
   return [
     credential('codex', 'primary-account-with-a-very-long-name-for-layout', 0, { priority: 5, plan_type: 'Pro 20x', success: 12840, failed: 12 }),
     credential('codex', 'cooling', 1, {
-      status: 'error', status_message: 'quota exhausted', unavailable: true,
+      status_message: 'quota exhausted',
       cooldowns: [
         { scope: 'model', model_key: 'gpt-5.2-codex', reason: 'quota', http_status: 429, backoff_level: 1, retry_at: minutes(42), remaining_seconds: 42 * 60 },
         { scope: 'model', model_key: 'gpt-5.2-mini', reason: 'quota', http_status: 429, retry_at: minutes(95), remaining_seconds: 95 * 60 },

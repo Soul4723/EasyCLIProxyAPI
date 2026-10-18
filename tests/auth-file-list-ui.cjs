@@ -145,6 +145,17 @@ const chip = (page, group, label) => page.getByRole('group', { name: group }).ge
     await page.locator('button[aria-haspopup=menu][aria-label*="gemini-runtime"]').click();
     assert.equal(await page.getByRole('button', { name: 'Runtime credentials cannot be deleted' }).isDisabled(), true, 'runtime delete is disabled with its reason');
     await page.keyboard.press('Escape');
+    // ---- import: several JSON files at once, partial failure reported in one toast ---------------------------------------------------
+    await page.locator('.ec-cred-toast').getByRole('button', { name: 'Close' }).click().catch(() => {});
+    await page.getByTestId('creds-import-input').setInputFiles([
+      { name: 'kimi-new_example_test.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ provider: 'kimi', email: 'new@example.test' })) },
+      { name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('not json') },
+    ]);
+    const toast = page.locator('.ec-cred-toast--error');
+    await toast.waitFor();
+    const toastText = await toast.innerText();
+    assert.ok(toastText.includes('Uploaded 1') && toastText.includes('1 files failed to upload') && toastText.includes('broken.json'), toastText);
+    assert.equal(await rowOf(page, 'kimi-new_example_test.json').count(), 1, 'the valid file shows up in the list');
     assert.deepEqual(errors, []);
     await page.close();
 

@@ -110,6 +110,8 @@ export function CredentialList({ controller, provider, query, status, pageSize: 
   const current = Math.min(page, pages);
   const visible = sorted.slice((current - 1) * pageSize, current * pageSize);
 
+  // Reloads keep the current rows on screen; skeletons only cover the very first load.
+  const initialLoading = controller.loading && controller.rows.length === 0;
   const stop = (event: MouseEvent) => event.stopPropagation();
   const selectedKey = controller.selectedName
     ? controller.rows.find((row) => row.name === controller.selectedName)?.key
@@ -183,14 +185,14 @@ export function CredentialList({ controller, provider, query, status, pageSize: 
         columns={columns}
         rows={visible}
         rowKey={(row) => row.key}
-        loading={controller.loading}
+        loading={initialLoading}
         emptyState={emptyState}
         onRowClick={(row) => controller.select(row.name)}
         selectedKey={selectedKey}
         sort={sort ?? { id: '', dir: 'asc' }}
         onSortChange={setSort}
       />
-      {!controller.loading && sorted.length > 0 ? (
+      {!initialLoading && sorted.length > 0 ? (
         <Pagination page={current} pageSize={pageSize} total={sorted.length} onPage={setPage}
           onPageSize={setPageSize} pageSizes={[10, 20, 50]} />
       ) : null}

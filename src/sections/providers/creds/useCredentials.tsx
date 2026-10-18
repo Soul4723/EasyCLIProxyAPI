@@ -180,8 +180,12 @@ export function useCredentials(): CredentialsController {
     }
     try {
       await load(false);
-      if (uploaded > 0) notify(t('authFiles.uploaded', { count: uploaded }));
-      if (failures.length > 0) notify(t('authFiles.uploadFailed', { count: failures.length, errors: failures.join('; ') }), 'error');
+      // One toast: partial success must not hide the failures (or the other way round).
+      const parts = [
+        ...(uploaded > 0 ? [t('authFiles.uploaded', { count: uploaded })] : []),
+        ...(failures.length > 0 ? [t('authFiles.uploadFailed', { count: failures.length, errors: failures.join('; ') })] : []),
+      ];
+      if (parts.length > 0) notify(parts.join(' · '), failures.length > 0 ? 'error' : 'success');
     } finally {
       setBusy(false);
     }
