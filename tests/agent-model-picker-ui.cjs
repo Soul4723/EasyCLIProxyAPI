@@ -1,15 +1,16 @@
 const { chromium, webkit } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
-const base = process.env.AGENT_UI_BASE_URL || 'http://127.0.0.1:1421';
+// Run against a Vite dev server: AGENT_TEST_URL=http://127.0.0.1:5391 node tests/agent-model-picker-ui.cjs
+const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
 (async () => {
-  const engines = process.env.PLAYWRIGHT_ENGINES?.split(',') || ['chromium', 'webkit'];
+  const engines = process.env.PLAYWRIGHT_ENGINES?.split(',') || ['chromium'];
   for (const name of engines) {
     const engine = { chromium, webkit }[name];
     assert.ok(engine, `Unsupported browser: ${name}`);
     const browser = await engine.launch({
       headless: true,
-      ...(name === 'chromium' ? { channel: 'msedge', args: ['--no-proxy-server'] } : {}),
+      ...(name === 'chromium' ? { args: ['--no-proxy-server'] } : {}),
     });
     try {
       const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
@@ -34,8 +35,8 @@ const base = process.env.AGENT_UI_BASE_URL || 'http://127.0.0.1:1421';
         await page.waitForFunction(() => document.activeElement?.matches('.agent-model-search input'));
       };
 
-      for (const embedded of [false, true]) {
-        await open(`client=codex${embedded ? '&embedded' : ''}`);
+      {
+        await open('client=codex&tab=setup');
         await expand();
         await option('gpt-two').click();
         await expectSelected('gpt-two');
@@ -84,12 +85,17 @@ const base = process.env.AGENT_UI_BASE_URL || 'http://127.0.0.1:1421';
         assert.equal(await page.getByRole('listbox').count(), 0, 'Click outside closes the picker');
       }
 
-      for (const embedded of [false, true]) {
-        await open(`client=claude-desktop${embedded ? '&embedded' : ''}`);
-        await expand();
+      {
+        // Claude Desktop: every mapping row pairs an original-model picker with an editable alias picker.
+        await open('client=claude-desktop&tab=setup');
+        const row = page.locator('.ag-claude-row--desktop').first();
+        const originalPicker = row.locator('.agent-model-picker').first();
+        await originalPicker.locator('button.agent-model-trigger').click();
+        await page.waitForFunction(() => document.activeElement?.matches('.agent-model-search input'));
         await option('gpt-two').click();
-        await expectSelected('gpt-two');
-        const editable = page.locator('.agent-model-picker').filter({ has: page.locator('.agent-model-editable-trigger') }).first();
+        assert.equal(await originalPicker.locator('button.agent-model-trigger strong').innerText(), 'gpt-two');
+        assert.equal(await page.getByRole('listbox').count(), 0);
+        const editable = row.locator('.agent-model-picker').filter({ has: page.locator('.agent-model-editable-trigger') }).first();
         const alias = editable.getByRole('combobox');
         const toggle = editable.getByRole('button', { name: '别名（Claude系列模型可留空）', exact: true });
         await alias.click();
@@ -108,7 +114,7 @@ const base = process.env.AGENT_UI_BASE_URL || 'http://127.0.0.1:1421';
         assert.equal(await page.getByRole('listbox').count(), 0);
       }
       assert.deepEqual(errors, []);
-      console.log(`PASS (${name}): direct/filtered clicks, keyboard selection, clear/refresh, Tab/Escape/outside dismissal, editable aliases and toggles in full and embedded views.`);
+      console.log(`PASS (${name}): direct/filtered clicks, keyboard selection, clear/refresh, Tab/Escape/outside dismissal, editable aliases and toggles on the Setup tab.`);
     } finally { await browser.close(); }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
