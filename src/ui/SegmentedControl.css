@@ -50,7 +50,7 @@
 .ec-seg__item--on:hover {
   background: var(--ec-raised);
   color: var(--ec-fg);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  box-shadow: var(--ec-shadow-xs);
 }
 
 .ec-seg__icon {

@@ -1,0 +1,99 @@
+/* Checkbox: see Checkbox.tsx. The native input is visually hidden but stays focusable; the box is drawn beside it. */
+
+.ec-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  cursor: pointer;
+  color: var(--ec-fg);
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-checkbox--disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ec-checkbox__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+
+.ec-checkbox__box {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--ec-input-border);
+  border-radius: var(--ec-r-xs);
+  background: var(--ec-field);
+  color: var(--ec-accent-fg);
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.ec-checkbox--sm .ec-checkbox__box {
+  width: 14px;
+  height: 14px;
+}
+
+.ec-checkbox__mark {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+
+.ec-checkbox__mark--mixed {
+  position: absolute;
+  inset: 0;
+}
+
+.ec-checkbox__input:checked + .ec-checkbox__box,
+.ec-checkbox__input:indeterminate + .ec-checkbox__box {
+  background: var(--ec-accent);
+  border-color: var(--ec-accent);
+}
+
+.ec-checkbox__input:checked + .ec-checkbox__box .ec-checkbox__mark--check {
+  opacity: 1;
+}
+
+.ec-checkbox__input:indeterminate + .ec-checkbox__box .ec-checkbox__mark--check {
+  opacity: 0;
+}
+
+.ec-checkbox__input:indeterminate + .ec-checkbox__box .ec-checkbox__mark--mixed {
+  opacity: 1;
+}
+
+.ec-checkbox__input:focus-visible + .ec-checkbox__box {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 2px;
+}
+
+.ec-checkbox--invalid .ec-checkbox__box {
+  border-color: var(--ec-danger);
+}
+
+.ec-checkbox--invalid .ec-checkbox__label {
+  color: var(--ec-danger-fg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-checkbox__box {
+    transition: none;
+  }
+}

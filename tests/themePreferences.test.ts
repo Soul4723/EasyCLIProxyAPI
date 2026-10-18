@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { ThemePreferences } from '../src/services/themePreferences';
-import { migrateRetiredThemeId, type SystemThemes, type ThemeSelection } from '../src/themes/types';
+import type { SystemThemes, type ThemeSelection } from '../src/themes/types';
 
 const record = (selectedId: string, remembered: SystemThemes = { light: 'light', dark: 'dark' }): ThemeSelection =>
   ({ version: 1, selectedId, lastLightId: remembered.light, lastDarkId: remembered.dark });
@@ -36,36 +36,20 @@ describe('desktop theme selections', () => {
       expect(writes).toEqual([]);
     }
   });
-  test('reads existing selections without history, migrates retired IDs and retains unavailable remembered IDs', async () => {
+  test('reads existing selections without history and retains unavailable remembered IDs', async () => {
     for (const [selection, expected] of [
       [{ version: 1, selectedId: 'sakura-light' }, { light: 'light', dark: 'dark' }],
-      [{ version: 1, selectedId: 'system', lastDarkId: 'midnight-dark' }, { light: 'light', dark: 'dark' }],
-      [record('system', { light: 'removed-light', dark: 'midnight-dark' }), { light: 'removed-light', dark: 'dark' }],
+      [{ version: 1, selectedId: 'system', lastDarkId: 'midnight-dark' }, { light: 'light', dark: 'midnight-dark' }],
+      [record('system', { light: 'removed-light', dark: 'midnight-dark' }), { light: 'removed-light', dark: 'midnight-dark' }],
     ] as const) {
       const writes: ThemeSelection[] = [];
       const preferences = new ThemePreferences();
       await preferences.initialize({ load: async () => selection, save: async (next) => { writes.push(next); } });
-      expect(preferences.get()).toBe(migrateRetiredThemeId(selection.selectedId));
+      expect(preferences.get()).toBe(selection.selectedId);
       expect(preferences.getSystemThemes()).toEqual(expected);
       expect(preferences.getIssue()).toBeNull();
       expect(writes).toEqual([]);
     }
-  });
-  test('migrates retired IDs read from disk and does not write the migrated selection back', async () => {
-    expect(migrateRetiredThemeId('warm-sand-light')).toBe('light');
-    expect(migrateRetiredThemeId('sakura-light')).toBe('light');
-    expect(migrateRetiredThemeId('graphite-dark')).toBe('dark');
-    expect(migrateRetiredThemeId('midnight-dark')).toBe('dark');
-    const writes: ThemeSelection[] = [];
-    const preferences = new ThemePreferences();
-    await preferences.initialize({
-      load: async () => record('sakura-light', { light: 'warm-sand-light', dark: 'graphite-dark' }),
-      save: async (next) => { writes.push(next); },
-    });
-    expect(preferences.get()).toBe('light');
-    expect(preferences.getSystemThemes()).toEqual({ light: 'light', dark: 'dark' });
-    expect(preferences.getIssue()).toBeNull();
-    expect(writes).toEqual([]);
   });
   test('serializes complete history snapshots and restores the last pair after restart', async () => {
     const writes: ThemeSelection[] = [];
@@ -88,8 +72,7 @@ describe('desktop theme selections', () => {
     const restored = new ThemePreferences();
     await restored.initialize({ load: async () => writes.at(-1), save: async () => {} });
     expect(restored.get()).toBe('system');
-    // Retired IDs written during this session are migrated when read back after restart.
-    expect(restored.getSystemThemes()).toEqual({ light: 'light', dark: 'dark' });
+    expect(restored.getSystemThemes()).toEqual({ light: 'sakura-light', dark: 'midnight-dark' });
   });
   test('a failed read does not write defaults; an explicit selection can recover', async () => {
     const writes: ThemeSelection[] = [];

@@ -1,4 +1,4 @@
-import { isThemeSelection, migrateRetiredThemeId, type SystemThemes, type ThemeSelection } from '../themes/types';
+import { isThemeSelection, type SystemThemes, type ThemeSelection } from '../themes/types';
 
 type Backend = {
   load(): Promise<unknown>;
@@ -33,10 +33,10 @@ export class ThemePreferences {
     try {
       const saved = await backend.load();
       if (saved !== null && !isThemeSelection(saved)) throw new Error('Invalid theme selection');
-      this.value = migrateRetiredThemeId(saved?.selectedId ?? 'dark');
+      this.value = saved?.selectedId ?? 'dark';
       this.systemThemes = {
-        light: migrateRetiredThemeId(saved?.lastLightId ?? 'light'),
-        dark: migrateRetiredThemeId(saved?.lastDarkId ?? 'dark'),
+        light: saved?.lastLightId ?? 'light',
+        dark: saved?.lastDarkId ?? 'dark',
       };
       this.report(null);
     } catch {
