@@ -17,12 +17,17 @@ pub(crate) fn get_usage_view_preferences() -> Result<UsageViewPreferences, Strin
 pub(crate) fn save_usage_view_preferences(values: UsageViewPreferences) -> Result<(), String> {
     if values.iter().any(|(key, value)| {
         !(key.starts_with("cpa-gui.usage-") || key == "cpa-gui.pricing-sync-source.v1")
-            || key.len() > 128 || value.len() > 16_384
-    }) || values.len() > 100 {
+            || key.len() > 128
+            || value.len() > 16_384
+    }) || values.len() > 100
+    {
         return Err("Invalid usage preferences".into());
     }
     let content = serde_json::to_vec_pretty(&values).map_err(|error| error.to_string())?;
-    write_bytes_atomically(&core_base_dir()?.join("usage-view-preferences.json"), &content)
+    write_bytes_atomically(
+        &core_base_dir()?.join("usage-view-preferences.json"),
+        &content,
+    )
 }
 
 #[tauri::command]
@@ -46,8 +51,13 @@ pub(crate) async fn get_core_status(app: tauri::AppHandle) -> Result<CoreStatus,
         let process_app = app.clone();
         let port = config.port;
         tauri::async_runtime::spawn_blocking(move || {
-            current_core_status(Some(process_app.state::<CoreProcessState>().inner()), Some(port))
-        }).await.map_err(|_| "Kernel status background task failed".to_string())??
+            current_core_status(
+                Some(process_app.state::<CoreProcessState>().inner()),
+                Some(port),
+            )
+        })
+        .await
+        .map_err(|_| "Kernel status background task failed".to_string())??
     };
     app.state::<GuiConfigState>().ensure_target(&config)?;
     emit_core_status(&app, &status);
@@ -296,6 +306,14 @@ fn apply_api_access_remark_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn locale_update_does_not_wait_for_target_lease() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let _lease = state.target_operation.blocking_lock();
+        let config = set_locale_for_tray(&state, "zh-CN".into()).unwrap();
+        assert_eq!(config.locale, "zh-CN");
+    }
 
     fn locator(base_url: &str, api_keys: &[&str]) -> ApiAccessRemarkLocator {
         ApiAccessRemarkLocator {
@@ -764,8 +782,7 @@ pub(crate) fn set_app_locale(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     locale: String,
 ) -> Result<String, String> {
-    let _target = gui_config_state.target_operation.blocking_lock();
-    let config = gui_config_state.set_locale(locale)?;
+    let config = set_locale_for_tray(gui_config_state.inner(), locale)?;
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         // Locale changes only re-render the last selected-target status.
@@ -775,6 +792,18 @@ pub(crate) fn set_app_locale(
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     let _ = (app, process_state);
     Ok(config.locale)
+}
+
+// Locale is a GUI preference, so it must not synchronously wait for the target
+// lease: tray workers hold that lease while Tauri menu calls synchronously hop
+// to the main thread. Revalidate the revision before publishing target status.
+fn set_locale_for_tray(
+    gui_config_state: &GuiConfigState,
+    locale: String,
+) -> Result<GuiConfigFile, String> {
+    let config = gui_config_state.set_locale(locale)?;
+    gui_config_state.ensure_target(&config)?;
+    Ok(config)
 }
 
 #[tauri::command]
