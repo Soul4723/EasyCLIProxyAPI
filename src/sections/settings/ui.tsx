@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, Info, RotateCcw } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import { useCoreRuntime } from '../../coreRuntime';
 import { APP_NAVIGATION_REQUEST_EVENT, type AppNavigationRequest } from '../../navigation';
 import { Button, Card, ConfirmDialog, Chip } from '../../ui';
 import type { MessageKey } from '../../i18n/resources';
@@ -102,13 +103,16 @@ export function SettingRow({ label, hint, effect, icon, htmlFor, children, error
   label: string; hint?: string; effect?: EffectKind; icon?: ReactNode; htmlFor?: string; children: ReactNode; error?: string; stacked?: boolean;
 }) {
   const { t } = useI18n();
+  const remote = useCoreRuntime().status?.connectionMode === 'remote';
+  // Restarts happen on the remote host in Remote mode, not on this computer.
+  const shown: EffectKind | undefined = remote && (effect === 'restart' || effect === 'next-start') ? 'remote-host' : effect;
   return (
     <div className={`ec-set-row${stacked ? ' is-stacked' : ''}${error ? ' has-error' : ''}`}>
       <div className="ec-set-row-label">
         {icon ? <span className="ec-set-row-icon" aria-hidden="true">{icon}</span> : null}
         <label htmlFor={htmlFor}>{label}</label>
         {hint ? <span className="ec-set-hint" title={hint} tabIndex={0} role="img" aria-label={hint}><Info size={13} aria-hidden="true" /></span> : null}
-        {effect ? <Chip size="sm" tone={effect === 'instant' ? 'ok' : 'outline'}>{t(EFFECT_KEYS[effect])}</Chip> : null}
+        {shown ? <Chip size="sm" tone={shown === 'instant' ? 'ok' : 'outline'}>{t(EFFECT_KEYS[shown])}</Chip> : null}
       </div>
       <div className="ec-set-row-control">{children}</div>
       {error ? <p className="ec-set-row-error" role="alert">{error}</p> : null}

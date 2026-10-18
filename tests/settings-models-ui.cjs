@@ -50,7 +50,7 @@ const { openApp } = require('./helpers/shell.cjs');
       await table.waitFor();
       assert.equal(await table.locator('tbody tr').count(), 1);
       assert.match(await table.innerText(), /codex-high/);
-      assert.equal(await page.locator('.ec-models-panel .ec-chip', { hasText: 'Instant' }).count(), 1, 'aliases show the instant effect chip');
+      assert.equal(await page.locator('.ec-models-panel .ec-chip', { hasText: 'No restart' }).count(), 1, 'aliases show the instant effect chip');
       await noOverflow('aliases');
 
       await page.getByRole('button', { name: 'Create Alias' }).first().click();

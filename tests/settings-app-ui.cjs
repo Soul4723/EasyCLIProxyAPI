@@ -83,7 +83,7 @@ const { openApp } = require('./helpers/shell.cjs');
     assert.deepEqual((await calls()).find((c) => c.command === 'save_software_settings').args.settings, {
       closeBehavior: 'exit', autostartEnabled: true, startCoreOnLaunch: false, silentStartEnabled: true, defaultTerminal: terminal,
     });
-    assert.equal(await navDot.count(), 0);
+    await navDot.waitFor({ state: "detached" });
     assert.deepEqual(errors, []);
     console.log('settings-app-ui: ok');
   } finally {

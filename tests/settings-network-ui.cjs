@@ -46,7 +46,7 @@ const { openApp } = require('./helpers/shell.cjs');
     await savebar.getByText('1 unsaved changes').waitFor();
     await savebar.getByRole('button', { name: 'Discard' }).click();
     assert.equal(await port.inputValue(), '8317');
-    assert.equal(await navDot.count(), 0);
+    await navDot.waitFor({ state: "detached" });
 
     // port validation
     await port.fill('0');
@@ -64,7 +64,7 @@ const { openApp } = require('./helpers/shell.cjs');
     const endpoint = calls.filter((c) => c.command === 'save_network_endpoint_settings').pop();
     assert.deepEqual(endpoint.args.settings, { host: '0.0.0.0', port: 8317 }, 'proxy fields are only sent when dirty');
     assert.ok(calls.some((c) => c.command === 'restart_core_process'));
-    assert.equal(await navDot.count(), 0);
+    await navDot.waitFor({ state: "detached" });
 
     // proxy: follow system off + URL → proxy fields sent, no restart
     await page.evaluate(() => { window.__calls.length = 0; });
