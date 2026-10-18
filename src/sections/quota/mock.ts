@@ -35,5 +35,13 @@ export const quotaMock: SectionMockFactory = (host) => {
     const kept = files.filter((file) => !QUOTA_PROVIDERS.has(String(file.provider ?? file.type ?? '').toLowerCase()));
     files.splice(0, files.length, ...kept, ...generateQuotaAccounts(count));
   }
+  if (raw === null && Array.isArray(files) && host.scenario === 'running') {
+    // Accounts the lighting mock already has schedules for, so the ⚡ states are visible by default.
+    files.push(...['codex', 'claude'].map((provider, index) => ({
+      name: `${provider}-preview-account.json`, provider, type: provider, source: 'file',
+      auth_index: `preview-${provider}-account`, email: `preview-${provider}@example.test`, account_id: `mock-preview-${provider}`,
+      plan_type: 'pro', disabled: false, status: 'active', priority: 2, success: 120 + index * 30, failed: 2, size: 1500, modtime: Date.now(),
+    })));
+  }
   return { handle: () => ({ handled: false }) };
 };

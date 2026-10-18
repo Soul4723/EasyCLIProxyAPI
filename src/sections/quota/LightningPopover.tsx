@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type RefObject } from 'react';
 import { CheckCircle2, CircleAlert, Zap } from 'lucide-react';
 import {
-  Button, ConfirmDialog, Countdown, Masked, Popover, ProviderLogo, ProviderName, SegmentedControl,
+  Button, ConfirmDialog, Countdown, Masked, Popover, ProviderLogo, SegmentedControl,
 } from '../../ui';
 import { useI18n } from '../../i18n';
 import type { LightingMode, LightingSchedule, LightingWindowKind } from '../../services/lighting';
@@ -139,7 +139,7 @@ export function LightningPopover({
           <div className="qt-pop__head">
             <ProviderLogo provider={account.provider} size={20} />
             <strong>{t('sec.quota.lighting.title')}</strong>
-            <span className="qt-pop__who ec-mono"><ProviderName provider={account.provider} /> · <Masked value={account.label} identities={account.identities} /></span>
+            <span className="qt-pop__who"><Masked value={account.label} identities={account.identities} /></span>
           </div>
 
           <SegmentedControl<FormMode>

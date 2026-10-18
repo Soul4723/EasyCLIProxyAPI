@@ -110,7 +110,7 @@ export function AccountPanel({
               </ul>
               {view.banked.useSoon ? <div className="qt-note qt-note--cooldown">{t('sec.quota.banked.useSoon')}</div> : null}
               <Button size="xs" variant="primary" disabled={!canResetQuota(view.file, view.quota)} onClick={() => ctx.actions.consume(view)}>
-                {view.banked.pendingClaude ? t('quota.claude.retry') : t('sec.quota.banked.use')}
+                {view.banked.pendingClaude ? t('quota.claude.retry') : t('sec.quota.banked.useButton')}
               </Button>
             </section>
           ) : null}

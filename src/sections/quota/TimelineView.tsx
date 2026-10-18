@@ -2,7 +2,7 @@
 // window (coloured by % left), plus markers for the next lighting run (⚡) and banked-reset expiries (↻).
 import { useState } from 'react';
 import { RotateCcw, Zap } from 'lucide-react';
-import { Masked, ProviderLogo, SegmentedControl } from '../../ui';
+import { Masked, ProviderLogo, SegmentedControl, StatusPill } from '../../ui';
 import { useI18n } from '../../i18n';
 import type { QuotaAccount } from './model';
 import { tightest, ResetTime } from './WindowMeter';
@@ -68,13 +68,13 @@ export function TimelineView({ accounts, ctx, selectedKey }: { accounts: QuotaAc
               <div className="qt-tl__track">
                 {reset !== undefined ? (
                   <span className={`qt-tl__fill qt-tl__fill--${tone(pct)}${account.stale ? ' qt-stale' : ''}`} style={{ width: `${Math.min(100, Math.max(1.5, at(reset)))}%` }}>
-                    <span className="qt-tl__label ec-num">{pct === null ? '' : `${formatNumber(Math.round(pct))}%`}</span>
                   </span>
-                ) : <span className="qt-tl__none ec-muted">{window ? t('sec.quota.timeline.noReset') : '—'}</span>}
+                ) : window && account.status !== 'disabled' && account.status !== 'expired' ? <span className="qt-tl__none ec-muted">{t('sec.quota.timeline.noReset')}</span>
+                  : <span className="qt-tl__none"><StatusPill status={account.status} size="sm" /></span>}
                 {lightAt !== undefined ? <span className="qt-tl__mark qt-tl__mark--light" style={{ left: `${at(lightAt)}%` }} title={t('sec.quota.timeline.light')}><Zap size={12} fill="currentColor" aria-hidden="true" /></span> : null}
                 {banked.map((ms) => <span key={ms} className="qt-tl__mark qt-tl__mark--banked" style={{ left: `${at(ms)}%` }} title={t('sec.quota.timeline.banked')}><RotateCcw size={12} aria-hidden="true" /></span>)}
               </div>
-              <span className="qt-tl__reset ec-mono">{reset !== undefined ? <ResetTime ms={reset} now={ctx.now} /> : ''}</span>
+              <span className="qt-tl__reset ec-mono">{reset !== undefined ? <><b className="ec-num">{pct === null ? '' : `${formatNumber(Math.round(pct))}%`}</b> <ResetTime ms={reset} now={ctx.now} /></> : ''}</span>
             </div>
           );
         })}

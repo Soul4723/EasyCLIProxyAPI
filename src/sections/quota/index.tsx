@@ -118,14 +118,14 @@ export function QuotaSection({ params }: SectionPageProps) {
     })),
   ];
 
-  const renderItems = (list: QuotaAccount[]) => layout === 'rows' ? (
+  const renderItems = (list: QuotaAccount[], grouped = false) => layout === 'rows' ? (
     <div className="qt-rows">
       <RowsHeader />
-      {list.map((account) => <AccountRow key={account.key} account={account} ctx={ctx} selected={selected?.key === account.key} />)}
+      {list.map((account) => <AccountRow key={account.key} account={account} ctx={ctx} selected={selected?.key === account.key} grouped={grouped} />)}
     </div>
   ) : (
     <div className="qt-grid">
-      {list.map((account) => <AccountCard key={account.key} account={account} ctx={ctx} selected={selected?.key === account.key} />)}
+      {list.map((account) => <AccountCard key={account.key} account={account} ctx={ctx} selected={selected?.key === account.key} grouped={grouped} />)}
     </div>
   );
 
@@ -201,7 +201,7 @@ export function QuotaSection({ params }: SectionPageProps) {
               onToggle={() => toggleGroup(group.provider)}
               onPick={(account) => setSelectedKey(account.key)}
             />
-            {collapsed.has(group.provider) ? null : renderItems(group.accounts)}
+            {collapsed.has(group.provider) ? null : renderItems(group.accounts, true)}
           </section>
         ))}
       </div>

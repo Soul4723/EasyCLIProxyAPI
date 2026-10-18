@@ -12,16 +12,25 @@ import { ResetTime, WindowMeter, tightest, windowLabel } from './WindowMeter';
 
 const MAX_CARD_WINDOWS = 3;
 
-function Identity({ account, ctx, selected }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean }) {
+function Identity({ account, ctx, selected, grouped }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean; grouped?: boolean }) {
   return (
     <button type="button" className="qt-identity" aria-pressed={selected} onClick={() => ctx.actions.open(account)}>
       <ProviderLogo provider={account.provider} size={28} />
       <span className="qt-identity__text">
-        <span className="qt-identity__top">
-          <span className="qt-identity__provider"><ProviderName provider={account.provider} /></span>
-          {account.plan ? <Chip size="sm"><Masked value={account.plan} identities={account.identities} /></Chip> : null}
-        </span>
-        <Masked className="qt-identity__sub ec-trunc" value={account.label} identities={account.identities} />
+        {grouped ? (
+          <span className="qt-identity__top">
+            <Masked className="qt-identity__provider ec-trunc" value={account.label} identities={account.identities} />
+            {account.plan ? <Chip size="sm"><Masked value={account.plan} identities={account.identities} /></Chip> : null}
+          </span>
+        ) : (
+          <>
+            <span className="qt-identity__top">
+              <span className="qt-identity__provider"><ProviderName provider={account.provider} /></span>
+              {account.plan ? <Chip size="sm"><Masked value={account.plan} identities={account.identities} /></Chip> : null}
+            </span>
+            <Masked className="qt-identity__sub ec-trunc" value={account.label} identities={account.identities} />
+          </>
+        )}
       </span>
     </button>
   );
@@ -54,7 +63,7 @@ function LightingLine({ account, ctx }: { account: QuotaAccount; ctx: ControlsCo
   return (
     <div className={`qt-note qt-note--light qt-note--${state}`}>
       <span className="qt-note__rule">{rule}</span>
-      {schedule.nextRun && schedule.nextRun > ctx.now ? <span className="ec-mono"><Countdown to={schedule.nextRun} compact /></span> : <span>{t(`sec.quota.lighting.state.${state}` as never)}</span>}
+      {schedule.nextRun && schedule.nextRun > ctx.now ? <span className="ec-mono">· <Countdown to={schedule.nextRun} compact /></span> : <span>{t(`sec.quota.lighting.state.${state}` as never)}</span>}
     </div>
   );
 }
@@ -109,7 +118,7 @@ function CardBody({ account, ctx }: { account: QuotaAccount; ctx: ControlsContex
   );
 }
 
-export function AccountCard({ account, ctx, selected }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean }) {
+export function AccountCard({ account, ctx, selected, grouped }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean; grouped?: boolean }) {
   const open = (event: React.MouseEvent) => {
     if ((event.target as HTMLElement).closest('button,a,input,[role=switch]')) return;
     ctx.actions.open(account);
@@ -123,7 +132,7 @@ export function AccountCard({ account, ctx, selected }: { account: QuotaAccount;
       onClick={open}
     >
       <header className="qt-card__head">
-        <Identity account={account} ctx={ctx} selected={selected} />
+        <Identity account={account} ctx={ctx} selected={selected} grouped={grouped} />
         <AccountControls account={account} ctx={ctx} />
       </header>
       <div className="qt-card__state">
@@ -160,7 +169,7 @@ function RowMeter({ account, kind, ctx }: { account: QuotaAccount; kind: '5h' | 
   );
 }
 
-export function AccountRow({ account, ctx, selected }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean }) {
+export function AccountRow({ account, ctx, selected, grouped }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean; grouped?: boolean }) {
   const { t } = useI18n();
   const extra = account.windows.filter((window) => window !== tightest(account.windows, '5h') && window !== tightest(account.windows, 'weekly')).length;
   const open = (event: React.MouseEvent) => {
@@ -176,7 +185,7 @@ export function AccountRow({ account, ctx, selected }: { account: QuotaAccount; 
       aria-busy={account.loading}
       onClick={open}
     >
-      <Identity account={account} ctx={ctx} selected={selected} />
+      <Identity account={account} ctx={ctx} selected={selected} grouped={grouped} />
       <div className="qt-row__status"><StatusPill status={account.status} size="sm" /></div>
       <RowMeter account={account} kind="5h" ctx={ctx} />
       <RowMeter account={account} kind="weekly" ctx={ctx} />
