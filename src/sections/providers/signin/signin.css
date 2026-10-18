@@ -502,15 +502,3 @@ a.ec-btn {
   align-items: center;
   gap: var(--ec-sp-1);
 }
-
-/* dev harness only (Preview.tsx) */
-.ec-signin-harness__row {
-  display: flex;
-  align-items: center;
-  gap: var(--ec-sp-3);
-  font-size: var(--ec-fs-sm);
-}
-
-.ec-signin-harness__row > .ec-muted {
-  flex: 0 0 160px;
-}

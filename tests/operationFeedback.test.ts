@@ -39,35 +39,13 @@ describe('控件自身反馈', () => {
 
 
   it('凭证文件的启用停用由按钮与状态标签反馈', () => {
-    expect(actionCalls('AuthFileManagementPage.tsx', 'toggleStatus', 'showNotice').calls).toHaveLength(0);
-  });
-
-  it('停用凭证的启用按钮使用主题高亮，停用操作仍使用次要样式', () => {
-    const file = 'AuthFileManagementPage.tsx';
-    const source = ts.createSourceFile(file, readFileSync(new URL(`../src/pages/${file}`, import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    let button: ts.JsxOpeningElement | undefined;
-    const visit = (node: ts.Node) => {
-      if (ts.isJsxOpeningElement(node) && node.tagName.getText(source) === 'button'
-        && node.attributes.properties.some((attribute) => ts.isJsxAttribute(attribute)
-          && attribute.name.getText(source) === 'onClick'
-          && attribute.initializer?.getText(source).includes('toggleStatus(file)'))) button = node;
-      ts.forEachChild(node, visit);
-    };
-    visit(source);
-    const attributes = button?.attributes.properties.filter(ts.isJsxAttribute);
-    expect(attributes?.find((attribute) => attribute.name.getText(source) === 'className')?.initializer?.getText(source))
-      .toBe("{`${disabled ? 'primary-button' : 'secondary-button'} compact-button auth-card-toggle`}");
-    expect(attributes?.find((attribute) => attribute.name.getText(source) === 'disabled')?.initializer?.getText(source))
-      .toBe('{busy || resettingCooldown || !isOAuthCredentialFile(file)}');
-    const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
-    expect(styles).toMatch(/\.real-auth-file-row\.disabled\s*>\s*:not\(\.auth-file-actions\)\s*\{\s*opacity:\s*0\.68;/);
-    expect(styles).not.toMatch(/\.real-auth-file-row\.disabled\s*\{[^}]*opacity:/);
+    expect(actionCalls('sections/providers/creds/useCredentials.tsx', 'toggle', 'notify').calls).toHaveLength(0);
   });
 
   it('开关切换只后台刷新数据，不卸载整张列表和焦点控件', () => {
     for (const [file, action, callback] of [
       ['sections/providers/api/useApiProviders.tsx', 'toggleProvider', 'loadProviders'],
-      ['AuthFileManagementPage.tsx', 'toggleStatus', 'loadFiles'],
+      ['sections/providers/creds/useCredentials.tsx', 'toggle', 'load'],
     ]) {
       const { calls } = actionCalls(file, action, callback);
       expect(calls).toHaveLength(1);

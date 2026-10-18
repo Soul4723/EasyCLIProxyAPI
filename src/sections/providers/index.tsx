@@ -3,8 +3,8 @@ import type { SectionPageProps } from '../../shell/types';
 import { ProvidersPage } from './ProvidersPage';
 import './providers.css';
 
-// Dev-only preview hook: `#/providers?preview=api|creds|signin` renders `src/sections/providers/<name>/Preview.tsx`.
-const previews = import.meta.glob('./*/Preview.tsx') as Record<string, () => Promise<{ default: React.ComponentType }>>;
+// Dev-only test harness: `#/providers?preview=creds` renders `creds/Preview.tsx` (mock states for the credential UI tests). Not in production builds.
+const previews = (import.meta.env.DEV ? import.meta.glob('./*/Preview.tsx') : {}) as Record<string, () => Promise<{ default: React.ComponentType }>>;
 
 export function ProvidersSection(props: SectionPageProps) {
   const previewName = props.params.get('preview');
