@@ -25,8 +25,9 @@
   /* text */
   --ec-fg: #fffaff;
   --ec-fg-2: #ddd3d0;
-  --ec-fg-muted: #a59996;
-  --ec-fg-subtle: #8b7f7c;
+  --ec-fg-muted: #c4bab7;
+  --ec-fg-subtle: #ada19e;
+  --ec-placeholder: #c4bab7;
 
   /* lines */
   --ec-border: #664c3f;
@@ -132,8 +133,9 @@
 
   --ec-fg: #2b211c;
   --ec-fg-2: #4a3d36;
-  --ec-fg-muted: #6f5f57;
-  --ec-fg-subtle: #8a7a71;
+  --ec-fg-muted: #6b5b52;
+  --ec-fg-subtle: #75665d;
+  --ec-placeholder: #75665d;
 
   --ec-border: #e3d8cf;
   --ec-border-soft: #eee6df;
