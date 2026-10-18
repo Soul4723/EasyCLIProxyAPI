@@ -1,0 +1,100 @@
+/* CopyButton: see CopyButton.tsx. Icon-only form is a square matching the density control height. */
+
+.ec-copy {
+  appearance: none;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: var(--ec-ctrl-h);
+  min-width: 0;
+  padding: 0 var(--ec-sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--ec-r-md);
+  background: transparent;
+  color: var(--ec-fg-muted);
+  font: inherit;
+  font-size: var(--ec-fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.ec-copy--sm {
+  height: var(--ec-ctrl-h-sm);
+  font-size: var(--ec-fs-xs);
+}
+
+.ec-copy svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.ec-copy--icon {
+  width: var(--ec-ctrl-h);
+  padding: 0;
+}
+
+.ec-copy--sm.ec-copy--icon {
+  width: var(--ec-ctrl-h-sm);
+}
+
+.ec-copy--ghost:hover {
+  background: var(--ec-hover);
+  color: var(--ec-fg);
+}
+
+.ec-copy--outline {
+  border-color: var(--ec-border);
+  color: var(--ec-fg-2);
+}
+
+.ec-copy--outline:hover {
+  background: var(--ec-hover);
+  color: var(--ec-fg);
+}
+
+.ec-copy:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 1px;
+}
+
+.ec-copy--copied,
+.ec-copy--copied:hover {
+  color: var(--ec-ok);
+}
+
+.ec-copy--failed,
+.ec-copy--failed:hover {
+  color: var(--ec-danger);
+}
+
+.ec-copy__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Visually hidden live region: announces status without displaying it twice. */
+.ec-copy__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-copy {
+    transition: none;
+  }
+}
