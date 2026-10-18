@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { ArrowUpRight, Boxes, Copy, FileDown, MoreHorizontal, RotateCcw, Settings2, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Boxes, Copy, FileDown, MoreHorizontal, Power, RotateCcw, Settings2, Trash2 } from 'lucide-react';
 import { useDensity } from '../../../density';
 import { useI18n } from '../../../i18n';
 import { usePrivacyMask } from '../../../privacy';
@@ -17,7 +17,6 @@ import {
   Popover,
   PopoverItem,
   PopoverSeparator,
-  Toggle,
   type DataTableColumn,
   type SortState,
 } from '../../../ui';
@@ -63,6 +62,12 @@ function RowMenu({ row, controller }: { row: CredentialRow; controller: Credenti
         <PopoverItem icon={<Copy size={14} />} onClick={run(() => void controller.copyName(row))}>
           {t('authFiles.copyName')}
         </PopoverItem>
+        {/* Quota is the one home for enable/disable; credentials it does not list keep the switch here. */}
+        {!row.quotaProvider ? (
+          <PopoverItem icon={<Power size={14} />} disabled={controller.busy || !row.editable} onClick={run(() => void controller.toggle(row))}>
+            {t(row.disabled ? 'common.enable' : 'common.disable')}
+          </PopoverItem>
+        ) : null}
         {hasCooldownRecords(row) ? (
           <PopoverItem icon={<RotateCcw size={14} />} disabled={controller.busy} onClick={run(() => controller.clearCooldown(row))}>
             {t('authFiles.cooldown.resetButton')}
@@ -156,16 +161,6 @@ export function CredentialList({ controller, provider, query, status, pageSize: 
     {
       id: 'requests', header: t('authFiles.requests.title'), sortable: true, className: 'ec-cred-col--requests', width: 130,
       cell: (row) => <RequestBar row={row} />,
-    },
-    {
-      id: 'enabled', header: t('sec.providers.creds.enabled'), align: 'center', width: 76,
-      cell: (row) => (
-        <span className="ec-cred-cell-stop" onClick={stop}>
-          <Toggle size="sm" checked={!row.disabled} disabled={controller.busy || !row.editable}
-            label={`${t(row.disabled ? 'common.enable' : 'common.disable')} ${mask.text(row.identity || row.name, row.identities)}`}
-            onChange={() => void controller.toggle(row)} />
-        </span>
-      ),
     },
     {
       id: 'actions', header: <span className="ec-cred-visually-hidden">{t('authFiles.list.actions')}</span>, align: 'end', width: 132,

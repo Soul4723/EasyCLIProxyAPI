@@ -192,13 +192,10 @@ function PanelBody({ controller, row, suspended, onReSignIn }: PanelProps & { ro
                 {t('sec.providers.creds.signInAgain')}
               </Button>
             ) : null}
-            {row.quotaProvider ? (
-              <a className="ec-cred-link" href={routeHref('quota', null, { cred: row.name })}>
-                {t('sec.providers.creds.quotaLink')}<ArrowUpRight size={12} aria-hidden="true" />
-              </a>
+            {!row.quotaProvider ? (
+              <Toggle checked={!row.disabled} disabled={controller.busy || !editable}
+                label={`${t(row.disabled ? 'common.enable' : 'common.disable')} ${shown}`} onChange={() => void controller.toggle(row)} />
             ) : null}
-            <Toggle checked={!row.disabled} disabled={controller.busy || !editable}
-            label={`${t(row.disabled ? 'common.enable' : 'common.disable')} ${shown}`} onChange={() => void controller.toggle(row)} />
           </>
         )}
         footer={editable ? (
@@ -219,6 +216,15 @@ function PanelBody({ controller, row, suspended, onReSignIn }: PanelProps & { ro
       >
         <div className="ec-cred-panel" ref={bodyRef}>
           <Overview row={row} formatNumber={formatNumber} />
+          {row.quotaProvider ? (
+            <p className="ec-cred-note ec-cred-manage">
+              <span>{t(row.disabled ? 'sec.providers.creds.disabledState' : 'sec.providers.creds.enabled')}</span>
+              <span aria-hidden="true">·</span>
+              <a className="ec-cred-link" href={routeHref('quota', null, { cred: row.name })}>
+                {t('sec.providers.creds.manageInQuota')} <ArrowUpRight size={12} aria-hidden="true" />
+              </a>
+            </p>
+          ) : null}
           {!editable ? (
             <p className="ec-cred-note">{t(row.runtimeOnly ? 'authFiles.settings.runtime' : 'authFiles.fileOnly')}</p>
           ) : null}
