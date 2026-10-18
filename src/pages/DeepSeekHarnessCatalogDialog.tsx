@@ -1,6 +1,6 @@
 import { MessageNotice } from '../appNotice';
 import { useCallback, useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/platform';
 import { LoaderCircle, RefreshCw, RotateCcw, Search, Settings2, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { useDialogFocusTrap } from '../components/useDialogFocusTrap';

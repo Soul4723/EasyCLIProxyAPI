@@ -1,8 +1,8 @@
 // Download-source state for the Updates tab: selected source, built-in channels and custom HTTPS mirrors.
 // Same commands/events as the old Version page (get_version_source_settings, set_download_source, add/remove_custom_download_mirror).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke } from '../../../services/platform';
+import { listen } from '../../../services/platform';
 import { useI18n } from '../../../i18n';
 import type { NoticeMessage, NoticeTone } from '../../../appNotice';
 import { downloadSourceLabel, type VersionDownloadSource, type VersionSourceSettings } from './model';

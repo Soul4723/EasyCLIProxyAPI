@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/platform';
 import { CheckCircle2, Copy, ExternalLink, LoaderCircle, LogIn } from 'lucide-react';
 import { useCoreRuntime } from '../../coreRuntime';
 import { useI18n } from '../../i18n';

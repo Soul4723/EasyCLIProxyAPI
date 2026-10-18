@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { invoke } from '../../services/documentTarget';
-import { listen } from '@tauri-apps/api/event';
+import { listen } from '../../services/platform';
 
 /** Core config values returned by `get_core_config_settings` and by every native save command. */
 export type CoreApiKey = { apiKey: string; remark: string };

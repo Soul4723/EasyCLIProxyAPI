@@ -9,8 +9,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke } from './services/platform';
+import { listen } from './services/platform';
 import { Download, RefreshCw } from 'lucide-react';
 import { getCurrentLocale, translate, useI18n, type AppLocale } from './i18n';
 import { useDialogFocusTrap } from './components/useDialogFocusTrap';

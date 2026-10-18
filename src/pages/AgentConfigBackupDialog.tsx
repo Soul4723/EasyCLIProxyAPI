@@ -1,6 +1,6 @@
 import { MessageNotice } from '../appNotice';
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/platform';
 import { ArchiveRestore, LoaderCircle, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import './AgentConfigBackupDialog.css';

@@ -12,10 +12,10 @@ import {
   useState,
   type ComponentType,
 } from 'react';
-import { invoke as invokeNative } from '@tauri-apps/api/core';
+import { invoke as invokeNative } from '../services/platform';
 import { useCoreTargetRevision } from '../coreRuntime';
-import { listen } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { listen } from '../services/platform';
+import { open } from '../services/platform';
 import {
   AlertTriangle,
   BadgeCheck,

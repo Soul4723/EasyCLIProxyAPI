@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/platform';
 import { ArchiveRestore, ArrowRight, Eye, Plus, Trash2 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import {

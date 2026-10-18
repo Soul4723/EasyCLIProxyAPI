@@ -1,8 +1,8 @@
 // Settings → Updates: app + core version cards, download sources (incl. custom HTTPS mirrors), release notes.
 // Behaviour comes from the old Version page: same commands, task events and visit-triggered checks.
 import { useEffect, useRef, useState } from 'react';
-import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '../../../services/platform';
+import { invoke } from '../../../services/platform';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime } from '../../../coreRuntime';
 import { useCoreUpdate } from '../../../coreUpdate';
