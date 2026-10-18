@@ -85,6 +85,7 @@ const storeEntries: Record<string, unknown>[] = [
 ];
 
 mockIPC(async (command, args) => {
+  if (command === 'get_management_target_revision') return 1;
   if (command === 'get_core_status') return fixtureCoreStatus(params);
   state.commands.push({ command, args });
   if (command === 'start_oauth_login') return { url: 'https://login.example.test/authorize?state=sample-state', state: 'sample-state' };

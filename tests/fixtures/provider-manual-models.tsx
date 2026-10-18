@@ -19,6 +19,7 @@ fixture.providerFixture = {
 };
 const remarks = new Map<string, string>();
 mockIPC((cmd, rawArgs) => {
+  if (cmd === 'get_management_target_revision') return 1;
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'resolve_api_access_remarks') {
     const { queries } = rawArgs as { queries: (ApiAccessRemarkLocator & { providerSection: ProviderSection })[] };

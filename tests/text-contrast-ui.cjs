@@ -93,6 +93,10 @@ async function audit(page, scope, label) {
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
     await page.route('**/*', route => route.request().url().startsWith(base + '/') ? route.continue() : route.abort());
+    await page.route('**/__theme_fixture_selection', route => {
+      const selectedId = new URL(route.request().headers().referer).searchParams.get('saved') || 'light';
+      return route.fulfill({ json: { version: 1, selectedId, lastLightId: 'light', lastDarkId: 'dark' } });
+    });
     const open = fixture => page.goto(`${base}/tests/fixtures/${fixture}`, { waitUntil: 'domcontentloaded' });
     const screenshot = async name => {
       if (!process.env.CONTRAST_SCREENSHOT_DIR) return;

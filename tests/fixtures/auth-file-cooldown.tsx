@@ -43,6 +43,7 @@ const state = {
 (window as typeof window & { cooldownFixture: typeof state }).cooldownFixture = state;
 
 mockIPC(async (cmd, args) => {
+  if (cmd === 'get_management_target_revision') return 1;
   if (cmd === 'set_app_locale') return null;
   if (cmd !== 'management_request') throw new Error(`Unhandled fixture command: ${cmd}`);
   const request = args?.request as Request;

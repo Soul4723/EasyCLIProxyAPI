@@ -21,10 +21,12 @@ const calls: { cmd: string; args: unknown }[] = [];
 const notify = (theme: AppTheme) => emit('tauri://theme-changed', theme);
 mockWindows('main');
 mockIPC(async (cmd, args: any) => {
+  if (cmd === 'get_management_target_revision') return 1;
   calls.push({ cmd, args });
   if (cmd === 'get_theme_selection') {
     if (params.has('read-error')) throw new Error('Unreadable configuration');
-    return { version: 1, selectedId: params.get('saved') || 'dark', lastLightId: 'light', lastDarkId: 'dark' };
+    const response = await fetch('/__theme_fixture_selection');
+    return response.ok ? response.json() : null;
   }
   if (cmd === 'save_theme_selection') {
     if (saveError) throw new Error('Disk full');
@@ -69,9 +71,6 @@ Object.assign(window, {
 });
 void initializeThemePreferences().then(() => {
   initializeTheme(params.has('extensions') ? extensionRegistry : undefined);
-  // Browser preview does not expose Tauri's persisted preference backend; keep each
-  // fixture URL deterministic while still exercising the real theme controller/UI.
-  document.documentElement.dataset.theme = params.get('saved') || 'dark';
   createRoot(document.getElementById('root')!).render(
     <StrictMode><I18nProvider>{params.has('extensions') ? <ThemeExtensionFixture /> : <App />}</I18nProvider></StrictMode>,
   );

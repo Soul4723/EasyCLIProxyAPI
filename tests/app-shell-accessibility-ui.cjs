@@ -26,7 +26,7 @@ const path = require('node:path');
     await page.goto(`${base}?mock=running`, { waitUntil: 'commit' });
     await page.locator('.app-shell').waitFor();
 
-    assert.equal(await page.getByRole('heading', { level: 2, name: '运行概览', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('heading', { level: 1, name: '首页' }).count(), 0);
 
     await page.locator('.nav-section').getByRole('button', { name: '使用记录' }).click();
     const tabs = page.getByRole('tab');
@@ -61,7 +61,7 @@ const path = require('node:path');
     assert.equal(await page.locator('.usage-filter-panel').count(), 0);
 
     await page.locator('.nav-section').getByRole('button', { name: '高级功能' }).click();
-    assert.equal(await page.locator('h1').count(), 0);
+    assert.equal(await page.locator('.config-page').getAttribute('aria-label'), '高级设置');
     const configTabs = page.locator('.config-subpage-tabs').getByRole('tab');
     assert.equal(await page.locator('.config-subpage-tabs').getAttribute('aria-orientation'), 'horizontal');
     assert.equal(await page.locator('.config-settings-sidebar').count(), 0);

@@ -137,7 +137,7 @@ runUi(async ({ base }) => {
     await right.getByRole('button', { name: 'Remove dsv4', exact: true }).click();
     await right.getByRole('button', { name: 'Remove other', exact: true }).click();
     await dialog.getByRole('button', { name: 'Apply Selection (1)', exact: true }).click();
-    const exclusions = page.locator('.provider-advanced-settings textarea').last();
+    const exclusions = page.getByPlaceholder('model-old-*\nmodel-preview', { exact: true });
     const aliasInput = page.locator('.model-config-entry input').nth(1);
     const expectExclusions = async (extra) => assert.deepEqual((await exclusions.inputValue()).split('\n'), ['manual-model', 'legacy-*', ...extra]);
     await expectExclusions(['dsv4', 'other']);
@@ -175,7 +175,7 @@ runUi(async ({ base }) => {
     await expectExclusions(['dsv4', 'other']);
 
     const manualRules = 'dsv4\nother\nmanual-model\ndsv*';
-    await page.locator('.provider-advanced-settings summary').press('Enter');
+    await page.locator('.provider-advanced-settings > summary').press('Enter');
     await exclusions.fill(manualRules);
     await aliasInput.fill('other');
     await page.getByRole('button', { name: 'Save', exact: true }).click();

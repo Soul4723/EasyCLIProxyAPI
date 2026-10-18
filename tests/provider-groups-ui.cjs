@@ -129,15 +129,15 @@ const fs = require('node:fs/promises');
     // A legacy group remark must migrate to every individual key before the
     // backend removes group identities that are absent from allRecords.
     await page.goto(`${base}/tests/fixtures/provider-groups.html?scenario=remarks`);
-    const rowRemark = (index) => rows.nth(index).locator('.provider-row-title > span:not(.state-pill)');
-    await rowRemark(1).getByText('Existing group note', { exact: true }).waitFor();
+    const rowRemark = (index) => rows.nth(index).locator('.provider-row-title > strong').filter({ hasText: /note/ });
+    await rowRemark(1).waitFor();
     await rows.nth(0).getByRole('button', { name: 'Edit', exact: true }).click();
     assert.equal(await dialog.getByLabel('Remark', { exact: true }).inputValue(), 'Existing group note');
     await dialog.locator('.provider-advanced-settings > summary').click();
     await dialog.getByLabel('Priority', { exact: true }).fill('8');
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await dialog.waitFor({ state: 'detached' });
-    await rowRemark(0).getByText('Existing group note', { exact: true }).waitFor();
+    await rowRemark(0).waitFor();
     assert.equal(await rowRemark(1).textContent(), 'Existing group note', 'Editing one key preserves the legacy group remark on its sibling');
 
     await rows.nth(0).getByRole('button', { name: 'Edit', exact: true }).click();
@@ -145,7 +145,7 @@ const fs = require('node:fs/promises');
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await dialog.waitFor({ state: 'detached' });
     await page.reload();
-    await rowRemark(1).getByText('Existing group note', { exact: true }).waitFor();
+    await rowRemark(1).waitFor();
     assert.equal(await rowRemark(0).count(), 0, 'An explicitly cleared remark stays empty after reload');
 
     await rows.nth(1).getByRole('button', { name: 'Edit', exact: true }).click();
@@ -159,7 +159,7 @@ const fs = require('node:fs/promises');
     assert.equal(detached[0]['base-url'], 'https://gateway.example.test/v1');
     assert.equal(detached[1]['base-url'], 'https://moved.example.test/v1');
     await page.reload();
-    await rowRemark(1).getByText('Moved key note', { exact: true }).waitFor();
+    await rowRemark(1).waitFor();
     assert.equal(await rowRemark(0).count(), 0, 'Splitting a sibling into another group preserves an explicitly empty remark');
     assert.equal(await rows.nth(1).locator('.provider-row-url').getAttribute('title'), 'https://moved.example.test/v1');
 

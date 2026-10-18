@@ -1,3 +1,4 @@
+import { fixtureCoreStatus, MockCoreRuntime } from './coreRuntime';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
@@ -63,6 +64,8 @@ const credentialForAttempt = (attempt: number) => ({
 });
 
 mockIPC(async (cmd, args: any = {}) => {
+  if (cmd === 'get_management_target_revision') return 1;
+  if (cmd === 'get_core_status') return fixtureCoreStatus(params);
   fixture.calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'list_oauth_browsers') {
@@ -125,9 +128,9 @@ mockIPC(async (cmd, args: any = {}) => {
 }, { shouldMockEvents: true });
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider>
+  <I18nProvider><MockCoreRuntime>
     <main style={{ padding: 24 }}>
       {view === 'easy' ? <EasyModePage /> : <OAuthLoginPage />}
     </main>
-  </I18nProvider>,
+  </MockCoreRuntime></I18nProvider>,
 );

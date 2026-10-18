@@ -1,3 +1,4 @@
+import { fixtureCoreStatus, MockCoreRuntime } from './coreRuntime';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -70,6 +71,8 @@ const timeline: UsageTimelinePoint[] = Array.from({ length: records.length ? 36 
 }).reverse(); // The UI must sort timestamps, not trust the backend array order.
 
 mockIPC(async command => {
+  if (command === 'get_management_target_revision') return 1;
+  if (command === 'get_core_status') return fixtureCoreStatus(params);
   if (command === 'plugin:event|listen') return 1;
   if (command === 'plugin:event|unlisten' || command === 'set_app_locale') return null;
   if (command === 'get_usage_collector_status') return { state: 'collecting', message: '', lastCollectedAt: null, totalRecords: records.length };
@@ -86,10 +89,10 @@ mockIPC(async command => {
 });
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider>
+  <I18nProvider><MockCoreRuntime>
     <div className="app-shell">
       <aside className="sidebar" aria-hidden="true" />
       <div className="workspace"><main className="content"><UsageRecordsPage /></main></div>
     </div>
-  </I18nProvider>,
+  </MockCoreRuntime></I18nProvider>,
 );

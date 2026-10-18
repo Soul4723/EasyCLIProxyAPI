@@ -39,6 +39,7 @@ const calls:any[]=[];(window as any).fixtureCalls=calls;
 let embedded=params.has('embedded');
 (window as any).fixtureSessionIds=Array.from({length:61},(_,index)=>`session-${index+1}`);
 mockIPC(async (cmd,args:any) => {
+  if (cmd === 'get_management_target_revision') return 1;
  calls.push({cmd,args});
  if(cmd==='get_codex_cli_daemon_running') {
    if(params.has('daemon-error'))throw new Error('Codex daemon probe failed');

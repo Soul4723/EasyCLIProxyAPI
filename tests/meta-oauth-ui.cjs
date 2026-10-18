@@ -36,7 +36,7 @@ runUi(async ({ base }) => {
     // Management view: Meta is a seventh OAuth provider, with device code and no callback input.
     await open('locale=en');
     const card = managementCard();
-    assert.equal(await page.locator('.oauth-card').count(), 7, 'Meta should add a seventh OAuth card');
+    assert.equal(await page.locator('.oauth-card').count(), 8, 'Meta and Vertex are included among the eight OAuth cards');
     assert.equal(await card.count(), 1, 'the Muse (Meta) card should be unique');
     assert.equal(await card.getByRole('textbox').count(), 0, 'Meta must not render a callback textbox');
     await installClipboard();

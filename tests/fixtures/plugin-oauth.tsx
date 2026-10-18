@@ -25,6 +25,7 @@ const fixture = {
 Object.assign(window, { pluginOAuthFixture: fixture });
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { fixture.copied.push(value); } } });
 mockIPC(async (cmd, unknownArgs) => {
+  if (cmd === 'get_management_target_revision') return 1;
   const args = (unknownArgs ?? {}) as Record<string, unknown>;
   if (cmd === 'get_core_status') return fixtureCoreStatus(params);
   fixture.calls.push({ cmd, args });

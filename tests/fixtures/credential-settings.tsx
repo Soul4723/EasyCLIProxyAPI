@@ -8,6 +8,7 @@ import '../../src/styles/index.css';
 localStorage.setItem('easy-cli-proxy-api.locale', 'zh-CN');
 const models = Array.from({ length: 20 }, (_, index) => ({ id: `gpt-${index + 1}`, display_name: `GPT ${index + 1}` }));
 mockIPC(async (cmd, rawArgs) => {
+  if (cmd === 'get_management_target_revision') return 1;
   if (cmd === 'set_app_locale') return null;
   if (cmd !== 'management_request') return null;
   const request = (rawArgs as { request?: { path?: string } }).request;

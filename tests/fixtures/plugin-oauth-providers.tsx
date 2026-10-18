@@ -51,6 +51,7 @@ window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[
   nativeSetTimeout(handler, timeout === 3000 ? 25 : timeout, ...args)) as typeof window.setTimeout;
 
 mockIPC(async (cmd, unknownArgs) => {
+  if (cmd === 'get_management_target_revision') return 1;
   const args = (unknownArgs ?? {}) as Record<string, unknown>;
   if (cmd === 'get_core_status') return fixtureCoreStatus(params);
   fixture.calls.push({ cmd, args });

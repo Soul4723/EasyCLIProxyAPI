@@ -70,6 +70,7 @@ updateQuotaCache(Object.fromEntries(files.map((file, index) => {
 const state = { files, requests: [] as Request[], unhandled: [] as string[], reads: 0 };
 (window as typeof window & { authFileListFixture: typeof state }).authFileListFixture = state;
 mockIPC(async (cmd, args) => {
+  if (cmd === 'get_management_target_revision') return 1;
   if (cmd === 'set_app_locale') return null;
   if (cmd !== 'management_request') {
     state.unhandled.push(cmd);

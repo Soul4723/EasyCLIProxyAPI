@@ -16,7 +16,7 @@ runUi(async ({ base }) => {
     const calls = () => page.evaluate(() => window.devinFixture.calls);
     await open();
     await card().waitFor();
-    assert.equal(await page.locator('.oauth-card').count(), 7);
+    assert.equal(await page.locator('.oauth-card').count(), 8);
     await click('Sign In');
     await card().getByRole('textbox').waitFor();
     assert.ok((await calls()).some(call => call.cmd === 'start_oauth_login' && call.args.provider === 'devin' && call.args.browser === 'none'));
@@ -55,7 +55,7 @@ runUi(async ({ base }) => {
     assert.ok((await calls()).some(call => call.cmd === 'start_oauth_login' && call.args.provider === 'devin'));
 
     await open('view=files');
-    await page.getByText('devin-test.json', { exact: true }).waitFor();
+    await page.locator('.auth-file-card').getByText('devin-test.json', { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'Fetch Quota', exact: true }).click();
     await page.getByText('75%', { exact: false }).first().waitFor();
     assert.equal(await page.locator('.devin-logo').count(), 1);

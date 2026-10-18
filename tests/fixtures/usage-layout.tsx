@@ -87,6 +87,7 @@ const usageKeyFixture = {
 Object.assign(window, { usageKeyFixture });
 
 mockIPC(async (cmd, args) => {
+  if (cmd === 'get_management_target_revision') return 1;
   if (cmd === 'get_core_status') return fixtureCoreStatus(params);
   if (cmd === 'plugin:event|listen') return 1;
   if (cmd === 'plugin:event|unlisten' || cmd === 'set_app_locale') return null;

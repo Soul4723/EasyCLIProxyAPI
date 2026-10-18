@@ -44,7 +44,8 @@ runUi(async ({ base }) => {
     const claudeCard = page.locator('.real-quota-card').filter({ has: page.locator('strong[title="claude.json"]') });
     assert.equal(await claudeCard.getByRole('button', { name: 'Reset Quota', exact: true }).isEnabled(), true);
     assert.equal(await page.locator('.credential-quota-reset').isEnabled(), true);
-    assert.match(await page.locator('.credential-quota-reset-credits').innerText(), /2/);
+    await claudeCard.getByRole('button', { name: 'Reset Quota', exact: true }).click();
+    assert.equal(await page.evaluate(() => document.body.dataset.reset), 'yes', 'credential reset action invokes its handler');
     console.log('Quota layout: 11 viewport/content combinations passed');
   } finally {
     await browser.close();

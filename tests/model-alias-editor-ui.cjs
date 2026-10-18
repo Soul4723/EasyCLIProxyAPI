@@ -29,7 +29,7 @@ runUi(async ({ base }) => {
     assert.equal(await dialog.getByRole('button', { name: 'Save', exact: true }).evaluate(el => el === document.activeElement), true);
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     assert.equal((await writes()).length, 0);
-    assert.equal(await page.getByRole('button', { name: 'Edit', exact: true }).evaluate(el => el === document.activeElement), true);
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(el => el.textContent === 'Edit' && el === document.activeElement));
 
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await dialog.locator('#thinking-alias-name').fill('renamed-alias');

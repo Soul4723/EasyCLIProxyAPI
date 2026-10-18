@@ -175,9 +175,9 @@ runUi(async ({ base }) => {
       await trigger().click(); await page.locator('.sidebar-privacy-toggle').focus();
       assert.equal(await trigger().getAttribute('aria-expanded'), 'false', 'focus leaving the picker closes it');
       const controls = await page.locator('.sidebar-language-trigger, .sidebar-privacy-toggle, .theme-selector').evaluateAll(elements => elements.map(element => {
-        const { x, right, width } = element.getBoundingClientRect(); return { x, right, width };
+        const { x, right, width } = element.getBoundingClientRect(); return { x, right, width, fits: element.scrollWidth <= element.clientWidth }; 
       }));
-      assert.ok(controls[0].width >= 48 && controls[1].width >= 28 && controls[2].width >= 80 && controls[2].width <= 140);
+      assert.ok(controls[0].width >= 48 && controls[1].width >= 28 && controls[2].width <= 140 && controls.every(control => control.width > 0 && control.fits), 'sidebar controls remain compact and content is unclipped');
       assert.ok(controls[0].right < controls[1].x && controls[1].right < controls[2].x, `${locale} at ${width}: controls overlap`);
       selection = null;
     }
@@ -191,7 +191,7 @@ runUi(async ({ base }) => {
     const color = selector => page.locator(selector).evaluate(element => {
       const style = getComputedStyle(element); return { background: style.backgroundColor, color: style.color, border: style.borderTopColor };
     });
-    const base = await color('.config-dialog');
+    const defaultDialog = await color('.config-dialog');
     const legacySurfaces = ['.version-metric-tile', '.app-release-notes-footer', '.agent-core-setting-section', '.model-config-card'];
     const defaultSurfaces = await Promise.all(legacySurfaces.map(color));
     await chooseId('graphite-dark'); await saved('graphite-dark');
@@ -223,7 +223,7 @@ runUi(async ({ base }) => {
     await page.reload(); await nativeReady();
     assert.equal(await page.locator('html').getAttribute('data-theme-id'), 'test-dark-2');
     await chooseId('light'); await saved('light');
-    assert.deepEqual(await color('.config-dialog'), base);
+    assert.deepEqual(await color('.config-dialog'), defaultDialog);
     assert.equal(await page.locator('html').evaluate(element => element.style.getPropertyValue('--theme-surface')), '');
     await chooseId('midnight-dark'); await saved('midnight-dark');
     await page.setViewportSize({ width: 1280, height: 320 });
