@@ -33,3 +33,4 @@
 .ec-sec-agents .ag-notice--success { color: var(--ec-ok-fg); border-color: var(--ec-ok); }
 .ec-sec-agents .ag-notice--info { color: var(--ec-info-fg); }
 .ec-sec-agents .ag-notices { display: flex; flex-direction: column; gap: var(--ec-sp-2); }
+.ec-sec-agents .ag-grid-page { display: flex; flex-direction: column; gap: var(--ec-gap); }
