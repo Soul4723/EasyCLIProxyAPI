@@ -1,7 +1,7 @@
 .ec-page-header {
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: var(--ec-z-header);
   background: var(--ec-bg);
   border-bottom: 1px solid color-mix(in srgb, var(--ec-border) 60%, transparent);
 }

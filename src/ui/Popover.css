@@ -1,6 +1,6 @@
 .ec-popover {
   position: fixed;
-  z-index: 60;
+  z-index: var(--ec-z-popover);
   box-sizing: border-box;
   min-width: 160px;
   max-width: calc(100vw - 16px);

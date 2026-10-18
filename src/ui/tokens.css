@@ -69,6 +69,9 @@
   --ec-p-gemini: #6fa8ff;      --ec-p-vertex: #4f8cf5;    --ec-p-copilot: #9aa4b2;
   --ec-p-other: #a59996;
 
+  /* z-index scale */
+  --ec-z-header: 20; --ec-z-sidebar: 30; --ec-z-scrim: 60; --ec-z-drawer: 62; --ec-z-panel: 65; --ec-z-dialog: 70; --ec-z-popover: 80; --ec-z-toast: 90;
+
   /* shadows */
   --ec-shadow-card: 0 1px 2px rgb(0 0 0 / 8%);
   --ec-shadow-pop: inset 0 1px rgb(255 255 255 / 4%), 0 18px 44px -18px rgb(0 0 0 / 80%);

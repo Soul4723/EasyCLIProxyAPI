@@ -38,6 +38,6 @@
 @media (max-width: 720px) {
   .ec-app { grid-template-columns: minmax(0, 1fr); }
   .ec-drawer-scrim {
-    display: block; position: fixed; inset: 0; z-index: 60; background: var(--ec-scrim);
+    display: block; position: fixed; inset: 0; z-index: var(--ec-z-scrim); background: var(--ec-scrim);
   }
 }
