@@ -15,6 +15,9 @@ import './ConnectionTab.css';
 
 type Test = { state: 'idle' } | { state: 'running' } | { state: 'ok'; version: string | null } | { state: 'fail'; failure: ConnectionFailure; https: boolean } | { state: 'error'; message: string };
 
+// A saved connection restarts the section's data (the shell remounts pages on a target change), so the confirmation survives the remount.
+let savedBeforeRemount = false;
+
 const hostOf = (origin: string | null | undefined) => {
   try { return new URL(origin ?? '').host; } catch { return origin ?? ''; }
 };
@@ -28,14 +31,18 @@ export function ConnectionTab() {
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState<'save' | 'import' | 'export' | null>(null);
   const [saveError, setSaveError] = useState('');
-  const [justSaved, setJustSaved] = useState(false);
+  const [justSaved, setJustSaved] = useState(() => savedBeforeRemount);
   const [notice, setNotice] = useState('');
   const [test, setTest] = useState<Test>({ state: 'idle' });
   const [includeSecrets, setIncludeSecrets] = useState(false);
   const [reveal, setReveal] = useState({ management: false, client: false });
   const [touched, setTouched] = useState(false);
   const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => {
+    alive.current = true;
+    const stale = window.setTimeout(() => { savedBeforeRemount = false; }, 2000);
+    return () => { alive.current = false; window.clearTimeout(stale); };
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -59,7 +66,7 @@ export function ConnectionTab() {
 
   const change = (patch: Partial<CoreConnection>) => {
     setDraft((current) => ({ ...current, ...patch }));
-    setTest({ state: 'idle' }); setSaveError(''); setJustSaved(false); setNotice('');
+    setTest({ state: 'idle' }); setSaveError(''); setJustSaved(false); savedBeforeRemount = false; setNotice('');
   };
 
   const runTest = async () => {
@@ -78,12 +85,13 @@ export function ConnectionTab() {
     setTouched(true);
     if (invalid || blockedByLocal || busy) return;
     setBusy('save'); setSaveError(''); setNotice('');
+    savedBeforeRemount = true;
     try {
       const next = await saveCoreConnection(draft);
       if (!alive.current) return;
       setSavedConn(next); setDraft(next); setJustSaved(true); setTest({ state: 'idle' });
       void refreshStatus();
-    } catch (cause) { if (alive.current) setSaveError(String(cause)); }
+    } catch (cause) { savedBeforeRemount = false; if (alive.current) setSaveError(String(cause)); }
     finally { if (alive.current) setBusy(null); }
   };
 
