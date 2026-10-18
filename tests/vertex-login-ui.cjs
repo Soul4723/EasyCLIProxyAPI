@@ -12,7 +12,7 @@ const { mkdirSync } = require('node:fs');
   try {
     await server.listen();
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : undefined, headless: true, args: ['--no-proxy-server'] });
+    browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true, args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1505, height: 1000 } });
     page.setDefaultTimeout(10000);
     const errors = [];

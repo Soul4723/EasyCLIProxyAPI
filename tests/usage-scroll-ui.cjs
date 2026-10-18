@@ -25,7 +25,7 @@ function parseCsv(text) {
 
 (async () => {
   const browser = await chromium.launch({
-    channel: 'msedge', headless: true, args: ['--no-proxy-server'],
+    channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true, args: ['--no-proxy-server'],
     ignoreDefaultArgs: ['--hide-scrollbars'],
   });
   try {

@@ -4,7 +4,7 @@ const { mkdirSync } = require('node:fs');
 const base = process.env.ALIAS_TEST_BASE_URL || 'http://127.0.0.1:1423';
 
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.setDefaultTimeout(10000);
