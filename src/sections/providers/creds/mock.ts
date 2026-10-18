@@ -75,15 +75,22 @@ export function forty(): Rec[] {
 
 export const credsMock: SectionMockFactory = (host) => {
   const fixture = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('creds');
-  if (fixture && Array.isArray(host.authFiles) && host.scenario !== 'empty') {
-    const next = fixture === 'one' ? statesFixture().slice(0, 1)
-      : fixture === 'forty' ? forty()
-        : fixture === 'none' ? []
-          : statesFixture();
-    host.authFiles.splice(0, host.authFiles.length, ...next);
-  }
+  // Seeded on the first request, after every section mock has had its say on `host.authFiles`
+  // (the quota mock appends preview accounts at construction).
+  let seeded = false;
+  const seed = () => {
+    seeded = true;
+    if (fixture && Array.isArray(host.authFiles) && host.scenario !== 'empty') {
+      const next = fixture === 'one' ? statesFixture().slice(0, 1)
+        : fixture === 'forty' ? forty()
+          : fixture === 'none' ? []
+            : statesFixture();
+      host.authFiles.splice(0, host.authFiles.length, ...next);
+    }
+  };
   return {
     handle(command, payload) {
+      if (!seeded) seed();
       if (fixture === 'fail' && command === 'management_request') {
         const request = (payload.request ?? payload) as { method?: string; path?: string };
         if (String(request.method).toUpperCase() === 'GET' && request.path === '/credentials') {

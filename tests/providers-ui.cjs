@@ -20,7 +20,7 @@ h.runUiTest('providers', async ({ base, newPage }) => {
   assert.ok(await page.locator('.pv-card').count() >= 11, 'one card per provider brand');
   for (const brand of ['codex', 'claude', 'gemini', 'deepseek']) assert.equal(await page.locator(`.pv-card[data-brand=${brand}]`).count(), 1, `${brand} card`);
   const codexText = await page.locator('.pv-card[data-brand=codex]').innerText();
-  assert.match(codexText, /5\s+accounts/);
+  assert.ok(Number(codexText.match(/(\d+)\s+accounts/)?.[1]) >= 5, `codex card shows its accounts: ${codexText}`);
   assert.match(codexText, /1\s+key\b/);
   noErrors(page, 'overview');
 
