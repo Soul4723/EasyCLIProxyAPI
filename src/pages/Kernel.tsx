@@ -8,7 +8,8 @@ import { clientApiProfiles } from '../services/clientAccess';
 import { useI18n } from '../i18n';
 import { useAppUpdate } from '../appUpdate';
 import { FloatingNotice, useAppNotice } from '../appNotice';
-import { VersionManagementPage, displayAppVersion } from './VersionManagementPage';
+import { displayAppVersion } from '../sections/settings/updates/model';
+import { replaceRoute } from '../shell/router';
 import { HomeAccessPanel } from './HomeAccessPanel';
 import { HomeOverviewCards } from './HomeOverviewCards';
 import { CoreHealthPanel } from './CoreHealthPanel';
@@ -37,9 +38,15 @@ type CoreTlsSettings = {
 
 export type KernelView = 'home' | 'versions';
 
+/** Version management moved to Settings → Updates. */
+function VersionsRedirect() {
+  useEffect(() => { replaceRoute('/settings/updates'); }, []);
+  return null;
+}
+
 export function KernelPage({ view = 'home' }: { view?: KernelView }) {
   if (view === 'versions') {
-    return <VersionManagementPage />;
+    return <VersionsRedirect />;
   }
 
   const { t } = useI18n();

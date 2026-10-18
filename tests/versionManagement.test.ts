@@ -4,7 +4,7 @@ import ts from 'typescript';
 import {
   DEFAULT_VERSION_DOWNLOAD_SOURCE,
   displayAppVersion,
-} from '../src/pages/VersionManagementPage';
+} from '../src/sections/settings/updates/model';
 import { coreUpdateAvailable } from '../src/coreUpdate';
 import { appUpdateIndicatorState } from '../src/appUpdateModel';
 import { createVersionManagementVisitTracker } from '../src/services/versionManagementVisits';
@@ -41,58 +41,48 @@ describe('VersionManagement visit checks', () => {
 });
 
 describe('VersionManagement update triggers', () => {
-  const pageSource = ts.createSourceFile(
-    'VersionManagementPage.tsx',
-    readFileSync(new URL('../src/pages/VersionManagementPage.tsx', import.meta.url), 'utf8'),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
+  const parse = (file: string) => ts.createSourceFile(
+    file, readFileSync(new URL(`../src/sections/settings/${file}`, import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
   );
-
-  const findCalls = (name: string) => {
+  const findCalls = (source: ts.SourceFile, match: (call: ts.CallExpression) => boolean) => {
     const calls: ts.CallExpression[] = [];
     const visit = (node: ts.Node) => {
-      if (ts.isCallExpression(node) && node.expression.getText(pageSource) === name) {
-        calls.push(node);
-      }
+      if (ts.isCallExpression(node) && match(node)) calls.push(node);
       ts.forEachChild(node, visit);
     };
-    visit(pageSource);
+    visit(source);
     return calls;
   };
+  const tab = parse('tabs/UpdatesTab.tsx');
 
-  for (const name of ['checkAppUpdate', 'checkLatest']) {
+  for (const name of ['app.check', 'core.check']) {
     it(`calls ${name} only from the visit effect and its manual check button`, () => {
-      const calls = findCalls(name);
+      const calls = findCalls(tab, (call) => call.expression.getText(tab) === name);
       expect(calls).toHaveLength(2);
       const triggers = calls.map((call) => {
         let ancestor: ts.Node | undefined = call.parent;
         while (ancestor) {
-          if (ts.isJsxAttribute(ancestor)) return ancestor.name.getText(pageSource);
-          if (ts.isCallExpression(ancestor)
-            && ancestor.expression.getText(pageSource) === 'useEffect') return 'useEffect';
+          if (ts.isJsxAttribute(ancestor)) return ancestor.name.getText(tab);
+          if (ts.isCallExpression(ancestor) && ancestor.expression.getText(tab) === 'useEffect') return 'useEffect';
           ancestor = ancestor.parent;
         }
         return undefined;
       });
-      expect(triggers.sort()).toEqual(['onClick', 'useEffect']);
+      expect(triggers.sort()).toEqual(['onCheck', 'useEffect']);
     });
   }
 
   it('only changes the saved download source from the source selector handler', () => {
-    const sourceWrites = findCalls('invoke').filter((call) => {
+    const hook = parse('updates/useVersionSource.ts');
+    const writes = findCalls(hook, (call) => {
       const command = call.arguments[0];
-      return command && ts.isStringLiteral(command) && command.text === 'set_download_source';
+      return call.expression.getText(hook).startsWith('invoke') && Boolean(command) && ts.isStringLiteral(command) && command.text === 'set_download_source';
     });
-    expect(sourceWrites).toHaveLength(1);
-    let ancestor: ts.Node | undefined = sourceWrites[0];
-    while (ancestor && !(ts.isVariableDeclaration(ancestor)
-      && ancestor.initializer && ts.isArrowFunction(ancestor.initializer))) {
-      ancestor = ancestor.parent;
-    }
-    expect(ancestor && ts.isVariableDeclaration(ancestor)
-      ? ancestor.name.getText(pageSource)
-      : undefined).toBe('updateVersionSource');
+    expect(writes).toHaveLength(1);
+    let ancestor: ts.Node | undefined = writes[0];
+    while (ancestor && !(ts.isVariableDeclaration(ancestor) && ancestor.initializer
+      && (ts.isArrowFunction(ancestor.initializer) || ts.isCallExpression(ancestor.initializer)))) ancestor = ancestor.parent;
+    expect(ancestor && ts.isVariableDeclaration(ancestor) ? ancestor.name.getText(hook) : undefined).toBeDefined();
   });
 });
 

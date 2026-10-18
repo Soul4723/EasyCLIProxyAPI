@@ -75,10 +75,10 @@ describe('控件自身反馈', () => {
     }
   });
 
-  it('复制密钥仅保留原按钮勾选和失败提示', () => {
-    const { calls } = actionCalls('ConfigPanel.tsx', 'copyApiKey', 'keyFeedback.showNotice');
-    expect(calls).toHaveLength(1);
-    expect(calls[0].arguments[1].getText()).toBe("'error'");
+  it('复制密钥交给套件 CopyButton，自身反馈不再额外弹提示', async () => {
+    const source = await Bun.file(new URL('../src/sections/settings/tabs/AccessTab.tsx', import.meta.url)).text();
+    expect(source).toContain('<CopyButton');
+    expect(source).not.toContain('navigator.clipboard');
   });
 
   it('首页启动和停止不重复报成功，只有重启需要额外结果', () => {
