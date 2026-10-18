@@ -91,7 +91,7 @@ function CardBody({ account, ctx }: { account: QuotaAccount; ctx: ControlsContex
   if (account.status === 'expired') {
     return (
       <div className="qt-empty qt-empty--bad">
-        <span><AlertCircle size={13} aria-hidden="true" /> {t('sec.quota.expired')}</span>
+        <span title={account.statusDetail || undefined}><AlertCircle size={13} aria-hidden="true" /> {t('sec.quota.expired')}</span>
         <a className="qt-link" href={routeHref('providers', null, { cred: account.fileName })}><LogIn size={12} aria-hidden="true" /> {t('sec.quota.signIn')}</a>
       </div>
     );

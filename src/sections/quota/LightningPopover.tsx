@@ -210,7 +210,7 @@ export function LightningPopover({
                 <input className="qt-input qt-input--num ec-mono" type="number" min={1} max={10} value={attempts} aria-label={t('sec.quota.lighting.attempts')} onChange={(event) => setAttempts(Number(event.target.value))} />
                 <span className="ec-muted">×</span>
                 <input className="qt-input qt-input--num ec-mono" type="number" min={1} max={86400} value={interval} aria-label={t('sec.quota.lighting.interval')} onChange={(event) => setInterval(Number(event.target.value))} />
-                <span className="ec-muted">s</span>
+                <span className="ec-muted">{t('sec.quota.lighting.seconds')}</span>
               </div>
               <div className="qt-pop__tz ec-muted">{t('sec.quota.lighting.timezone', { zone: schedule?.timezone ?? localZone() })}</div>
             </>
