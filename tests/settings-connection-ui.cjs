@@ -2,7 +2,7 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { openApp, setPrivacy } = require('./helpers/shell.cjs');
+const { openApp, setPrivacy, invoke } = require('./helpers/shell.cjs');
 
 (async () => {
   const { createServer } = await import('vite');
@@ -98,6 +98,11 @@ const { openApp, setPrivacy } = require('./helpers/shell.cjs');
     await active.locator('[data-mode], :scope').first().waitFor();
     await page.waitForFunction(() => document.querySelector('[data-testid=connection-active]')?.getAttribute('data-mode') === 'remote');
     assert.match((await footer.innerText()), /core\.example\.test/);
+    // Native save bumps the target revision and the document reloads onto it (dev: documentTarget fencing).
+    assert.equal(await invoke(page, 'get_management_target_revision'), 1, 'saving a target bumps the revision');
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('[data-testid=connection-active]')?.getAttribute('data-mode') === 'remote');
+    assert.equal(await invoke(page, 'get_management_target_revision'), 1, 'the revision survives the reload');
     assert.equal(await page.locator('[data-settings-tab=connection] [role=img]').count(), 0);
 
     // Privacy mode masks the target host.
