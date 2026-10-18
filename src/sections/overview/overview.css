@@ -73,3 +73,5 @@
 .ov-ok { color: var(--ec-ok-fg); }
 .ov-bad { color: var(--ec-danger-fg); }
 .ov-muted { color: var(--ec-fg-muted); }
+
+.ec-sec-overview .ov-usage { max-width: 460px; }

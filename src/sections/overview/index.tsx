@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { RefreshCw } from 'lucide-react';
@@ -79,9 +79,11 @@ export function OverviewSection(_props: SectionPageProps) {
     });
   }, [snapshot.files]);
 
-  const refreshQuota = useCallback(async () => {
+  const refreshQuota = useCallback(async (onlyIdle = false) => {
     if (Object.values(getQuotaCacheSnapshot()).some((quota) => quota.status === 'loading')) return;
-    const files = snapshot.files.filter((file) => providerForFile(file) && !authFileHealth(file).disabled);
+    const files = snapshot.files.filter((file) => providerForFile(file) && !authFileHealth(file).disabled
+      && (!onlyIdle || (getQuotaCacheSnapshot()[quotaKey(file)]?.status ?? 'idle') === 'idle'));
+    if (files.length === 0) return;
     setRefreshingQuota(true);
     const generation = captureQuotaCacheGeneration();
     updateQuotaCache((existing) => ({
@@ -99,6 +101,14 @@ export function OverviewSection(_props: SectionPageProps) {
       setRefreshingQuota(false);
     }
   }, [snapshot.files]);
+
+  // One automatic pass for never-fetched accounts so the provider row isn't empty on first landing.
+  const autoLoaded = useRef(false);
+  useEffect(() => {
+    if (autoLoaded.current || !coreReady || snapshot.files.length === 0) return;
+    autoLoaded.current = true;
+    void refreshQuota(true);
+  }, [coreReady, snapshot.files, refreshQuota]);
 
   const needs = useMemo(
     () => buildNeedsAction(snapshot.files, quotas, snapshot.schedules, now, snapshot.filesReceivedAt || now),
@@ -141,7 +151,7 @@ export function OverviewSection(_props: SectionPageProps) {
           <Onboarding remote={Boolean(remote)} coreReady={coreReady} coreInstalled={Boolean(status?.installed)} starting={state === 'starting'} hasCredentials={snapshot.files.length > 0} onStart={() => void runCommand('start_core_process')} />
         )}
         {!firstRun && coreReady && (
-          <ProviderRow providers={providers} loading={loading && snapshot.files.length === 0} refreshing={refreshingQuota} onRefresh={() => void refreshQuota()} />
+          <ProviderRow providers={providers} loading={loading && snapshot.files.length === 0} refreshing={refreshingQuota} onRefresh={() => void refreshQuota(false)} />
         )}
         {!firstRun && (
           <div className="ov-grid ov-grid--lists">
