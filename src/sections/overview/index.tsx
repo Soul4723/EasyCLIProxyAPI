@@ -158,7 +158,7 @@ export function OverviewSection(_props: SectionPageProps) {
             <UsageTile usage={snapshot.usage} series={snapshot.series} loading={loading && !snapshot.usage && !snapshot.usageError} error={snapshot.usageError} />
           </div>
         )}
-        {!firstRun && !coreReady && <p className="ov-offline" data-testid="ov-offline">{t(state === 'error' ? 'sec.overview.offlineError' : remote ? 'sec.overview.offlineRemote' : 'sec.overview.offline')}</p>}
+        {!firstRun && !coreReady && state !== 'recovering' && state !== 'recoveryFailed' && <p className="ov-offline" data-testid="ov-offline">{t(state === 'error' ? 'sec.overview.offlineError' : remote ? 'sec.overview.offlineRemote' : 'sec.overview.offline')}</p>}
         {!firstRun && coreReady && (
           <div className="ov-grid ov-grid--lists">
             <NeedsActionCard rows={needs} loading={loading && coreReady && snapshot.files.length === 0 && !snapshot.credentialsError} error={coreReady ? snapshot.credentialsError : ''} />
