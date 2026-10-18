@@ -18,6 +18,7 @@ document.documentElement.dataset.theme = params.get('theme') ?? 'light';
 const fixture = window as typeof window & { feedbackFixture: { failSync: boolean } };
 fixture.feedbackFixture = { failSync: false };
 mockIPC(async (cmd) => {
+  if (cmd === 'get_management_target_revision') return 0; // usage commands go through documentTarget
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'get_usage_collector_status') return { state: 'collecting', totalRecords: 1 };
   if (cmd === 'get_usage_analysis') return { models: [], providers: [], sources: [], apiKeys: [] };

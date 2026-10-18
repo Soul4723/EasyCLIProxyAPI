@@ -14,3 +14,6 @@ agent_docs/
 *.log
 *.tmp
 misc/
+
+# Playwright output
+/output/

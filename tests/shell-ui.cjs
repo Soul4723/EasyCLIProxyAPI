@@ -379,7 +379,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await h.setRemote(page);
     await h.waitForCoreLine(page, 'remote');
     assert.equal(await page.locator('#remote-navigation-reason').count(), 1);
-    assert.match(await page.locator('#remote-navigation-reason').innerText(), /Local mode/);
+    assert.match(await page.locator('#remote-navigation-reason').innerText(), /remote core/);
     assert.equal(await page.locator('#remote-navigation-reason').evaluate((element) => element.className.includes('ec-sr-only')), true, 'visually hidden');
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'easy' })));
     await page.waitForTimeout(150);
