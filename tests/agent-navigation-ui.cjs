@@ -1,4 +1,4 @@
-// Agents navigation state. Run Vite, then: AGENT_TEST_URL=http://127.0.0.1:1421 node tests/agent-navigation-ui.cjs
+// Agents navigation state. AGENT_TEST_URL, when set, reuses an existing dev server: AGENT_TEST_URL=http://127.0.0.1:5391 node tests/agent-navigation-ui.cjs
 //
 // Behaviour changes vs. the old two-pane Agents page:
 // - The detail tab is part of the URL (`#/agents?client=<id>&tab=`), so it is no longer remembered per client:
@@ -6,12 +6,12 @@
 // - There is no compact/`embedded` entry point any more (dropped: full-vs-compact isolation, `remount(embedded)`).
 // - The Codex sessions list is its own sub-page (`#/agents/sessions`, 50 rows per page) instead of a Codex-only tab.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.route('**/*', route => route.request().url().startsWith(base + '/') ? route.continue() : route.abort());
@@ -194,4 +194,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     assert.deepEqual(errors, []);
     console.log('PASS: per-client drafts and feedback, route-driven tabs, help state, remounts, keyboard tab navigation, narrow layout, session pagination/selection restore, failed reload retry and stale response handling');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });
