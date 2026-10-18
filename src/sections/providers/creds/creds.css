@@ -53,8 +53,9 @@ html[data-density='compact'] .ec-cred-identity__secondary { flex: 1 1 0; min-wid
 
 /* ---- toast --------------------------------------------------------------------------------------------------- */
 .ec-cred-toast {
-  position: fixed; right: var(--ec-sp-4); bottom: var(--ec-sp-4); z-index: var(--ec-z-toast);
-  display: flex; align-items: center; gap: var(--ec-sp-3); max-width: min(420px, calc(100vw - 32px));
+  /* Bottom-left of the content area: the right edge is where the panel footer (Discard / Save) lives. */
+  position: fixed; left: calc(var(--ec-sidebar-w, 216px) + var(--ec-sp-4)); bottom: var(--ec-sp-4); z-index: var(--ec-z-toast);
+  display: flex; align-items: center; gap: var(--ec-sp-3); max-width: min(420px, calc(100vw - var(--ec-sidebar-w, 216px) - 32px));
   padding: var(--ec-sp-2) var(--ec-sp-3); border-radius: var(--ec-r-md); border: 1px solid var(--ec-border);
   background: var(--ec-popover); color: var(--ec-fg); box-shadow: var(--ec-shadow-pop); font-size: var(--ec-fs-md);
 }
@@ -67,7 +68,9 @@ html[data-density='compact'] .ec-cred-identity__secondary { flex: 1 1 0; min-wid
 .ec-cred-head__text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ec-cred-head__name { font-size: var(--ec-fs-lg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ec-cred-head__meta { display: flex; align-items: center; gap: var(--ec-sp-2); flex-wrap: wrap; }
-.ec-cred-subtitle { display: inline-flex; align-items: center; gap: var(--ec-sp-1); min-width: 0; color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
+.ec-cred-subtitle { display: flex; align-items: center; gap: var(--ec-sp-1); min-width: 0; max-width: 100%; color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
+.ec-cred-subtitle > .ec-masked, .ec-cred-subtitle > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ec-cred-subtitle > .ec-copy { flex: none; }
 
 .ec-cred-panel { display: flex; flex-direction: column; gap: var(--ec-sp-4); }
 .ec-cred-overview {

@@ -2,7 +2,7 @@
 // mock at `#/providers?preview=creds`, so every assertion runs against the actual list, panel and dialogs.
 const path = require('node:path');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { openApp } = require('./shell.cjs');
+const { openApp, setTheme } = require('./shell.cjs');
 
 /** Uses UI_BASE when set, otherwise starts a private vite server on a free port. */
 async function startApp() {
@@ -77,7 +77,7 @@ async function openCreds(browser, base, { creds = 'states', width = 1440, height
   await page.waitForFunction(() => document.querySelector('.ec-page-title') && /Providers/.test(document.querySelector('.ec-page-title').textContent));
   // The dev-only mock toolbar floats over the bottom-right corner, where the panel footer buttons are.
   await page.addStyleTag({ content: '#browser-mock-toolbar { display: none !important; }' });
-  if (theme) await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+  if (theme) await setTheme(page, theme);
   if (remote) {
     await page.evaluate(async () => {
       const invoke = window.__TAURI_INTERNALS__.invoke;
