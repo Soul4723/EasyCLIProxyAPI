@@ -68,7 +68,7 @@ const path = require('node:path');
     assert.equal(await page.locator('.config-settings-header p, .config-nav-save-hint, .config-category-heading, .config-section-index').count(), 0);
     assert.deepEqual(await configTabs.evaluateAll(elements => elements.map(element => element.id)), [
       'config-subpage-tab-general', 'config-subpage-tab-aliases', 'config-subpage-tab-routing', 'config-subpage-tab-requests',
-      'config-subpage-tab-oauth', 'config-subpage-tab-diagnostics', 'config-subpage-tab-extensions',
+      'config-subpage-tab-oauth', 'config-subpage-tab-diagnostics',
       'config-subpage-tab-software',
     ]);
     assert.equal(await page.locator('.config-page [role="tabpanel"]').count(), 1);
