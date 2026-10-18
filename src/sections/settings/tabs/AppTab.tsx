@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../../../services/documentTarget';
-import { getVersion } from '@tauri-apps/api/app';
+import { getVersion } from '../../../services/platform';
 import { Info, Palette, PanelTop, ShieldCheck } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { usePrivacyMode } from '../../../privacy';

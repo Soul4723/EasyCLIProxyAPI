@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke as invokeNative } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { invoke as invokeNative } from '../../services/platform';
+import { listen } from '../../services/platform';
+import { open } from '../../services/platform';
 import { useCoreTargetRevision } from '../../coreRuntime';
 import { getCurrentLocale, translate, useI18n } from '../../i18n';
 import {

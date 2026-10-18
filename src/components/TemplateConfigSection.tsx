@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../services/documentTarget';
-import { listen } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { listen } from '../services/platform';
+import { open } from '../services/platform';
 import { ExternalLink, Eye, EyeOff, RotateCcw, Save } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { usePrivacyMode } from '../privacy';

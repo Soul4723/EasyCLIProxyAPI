@@ -2,7 +2,7 @@
 // beyond what it reads (connection/runtime details, a credentials snapshot, usage 24h, lighting schedules).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../../services/documentTarget';
-import { listen } from '@tauri-apps/api/event';
+import { listen } from '../../services/platform';
 import { dedupeAuthFiles, type AuthFileRecord } from '../../services/authFiles';
 import { getCoreConnection, type CoreConnection } from '../../services/coreConnection';
 import { countHomeProviderKeys, normalizeHomeModels, summarizeHomeUsage, type HomeUsageSummary } from '../../services/homeOverview';

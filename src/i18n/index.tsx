@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/platform';
 import { en, ja, zhCN, zhTW, type MessageKey, type MessageVariables } from './resources';
 
 export type AppLocale = 'zh-CN' | 'zh-TW' | 'ja' | 'en';
