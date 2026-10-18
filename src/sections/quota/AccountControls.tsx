@@ -27,7 +27,7 @@ export function BankedBadge({ account, ctx, size = 'sm' }: { account: QuotaAccou
   const { t, formatNumber } = useI18n();
   const banked = account.banked;
   if (!banked) return null;
-  const usable = canResetQuota(account.file, account.quota);
+  const usable = canResetQuota(account.file, account.quota) && !account.disabled;
   const retry = banked.pendingClaude;
   const title = [
     retry ? t('quota.claude.retry') : t('sec.quota.banked.title', { count: banked.count }),
