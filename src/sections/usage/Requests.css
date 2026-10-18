@@ -9,7 +9,10 @@
 .ec-sec-usage .req-table { min-width: 0; border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface); overflow-x: auto; transition: opacity 0.15s; }
 .ec-sec-usage .req-table.is-fetching { opacity: 0.8; }
 .ec-sec-usage .req-table .ec-table-wrap { border: 0; border-radius: 0; }
-.ec-sec-usage .req-table .ec-table { min-width: 880px; }
+.ec-sec-usage .req-table .ec-table { min-width: 1100px; table-layout: fixed; }
+/* Fixed layout: numeric columns keep their widths (Cost is never pushed off the card); Model and Account share the rest and truncate. */
+.ec-sec-usage .req-table .ec-table td { overflow: hidden; text-overflow: ellipsis; }
+.ec-sec-usage .req-table .ec-table .req-model, .ec-sec-usage .req-table .ec-table .req-stack { min-width: 0; max-width: 100%; }
 .ec-sec-usage .req-table .ec-table td { padding-top: var(--ec-sp-1); padding-bottom: var(--ec-sp-1); }
 
 .ec-sec-usage .req-stack { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
@@ -62,3 +65,4 @@
   .ec-sec-usage .req-notice { max-width: 100%; order: 3; }
 }
 .ec-sec-usage .req-account { max-width: 230px; }
+.ec-sec-usage .req-table .ec-table th.ec-table__cell--end { text-align: end; }
