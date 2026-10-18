@@ -1,33 +1,36 @@
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { I18nProvider } from '../../src/i18n';
-import { OAuthLoginPage } from '../../src/pages/ManagementPages';
-import { QuotaPage } from '../../src/pages/QuotaPage';
-import { AuthFileManagementPage } from '../../src/pages/AuthFileManagementPage';
-import { EasyModePage } from '../../src/pages/EasyModePage';
 import '../../src/styles/index.css';
+import { SignInHarness, coreStatus } from './signinHarness';
 
 const params = new URLSearchParams(location.search);
-const view = params.get('view');
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'en');
 localStorage.setItem('easy-cli-proxy-api.oauth-browser.v3', 'none');
 document.documentElement.dataset.theme = params.get('theme') ?? 'light';
+// Keep OAuth polling quick in this fixture while preserving the production timer behavior.
+const nativeSetInterval = window.setInterval.bind(window);
+(window as any).setInterval = (handler: TimerHandler, timeout?: number, ...args: any[]) =>
+  nativeSetInterval(handler, timeout === 3000 ? 25 : timeout, ...args);
 const file = { name: 'devin-test.json', provider: 'devin', auth_index: 'devin-index', status: 'active' };
 const fixture = {
   calls: [] as Array<{ cmd: string; args: any }>,
   attempts: 0,
   status: 'wait',
   cancelError: false,
-  quotaError: false,
+  completeOnSubmit: true,
   holdStatus: false,
+  priorityPatches: [] as Array<{ name: string; priority: number }>,
+  copied: [] as string[],
   releaseStatus: null as null | (() => void),
-  files: view === 'quota' || view === 'files' ? [file] : [] as typeof file[],
+  files: [] as typeof file[],
 };
 Object.assign(window, { devinFixture: fixture });
 mockIPC(async (cmd, args: any) => {
   fixture.calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;
+  if (cmd === 'get_core_status') return coreStatus(params.has('remote'));
   if (cmd === 'list_oauth_browsers') return [{ id: 'default', label: 'System Default' }];
+  if (cmd === 'get_plugin_support') return false;
   if (cmd === 'start_oauth_login') {
     fixture.attempts++;
     fixture.status = 'wait';
@@ -41,27 +44,21 @@ mockIPC(async (cmd, args: any) => {
     if (fixture.status === 'ok') fixture.files = [file];
     return { status: fixture.status };
   }
-  if (cmd === 'submit_oauth_callback') { fixture.status = 'ok'; return null; }
+  if (cmd === 'submit_oauth_callback') { if (fixture.completeOnSubmit) fixture.status = 'ok'; return null; }
   if (cmd === 'open_oauth_url') return null;
   if (cmd === 'management_request') {
     const request = args.request;
     if (request.path === '/credentials') return { files: fixture.files };
     if (request.path === '/config') return {};
-    if (request.path === '/credentials/fields') return {};
+    if (request.path === '/credentials/fields') {
+      fixture.priorityPatches.push({ name: String(request.body?.name), priority: Number(request.body?.priority) });
+      return {};
+    }
     if (request.path === '/oauth/session') {
       if (fixture.cancelError) throw new Error('Cancellation failed');
       return { status: 'ok', cancelled: true };
     }
-    if (request.path === '/requests/api-call') return fixture.quotaError
-      ? { status_code: 401, body: { error: 'Session expired' } }
-      : { status_code: 200, body: { userStatus: { planStatus: {
-        dailyQuotaRemainingPercent: 75, weeklyQuotaRemainingPercent: 0,
-        dailyQuotaResetAtUnix: '1893456000', weeklyQuotaResetAtUnix: '1893542400',
-        planInfo: { planName: 'Pro' }, planEnd: '2030-02-01T00:00:00Z',
-      } } } };
   }
   throw new Error('Unexpected command: ' + cmd + ' ' + JSON.stringify(args));
 }, { shouldMockEvents: true });
-createRoot(document.getElementById('root')!).render(<I18nProvider><main style={{ padding: 24 }}>
-  {view === 'quota' ? <QuotaPage /> : view === 'files' ? <AuthFileManagementPage /> : view === 'easy' ? <EasyModePage /> : <OAuthLoginPage />}
-</main></I18nProvider>);
+createRoot(document.getElementById('root')!).render(<SignInHarness />);
