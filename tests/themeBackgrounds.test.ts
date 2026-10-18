@@ -25,7 +25,6 @@ const semanticPaint = new Set([
 ]);
 
 const semanticPalettePaint = new Set([
-  'pages/PluginsPage.css|.plugin-badge.warning',
   'styles/feature-pages.css|.easy-mode-core-alert',
   'styles/feature-pages.css|.easy-mode-alert-icon',
   'styles/feature-pages.css|.easy-mode-choice-icon.oauth',
