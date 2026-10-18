@@ -85,6 +85,10 @@ export const overviewZhCN = {
   "sec.overview.open": "打开",
   "sec.overview.done": "已完成",
   "sec.overview.startFirst": "请先启动核心",
+  "sec.overview.statusFailed": "无法读取核心状态",
+  "sec.overview.offline": "核心未运行，启动后可查看额度与计划事件",
+  "sec.overview.offlineError": "无法检查状态",
+  "sec.overview.offlineRemote": "远程核心无法连接",
 } as const;
 
 export const overviewEn: Record<keyof typeof overviewZhCN, string> = {
@@ -173,6 +177,10 @@ export const overviewEn: Record<keyof typeof overviewZhCN, string> = {
   "sec.overview.open": "Open",
   "sec.overview.done": "Done",
   "sec.overview.startFirst": "Start the core first",
+  "sec.overview.statusFailed": "Couldn’t read core status",
+  "sec.overview.offline": "Core is stopped. Start it to see quota and upcoming resets.",
+  "sec.overview.offlineError": "Can’t check status",
+  "sec.overview.offlineRemote": "Remote core is unreachable",
 };
 
 export const overviewJa: Record<keyof typeof overviewZhCN, string> = {
@@ -261,4 +269,8 @@ export const overviewJa: Record<keyof typeof overviewZhCN, string> = {
   "sec.overview.open": "開く",
   "sec.overview.done": "完了",
   "sec.overview.startFirst": "先にコアを起動してください",
+  "sec.overview.statusFailed": "コアの状態を取得できません",
+  "sec.overview.offline": "コアが停止中です。起動するとクォータと予定が表示されます",
+  "sec.overview.offlineError": "状態を確認できません",
+  "sec.overview.offlineRemote": "リモートコアに接続できません",
 };

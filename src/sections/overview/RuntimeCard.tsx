@@ -1,8 +1,8 @@
-import { Activity, Play, RotateCw, SlidersHorizontal, Square } from 'lucide-react';
+import { Activity, Play, RotateCw, Square } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import type { CoreStatus } from '../../coreRuntime';
-import { Button, Card, CardHeader, Chip, IconButton, Skeleton } from '../../ui';
-import { navigate, routeHref } from '../../shell/router';
+import { Button, Card, CardHeader, Chip, Skeleton } from '../../ui';
+import { routeHref } from '../../shell/router';
 
 export type RuntimeState = 'loading' | 'starting' | 'running' | 'stopped' | 'notInstalled' | 'error' | 'remoteUp' | 'remoteDown';
 
@@ -58,7 +58,7 @@ export function RuntimeCard(props: RuntimeCardProps) {
             <Chip tone={TONE[state]} icon={<span className={`ov-dot ov-dot--${TONE[state]}`} />}>
               {t(`sec.overview.state.${state}`)}
             </Chip>
-            <IconButton label={t('sec.overview.connectionSettings')} icon={<SlidersHorizontal size={15} />} size="sm" onClick={() => navigate('/settings/connection')} />
+            <a className="ov-link" href={routeHref('settings', 'connection')}>{t('sec.overview.connectionSettings')} →</a>
           </>
         }
       />
@@ -70,7 +70,7 @@ export function RuntimeCard(props: RuntimeCardProps) {
             <span className="ec-mono">{coreVersion}</span>
             {props.coreUpdateTo && (
               <a className="ov-update" href={routeHref('settings', 'updates')} title={t('sec.overview.updateAvailable', { version: version(props.coreUpdateTo) })}>
-                <Chip tone="accent" size="sm">{`↑ ${version(props.coreUpdateTo)}`}</Chip>
+                <Chip tone="info" size="sm">{`↑ ${version(props.coreUpdateTo)}`}</Chip>
               </a>
             )}
           </Fact>
@@ -78,7 +78,7 @@ export function RuntimeCard(props: RuntimeCardProps) {
             <span className="ec-mono">{props.appVersion || '—'}</span>
             {props.appUpdateTo && (
               <a className="ov-update" href={routeHref('settings', 'updates')} title={t('sec.overview.updateAvailable', { version: version(props.appUpdateTo) })}>
-                <Chip tone="accent" size="sm">{`↑ ${version(props.appUpdateTo)}`}</Chip>
+                <Chip tone="info" size="sm">{`↑ ${version(props.appUpdateTo)}`}</Chip>
               </a>
             )}
           </Fact>
@@ -93,7 +93,7 @@ export function RuntimeCard(props: RuntimeCardProps) {
         </div>
       )}
       {(props.statusError || (remote && !ready && status?.message)) && (
-        <p className="ov-error" role="alert">{props.statusError || status?.message}</p>
+        <p className="ov-error" role="alert" title={props.statusError || status?.message}>{props.statusError ? t('sec.overview.statusFailed') : status?.message}</p>
       )}
       <div className="ov-runtime__actions">
         {!remote && (

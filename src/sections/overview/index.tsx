@@ -151,9 +151,13 @@ export function OverviewSection(_props: SectionPageProps) {
           <Onboarding remote={Boolean(remote)} coreReady={coreReady} coreInstalled={Boolean(status?.installed)} starting={state === 'starting'} hasCredentials={snapshot.files.length > 0} onStart={() => void runCommand('start_core_process')} />
         )}
         {!firstRun && coreReady && (
-          <ProviderRow providers={providers} loading={loading && snapshot.files.length === 0} refreshing={refreshingQuota} onRefresh={() => void refreshQuota(false)} />
+          <div className="ov-top">
+            <ProviderRow providers={providers} loading={loading && snapshot.files.length === 0} refreshing={refreshingQuota} onRefresh={() => void refreshQuota(false)} />
+            <UsageTile usage={snapshot.usage} series={snapshot.series} loading={loading && !snapshot.usage && !snapshot.usageError} error={snapshot.usageError} />
+          </div>
         )}
-        {!firstRun && (
+        {!firstRun && !coreReady && <p className="ov-offline" data-testid="ov-offline">{t(state === 'error' ? 'sec.overview.offlineError' : remote ? 'sec.overview.offlineRemote' : 'sec.overview.offline')}</p>}
+        {!firstRun && coreReady && (
           <div className="ov-grid ov-grid--lists">
             <NeedsActionCard rows={needs} loading={loading && coreReady && snapshot.files.length === 0 && !snapshot.credentialsError} error={coreReady ? snapshot.credentialsError : ''} />
             <ComingUpCard events={coming} loading={loading && coreReady && snapshot.files.length === 0 && !snapshot.credentialsError} nowMs={now} />
@@ -172,7 +176,9 @@ export function OverviewSection(_props: SectionPageProps) {
           />
           <ConnectCard profiles={profiles} clientKey={details.clientKey} keyError={details.clientKeyError} connectable={coreReady} />
         </div>
-        <UsageTile usage={snapshot.usage} series={snapshot.series} loading={loading && !snapshot.usage && !snapshot.usageError} error={snapshot.usageError} />
+        {!firstRun && !coreReady && (
+          <UsageTile usage={snapshot.usage} series={snapshot.series} loading={false} error={snapshot.usageError} />
+        )}
       </div>
       <HealthDialog open={healthOpen} onClose={() => setHealthOpen(false)} models={snapshot.models} ready={coreReady} contextKey={healthContext} />
     </>

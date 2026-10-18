@@ -1,8 +1,8 @@
-import { Check, KeyRound, LogIn, Plug, Play, RefreshCw } from 'lucide-react';
+import { Check, KeyRound, LogIn, Plug, Play } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n';
 import type { HomeUsageSummary } from '../../services/homeOverview';
-import { Button, Card, CardHeader, IconButton, ProviderLogo, ProviderName, QuotaBar, Skeleton, Sparkline, StatTile, formatCompactNumber, formatPercent, providerInfo, quotaTone } from '../../ui';
+import { Button, Card, CardHeader, ProviderLogo, ProviderName, QuotaBar, Skeleton, Sparkline, StatTile, formatCompactNumber, formatPercent, providerInfo, quotaTone } from '../../ui';
 import { navigate, routeHref } from '../../shell/router';
 import type { ProviderQuotaSummary } from './model';
 
@@ -20,7 +20,6 @@ export function ProviderRow({ providers, loading, refreshing, onRefresh }: Provi
     <section className="ov-providers" aria-label={t('sec.overview.providers')} data-testid="ov-providers">
       <header className="ov-providers__head">
         <h3>{t('sec.overview.quota')}</h3>
-        <IconButton label={t('sec.overview.refreshQuota')} icon={<RefreshCw size={14} className={refreshing ? 'ec-spin' : undefined} />} size="sm" disabled={refreshing || providers.length === 0} onClick={onRefresh} />
         <a className="ov-link" href={routeHref('quota')}>{t('sec.overview.allAccounts')} →</a>
       </header>
       {loading ? (

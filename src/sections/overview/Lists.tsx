@@ -67,7 +67,7 @@ export function NeedsActionCard({ rows, loading, error }: NeedsActionCardProps) 
 
 export type ComingUpCardProps = { events: ComingUp[]; loading: boolean; nowMs: number };
 
-const MAX_COMING = 7;
+const MAX_COMING = 5;
 
 /** Coming up: next resets, scheduled lights and cooldown ends, grouped today / tomorrow / later. */
 export function ComingUpCard({ events, loading, nowMs }: ComingUpCardProps) {
