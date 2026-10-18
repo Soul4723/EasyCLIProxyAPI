@@ -102,7 +102,7 @@ const { openApp } = require('./helpers/shell.cjs');
 
       // Delete (confirm first)
       await table.locator('tbody tr', { hasText: 'sonnet-low' }).getByRole('button', { name: /Delete/ }).click();
-      const confirm = page.getByRole('dialog');
+      const confirm = page.getByRole('dialog').or(page.getByRole('alertdialog'));
       await confirm.waitFor();
       await confirm.getByRole('button', { name: 'Cancel' }).click();
       const rowsBefore = await table.locator('tbody tr').count();

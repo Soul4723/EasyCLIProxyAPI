@@ -31,7 +31,7 @@ const { openApp, setPrivacy } = require('./helpers/shell.cjs');
     await setPrivacy(page, false);
 
     // add: validation then success
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('dialog').or(page.getByRole('alertdialog'));
     await page.getByRole('button', { name: 'Add Authentication Key' }).first().click();
     await dialog.waitFor();
     await dialog.getByRole('button', { name: 'Add', exact: true }).click();
