@@ -69,6 +69,9 @@ Object.assign(window, {
 });
 void initializeThemePreferences().then(() => {
   initializeTheme(params.has('extensions') ? extensionRegistry : undefined);
+  // Browser preview does not expose Tauri's persisted preference backend; keep each
+  // fixture URL deterministic while still exercising the real theme controller/UI.
+  document.documentElement.dataset.theme = params.get('saved') || 'dark';
   createRoot(document.getElementById('root')!).render(
     <StrictMode><I18nProvider>{params.has('extensions') ? <ThemeExtensionFixture /> : <App />}</I18nProvider></StrictMode>,
   );
