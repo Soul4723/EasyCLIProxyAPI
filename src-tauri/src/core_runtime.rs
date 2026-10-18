@@ -287,10 +287,9 @@ pub(crate) fn auto_install_bundled_core_if_needed(app: &tauri::AppHandle) -> Res
         remember_bundled_core_when_up_to_date(&install_dir, &info.version)?;
         return Ok(false);
     }
-    let window = app
-        .get_webview_window("main")
-        .map(|webview| webview.as_ref().window())
-        .ok_or_else(|| "Cannot access the main window to automatically install the offline kernel".to_string())?;
+    let window = main_window(app).ok_or_else(|| {
+        "Cannot access the main window to automatically install the offline kernel".to_string()
+    })?;
     let state = app.state::<CoreDownloadState>();
     state.start(CancellationToken::new(), Some(info.version.clone()))?;
     let result = install_core_with_runtime_restore(
@@ -350,7 +349,7 @@ pub(crate) async fn install_core_version(
         crate::core_connection::require_local(&config)?;
         let proxy_url = config.proxy_url.clone();
         let rollback_dir = core_base_dir()?.join("cpa-core.rollback");
-        ensure_core_rollback_available(&rollback_dir)?;
+        archive_previous_core_rollback(&rollback_dir)?;
         let token = CancellationToken::new();
         state.start(token.clone(), version.clone())?;
 
@@ -447,8 +446,9 @@ pub(crate) fn pause_core_process_for_install(
     process_state: &CoreProcessState,
 ) -> Result<bool, String> {
     process_state.ensure_active()?;
+    let was_running = current_core_status(Some(process_state), None)?.running
+        || process_state.recovery.wants_running();
     process_state.disarm_supervision();
-    let was_running = current_core_status(Some(process_state), None)?.running;
     if was_running {
         stop_core_process_inner(process_state)?;
     }
@@ -509,6 +509,9 @@ pub(crate) fn start_core_process_with_state(
     let config = gui_config_state.snapshot()?;
     process_state.reset_crash_restart_attempts();
     start_core_process_inner(process_state, &config)?;
+    if process_state.is_supervising() {
+        process_state.recovery.running();
+    }
     if let Err(error) = gui_config_state.set_run_on_startup(true) {
         let _ = stop_core_process_inner(process_state);
         return Err(error);
@@ -547,11 +550,15 @@ pub(crate) fn restart_core_process_with_state(
     }
     network_proxy::refresh(gui_config_state)?;
     let config = gui_config_state.snapshot()?;
+    process_state.recovery.cancel();
     if current_core_status(Some(process_state), None)?.running {
         stop_core_process_inner(process_state)?;
     }
     process_state.reset_crash_restart_attempts();
     start_core_process_inner(process_state, &config)?;
+    if process_state.is_supervising() {
+        process_state.recovery.running();
+    }
     if let Err(error) = gui_config_state.set_run_on_startup(true) {
         let _ = stop_core_process_inner(process_state);
         return Err(error);
@@ -1390,6 +1397,7 @@ pub(crate) fn current_core_status(
         running,
         ready,
         starting,
+        recovery: process_state.and_then(|state| state.recovery.status()),
         managed: managed_pid.is_some(),
         process_id,
         current_version,
@@ -1740,6 +1748,7 @@ pub(crate) fn configure_networked_command(command: &mut Command, proxy_url: &str
 }
 
 pub(crate) fn stop_core_process_inner(process_state: &CoreProcessState) -> Result<(), String> {
+    process_state.recovery.cancel();
     let mut stopped_any = false;
     let mut errors = Vec::new();
 
@@ -2633,7 +2642,12 @@ where
 
 pub(crate) fn pause_core_crash_recovery(process_state: &CoreProcessState) -> String {
     process_state.finish_recovery_pass();
-    format!("CPA kernel crashed repeatedly ({MAX_CORE_CRASH_RESTART_ATTEMPTS} attempts); automatic restart paused")
+    let detail = format!("CPA kernel crashed repeatedly ({MAX_CORE_CRASH_RESTART_ATTEMPTS} attempts); automatic restart paused");
+    // A manual start may have replaced the child before the cutoff was applied.
+    if !process_state.is_supervising() {
+        process_state.recovery.halt(detail.clone());
+    }
+    detail
 }
 
 pub(crate) fn restart_crashed_core_locked(
@@ -2690,6 +2704,8 @@ pub(crate) fn start_core_crash_supervisor(app: tauri::AppHandle) {
                 let attempt = process_state.record_crash_restart_attempt();
                 let backoff = core_crash_restart_backoff(attempt)
                     .ok_or_else(|| pause_core_crash_recovery(process_state.inner()))?;
+                process_state.recovery.waiting(attempt, backoff);
+                emit_current_core_status(&supervisor_app, process_state.inner(), config.port);
                 Ok(Some((backoff, config.target_revision,
                     process_state.supervision_generation.load(Ordering::Acquire))))
             })();
@@ -2704,6 +2720,8 @@ pub(crate) fn start_core_crash_supervisor(app: tauri::AppHandle) {
                             || process_state.supervision_generation.load(Ordering::Acquire) != generation {
                             return Ok(());
                         }
+                        process_state.recovery.restarting();
+                        emit_current_core_status(&supervisor_app, process_state.inner(), config.port);
                         if restart_crashed_core_locked(process_state.inner(), &config)? {
                             emit_current_core_status(&supervisor_app, process_state.inner(), config.port);
                         }
@@ -2715,6 +2733,15 @@ pub(crate) fn start_core_crash_supervisor(app: tauri::AppHandle) {
                 Err(error) => Err(error),
             };
             if let Err(error) = result {
+                // Errors from acquiring the operation lock are not restart failures;
+                // only an active recovery should expose a retry diagnostic.
+                let _target = gui_config_state.target_operation.blocking_lock();
+                process_state.recovery.attempt_failed(error.clone());
+                if let Ok(config) = gui_config_state.snapshot() {
+                    if core_supervision_allowed(&config) {
+                        emit_current_core_status(&supervisor_app, process_state.inner(), config.port);
+                    }
+                }
                 eprintln!("Core crash supervisor failed to recover CPA kernel: {error}");
             }
         })
@@ -2738,6 +2765,45 @@ pub(crate) fn reset_dir(path: &Path) -> Result<(), String> {
 const ROLLBACK_FILES_DIR: &str = "files";
 const ROLLBACK_ADDED_FILES: &str = "added-files.txt";
 
+/// Retain an interrupted update's backup before starting another transaction.
+/// Never infer that a backup is disposable from the installed binary's presence:
+/// it may be the broken replacement. History is deliberately not auto-deleted.
+pub(crate) fn archive_previous_core_rollback(rollback_dir: &Path) -> Result<Option<PathBuf>, String> {
+    match fs::symlink_metadata(rollback_dir) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!(
+            "Failed to inspect kernel rollback backup {}: {error}",
+            path_to_string(rollback_dir)
+        )),
+        Ok(_) => {}
+    }
+    let history = rollback_dir.with_file_name("cpa-core.rollback-history");
+    let archive_error = |error: io::Error| format!(
+        "Failed to archive previous kernel rollback backup {}: {error}. The backup has been preserved; move it to a safe location before retrying the update",
+        path_to_string(rollback_dir)
+    );
+    fs::create_dir_all(&history).map_err(&archive_error)?;
+    // Reserve a unique directory exclusively, so even retries in the same second
+    // cannot overwrite any earlier backup. Rename stays on the same filesystem.
+    let timestamp = unix_now();
+    for sequence in 0..10000 {
+        let slot = history.join(format!("{timestamp}-{sequence}"));
+        match fs::create_dir(&slot) {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(archive_error(error)),
+            Ok(()) => {}
+        }
+        let archived = slot.join("backup");
+        if let Err(error) = fs::rename(rollback_dir, &archived) {
+            let _ = fs::remove_dir(&slot);
+            return Err(archive_error(error));
+        }
+        eprintln!("Previous kernel rollback backup preserved at {}", path_to_string(&archived));
+        return Ok(Some(archived));
+    }
+    Err(format!("Could not reserve a unique kernel backup directory in {}", path_to_string(&history)))
+}
+
 fn ensure_core_rollback_available(rollback_dir: &Path) -> Result<(), String> {
     match fs::symlink_metadata(rollback_dir) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -2749,6 +2815,17 @@ fn ensure_core_rollback_available(rollback_dir: &Path) -> Result<(), String> {
             "A previous kernel rollback backup is still present at {}. Restore it or move it to a safe location before retrying the update; it will not be overwritten",
             path_to_string(rollback_dir)
         )),
+    }
+}
+
+fn cleanup_completed_core_rollback(rollback_dir: &Path) {
+    if let Err(error) = fs::remove_dir_all(rollback_dir) {
+        if error.kind() != io::ErrorKind::NotFound {
+            eprintln!(
+                "Kernel transaction completed, but failed to clean up backup {}: {error}. A subsequent update will archive it before proceeding",
+                path_to_string(rollback_dir)
+            );
+        }
     }
 }
 
@@ -2859,7 +2936,7 @@ pub(crate) fn restore_core_rollback(
             parent = dir.parent();
         }
     }
-    let _ = fs::remove_dir_all(rollback_dir);
+    cleanup_completed_core_rollback(rollback_dir);
     Ok(())
 }
 
@@ -2896,9 +2973,7 @@ where
 
     match verify_or_restart() {
         Ok(()) => {
-            if rollback_dir.exists() {
-                let _ = fs::remove_dir_all(rollback_dir);
-            }
+            cleanup_completed_core_rollback(rollback_dir);
             Ok(())
         }
         Err(restart_error) if had_backup => match restore_core_rollback(install_dir, rollback_dir) {
@@ -3184,9 +3259,7 @@ pub(crate) fn configure_initial_main_window(
     app_handle: &tauri::AppHandle,
     start_hidden: bool,
 ) -> Result<(), String> {
-    let window = app_handle
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window does not exist".to_string())?;
+    let window = main_window(app_handle).ok_or_else(|| "Main window does not exist".to_string())?;
 
     #[cfg(target_os = "macos")]
     set_macos_dock_visible(app_handle, !start_hidden);
