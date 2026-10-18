@@ -80,7 +80,7 @@ async function audit(page, scope, label) {
       root, logLevel: 'error',
       build: {
         outDir, emptyOutDir: true,
-        rollupOptions: { input: ['theme', 'auth-file-requests', 'usage-layout'].map(name => path.join(__dirname, 'fixtures', `${name}.html`)) },
+        rollupOptions: { input: ['theme', 'usage-layout'].map(name => path.join(__dirname, 'fixtures', `${name}.html`)) },
       },
     });
     server = await preview({ root, build: { outDir }, preview: { host: '127.0.0.1', port: 0, strictPort: false }, logLevel: 'error' });
@@ -116,15 +116,6 @@ async function audit(page, scope, label) {
       for (const input of await page.locator('#placeholder-probes input, #placeholder-probes textarea').all()) {
         assert.equal(await input.evaluate(element => getComputedStyle(element, '::placeholder').opacity), '1');
       }
-
-      await open(`auth-file-requests.html?cards&theme=${theme}&locale=zh-CN`);
-      await page.locator('.auth-file-card').first().waitFor();
-      await audit(page, '.auth-files-page', `${theme} credential cards`);
-      await screenshot(`credential-cards-${theme}`);
-      await page.locator('.auth-file-card').first().getByRole('button', { name: '凭证设置', exact: true }).click();
-      await page.locator('.credential-settings-body[aria-busy="false"]').waitFor();
-      await audit(page, '.credential-settings-dialog', `${theme} credential settings`);
-      await screenshot(`credential-settings-${theme}`);
 
       await open(`usage-layout.html?theme=${theme}&locale=zh-CN`);
       const legend = page.locator('.usage-trend-legend-item').first();

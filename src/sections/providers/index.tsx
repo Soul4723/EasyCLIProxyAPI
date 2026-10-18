@@ -1,16 +1,17 @@
-import { LegacyHost } from '../../shell/LegacyHost';
+import { Suspense, lazy, useMemo } from 'react';
 import type { SectionPageProps } from '../../shell/types';
-import { ApiAccessPage } from '../../pages/ApiAccessPage';
-import { OAuthManagementPage } from '../../pages/ManagementPages';
-import { providersSubs } from './subs';
+import { ProvidersPage } from './ProvidersPage';
 import './providers.css';
 
-/** PLACEHOLDER: renders the existing page inside the new shell until this section is rebuilt. */
-export function ProvidersSection({ sub, params: _params }: SectionPageProps) {
+// Dev-only test harness: `#/providers?preview=creds` renders `creds/Preview.tsx` (mock states for the credential UI tests). Not in production builds.
+const previews = (import.meta.env.DEV ? import.meta.glob('./*/Preview.tsx') : {}) as Record<string, () => Promise<{ default: React.ComponentType }>>;
 
-  return (
-    <LegacyHost page="providers" titleKey="shell.nav.providers" subs={providersSubs} sub={sub}>
-      {sub === 'oauth' ? <OAuthManagementPage /> : <ApiAccessPage />}
-    </LegacyHost>
-  );
+export function ProvidersSection(props: SectionPageProps) {
+  const previewName = props.params.get('preview');
+  const Preview = useMemo(() => {
+    const loader = previewName ? previews[`./${previewName}/Preview.tsx`] : undefined;
+    return loader ? lazy(loader) : null;
+  }, [previewName]);
+  if (Preview) return <div className="ec-sec-providers"><Suspense fallback={null}><Preview /></Suspense></div>;
+  return <ProvidersPage {...props} />;
 }

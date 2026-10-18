@@ -54,6 +54,7 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.25; /* overflow:hidden clips descenders (g, y, p) at line-height 1 */
 }
 
 /* variants (listed after the base so they win on equal specificity) */

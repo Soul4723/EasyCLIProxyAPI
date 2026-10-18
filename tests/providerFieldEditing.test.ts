@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { applyProviderPreset, buildProviderRecord, createProviderDraft, stripResponseFields } from '../src/pages/ApiAccessPage';
+import { applyProviderPreset, buildProviderRecord, createProviderDraft, stripResponseFields } from '../src/sections/providers/api/logic';
 import { modelsFromDiscoveredPayload, modelsFromRecord } from '../src/services/modelService';
 
 describe('provider field editing semantics', () => {

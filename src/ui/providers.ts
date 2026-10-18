@@ -16,6 +16,7 @@ import vertexLogo from '../assets/icons/vertex.svg';
 import openaiLogo from '../assets/icons/openai-light.svg';
 import deepseekLogo from '../assets/icons/deepseek.svg';
 import copilotLogo from '../assets/icons/copilot.svg';
+import metaLogo from '../assets/icons/meta.svg';
 
 export type ProviderId =
   | 'claude'
@@ -30,6 +31,7 @@ export type ProviderId =
   | 'deepseek'
   | 'openrouter'
   | 'copilot'
+  | 'meta'
   | 'other';
 
 export type ProviderInfo = {
@@ -55,6 +57,7 @@ const PROVIDERS: Record<KnownProviderId, Omit<ProviderInfo, 'id'>> = {
   deepseek: { name: 'DeepSeek', colorVar: 'var(--ec-p-deepseek)', icon: deepseekLogo },
   openrouter: { name: 'OpenRouter', colorVar: 'var(--ec-p-openrouter)' },
   copilot: { name: 'Copilot', colorVar: 'var(--ec-p-copilot)', icon: copilotLogo, invertInDark: 'invert' },
+  meta: { name: 'Muse (Meta)', colorVar: 'var(--ec-p-meta)', icon: metaLogo },
 };
 
 const ALIASES = new Map<string, KnownProviderId>([
@@ -81,6 +84,8 @@ const ALIASES = new Map<string, KnownProviderId>([
   ['openrouter', 'openrouter'],
   ['copilot', 'copilot'],
   ['github-copilot', 'copilot'],
+  ['meta', 'meta'],
+  ['muse', 'meta'],
 ]);
 
 export function providerInfo(idOrAlias: string): ProviderInfo {

@@ -22,7 +22,7 @@ import {
   resolveProviderRecordIndex,
   sectionRecordsFromConfig,
   stripResponseFields,
-} from '../src/pages/ApiAccessPage';
+} from '../src/sections/providers/api/logic';
 import { modelsFromRecord } from '../src/services/modelService';
 import { flattenV8ProviderGroups } from './fixtures/legacyProviderRecords';
 
