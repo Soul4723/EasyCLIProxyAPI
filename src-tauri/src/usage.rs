@@ -2001,15 +2001,35 @@ struct PendingRemoteUsageBatch {
     source: String,
     config: GuiConfigFile,
     messages: Vec<String>,
+    // The inbox write is the durable commit. The inbox has no unique key, so a retry that
+    // wrote the same raw records again would be processed twice; once true, only processing retries.
+    enqueued: bool,
 }
 
 impl PendingRemoteUsageBatch {
+    fn new(root: PathBuf, source: String, config: GuiConfigFile, messages: Vec<String>) -> Self {
+        Self { root, source, config, messages, enqueued: false }
+    }
+
+    fn persist(pending: &mut Option<Self>) -> Result<UsagePersistOutcome, String> {
+        Self::persist_with(
+            pending,
+            |root, source, messages| enqueue_usage_raw_messages(&mut open_usage_database_at(root)?, source, messages).map(|_| ()),
+            |root, config| process_usage_inbox(&mut open_usage_database_at(root)?, config),
+        )
+    }
+
     fn persist_with(
         pending: &mut Option<Self>,
-        persist: impl FnOnce(&Path, &str, Vec<String>, &GuiConfigFile) -> Result<UsagePersistOutcome, String>,
+        enqueue: impl FnOnce(&Path, &str, Vec<String>) -> Result<(), String>,
+        process: impl FnOnce(&Path, &GuiConfigFile) -> Result<UsagePersistOutcome, String>,
     ) -> Result<UsagePersistOutcome, String> {
-        let batch = pending.as_ref().expect("remote batch must be pending");
-        let outcome = persist(&batch.root, &batch.source, batch.messages.clone(), &batch.config)?;
+        let batch = pending.as_mut().expect("remote batch must be pending");
+        if !batch.enqueued {
+            enqueue(&batch.root, &batch.source, batch.messages.clone())?;
+            batch.enqueued = true;
+        }
+        let outcome = process(&batch.root, &batch.config)?;
         *pending = None;
         Ok(outcome)
     }
@@ -2049,10 +2069,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
         // further destructive read, even when the user switched to Local mode.
         if let Some(batch) = pending_remote_batch.as_ref() {
             let config = batch.config.clone();
-            match PendingRemoteUsageBatch::persist_with(
-                &mut pending_remote_batch,
-                persist_raw_usage_messages_from_source,
-            ) {
+            match PendingRemoteUsageBatch::persist(&mut pending_remote_batch) {
                 Ok(outcome) => {
                     if app.state::<GuiConfigState>().ensure_target(&config).is_ok() {
                         publish_collected_records(&app, outcome, "Saved retained remote usage batch");
@@ -2216,12 +2233,12 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                     wait_or_cancel(&token, 2).await;
                 }
                 Ok(messages) => {
-                    pending_remote_batch = Some(PendingRemoteUsageBatch {
+                    pending_remote_batch = Some(PendingRemoteUsageBatch::new(
                         root,
-                        source: remote_usage_queue_source(&config),
+                        remote_usage_queue_source(&config),
                         config,
                         messages,
-                    });
+                    ));
                 }
                 Err(RemotePopError::Definite(error)) => {
                     // The core rejected the request before popping, so a
@@ -5721,10 +5738,9 @@ mod tests {
             "model": "gpt-test",
             "tokens": { "input_tokens": 10, "output_tokens": 20 }
         }).to_string()];
-        let mut pending = Some(PendingRemoteUsageBatch {
-            root: blocked_root.clone(), source: source.clone(),
-            config: config.clone(), messages: messages.clone(),
-        });
+        let mut pending = Some(PendingRemoteUsageBatch::new(
+            blocked_root.clone(), source.clone(), config.clone(), messages.clone(),
+        ));
         // Repeated failures retain the entire batch rather than permitting a
         // new pop. A different selected target must not replace its identity.
         let mut selected = config.clone();
@@ -5736,9 +5752,7 @@ mod tests {
                 fetches.set(fetches.get() + 1);
                 std::future::ready(Ok(Vec::new()))
             }).await.is_none());
-            assert!(PendingRemoteUsageBatch::persist_with(
-                &mut pending, persist_raw_usage_messages_from_source,
-            ).is_err());
+            assert!(PendingRemoteUsageBatch::persist(&mut pending).is_err());
             let batch = pending.as_ref().unwrap();
             assert_eq!(batch.messages, messages);
             assert_eq!(batch.config.remote_management_origin, config.remote_management_origin);
@@ -5748,11 +5762,15 @@ mod tests {
         initialize_usage_storage_at(&blocked_root).unwrap();
         initialize_usage_storage_at(&other_root).unwrap();
         let outcome = PendingRemoteUsageBatch::persist_with(
-            &mut pending, |stored_root, stored_source, messages, stored_config| {
+            &mut pending,
+            |stored_root, stored_source, messages| {
                 assert_eq!(stored_root, blocked_root);
                 assert_eq!(stored_source, source);
+                enqueue_usage_raw_messages(&mut open_usage_database_at(stored_root)?, stored_source, messages).map(|_| ())
+            },
+            |stored_root, stored_config| {
                 assert_eq!(stored_config.remote_management_origin, config.remote_management_origin);
-                persist_raw_usage_messages_from_source(stored_root, stored_source, messages, stored_config)
+                process_usage_inbox(&mut open_usage_database_at(stored_root)?, stored_config)
             },
         ).unwrap();
         assert!(pending.is_none());
@@ -5767,6 +5785,42 @@ mod tests {
         assert_eq!(total_usage_records_at(&other_root).unwrap(), 0);
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(other_root).unwrap();
+    }
+
+    #[test]
+    fn retained_batch_whose_processing_failed_is_not_enqueued_twice() {
+        let root = test_root("retained-no-double-count");
+        initialize_usage_storage_at(&root).unwrap();
+        let mut config = GuiConfigFile::default();
+        config.connection_mode = CoreConnectionMode::Remote;
+        config.remote_management_origin = "https://original.invalid".into();
+        let source = remote_usage_queue_source(&config);
+        let messages = vec![serde_json::json!({
+            "request_id": "retained-once",
+            "model": "gpt-test",
+            "tokens": { "input_tokens": 10, "output_tokens": 20 }
+        }).to_string()];
+        let mut pending = Some(PendingRemoteUsageBatch::new(root.clone(), source, config, messages));
+        let enqueue = |root: &Path, source: &str, messages: Vec<String>| {
+            enqueue_usage_raw_messages(&mut open_usage_database_at(root)?, source, messages).map(|_| ())
+        };
+        // First attempt: the inbox write commits, then processing hits "database is locked".
+        let first = PendingRemoteUsageBatch::persist_with(&mut pending, enqueue, |_, _| Err("database is locked".to_string()));
+        assert!(first.is_err());
+        assert!(pending.as_ref().unwrap().enqueued, "the batch is durable in the inbox");
+        // Retry must not write the raw rows again.
+        let outcome = PendingRemoteUsageBatch::persist_with(
+            &mut pending,
+            |_, _, _| panic!("a durable batch must not be enqueued again"),
+            |root, config| process_usage_inbox(&mut open_usage_database_at(root)?, config),
+        ).unwrap();
+        assert!(pending.is_none());
+        assert_eq!(outcome.inserted, 1);
+        assert_eq!(total_usage_records_at(&root).unwrap(), 1);
+        let inbox_rows: i64 = open_usage_database_at(&root).unwrap()
+            .query_row("SELECT COUNT(*) FROM usage_inbox", [], |row| row.get(0)).unwrap();
+        assert_eq!(inbox_rows, 1, "one raw row, not two");
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn test_root(name: &str) -> PathBuf {
