@@ -40,7 +40,7 @@ export type CandidateGroup = { provider: string; items: Candidate[] };
 export type Block<T> = { data: T | null; error: boolean; loading: boolean; reload: () => void };
 
 /**
- * Loads one independent block. Reloads when `key` changes (a refresh tick); keeps the previous data while refetching
+ * Loads one independent block. Reloads when `key` changes (a refresh version); keeps the previous data while refetching
  * and ignores responses that arrive out of order.
  */
 export function useBlock<T>(fetcher: () => Promise<T>, key: number): Block<T> {
@@ -55,7 +55,7 @@ export function useBlock<T>(fetcher: () => Promise<T>, key: number): Block<T> {
       () => { if (id === request.current) setState((s) => ({ data: s.data, error: true, loading: false })); },
     );
   }, []);
-  useEffect(() => { load(); }, [load, key]);
+  useEffect(() => { load(); return () => { request.current += 1; }; }, [load, key]);
   const reload = useCallback(() => { setState((s) => ({ ...s, loading: s.data === null })); load(); }, [load]);
   return { ...state, reload };
 }

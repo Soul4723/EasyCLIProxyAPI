@@ -1,9 +1,10 @@
+import { useDataSource } from '../../services/dataSource';
 // Lighting state for the quota page: schedules per credential, provider capabilities, runner status and the
 // "report observed reset after each quota fetch" hook. Contract: src/services/lighting.ts (ui/cp-lighting API.md).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import {
-  deleteLightingSchedule, getLightingCapabilities, getLightingStatus, listenForLightingRunResult,
-  listLightingSchedules, reportLightingReset, runLightingNow, saveLightingSchedule, setLightingEnabled,
+  deleteLightingSchedule, lightingSource,
+  reportLightingReset, runLightingNow, saveLightingSchedule, setLightingEnabled,
   type LightingCapabilities, type LightingRunResult, type LightingSchedule, type LightingStatus,
 } from '../../services/lighting';
 import { managementApi } from '../../services/managementApi';
@@ -63,76 +64,28 @@ export type LightingApi = {
 
 export type AccountIdentity = Pick<QuotaAccount, 'provider' | 'fileName' | 'authIndex'>;
 
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
 export function useLighting(locale: AppLocale): LightingApi {
-  const [schedules, setSchedules] = useState<Map<string, LightingSchedule>>(new Map());
-  const [capabilities, setCapabilities] = useState<Map<string, LightingCapabilities>>(new Map());
-  const [status, setStatus] = useState<LightingStatus | null>(null);
-  const [available, setAvailable] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const source = useDataSource(lightingSource);
+  const schedules = useMemo(() => new Map((source.data?.schedules ?? []).map(s => [lightingKey(s.credential), s])), [source.data]);
+  const capabilities = useMemo(() => new Map((source.data?.capabilities ?? []).map(c => [c.provider, c])), [source.data]);
+  const status = source.data?.status ?? null;
+  const available = !!source.data || !source.error;
+  const loading = source.loading;
+  const error = source.error ?? status?.error ?? null;
   const schedulesRef = useRef(schedules);
   schedulesRef.current = schedules;
-  const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-
-  const reload = useCallback(async () => {
-    try {
-      const [list, caps, nextStatus] = await Promise.all([
-        listLightingSchedules(), getLightingCapabilities(), getLightingStatus(),
-      ]);
-      if (!mounted.current) return;
-      setSchedules(new Map(list.map((schedule) => [lightingKey(schedule.credential), schedule])));
-      setCapabilities(new Map(caps.map((cap) => [cap.provider, cap])));
-      setStatus(nextStatus);
-      setAvailable(true);
-      setError(nextStatus.error);
-    } catch (reason) {
-      if (!mounted.current) return;
-      setAvailable(false);
-      setError(message(reason));
-    } finally {
-      if (mounted.current) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void reload(); }, [reload]);
-
-  useEffect(() => {
-    let off: (() => void) | undefined;
-    let cancelled = false;
-    void listenForLightingRunResult(() => { void reload(); })
-      .then((unlisten) => { if (cancelled) unlisten(); else off = unlisten; })
-      .catch(() => undefined);
-    return () => { cancelled = true; off?.(); };
-  }, [reload]);
-
-  const put = useCallback((schedule: LightingSchedule) => {
-    schedulesRef.current = new Map(schedulesRef.current).set(lightingKey(schedule.credential), schedule);
-    setSchedules((current) => new Map(current).set(lightingKey(schedule.credential), schedule));
-    return schedule;
-  }, []);
+  const reload = lightingSource.refresh;
 
   const save = useCallback(async (schedule: LightingSchedule) => {
     const revision = await managementApi.getTargetRevision();
-    return put(await saveLightingSchedule(schedule, revision));
-  }, [put]);
+    return saveLightingSchedule(schedule, revision);
+  }, []);
   const setEnabled = useCallback(async (schedule: LightingSchedule, enabled: boolean) =>
-    put(await setLightingEnabled(schedule.id, enabled)), [put]);
+    setLightingEnabled(schedule.id, enabled), []);
   const remove = useCallback(async (schedule: LightingSchedule) => {
     await deleteLightingSchedule(schedule.id);
-    setSchedules((current) => {
-      const next = new Map(current);
-      next.delete(lightingKey(schedule.credential));
-      return next;
-    });
   }, []);
-  const runNow = useCallback(async (schedule: LightingSchedule) => {
-    const result = await runLightingNow(schedule.id);
-    await reload();
-    return result;
-  }, [reload]);
+  const runNow = useCallback((schedule: LightingSchedule) => runLightingNow(schedule.id), []);
 
   const reportObserved = useCallback((account: AccountIdentity, quota: QuotaState) => {
     const schedule = schedulesRef.current.get(accountLightingKey(account));
@@ -144,13 +97,12 @@ export function useLighting(locale: AppLocale): LightingApi {
     void (async () => {
       try {
         const expected = revision ?? await managementApi.getTargetRevision();
-        const updated = await reportLightingReset(schedule.id, Math.round(resetAt), expected);
-        if (mounted.current) put(updated);
+        await reportLightingReset(schedule.id, Math.round(resetAt), expected);
       } catch {
         // Stale connection revision or out-of-range reset: the next fetch reports again.
       }
     })();
-  }, [locale, put]);
+  }, [locale]);
 
   const capabilityFor = useCallback((provider: string) => capabilities.get(provider), [capabilities]);
   const scheduleFor = useCallback((account: QuotaAccount) => schedules.get(accountLightingKey(account)), [schedules]);

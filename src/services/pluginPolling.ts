@@ -1,4 +1,5 @@
-import { pluginsApi, pluginStoreApi, type PluginListResponse, type PluginStoreInstallResult } from './plugins';
+import { pluginListSource } from './pluginList';
+import { pluginStoreApi, type PluginListResponse, type PluginStoreInstallResult } from './plugins';
 
 export type PluginActionStatus = 'ready' | 'globalDisabled' | 'restart' | 'pending' | 'cancelled';
 
@@ -27,8 +28,15 @@ export function pluginToggleStatus(response: PluginListResponse, id: string, ena
   return plugin.registered && plugin.effectiveEnabled ? 'ready' : 'pending';
 }
 
-export const waitForPluginToggle = (id: string, enabled: boolean, cancelled: () => boolean) =>
-  waitForPluginAction(async () => pluginToggleStatus(await pluginsApi.list(), id, enabled), cancelled);
+export async function waitForPluginToggle(id: string, enabled: boolean, cancelled: () => boolean) {
+  await pluginListSource.refresh();
+  return waitForPluginAction(async () => {
+    await pluginListSource.load();
+    const source = pluginListSource.getSnapshot();
+    if (source.error) throw new Error(source.error);
+    return source.data?.list ? pluginToggleStatus(source.data.list, id, enabled) : 'pending';
+  }, cancelled, 15_000, 1_500);
+}
 
 export async function waitForPluginInstall(result: PluginStoreInstallResult, cancelled: () => boolean): Promise<PluginActionStatus> {
   // A restart is authoritative: polling cannot make a restart-required install active.
