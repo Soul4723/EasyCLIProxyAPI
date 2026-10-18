@@ -84,6 +84,7 @@ const resolveRemark = (section: ProviderSection, locator: ApiAccessRemarkLocator
   return '';
 };
 mockIPC((cmd, args: any) => {
+  if (cmd === 'get_management_target_revision') return 1;
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'resolve_api_access_remarks') return args.queries.map((item: ApiAccessRemarkLocator & { providerSection: ProviderSection }) =>
     resolveRemark(item.providerSection, item));

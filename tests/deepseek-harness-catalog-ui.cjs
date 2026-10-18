@@ -1,17 +1,18 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   const page = await browser.newPage();
-  await page.route('**/*', route => route.request().url().startsWith('http://127.0.0.1:1421/') ? route.continue() : route.abort());
+  await page.route('**/*', route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   const open = async (query = '') => {
-    await page.goto(`http://127.0.0.1:1421/tests/fixtures/agent-backups.html?client=deepseek-harness&reset-selections&${query}`);
+    await page.goto(`${base}/tests/fixtures/agent-backups.html?client=deepseek-harness&reset-selections&${query}`);
     await page.getByRole('button', { name: '配置模型', exact: true }).click();
     await page.getByRole('option', { name: /gpt-one/ }).waitFor();
   };
@@ -140,4 +141,4 @@ const path = require('node:path');
     console.log('PASS: default model preserved, catalog overrides, API reset, reasoning, validation, retry, stale save, responsive themes');
     console.log(screenshots);
   } finally { await browser.close(); }
-})().catch(e => { console.error(e); process.exit(1); });
+});

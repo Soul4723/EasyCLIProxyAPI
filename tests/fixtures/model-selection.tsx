@@ -29,6 +29,7 @@ fixture.fixtureHoldNext = false;
 fixture.fixturePending = [];
 fixture.fixtureSaved = null;
 mockIPC(async (cmd, rawArgs) => {
+  if (cmd === 'get_management_target_revision') return 1;
   if (cmd === 'set_app_locale') return null;
   const args = rawArgs as { request?: { path?: string } };
   if (cmd === 'management_request' && args.request?.path === '/requests/api-call') {

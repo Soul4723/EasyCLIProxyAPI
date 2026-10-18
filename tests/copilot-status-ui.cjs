@@ -1,9 +1,9 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
-const base = process.env.AGENT_CLIENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     for (const embedded of [false, true]) {
       for (const pluginInstalled of [false, true]) {
@@ -53,4 +53,4 @@ const base = process.env.AGENT_CLIENT_TEST_URL || 'http://127.0.0.1:1421';
     }
     console.log('PASS: VS Code status, startup directory, remembered history and cancellation in both layouts');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+}, { url: process.env.AGENT_CLIENT_TEST_URL });

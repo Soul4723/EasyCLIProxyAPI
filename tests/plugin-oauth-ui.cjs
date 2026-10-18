@@ -1,4 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
@@ -10,8 +11,7 @@ const path = require('node:path');
   try {
     await server.listen();
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    const channel = process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined);
-    browser = await chromium.launch({ channel, headless: true, args: ['--no-proxy-server'] });
+    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1024, height: 800 } });
     page.setDefaultTimeout(10000);
     const errors = [];
@@ -26,10 +26,10 @@ const path = require('node:path');
     const waitSession = () => page.getByLabel('Sign-in URL', { exact: true }).waitFor();
 
     await open(); await waitSession();
-    assert.deepEqual((await calls('start_oauth_login'))[0].args, { provider: 'grok', browser: 'none', pluginProvider: true });
+    assert.deepEqual((await calls('start_oauth_login'))[0].args, { provider: 'grok', browser: 'none', pluginProvider: true, expectedRevision: 1 });
     assert.equal((await calls('open_oauth_url')).length, 0, 'Opening the dialog must not launch a browser automatically');
     await page.getByRole('button', { name: 'Open in browser', exact: true }).click();
-    assert.deepEqual((await calls('open_oauth_url'))[0].args, { url: 'https://login.example.test/authorize?state=plugin-1', browser: 'default' });
+    assert.deepEqual((await calls('open_oauth_url'))[0].args, { url: 'https://login.example.test/authorize?state=plugin-1', browser: 'default', expectedRevision: 1 });
     await page.getByRole('button', { name: 'Copy link', exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.pluginOAuthFixture.copied), ['https://login.example.test/authorize?state=plugin-1']);
     const callback = page.getByLabel('Callback URL', { exact: true });
@@ -39,7 +39,7 @@ const path = require('node:path');
     assert.equal((await calls('submit_oauth_callback')).length, 0);
     await callback.fill('http://localhost/callback?code=secret&state=plugin-1');
     await page.getByRole('button', { name: 'Submit callback', exact: true }).click();
-    assert.deepEqual((await calls('submit_oauth_callback'))[0].args, { provider: 'grok', redirectUrl: 'http://localhost/callback?code=secret&state=plugin-1', pluginProvider: true });
+    assert.deepEqual((await calls('submit_oauth_callback'))[0].args, { provider: 'grok', redirectUrl: 'http://localhost/callback?code=secret&state=plugin-1', pluginProvider: true, expectedRevision: 1 });
     await page.evaluate(() => { window.pluginOAuthFixture.status = 'ok'; });
     await page.getByText('Authorization completed and credentials saved.', { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => window.pluginOAuthFixture.completed), 1);

@@ -1,10 +1,9 @@
-// Run Vite on port 1421, then node tests/usage-response-model-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const base = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:1421';
 const locales = {
   'zh-CN': { request: '请求模型', upstream: '路由模型', response: '响应模型' },
   en: { request: 'Requested model', upstream: 'Routed model', response: 'Response model' },
@@ -50,8 +49,8 @@ function parseCsv(text) {
   return rows;
 }
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, timezoneId: 'Asia/Shanghai' });
     const errors = [];
@@ -87,6 +86,10 @@ function parseCsv(text) {
     };
 
     await open('zh-CN');
+    // Legacy settings keep the cost column hidden; expose it through column settings.
+    await page.locator('.usage-col-settings-btn').click();
+    await page.locator('.usage-column-option').filter({ hasText: '本次费用' }).locator('input').check();
+    await page.locator('.usage-column-dialog-actions .primary-button').click();
     assert.equal(await modelCells().count(), 9, 'Every fixture record renders a model cell');
     assert.deepEqual(await page.locator('.usage-model-fast').allTextContents(), ['fast', 'fast'], 'Only priority and fast request tiers show a badge');
     assert.equal(await modelCells().nth(2).locator('.usage-model-fast').count(), 0, 'Default request tier has no badge');
@@ -104,17 +107,19 @@ function parseCsv(text) {
     const resultAlignment = await page.locator('.usage-result-cell').evaluateAll(cells => cells.slice(0, 4).map(cell => {
       const cellBounds = cell.getBoundingClientRect();
       const badgeBounds = cell.querySelector('.usage-result').getBoundingClientRect();
-      return { cellCenter: cellBounds.left + cellBounds.width / 2, badgeCenter: badgeBounds.left + badgeBounds.width / 2 };
+      return { cellLeft: cellBounds.left, paddingLeft: parseFloat(getComputedStyle(cell).paddingLeft), badgeLeft: badgeBounds.left };
     }));
     assert.equal(await page.locator('.usage-result-cell').nth(3).locator('.usage-result').getAttribute('class'), 'usage-result failed');
-    assert.ok(resultAlignment.every(({ cellCenter, badgeCenter }) => Math.abs(cellCenter - badgeCenter) < 2), 'Success and failed badges share the result column center');
-    assert.equal(await page.locator('.usage-result-detail').first().evaluate(element => getComputedStyle(element).textAlign), 'left', 'Error detail keeps its original alignment');
+    const resultLefts = resultAlignment.map(({ badgeLeft }) => badgeLeft);
+    assert.ok(resultLefts.every(left => Math.abs(left - resultLefts[0]) < 2), 'Success and failed badges share the result column left edge');
+    assert.ok(resultAlignment.every(({ cellLeft, paddingLeft, badgeLeft }) => Math.abs(badgeLeft - (cellLeft + paddingLeft)) < 2), 'Result badges align with the start of their stacked cell');
+    assert.equal(await page.locator('.usage-result-detail > small').first().evaluate(element => getComputedStyle(element).textAlign), 'left', 'Error detail text keeps its original alignment');
     const zhDetails = await modelDetails();
-    assert.equal(await page.locator('.usage-th-effort').count(), 1, 'Migration enables reasoning effort for existing layouts');
+    assert.deepEqual(await page.locator('.usage-model-effort').allTextContents(), Array(9).fill('high'), 'Reasoning effort stays embedded in the model cell for legacy layouts');
     assert.equal(await page.locator('.usage-td-request').first().textContent(), '/v1/responses');
     assert.equal(await page.locator('.usage-td-request').first().getAttribute('title'), '/v1/responses');
     assert.match(await modelCells().first().getAttribute('title'), /response_model.*上游声明/);
-    assert.deepEqual(await page.locator('.usage-events-table th').evaluateAll(cells => cells.slice(0, 2).map(cell => cell.className.split(' ')[0])), ['usage-th-time', 'usage-th-provider']);
+    assert.deepEqual(await page.locator('.usage-events-table th').evaluateAll(cells => cells.slice(0, 2).map(cell => cell.className.split(' ')[0])), ['usage-th-time', 'usage-th-model'], 'Legacy settings keep only current columns in canonical order');
     assert.equal(await page.locator('.usage-td-provider strong').first().textContent(), 'Codex');
     assert.equal(await page.locator('.usage-access-type').first().textContent(), 'API');
     assert.equal(await page.locator('.usage-access-type').nth(1).textContent(), 'OAuth');
@@ -129,8 +134,8 @@ function parseCsv(text) {
       main: 'same-alias',
       sublines: ['gpt-6-sol'],
       response: '',
-      title: '请求模型: same-alias\n路由模型: gpt-6-sol',
-    }, 'A response equal to the routed model is not repeated');
+      title: '请求模型: same-alias\n路由模型: gpt-6-sol\n推理强度: high',
+    }, 'A response equal to the routed model is not repeated while effort stays visible');
     assert.deepEqual(zhDetails[2].sublines, ['openai/gpt-4o-latest', '响应模型: gpt-4o-2024-08-06'], 'Snapshot and prefix model names preserve the existing upstream subline');
     assert.equal(zhDetails[2].title, '请求模型: gpt4o\n路由模型: openai/gpt-4o-latest\n响应模型: gpt-4o-2024-08-06');
     assert.deepEqual(zhDetails.slice(3, 6).map(item => item.sublines), [[], [], []], 'Missing, empty, and whitespace response_model values stay omitted');
@@ -152,12 +157,9 @@ function parseCsv(text) {
     assert.equal(longLine.overflow, 'ellipsis', 'Long response names are visibly ellipsized');
     assert.ok(longLine.title.includes(`response-${'r'.repeat(120)}`), 'The complete long response remains available in the title');
 
-    const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: '导出本页 CSV', exact: true }).click();
-    const download = await downloadPromise;
-    const csvPath = await download.path();
-    assert.ok(csvPath, 'CSV export creates a download');
-    const csv = await fs.promises.readFile(csvPath, 'utf8');
+    await page.getByRole('button', { name: '导出筛选结果 CSV', exact: true }).click();
+    await page.waitForFunction(() => (window.usageResponseModelFixture?.csv || '').length > 0);
+    const csv = await page.evaluate(() => window.usageResponseModelFixture.csv);
     const csvRows = parseCsv(csv.replace(/^\uFEFF/, ''));
     const header = csvRows[0];
     const aliasIndex = header.indexOf('alias');
@@ -202,4 +204,4 @@ function parseCsv(text) {
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.PLAYWRIGHT_BASE_URL });

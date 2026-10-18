@@ -1,14 +1,15 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const { mkdirSync } = require('node:fs');
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
     page.setDefaultTimeout(10000);
     page.setDefaultNavigationTimeout(30000);
-    await page.route('**/*', route => route.request().url().startsWith('http://127.0.0.1:1423/') ? route.continue() : route.abort());
+    await page.route('**/*', route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
     const dialog = page.getByRole('dialog', { name: 'Select Models' });
@@ -25,7 +26,7 @@ const { mkdirSync } = require('node:fs');
       assert.equal(Number(await right.locator('.model-transfer-count').innerText()), selected);
     };
     const open = async (scenario) => {
-      await page.goto(`http://127.0.0.1:1423/tests/fixtures/model-selection.html?scenario=${scenario}`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${base}/tests/fixtures/model-selection.html?scenario=${scenario}`, { waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: 'Fetch Models', exact: true }).click();
       await ready();
     };
@@ -136,7 +137,7 @@ const { mkdirSync } = require('node:fs');
     await right.getByRole('button', { name: 'Remove dsv4', exact: true }).click();
     await right.getByRole('button', { name: 'Remove other', exact: true }).click();
     await dialog.getByRole('button', { name: 'Apply Selection (1)', exact: true }).click();
-    const exclusions = page.locator('.provider-advanced-settings textarea').last();
+    const exclusions = page.getByPlaceholder('model-old-*\nmodel-preview', { exact: true });
     const aliasInput = page.locator('.model-config-entry input').nth(1);
     const expectExclusions = async (extra) => assert.deepEqual((await exclusions.inputValue()).split('\n'), ['manual-model', 'legacy-*', ...extra]);
     await expectExclusions(['dsv4', 'other']);
@@ -174,7 +175,7 @@ const { mkdirSync } = require('node:fs');
     await expectExclusions(['dsv4', 'other']);
 
     const manualRules = 'dsv4\nother\nmanual-model\ndsv*';
-    await page.locator('.provider-advanced-settings summary').press('Enter');
+    await page.locator('.provider-advanced-settings > summary').press('Enter');
     await exclusions.fill(manualRules);
     await aliasInput.fill('other');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -184,7 +185,7 @@ const { mkdirSync } = require('node:fs');
     mkdirSync('misc', { recursive: true });
     for (const [locale, theme, width, height] of [['zh-CN', 'light', 1280, 820], ['en', 'dark', 1280, 820], ['ja', 'light', 390, 740]]) {
       await page.setViewportSize({ width, height });
-      await page.goto(`http://127.0.0.1:1423/tests/fixtures/model-selection.html?locale=${locale}&theme=${theme}`);
+      await page.goto(`${base}/tests/fixtures/model-selection.html?locale=${locale}&theme=${theme}`);
       await page.locator('.model-config-heading button').click();
       await ready();
       const popup = page.locator('.model-transfer-dialog');
@@ -200,4 +201,4 @@ const { mkdirSync } = require('node:fs');
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});

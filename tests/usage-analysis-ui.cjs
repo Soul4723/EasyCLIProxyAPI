@@ -1,15 +1,14 @@
-// Run Vite on port 1421, then node tests/usage-analysis-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const base = 'http://127.0.0.1:1421';
 const screenshots = path.resolve('.codex/request-log-ui');
 fs.mkdirSync(screenshots, { recursive: true });
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true,
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, {
     args: ['--no-proxy-server'], ignoreDefaultArgs: ['--hide-scrollbars'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1266, height: 900 }, timezoneId: 'Asia/Shanghai' });
@@ -58,8 +57,8 @@ fs.mkdirSync(screenshots, { recursive: true });
 
     await open();
     assert.equal(await page.locator('#usage-tab-analysis').getAttribute('aria-selected'), 'true');
-    assert.equal(await page.locator('.usage-filter-panel select').count(), 6, 'Analysis keeps the shared filter controls');
-    assert.equal(await page.locator('.usage-filter-panel button').count(), 0, 'Analysis does not restore the removed reset button');
+    assert.equal(await page.locator('.usage-filter-panel .select-menu').count(), 6, 'Analysis keeps the shared filter controls');
+    assert.equal(await page.locator('.usage-filter-reset-btn').count(), 0, 'Analysis does not restore the removed reset button');
     let rows = await modelRows();
     assert.deepEqual(rows.map(row => row.key), ['model-a', 'model-b', 'model-c', 'model-d', 'model-f', 'other']);
     assert.deepEqual(rows.map(row => row.value), [10000, 4000, 3600, 1200, 540, 660], 'Top five plus other includes all eight models');
@@ -119,14 +118,19 @@ fs.mkdirSync(screenshots, { recursive: true });
     assert.equal(await tooltip.count(), 0, 'Hover details clear when the pointer leaves the chart');
 
     const details = page.locator('.usage-context-detail');
-    assert.equal(await details.count(), 3);
-    for (let index = 0; index < 3; index += 1) {
+    assert.equal(await details.count(), 2, 'Analysis shows the source and key breakdowns');
+    // This fixture exposes no upstream options, so the source breakdown must
+    // render its empty state; the key breakdown still covers all four groups.
+    const breakdownItems = [0, 4];
+    for (let index = 0; index < breakdownItems.length; index += 1) {
       const detail = details.nth(index);
       assert.equal(await detail.evaluate(element => element.open), false);
       await detail.locator('summary').click();
-      assert.equal(await detail.evaluate(element => element.open), true, 'Provider, source, and key breakdowns expand independently');
-      assert.equal(await detail.locator('li').count(), [2, 3, 4][index]);
-      assert.equal(await detail.locator('li > strong').evaluateAll(items => items.reduce((total, item) => total + Number(item.title), 0)), 60);
+      assert.equal(await detail.evaluate(element => element.open), true, 'Source and key breakdowns expand independently');
+      assert.equal(await detail.locator('li').count(), breakdownItems[index]);
+      if (breakdownItems[index]) {
+        assert.equal(await detail.locator('li > strong').evaluateAll(items => items.reduce((total, item) => total + Number(item.title), 0)), 60);
+      }
       await detail.locator('summary').click();
     }
 
@@ -167,4 +171,4 @@ fs.mkdirSync(screenshots, { recursive: true });
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});

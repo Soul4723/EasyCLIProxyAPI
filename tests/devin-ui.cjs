@@ -1,9 +1,9 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const base = process.env.DEVIN_TEST_BASE_URL || 'http://127.0.0.1:1421';
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultTimeout(10000);
@@ -16,7 +16,7 @@ const base = process.env.DEVIN_TEST_BASE_URL || 'http://127.0.0.1:1421';
     const calls = () => page.evaluate(() => window.devinFixture.calls);
     await open();
     await card().waitFor();
-    assert.equal(await page.locator('.oauth-card').count(), 7);
+    assert.equal(await page.locator('.oauth-card').count(), 8);
     await click('Sign In');
     await card().getByRole('textbox').waitFor();
     assert.ok((await calls()).some(call => call.cmd === 'start_oauth_login' && call.args.provider === 'devin' && call.args.browser === 'none'));
@@ -55,21 +55,21 @@ const base = process.env.DEVIN_TEST_BASE_URL || 'http://127.0.0.1:1421';
     assert.ok((await calls()).some(call => call.cmd === 'start_oauth_login' && call.args.provider === 'devin'));
 
     await open('view=files');
-    await page.getByText('devin-test.json', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Fetch Quota', exact: true }).click();
+    await page.locator('.auth-file-card').getByText('devin-test.json', { exact: true }).first().waitFor();
+    await page.locator('.auth-list-icon-actions button').first().click();
     await page.getByText('75%', { exact: false }).first().waitFor();
     assert.equal(await page.locator('.devin-logo').count(), 1);
 
     await open('view=quota');
     await page.getByRole('button', { name: 'Fetch Quota', exact: true }).click();
-    await page.getByText('Daily quota', { exact: true }).waitFor();
+    await page.getByText('Daily quota', { exact: true }).filter({ visible: true }).waitFor();
     assert.ok((await page.locator('.real-quota-card').innerText()).includes('Pro'));
-    assert.equal(await page.locator('.real-quota-track').count(), 2);
-    assert.equal(await page.locator('.real-quota-track span').last().evaluate(node => node.style.width), '0%');
+    assert.equal(await page.locator('.real-quota-track:visible').count(), 2);
+    assert.equal(await page.locator('.real-quota-track:visible span').last().evaluate(node => node.style.width), '0%');
     await page.evaluate(() => { window.devinFixture.quotaError = true; });
-    await page.getByRole('button', { name: 'Refresh All', exact: true }).click();
+    await page.getByRole('button', { name: 'Refresh Quota', exact: true }).click();
     await page.getByText('Session expired', { exact: false }).waitFor();
-    assert.equal(await page.locator('.real-quota-track').count(), 0);
+    assert.equal(await page.locator('.real-quota-track:visible').count(), 0);
 
     fs.mkdirSync('misc', { recursive: true });
     for (const theme of ['light', 'dark']) {
@@ -83,4 +83,4 @@ const base = process.env.DEVIN_TEST_BASE_URL || 'http://127.0.0.1:1421';
     assert.deepEqual(errors, []);
     console.log('Devin browser checks passed: OAuth, callback validation, session refresh, simplified login, auth files, quota and both themes.');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.DEVIN_TEST_BASE_URL });

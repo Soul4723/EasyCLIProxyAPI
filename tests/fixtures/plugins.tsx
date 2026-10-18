@@ -95,6 +95,7 @@ if (params.has('foreign-source')) storeEntries.unshift({ ...storeEntries[0], sou
 });
 
 mockIPC(async (command, args) => {
+  if (command === 'get_management_target_revision') return 1;
   state.commands.push({ command, args });
   if (command === 'start_oauth_login') return { url: 'https://login.example.test/authorize?state=sample-state', state: 'sample-state' };
   if (command === 'get_oauth_status') return { status: 'wait' };

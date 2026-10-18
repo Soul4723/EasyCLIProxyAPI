@@ -1,10 +1,10 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1213, height: 600 } });
     await page.route('**/*', (route) => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
@@ -158,26 +158,30 @@ const base = 'http://127.0.0.1:1421';
     const filterGroup = page.locator('.usage-filter-group');
     const filterBounds = await filterGroup.boundingBox();
     assert.equal(await page.locator('.usage-filter-reset-btn').count(), 0, 'The overview does not show a reset filters button');
-    const modelFilter = page.locator('.usage-filter-item select').nth(1);
-    await modelFilter.selectOption('test-model');
+    const modelFilter = page.locator('.usage-filter-item').nth(1).locator('.select-menu-trigger');
+    const modelLabel = await modelFilter.locator('strong').textContent();
+    await modelFilter.click();
+    await page.getByRole('option', { name: 'test-model', exact: true }).click();
     await page.locator('.usage-trend-x-axis').waitFor();
-    assert.equal(await modelFilter.inputValue(), 'test-model', 'Model filtering remains available');
+    assert.equal(await modelFilter.locator('strong').textContent(), 'test-model', 'Model filtering remains available');
     assert.equal(await page.locator('.usage-filter-reset-btn').count(), 0, 'Selecting a filter does not reveal a reset button');
     assert.deepEqual(await filterGroup.boundingBox(), filterBounds, 'Selecting a filter does not shift or resize the filter row');
-    await modelFilter.selectOption('');
-    const rangeFilter = page.locator('.usage-filter-item select').first();
-    await rangeFilter.selectOption('custom');
+    await modelFilter.click();
+    await page.locator('.select-menu-option').first().click();
+    const rangeFilter = page.locator('.usage-filter-item').first().locator('.select-menu-trigger');
+    const rangeLabel = await rangeFilter.locator('strong').textContent();
+    await rangeFilter.click();
+    await page.locator('.select-menu-option').last().click();
     await page.locator('.usage-custom-range').waitFor();
     assert.equal(await page.locator('.usage-filter-reset-btn').count(), 0, 'Custom date filters do not reveal a reset button');
-    await rangeFilter.selectOption('4h');
+    await rangeFilter.click();
+    await page.locator('.select-menu-option').first().click();
     await page.locator('.usage-trend-x-axis').waitFor();
-    assert.equal(await modelFilter.inputValue(), '', 'Filters can still be cleared through their own dropdowns');
+    assert.equal(await rangeFilter.locator('strong').textContent(), rangeLabel, 'The time range returns to its initial value');
+    assert.equal(await modelFilter.locator('strong').textContent(), modelLabel, 'Filters can still be cleared through their own dropdowns');
 
     console.log('PASS: usage overview layout, responsive trend axis, and stable filters without a reset button passed.');
   } finally {
     await browser.close();
   }
-})().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
 });

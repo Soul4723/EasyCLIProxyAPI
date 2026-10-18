@@ -43,6 +43,7 @@ Object.defineProperty(navigator, 'clipboard', {
 });
 
 mockIPC(async (cmd, args: any = {}) => {
+  if (cmd === 'get_management_target_revision') return 1;
   fixture.calls.push({ cmd, args, at: Date.now() });
   if (cmd === 'get_gui_settings') return { host: '127.0.0.1', port: fixture.port, runOnStartup: false };
   if (cmd === 'get_core_config_settings') {

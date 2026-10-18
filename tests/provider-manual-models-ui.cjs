@@ -1,4 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
@@ -18,8 +19,7 @@ const path = require('node:path');
     await server.listen();
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
     await (await fetch(base)).text();
-    const channel = process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined);
-    browser = await chromium.launch({ channel, headless: true, args: ['--no-proxy-server'] });
+    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.setDefaultTimeout(10000);
     const errors = [];

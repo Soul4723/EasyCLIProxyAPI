@@ -1,4 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, startDevServer } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
@@ -12,27 +13,11 @@ const viewports = [
 (async () => {
   let server;
   let browser;
-  let base = 'http://127.0.0.1:1420/';
+  let base;
   try {
-    try {
-      const response = await fetch(base, { signal: AbortSignal.timeout(3000) });
-      if (!response.ok) throw new Error(String(response.status));
-    } catch {
-      const { createServer } = await import('vite');
-      const react = (await import('@vitejs/plugin-react')).default;
-      server = await createServer({
-        configFile: false,
-        root: path.resolve(__dirname, '..'),
-        plugins: [react()],
-        logLevel: 'error',
-        server: { host: '127.0.0.1', port: 1421, strictPort: false },
-      });
-      await server.listen();
-      base = `http://127.0.0.1:${server.httpServer.address().port}/`;
-    }
-
-    const channel = process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined);
-    browser = await chromium.launch({ channel, headless: true, args: ['--no-proxy-server'] });
+    server = await startDevServer();
+    base = server.base + '/';
+    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
     let page;
     const errors = [];
 
@@ -110,9 +95,9 @@ const viewports = [
       assert.equal(scrolled.scrolled, true, `${label}: request columns remain reachable by horizontal scrolling`);
     };
     const assertExpandedPricing = async () => {
-      await page.getByRole('combobox', { name: '时间范围', exact: true }).selectOption('custom');
-      await page.locator('.usage-custom-range').waitFor();
-      await page.getByRole('button', { name: '手动添加', exact: true }).click();
+      const editButton = page.locator('.usage-price-row-actions button').first();
+      await editButton.waitFor();
+      await editButton.click();
       const editor = page.locator('.usage-price-editor');
       await editor.waitFor();
       await settle();
@@ -193,7 +178,7 @@ const viewports = [
       await assertNoPageOverflow(`${label} OAuth credentials`);
       await open('额度查询', '.quota-page .real-quota-card');
       assert.equal(await page.locator('.nav-section button.active').innerText(), '额度查询', `${label}: quota activates its sidebar entry`);
-      assert.equal(await page.locator('.quota-page h1').innerText(), '额度查询', `${label}: standalone quota page has its own heading`);
+      assert.equal(await page.locator('.quota-page').getAttribute('aria-label'), '额度查询', `${label}: standalone quota page exposes its accessible heading`);
       assert.equal(await page.locator('.oauth-subpage-tabs').count(), 0, `${label}: standalone quota page does not contain OAuth navigation`);
       await assertNoPageOverflow(`${label} quota`);
 
@@ -225,7 +210,7 @@ const viewports = [
       }
 
       await open('高级功能', '#config-subpage-panel');
-      for (const id of ['general', 'routing', 'requests', 'oauth', 'diagnostics', 'extensions', 'software']) {
+      for (const id of ['general', 'routing', 'requests', 'oauth', 'diagnostics', 'software']) {
         await tab(`config-subpage-tab-${id}`, `#config-subpage-panel[aria-labelledby="config-subpage-tab-${id}"]`);
         await assertNoPageOverflow(`${label} settings ${id}`);
       }
@@ -250,7 +235,7 @@ const viewports = [
     await page.locator('.home-page').waitFor();
     await page.addStyleTag({ content: '#browser-mock-toolbar { display: none; }' });
     await open('Advanced Features', '.config-subpage-tabs');
-    for (const id of ['general', 'routing', 'requests', 'oauth', 'diagnostics', 'extensions', 'software']) {
+    for (const id of ['general', 'routing', 'requests', 'oauth', 'diagnostics', 'software']) {
       await tab(`config-subpage-tab-${id}`, `#config-subpage-panel[aria-labelledby="config-subpage-tab-${id}"]`);
       await assertNoPageOverflow(`640x600 English settings ${id}`);
       const button = page.locator(`#config-subpage-tab-${id}`);

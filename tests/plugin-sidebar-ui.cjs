@@ -133,7 +133,7 @@ const path = require('node:path');
     assert.equal(await pluginPage.getByRole('alert').count(), 0);
     assert.equal(await pluginPage.locator('h1').textContent(), 'Sampled requests');
     await parent(page).click();
-    await page.getByRole('heading', { level: 1, name: '插件' }).waitFor();
+    await page.getByRole('region', { name: '插件', exact: true }).waitFor();
 
     await section(page).getByRole('button', { name: '首页' }).click();
     await page.locator('.home-runtime-stop').click();

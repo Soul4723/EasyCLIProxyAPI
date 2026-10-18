@@ -611,13 +611,21 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
     currentTarget.current = true;
     return () => { currentTarget.current = false; };
   }, []);
-  // A completed command must not start follow-up work on a newly selected target.
+  // Page-owned operations must stop follow-up work after unmount.
   const invoke = useCallback(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (!currentTarget.current) throw new Error('The core connection changed; agent operation cancelled');
     const result = await invokeNative<T>(command, args);
     if (!currentTarget.current) throw new Error('The core connection changed; agent operation cancelled');
     return result;
   }, []);
+  // The shared daemon restart deliberately survives page visits, but never a
+  // target change. Its completion is observed by the page that is mounted then.
+  const invokeForTarget = useCallback(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (agentCacheRevision !== targetRevision) throw new Error('The core connection changed; agent operation cancelled');
+    const result = await invokeNative<T>(command, args);
+    if (agentCacheRevision !== targetRevision) throw new Error('The core connection changed; agent operation cancelled');
+    return result;
+  }, [targetRevision]);
   const [selected, setSelected] = useState<AgentClientId>(readSelectedAgentClient);
   const [viewStateByClient, setViewStateByClient] = useState(() => agentViewStateCache);
   const viewMode = embedded ? 'embedded' : 'full';
@@ -1011,7 +1019,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
         opus1m: Boolean(source.opus1m),
         sonnet1m: Boolean(source.sonnet1m),
         haiku1m: Boolean(source.haiku1m),
-        fable: findAgentModel(models, source.fable)?.name ?? '',
+        fable: findAgentModel(models, source.fable ?? source.sonnet)?.name ?? '',
         fable1m: Boolean(source.fable1m),
         maxContextTokens: source.maxContextTokens ?? CLAUDE_CODE_DEFAULT_MAX_CONTEXT_TOKENS,
         autoCompactPct: source.autoCompactPct ?? DEFAULT_CLAUDE_AUTO_COMPACT_PCT,
@@ -1721,7 +1729,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
         variant: 'danger',
       });
       if (!confirmed) return;
-      const restart = invoke<void>('restart_codex_cli_daemon', { executablePath })
+      const restart = invokeForTarget<void>('restart_codex_cli_daemon', { executablePath })
         .finally(() => { codexCliServiceRestart = null; });
       codexCliServiceRestart = restart;
       await restart;

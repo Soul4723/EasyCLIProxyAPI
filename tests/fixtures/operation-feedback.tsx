@@ -1,3 +1,4 @@
+import { fixtureCoreStatus, MockCoreRuntime } from './coreRuntime';
 import { StrictMode, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -16,6 +17,8 @@ document.documentElement.dataset.theme = params.get('theme') ?? 'light';
 const fixture = window as typeof window & { feedbackFixture: { failSync: boolean } };
 fixture.feedbackFixture = { failSync: false };
 mockIPC(async (cmd) => {
+  if (cmd === 'get_management_target_revision') return 1;
+  if (cmd === 'get_core_status') return fixtureCoreStatus(params);
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'get_usage_collector_status') return { state: 'collecting', totalRecords: 1 };
   if (cmd === 'get_usage_analysis') return { models: [], providers: [], sources: [], apiKeys: [] };
@@ -79,6 +82,6 @@ function Fixture() {
     </dialog>
   </main>;
 }
-createRoot(document.getElementById('root')!).render(<StrictMode><I18nProvider>
+createRoot(document.getElementById('root')!).render(<StrictMode><I18nProvider><MockCoreRuntime>
   {params.get('scenario') === 'pricing' ? <UsageRecordsPage /> : <Fixture />}
-</I18nProvider></StrictMode>);
+</MockCoreRuntime></I18nProvider></StrictMode>);

@@ -1,11 +1,11 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const os = require('node:os');
-const base = process.env.AGENT_MODEL_INPUTS_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultTimeout(10000);
@@ -30,9 +30,9 @@ const base = process.env.AGENT_MODEL_INPUTS_TEST_URL || 'http://127.0.0.1:1421';
     const context = page.getByRole('switch', { name: '默认模型 1M', exact: true });
     await context.check();
     assert.equal(await startup.inputValue(), 'gpt-two[1m]');
-    assert.equal(await page.getByRole('spinbutton', { name: '全局窗口覆盖', exact: true }).inputValue(), '1000000');
+    assert.equal(await page.getByRole('spinbutton', { name: '自动压缩窗口', exact: true }).inputValue(), '1000000');
     await context.uncheck();
-    assert.equal(await page.getByRole('spinbutton', { name: '全局窗口覆盖', exact: true }).inputValue(), '200000');
+    assert.equal(await page.getByRole('spinbutton', { name: '自动压缩窗口', exact: true }).inputValue(), '200000');
     assert.equal(await startup.inputValue(), 'gpt-two');
     await page.locator('.claude-code-context-settings summary').click();
     assert.equal(await page.locator('.claude-role-row input[type=checkbox]').count(), 4);
@@ -73,4 +73,4 @@ const base = process.env.AGENT_MODEL_INPUTS_TEST_URL || 'http://127.0.0.1:1421';
     }
     console.log('PASS: select, custom input, defaults, connection failure/retry, draft retention and responsive layout');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_MODEL_INPUTS_TEST_URL });

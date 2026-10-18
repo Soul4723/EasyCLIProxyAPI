@@ -12,7 +12,7 @@ import '../../src/styles/index.css';
 const params = new URLSearchParams(location.search);
 const platform = params.get('platform') || 'windows';
 let saveError = params.has('save-error');
-localStorage.setItem('easy-cli-proxy-api.theme', 'dark');
+localStorage.setItem('easy-cli-proxy-api.theme', params.get('saved') || 'dark');
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') || 'zh-CN');
 let system: AppTheme = params.get('system') === 'light' ? 'light' : 'dark';
 let override: AppTheme | null = null;
@@ -21,6 +21,7 @@ const calls: { cmd: string; args: unknown }[] = [];
 const notify = (theme: AppTheme) => emit('tauri://theme-changed', theme);
 mockWindows('main');
 mockIPC(async (cmd, args: any) => {
+  if (cmd === 'get_management_target_revision') return 1;
   calls.push({ cmd, args });
   if (cmd === 'get_theme_selection') {
     if (params.has('read-error')) throw new Error('Unreadable configuration');
@@ -68,8 +69,9 @@ Object.assign(window, {
     },
   },
 });
-await initializeThemePreferences();
-initializeTheme(params.has('extensions') ? extensionRegistry : undefined);
-createRoot(document.getElementById('root')!).render(
-  <StrictMode><I18nProvider>{params.has('extensions') ? <ThemeExtensionFixture /> : <App />}</I18nProvider></StrictMode>,
-);
+void initializeThemePreferences().then(() => {
+  initializeTheme(params.has('extensions') ? extensionRegistry : undefined);
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode><I18nProvider>{params.has('extensions') ? <ThemeExtensionFixture /> : <App />}</I18nProvider></StrictMode>,
+  );
+});

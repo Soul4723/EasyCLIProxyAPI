@@ -1,14 +1,16 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+const os = require('node:os');
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     page.setDefaultTimeout(10000);
     const errors = []; page.on('pageerror', error => errors.push(String(error)));
     const open = async query => {
-      await page.goto('http://127.0.0.1:1421/tests/fixtures/agent-backups.html?client=claude-desktop&' + query, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${base}/tests/fixtures/agent-backups.html?client=claude-desktop&` + query, { waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: '添加模型', exact: true }).waitFor();
     };
     const rows = () => page.locator('.agent-desktop-model-row');
@@ -42,7 +44,7 @@ const path = require('node:path');
       assert.ok(await addButton.evaluate(button => button.classList.contains('primary-button')));
       assert.ok((await rows().first().boundingBox()).height < 100);
       assert.doesNotMatch(await page.locator('.agent-desktop-models').innerText(), /先拒绝|左侧选择或输入/);
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-defaults-${mode || 'full'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-defaults-${mode || 'full'}.png`), fullPage: true });
       const help = page.getByRole('button', { name: '使用说明', exact: true });
       await help.click();
       const dialog = page.getByRole('dialog', { name: '使用说明', exact: true });
@@ -52,7 +54,7 @@ const path = require('node:path');
       assert.match(await dialog.innerText(), /只允许使用 Claude.*无需映射/s);
       assert.match(await dialog.innerText(), /轮询调度.*期望的模型/s);
       assert.match(await dialog.innerText(), /claude-opus-\*.*claude-sonnet-\*.*claude-haiku-\*.*不能包含.*gpt.*grok.*gemini.*deepseek/s);
-      await page.screenshot({ path: path.join(process.env.TEMP, 'claude-desktop-help.png'), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), 'claude-desktop-help.png'), fullPage: true });
       await page.keyboard.press('Escape');
       await dialog.waitFor({ state: 'detached' });
       assert.ok(await help.evaluate(button => button === document.activeElement));
@@ -97,13 +99,13 @@ const path = require('node:path');
       const originals = await page.locator('.agent-model-option strong').allTextContents();
       assert.deepEqual(originals, ['gpt-one', 'gpt-two']);
       assert.equal(await page.getByRole('option', { selected: true }).locator('strong').innerText(), 'gpt-two');
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-original-dropdown-${mode || 'full'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-original-dropdown-${mode || 'full'}.png`), fullPage: true });
       await rows().nth(0).locator('.agent-model-search input').press('Escape');
       await idInput(0).click();
       const suggestions = await page.locator('.agent-model-option strong').allTextContents();
       assert.ok(suggestions.includes('claude-sonnet-4-6'));
       assert.ok(suggestions.every(id => !id.includes('cpa')));
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-alias-dropdown-${mode || 'full'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-alias-dropdown-${mode || 'full'}.png`), fullPage: true });
       await page.getByRole('option').filter({ has: page.getByText('claude-sonnet-4-6', { exact: true }) }).click();
       assert.equal(await idInput(0).inputValue(), 'claude-sonnet-4-6');
       assert.ok(await save().isEnabled());
@@ -135,7 +137,7 @@ const path = require('node:path');
       await rows().nth(1).waitFor();
       assert.equal(await idInput(0).inputValue(), '');
       assert.equal(await originalName(0), 'gpt-two');
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-models-${mode || 'full'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-models-${mode || 'full'}.png`), fullPage: true });
       for (let i = 0; i < 3; i++) await add(`claude-custom-${i}`, '');
       assert.equal(await rows().count(), 5);
       assert.ok(await save().isEnabled());
@@ -147,18 +149,18 @@ const path = require('node:path');
     }
     for (const query of ['claude-models', 'claude-alias-models']) {
       await open(query);
-      const opusWarning = rows().nth(0).getByText('默认别名「claude-opus-5」已存在于模型列表中，请切换其他别名，避免调用到其他模型。', { exact: true });
-      await opusWarning.waitFor();
-      await rows().nth(1).getByText('默认别名「claude-sonnet-5」已存在于模型列表中，请切换其他别名，避免调用到其他模型。', { exact: true }).waitFor();
+      const opusSuffixNotice = rows().nth(0).getByText('该别名已被占用，已自动改为「claude-opus-5-cc」。', { exact: true });
+      await opusSuffixNotice.waitFor();
+      await rows().nth(1).getByText('该别名已被占用，已自动改为「claude-sonnet-5-cc」。', { exact: true }).waitFor();
       await chooseOriginal(2, 'gpt-one');
       assert.ok(await save().isEnabled());
       assert.equal(await page.getByText('请选择或填写原模型。', { exact: true }).count(), 0);
       await chooseOriginal(0, 'gpt-one');
-      await opusWarning.waitFor();
-      assert.ok(await save().isDisabled());
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-default-conflict-${query}.png`), fullPage: true });
+      await opusSuffixNotice.waitFor();
+      assert.ok(await save().isEnabled());
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-default-conflict-${query}.png`), fullPage: true });
       await fillAlias(0, 'claude-opus-personal');
-      assert.equal(await opusWarning.count(), 0);
+      assert.equal(await opusSuffixNotice.count(), 0);
       assert.ok(await save().isEnabled());
     }
     await open('saved-desktop-alias');
@@ -179,10 +181,10 @@ const path = require('node:path');
     await fillAlias(0, ' CLAUDE-OPUS-5 ');
     await rows().first().getByText('别名与原模型相同，无需重复设置，将直接使用原模型 ID。', { exact: true }).waitFor();
     assert.ok(await save().isEnabled());
-    await page.screenshot({ path: path.join(process.env.TEMP, 'claude-desktop-same-model-notice.png'), fullPage: true });
+    await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), 'claude-desktop-same-model-notice.png'), fullPage: true });
     await fillAlias(0, 'claude-sonnet-5');
-    await rows().first().getByText('默认别名「claude-sonnet-5」已存在于模型列表中，请切换其他别名，避免调用到其他模型。', { exact: true }).waitFor();
-    assert.ok(await save().isDisabled());
+    await rows().first().getByText('该别名已被占用，已自动改为「claude-sonnet-5-cc」。', { exact: true }).waitFor();
+    assert.ok(await save().isEnabled());
     await fillAlias(0, 'claude-personal-model');
     await chooseOriginal(0, 'manual-model-not-in-list');
     assert.ok(await save().isEnabled());
@@ -214,7 +216,7 @@ const path = require('node:path');
         assert.ok(button.x >= section.x && button.x + button.width <= section.x + section.width);
       }
     }
-    await page.screenshot({ path: path.join(process.env.TEMP, 'claude-desktop-models-narrow.png'), fullPage: true });
+    await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), 'claude-desktop-models-narrow.png'), fullPage: true });
     await open('no-models');
     for (let i = 0; i < 3; i++) await rows().last().getByRole('button', { name: '移除模型' }).click();
     await add('claude-sonnet-custom-7', '');
@@ -224,4 +226,4 @@ const path = require('node:path');
     assert.deepEqual(errors, []);
     console.log('PASS: shared original model picker, editable alias suggestions, three-point help, custom IDs, save/remount, legacy migration and narrow layout');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+});

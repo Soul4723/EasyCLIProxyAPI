@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { UsageRecordsPage } from '../../src/pages/UsageRecordsPage';
+import { fixtureCoreStatus, MockCoreRuntime } from './coreRuntime';
 import '../../src/styles/index.css';
 
 const params = new URLSearchParams(location.search);
@@ -86,6 +87,8 @@ const usageKeyFixture = {
 Object.assign(window, { usageKeyFixture });
 
 mockIPC(async (cmd, args) => {
+  if (cmd === 'get_management_target_revision') return 1;
+  if (cmd === 'get_core_status') return fixtureCoreStatus(params);
   if (cmd === 'plugin:event|listen') return 1;
   if (cmd === 'plugin:event|unlisten' || cmd === 'set_app_locale') return null;
   if (cmd === 'get_usage_collector_status') {
@@ -162,7 +165,7 @@ mockIPC(async (cmd, args) => {
 });
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider>
+  <I18nProvider><MockCoreRuntime>
     <div className="app-shell">
       <aside className="sidebar" aria-hidden="true" />
       <div className="workspace">
@@ -171,5 +174,5 @@ createRoot(document.getElementById('root')!).render(
         </main>
       </div>
     </div>
-  </I18nProvider>,
+  </MockCoreRuntime></I18nProvider>,
 );

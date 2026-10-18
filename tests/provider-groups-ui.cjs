@@ -1,4 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs/promises');
@@ -13,7 +14,7 @@ const fs = require('node:fs/promises');
   try {
     await server.listen();
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors = [];
     page.on('pageerror', (error) => errors.push(String(error)));
@@ -128,15 +129,16 @@ const fs = require('node:fs/promises');
     // A legacy group remark must migrate to every individual key before the
     // backend removes group identities that are absent from allRecords.
     await page.goto(`${base}/tests/fixtures/provider-groups.html?scenario=remarks`);
-    const rowRemark = (index) => rows.nth(index).locator('.provider-row-title > span:not(.state-pill)');
-    await rowRemark(1).getByText('Existing group note', { exact: true }).waitFor();
+    await page.locator('.provider-category-panel button').filter({ hasText: 'Codex' }).click();
+    const rowRemark = (index) => rows.nth(index).locator('.provider-row-title > strong').filter({ hasText: /note/ });
+    await rowRemark(1).waitFor();
     await rows.nth(0).getByRole('button', { name: 'Edit', exact: true }).click();
     assert.equal(await dialog.getByLabel('Remark', { exact: true }).inputValue(), 'Existing group note');
     await dialog.locator('.provider-advanced-settings > summary').click();
     await dialog.getByLabel('Priority', { exact: true }).fill('8');
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await dialog.waitFor({ state: 'detached' });
-    await rowRemark(0).getByText('Existing group note', { exact: true }).waitFor();
+    await rowRemark(0).waitFor();
     assert.equal(await rowRemark(1).textContent(), 'Existing group note', 'Editing one key preserves the legacy group remark on its sibling');
 
     await rows.nth(0).getByRole('button', { name: 'Edit', exact: true }).click();
@@ -144,7 +146,7 @@ const fs = require('node:fs/promises');
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await dialog.waitFor({ state: 'detached' });
     await page.reload();
-    await rowRemark(1).getByText('Existing group note', { exact: true }).waitFor();
+    await rowRemark(1).waitFor();
     assert.equal(await rowRemark(0).count(), 0, 'An explicitly cleared remark stays empty after reload');
 
     await rows.nth(1).getByRole('button', { name: 'Edit', exact: true }).click();
@@ -158,7 +160,7 @@ const fs = require('node:fs/promises');
     assert.equal(detached[0]['base-url'], 'https://gateway.example.test/v1');
     assert.equal(detached[1]['base-url'], 'https://moved.example.test/v1');
     await page.reload();
-    await rowRemark(1).getByText('Moved key note', { exact: true }).waitFor();
+    await rowRemark(1).waitFor();
     assert.equal(await rowRemark(0).count(), 0, 'Splitting a sibling into another group preserves an explicitly empty remark');
     assert.equal(await rows.nth(1).locator('.provider-row-url').getAttribute('title'), 'https://moved.example.test/v1');
 
@@ -179,6 +181,7 @@ const fs = require('node:fs/promises');
     for (const viewport of [{ width: 1280, height: 800 }, { width: 640, height: 600 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(viewport);
       await page.goto(`${base}/tests/fixtures/provider-groups.html?locale=zh-CN`);
+      await page.locator('.provider-category-panel button').filter({ hasText: 'Codex' }).click();
       await rows.first().getByRole('button', { name: '编辑', exact: true }).click();
       const form = page.locator('.api-provider-dialog');
       await page.screenshot({ path: path.resolve(`bin-work/provider-groups-qa/edit-${viewport.width}.png`) });

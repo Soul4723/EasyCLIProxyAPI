@@ -18,6 +18,7 @@ const state = {
 Object.assign(window, { isTauri: true, titlebarTest: state });
 mockWindows('main');
 mockIPC((command, args) => {
+  if (command === 'get_management_target_revision') return 1;
   state.calls.push(command);
   if (command === 'plugin:event|listen') {
     state.listeners.set(args!.event as string, args!.handler as number);

@@ -26,6 +26,7 @@ let snapshot = { revision: 'fixture-1', models: params.has('empty') ? [] : model
 const calls: unknown[] = [];
 Object.assign(window, { fixtureCalls: calls, fixtureOriginal: structuredClone(snapshot) });
 mockIPC((cmd, args: any) => {
+  if (cmd === 'get_management_target_revision') return 1;
   calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'get_codex_model_catalog_editor') return structuredClone(snapshot);

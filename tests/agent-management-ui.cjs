@@ -1,12 +1,12 @@
-// Run Vite on port 1421, then node tests/agent-management-ui.cjs.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-(async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   const screenshots = path.join(os.tmpdir(), 'cpa-agent-ui-review');
   fs.mkdirSync(screenshots, { recursive: true });
   try {
@@ -14,7 +14,7 @@ const path = require('node:path');
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
     const open = async query => {
-      await page.goto('http://localhost:1421/tests/fixtures/agent-backups.html?reset-selections&' + query);
+      await page.goto(`${base}/tests/fixtures/agent-backups.html?reset-selections&` + query);
       await page.waitForFunction(() => {
         const refresh = document.querySelector('.agent-client-list-heading button');
         return refresh && !refresh.disabled && document.querySelector('.agent-model-trigger, .agent-desktop-models')
@@ -95,7 +95,7 @@ const path = require('node:path');
       assert.equal(await button('手动备份').count(), 0);
       assert.equal(await button('应用 ezcpa 模板').count(), 0);
       assert.ok(await page.locator('#agent-subpage-panel-core').getByRole('button', { name: '模型列表设置', exact: true }).isVisible());
-      assert.equal(await page.locator('.agent-launch-actions button').count(), 3);
+      assert.equal(await page.locator('.agent-launch-actions button').count(), 4);
       assert.equal(await tab('会话管理').count(), mode ? 0 : 1);
       await page.locator('.agent-model-trigger').click();
       await page.getByRole('option', { name: 'gpt-two' }).click();
@@ -238,4 +238,4 @@ const path = require('node:path');
     console.log('PASS: management navigation, preserved drafts, shared runtime actions, all desktop restarts, Pi, Harness, disabled states, keyboard, guide callback, responsive themes');
     console.log('Screenshots: ' + screenshots);
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+});

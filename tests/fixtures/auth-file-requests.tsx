@@ -36,6 +36,7 @@ const buckets = Array.from({ length: 20 }, (_, index) => ({
 }));
 
 mockIPC(async (cmd, args) => {
+  if (cmd === 'get_management_target_revision') return 1;
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'management_request') {
     const request = args?.request as { path: string; method: string; query?: Record<string, string>; body?: Record<string, unknown> };

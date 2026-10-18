@@ -1,4 +1,5 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -85,13 +86,17 @@ async function audit(page, scope, label) {
     });
     server = await preview({ root, build: { outDir }, preview: { host: '127.0.0.1', port: 0, strictPort: false }, logLevel: 'error' });
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await chromium.launch({ channel: 'msedge', headless: true });
+    browser = await launchBrowser(chromium);
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     page.setDefaultTimeout(15000);
     page.setDefaultNavigationTimeout(30000);
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
     await page.route('**/*', route => route.request().url().startsWith(base + '/') ? route.continue() : route.abort());
+    await page.route('**/__theme_fixture_selection', route => {
+      const selectedId = new URL(route.request().headers().referer).searchParams.get('saved') || 'light';
+      return route.fulfill({ json: { version: 1, selectedId, lastLightId: 'light', lastDarkId: 'dark' } });
+    });
     const open = fixture => page.goto(`${base}/tests/fixtures/${fixture}`, { waitUntil: 'domcontentloaded' });
     const screenshot = async name => {
       if (!process.env.CONTRAST_SCREENSHOT_DIR) return;
@@ -100,7 +105,7 @@ async function audit(page, scope, label) {
     };
 
     for (const theme of ['light', 'dark']) {
-      await open(`theme.html?reset&platform=browser&saved=${theme}`);
+      await open(`theme.html?reset&platform=windows&saved=${theme}`);
       await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
       await page.locator('.sidebar').waitFor();
       await audit(page, '.app-shell', `${theme} home and sidebar`);
@@ -121,7 +126,7 @@ async function audit(page, scope, label) {
       await page.locator('.auth-file-card').first().waitFor();
       await audit(page, '.auth-files-page', `${theme} credential cards`);
       await screenshot(`credential-cards-${theme}`);
-      await page.locator('.auth-file-card').first().getByRole('button', { name: '凭证设置', exact: true }).click();
+      await page.locator('.auth-file-card').first().getByRole('button', { name: '设置', exact: true }).click();
       await page.locator('.credential-settings-body[aria-busy="false"]').waitFor();
       await audit(page, '.credential-settings-dialog', `${theme} credential settings`);
       await screenshot(`credential-settings-${theme}`);

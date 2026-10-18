@@ -1,16 +1,15 @@
 const { chromium, webkit } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
-const base = process.env.AGENT_UI_BASE_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const engines = process.env.PLAYWRIGHT_ENGINES?.split(',') || ['chromium', 'webkit'];
+runUi(async ({ base }) => {
+  const engines = process.env.PLAYWRIGHT_ENGINES?.split(',') || ['chromium'];
   for (const name of engines) {
     const engine = { chromium, webkit }[name];
     assert.ok(engine, `Unsupported browser: ${name}`);
-    const browser = await engine.launch({
-      headless: true,
-      ...(name === 'chromium' ? { channel: 'msedge', args: ['--no-proxy-server'] } : {}),
-    });
+    const browser = name === 'chromium'
+      ? await launchBrowser(chromium, { args: ['--no-proxy-server'] })
+      : await engine.launch({ headless: true });
     try {
       const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
       page.setDefaultTimeout(10000);
@@ -111,4 +110,4 @@ const base = process.env.AGENT_UI_BASE_URL || 'http://127.0.0.1:1421';
       console.log(`PASS (${name}): direct/filtered clicks, keyboard selection, clear/refresh, Tab/Escape/outside dismissal, editable aliases and toggles in full and embedded views.`);
     } finally { await browser.close(); }
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_UI_BASE_URL });

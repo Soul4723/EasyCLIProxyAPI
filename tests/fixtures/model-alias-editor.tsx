@@ -25,6 +25,7 @@ if (new URLSearchParams(location.search).has('duplicates')) {
   entries.push({ ...entry, position: position(1), sourceModel: 'second-upstream' });
 }
 mockIPC(async (cmd, rawArgs) => {
+  if (cmd === 'get_management_target_revision') return 1;
   const args = (rawArgs ?? {}) as Record<string, any>;
   calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;
