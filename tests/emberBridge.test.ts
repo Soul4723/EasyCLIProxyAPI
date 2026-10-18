@@ -13,7 +13,7 @@ const fakeDocument = () => {
       colorScheme: '', backgroundColor: '',
     },
   };
-  const document = { documentElement: root, body: { style: { backgroundColor: '' } }, querySelector: () => null, head: { append() {} }, createElement: () => ({ dataset: {} }) };
+  const document = { documentElement: root, body: { style: { backgroundColor: '' } }, querySelector: () => null, head: { append() {} }, createElement: () => ({ dataset: {}, remove() {} }) };
   return { document: document as unknown as Document, properties };
 };
 
