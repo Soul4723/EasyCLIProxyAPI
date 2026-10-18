@@ -1,6 +1,7 @@
 // Provider summary strip (CPAMC/C5): logo, name, aggregate % left, one bar segment per account, on/total, next reset.
 import { ChevronDown } from 'lucide-react';
-import { Badge, Chip, ProviderLogo, ProviderName, STATUS_ORDER, statusColor, useUiText } from '../../ui';
+import { Badge, Chip, ProviderLogo, ProviderName, STATUS_ORDER, statusColor } from '../../ui';
+import { useUiText } from '../../ui/uiText';
 import { useI18n } from '../../i18n';
 import { providerInfo } from '../../ui';
 import { usePrivacyMask } from '../../privacy';

@@ -97,6 +97,7 @@ export function useLighting(locale: AppLocale): LightingApi {
   }, [reload]);
 
   const put = useCallback((schedule: LightingSchedule) => {
+    schedulesRef.current = new Map(schedulesRef.current).set(lightingKey(schedule.credential), schedule);
     setSchedules((current) => new Map(current).set(lightingKey(schedule.credential), schedule));
     return schedule;
   }, []);

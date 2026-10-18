@@ -170,7 +170,7 @@ export function AccountRow({ account, ctx, selected }: { account: QuotaAccount; 
   };
   return (
     <div
-      role="row"
+     
       className={`qt-row qt-row--${account.status}${selected ? ' is-selected' : ''}${account.disabled ? ' is-disabled' : ''}`}
       data-account={account.key}
       data-status={account.status}
@@ -191,7 +191,7 @@ export function AccountRow({ account, ctx, selected }: { account: QuotaAccount; 
 export function RowsHeader() {
   const { t } = useI18n();
   return (
-    <div role="row" className="qt-row qt-row--head" aria-hidden="true">
+    <div className="qt-row qt-row--head" aria-hidden="true">
       <span>{t('sec.quota.col.account')}</span>
       <span>{t('sec.quota.col.status')}</span>
       <span>{t('sec.quota.win.5h')}</span>
