@@ -67,6 +67,7 @@
   --ec-p-xai: #b4b4bd;         --ec-p-kimi: #4cc2c9;      --ec-p-devin: #4fd08a;
   --ec-p-deepseek: #6b86ff;    --ec-p-openrouter: #b58cf0; --ec-p-openai: #3fbf9b;
   --ec-p-gemini: #6fa8ff;      --ec-p-vertex: #4f8cf5;    --ec-p-copilot: #9aa4b2;
+  --ec-p-meta: #4f9bff;
   --ec-p-other: #a59996;
 
   /* z-index scale */
@@ -158,6 +159,7 @@
   --ec-p-xai: #6b6b75;         --ec-p-kimi: #1f9aa3;      --ec-p-devin: #1f9d5f;
   --ec-p-deepseek: #3f5ad8;    --ec-p-openrouter: #8b5fd0; --ec-p-openai: #178f72;
   --ec-p-gemini: #3f7fe0;      --ec-p-vertex: #2f6fe0;    --ec-p-copilot: #6b7685;
+  --ec-p-meta: #2a74d6;
   --ec-p-other: #6f5f57;
 
   --ec-shadow-card: 0 1px 2px rgb(43 33 28 / 6%);
