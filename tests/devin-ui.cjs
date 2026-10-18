@@ -67,7 +67,7 @@ runUi(async ({ base }) => {
     assert.equal(await page.locator('.real-quota-track:visible').count(), 2);
     assert.equal(await page.locator('.real-quota-track:visible span').last().evaluate(node => node.style.width), '0%');
     await page.evaluate(() => { window.devinFixture.quotaError = true; });
-    await page.getByRole('button', { name: 'Refresh All', exact: true }).click();
+    await page.getByRole('button', { name: 'Refresh Quota', exact: true }).click();
     await page.getByText('Session expired', { exact: false }).waitFor();
     assert.equal(await page.locator('.real-quota-track:visible').count(), 0);
 

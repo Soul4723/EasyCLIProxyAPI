@@ -16,7 +16,11 @@ runUi(async ({ base }) => {
     const client = name => ({ click: async () => {
       const row = page.locator('.agent-list-items button').filter({ has: page.getByText(name, { exact: true }) });
       const previous = button('上一页客户端');
-      while (await previous.isEnabled()) await previous.click();
+      while (await previous.evaluate(element => {
+        if (element.disabled) return false;
+        element.click();
+        return true;
+      })) await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       for (let index = 0; index < 13 && !(await row.count()); index++) {
         const next = button('下一页客户端');
         assert.ok(await next.isEnabled(), `${name} must be reachable in the saved client list`);
