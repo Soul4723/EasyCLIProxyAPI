@@ -1,0 +1,18 @@
+.ec-masked {
+  display: inline-block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.ec-masked--mono {
+  font-family: var(--ec-mono);
+}
+
+.ec-masked--hidden {
+  letter-spacing: 0.08em;
+  color: var(--ec-fg-muted);
+}

@@ -1,0 +1,148 @@
+/* Button: see Button.tsx for props. Token-only colours; density via --ec-ctrl-h / --ec-ctrl-h-sm. */
+
+.ec-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ec-sp-2);
+  height: var(--ec-ctrl-h);
+  padding: 0 var(--ec-sp-3);
+  border: 1px solid var(--ec-border);
+  border-radius: var(--ec-r-md);
+  background: var(--ec-raised);
+  color: var(--ec-fg);
+  font: inherit;
+  font-size: var(--ec-fs-md);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.ec-btn:hover:not(:disabled) {
+  background: var(--ec-hover);
+  border-color: var(--ec-input-border);
+}
+
+.ec-btn:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 2px;
+}
+
+.ec-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ec-btn__icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.ec-btn__icon svg,
+.ec-btn__spin {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.ec-btn__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* variants (listed after the base so they win on equal specificity) */
+.ec-btn--primary {
+  background: var(--ec-accent);
+  border-color: var(--ec-accent);
+  color: var(--ec-accent-fg);
+  font-weight: 600;
+}
+
+.ec-btn--primary:hover:not(:disabled) {
+  background: var(--ec-accent);
+  border-color: var(--ec-accent);
+  filter: brightness(1.06);
+}
+
+.ec-btn--secondary {
+  background: var(--ec-raised);
+  color: var(--ec-fg);
+}
+
+.ec-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ec-fg-2);
+}
+
+.ec-btn--ghost:hover:not(:disabled) {
+  background: var(--ec-hover);
+  border-color: transparent;
+}
+
+.ec-btn--outline {
+  background: transparent;
+  border-color: var(--ec-input-border);
+  color: var(--ec-fg-2);
+}
+
+.ec-btn--danger {
+  background: color-mix(in srgb, var(--ec-danger) var(--ec-tint), transparent);
+  border-color: color-mix(in srgb, var(--ec-danger) 40%, transparent);
+  color: var(--ec-danger-fg);
+}
+
+.ec-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ec-danger) 24%, transparent);
+  border-color: color-mix(in srgb, var(--ec-danger) 55%, transparent);
+}
+
+/* sizes */
+.ec-btn--sm {
+  height: var(--ec-ctrl-h-sm);
+  padding: 0 var(--ec-sp-2);
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-btn--xs {
+  height: 22px;
+  gap: var(--ec-sp-1);
+  padding: 0 var(--ec-sp-2);
+  border-radius: var(--ec-r-sm);
+  font-size: var(--ec-fs-xs);
+}
+
+.ec-btn--xs .ec-btn__icon svg,
+.ec-btn--xs .ec-btn__spin {
+  width: 12px;
+  height: 12px;
+}
+
+/* loading */
+.ec-btn--loading,
+.ec-btn--loading:disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.ec-btn__spin {
+  animation: ec-btn-spin 900ms linear infinite;
+}
+
+@keyframes ec-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-btn__spin {
+    animation-duration: 2400ms;
+  }
+}

@@ -1,0 +1,45 @@
+.ec-provider-logo {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: var(--ec-r-sm);
+  border: 1px solid color-mix(in srgb, var(--ec-logo-color) 30%, transparent);
+  background: color-mix(in srgb, var(--ec-logo-color) var(--ec-tint), transparent);
+  color: var(--ec-logo-color);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.ec-provider-logo--circle {
+  border-radius: var(--ec-r-pill);
+}
+
+.ec-provider-logo__img {
+  display: block;
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+}
+
+.ec-provider-logo__mono {
+  font-family: var(--ec-font);
+}
+
+/* Monochrome logos are drawn in black; invert them on the dark theme only. */
+:root:not([data-theme='light']) .ec-provider-logo--invert .ec-provider-logo__img {
+  filter: invert(1);
+}
+
+/* Kimi mixes a blue mark with currentColor; invert, then hue-rotate to keep the blue. Approximation. */
+:root:not([data-theme='light']) .ec-provider-logo--invert-hue .ec-provider-logo__img {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.ec-provider-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

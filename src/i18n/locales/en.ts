@@ -1,10 +1,28 @@
 import { connectionEn } from "../coreConnection";
+import { uiEn } from '../../ui/i18n';
+import { shellEn } from '../../shell/i18n';
+import { overviewEn } from '../../sections/overview/i18n';
+import { providersEn } from '../../sections/providers/i18n';
+import { quotaEn } from '../../sections/quota/i18n';
+import { usageEn } from '../../sections/usage/i18n';
+import { agentsEn } from '../../sections/agents/i18n';
+import { pluginsEn } from '../../sections/plugins/i18n';
+import { settingsEn } from '../../sections/settings/i18n';
 import type { MessageKey } from './zh-CN';
 import { easyModeEn } from '../easyMode';
 import { homeEn } from '../home';
 import { authFileListEn } from '../authFileList';
 
 export const en: Record<MessageKey, string> = {
+  ...uiEn,
+  ...shellEn,
+  ...overviewEn,
+  ...providersEn,
+  ...quotaEn,
+  ...usageEn,
+  ...agentsEn,
+  ...pluginsEn,
+  ...settingsEn,
   'app.nav.plugins': 'Plugins',
   'oauth.vertex.title': 'Vertex JSON Login',
   'oauth.vertex.locationPlaceholder': 'us-central1',

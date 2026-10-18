@@ -30,7 +30,8 @@ function componentFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return entry.name === 'i18n' ? [] : componentFiles(path);
-    return entry.name.endsWith('.tsx') ? [path] : [];
+    // KitGallery is a dev-only reference page (hidden #/kit route, not shipped UI copy).
+    return entry.name.endsWith('.tsx') && entry.name !== 'KitGallery.tsx' ? [path] : [];
   });
 }
 
