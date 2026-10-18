@@ -24,8 +24,7 @@ mockIPC(async (cmd, args: any) => {
   calls.push({ cmd, args });
   if (cmd === 'get_theme_selection') {
     if (params.has('read-error')) throw new Error('Unreadable configuration');
-    const response = await fetch('/__theme_fixture_selection');
-    return response.ok ? response.json() : null;
+    return { version: 1, selectedId: params.get('saved') || 'dark', lastLightId: 'light', lastDarkId: 'dark' };
   }
   if (cmd === 'save_theme_selection') {
     if (saveError) throw new Error('Disk full');
