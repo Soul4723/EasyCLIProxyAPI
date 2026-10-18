@@ -7,7 +7,7 @@ import { captureQuotaCacheGeneration, getQuotaCacheSnapshot, invalidateQuotaCach
 import { commitFetchedQuota } from '../src/services/quotaEnrichment';
 import { startQuotaOperation } from '../src/services/quotaOperation';
 import { resetQuotaWithConfirmation } from '../src/services/quotaActions';
-import { QuotaCard } from '../src/pages/QuotaPage';
+import { renderCard } from './helpers/quotaAccount';
 import { AuthFileQuotaPanel } from '../src/components/AuthFileQuotaPanel';
 import { I18nProvider } from '../src/i18n';
 
@@ -99,11 +99,10 @@ for (const provider of ['claude', 'codex']) {
     expect(displayed.plan).toBe('TARGET B');
     expect(displayed.rows[0].remainingPercent).toBe(30);
     expect(displayed.resetCredits).toBe(7);
-    for (const markup of [
-      <QuotaCard file={file} quota={displayed} onRefresh={() => {}} onReset={() => {}} />,
-      <AuthFileQuotaPanel file={file} quota={displayed} disabled={false} onRefresh={() => {}} onReset={() => {}} />,
+    for (const html of [
+      renderCard(file, displayed),
+      renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={file} quota={displayed} disabled={false} onRefresh={() => {}} onReset={() => {}} /></I18nProvider>),
     ]) {
-      const html = renderToStaticMarkup(<I18nProvider>{markup}</I18nProvider>);
       expect(html).toContain('30%');
       expect(html).not.toContain('90%');
       expect(html).not.toContain('TARGET A PRIVATE');
