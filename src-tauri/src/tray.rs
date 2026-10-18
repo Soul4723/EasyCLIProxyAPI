@@ -6,6 +6,12 @@ use objc2_app_kit::NSStatusItemBehavior;
 #[cfg(target_os = "macos")]
 use objc2_foundation::NSString;
 
+pub(crate) fn main_window<R: tauri::Runtime, M: Manager<R>>(
+    manager: &M,
+) -> Option<tauri::Window<R>> {
+    manager.get_window("main")
+}
+
 #[cfg(target_os = "macos")]
 const MACOS_TRAY_ID: &str = "macos-tray";
 
@@ -25,7 +31,7 @@ pub(crate) fn set_macos_dock_visible(app_handle: &tauri::AppHandle, visible: boo
 
 #[cfg(target_os = "macos")]
 pub(crate) fn show_main_window_on_main_thread(app_handle: &tauri::AppHandle) {
-    let Some(window) = app_handle.get_webview_window("main") else {
+    let Some(window) = main_window(app_handle) else {
         return;
     };
     set_macos_dock_visible(app_handle, true);
@@ -300,6 +306,7 @@ pub(crate) struct WindowsTrayState {
     quit_item: MenuItem<tauri::Wry>,
     locale: Mutex<String>,
     busy: AtomicBool,
+    last_status: Mutex<Option<CoreStatus>>,
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -369,6 +376,7 @@ impl WindowsTrayState {
     }
 
     fn update(&self, status: &CoreStatus) -> String {
+        if let Ok(mut cached) = self.last_status.lock() { *cached = Some(status.clone()); }
         let presentation =
             windows_tray_presentation(status, self.busy.load(Ordering::Acquire), &self.locale());
         if let Err(error) = self.status_item.set_text(presentation.status_text.clone()) {
@@ -409,7 +417,7 @@ impl WindowsTrayState {
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub(crate) fn show_windows_main_window(app_handle: &tauri::AppHandle) {
-    let Some(window) = app_handle.get_webview_window("main") else {
+    let Some(window) = main_window(app_handle) else {
         return;
     };
     if let Err(error) = window.show() {
@@ -440,16 +448,34 @@ pub(crate) fn update_windows_tray_status(app_handle: &tauri::AppHandle, status: 
     }
 }
 
+// Never relabel a Local cache as Remote during a target transition.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn tray_locale_status(config: &GuiConfigFile, cached: Option<CoreStatus>) -> Option<CoreStatus> {
+    if config.connection_mode == CoreConnectionMode::Remote {
+        let connection = crate::core_connection::connection_from_config(config).ok()?;
+        if let Some(status) = cached.filter(|status| {
+            status.connection_mode.as_deref() == Some("remote")
+                && status.remote_origin.as_deref() == Some(connection.management_origin.as_str())
+        }) { return Some(status); }
+        return Some(crate::core_connection::remote_status(&connection, crate::core_connection::CoreConnectionTestResult {
+            connected: false, version: None, message: "Checking remote connection".into(),
+        }));
+    }
+    cached.filter(|status| status.connection_mode.as_deref() != Some("remote"))
+}
+
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub(crate) fn update_windows_tray_locale(
     app_handle: &tauri::AppHandle,
-    locale: &str,
-    status: &CoreStatus,
+    config: &GuiConfigFile,
 ) {
     if let Some(tray_state) = app_handle.try_state::<WindowsTrayState>() {
-        tray_state.set_locale(locale);
+        tray_state.set_locale(&config.locale);
+        let cached = tray_state.last_status.lock().ok().and_then(|status| status.clone());
+        if let Some(status) = tray_locale_status(config, cached) {
+            update_windows_tray_status(app_handle, &status);
+        }
     }
-    update_windows_tray_status(app_handle, status);
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -477,28 +503,21 @@ pub(crate) fn run_windows_tray_core_action(
     app_handle: &tauri::AppHandle,
     action: WindowsTrayCoreAction,
 ) {
-    let Some(tray_state) = app_handle.try_state::<WindowsTrayState>() else {
-        return;
+    let expected = match app_handle.state::<GuiConfigState>().snapshot() {
+        Ok(config) => config,
+        Err(_) => return,
     };
-    if !tray_state.begin_action() {
-        return;
-    }
-    if let Some(tray) = app_handle.tray_by_id(WINDOWS_TRAY_ID) {
-        if let Err(error) = tray.set_tooltip(Some(native_text(
-            &tray_state.locale(),
-            NativeText::TooltipCoreWorking,
-        ))) {
-            eprintln!("Failed to update desktop tray busy tooltip: {error}");
-        }
-    }
-
     let app_handle = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let process_state = app_handle.state::<CoreProcessState>();
         let gui_config_state = app_handle.state::<GuiConfigState>();
+        // Reject stale/Remote clicks before touching presentation, and fence
+        // both success and error publication against a target transition.
+        let Ok(_target) = gui_config_state.blocking_local_target_operation(&expected) else { return; };
+        let Some(tray_state) = app_handle.try_state::<WindowsTrayState>() else { return; };
+        if !tray_state.begin_action() { return; }
         let result = (|| -> Result<CoreStatus, String> {
             let _guard = lock_core_operation(process_state.inner())?;
-            crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
             match action {
                 WindowsTrayCoreAction::Toggle => {
                     let config = gui_config_state.snapshot()?;
@@ -529,12 +548,8 @@ pub(crate) fn run_windows_tray_core_action(
         match result {
             Ok(status) => emit_core_status(&app_handle, &status),
             Err(error) => {
-                if let Ok(config) = gui_config_state.snapshot().and_then(|config| { crate::core_connection::require_local(&config)?; Ok(config) }) {
-                    if let Ok(status) =
-                        current_core_status(Some(process_state.inner()), Some(config.port))
-                    {
-                        emit_core_status(&app_handle, &status);
-                    }
+                if let Ok(status) = current_core_status(Some(process_state.inner()), Some(expected.port)) {
+                    emit_core_status(&app_handle, &status);
                 }
                 show_windows_tray_action_error(&app_handle, &error);
             }
@@ -644,7 +659,74 @@ pub(crate) fn setup_windows_tray(app: &mut tauri::App<tauri::Wry>) -> tauri::Res
         quit_item: quit,
         locale: Mutex::new(locale),
         busy: AtomicBool::new(false),
+        last_status: Mutex::new(None),
     });
 
     Ok(())
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "windows")))]
+mod native_target_tests {
+    use super::*;
+
+    fn remote_config() -> GuiConfigFile {
+        let mut config = GuiConfigFile::default();
+        config.connection_mode = CoreConnectionMode::Remote;
+        config.remote_management_origin = "https://remote.example".into();
+        config.remote_management_key = "management-secret".into();
+        config.remote_client_origin = "https://remote.example".into();
+        config
+    }
+
+    #[test]
+    fn remote_locale_refresh_preserves_authenticated_status_without_local_probe() {
+        let config = remote_config();
+        let connection = crate::core_connection::connection_from_config(&config).unwrap();
+        let cached = crate::core_connection::remote_status(&connection, crate::core_connection::CoreConnectionTestResult {
+            connected: true, version: Some("8.0.29".into()), message: "Connected".into(),
+        });
+        let status = tray_locale_status(&config, Some(cached)).unwrap();
+        assert_eq!(status.connection_mode.as_deref(), Some("remote"));
+        assert!(status.ready);
+        assert_eq!(status.current_version.as_deref(), Some("8.0.29"));
+        let presentation = windows_tray_presentation(&status, false, "zh-CN");
+        assert!(!presentation.toggle_enabled);
+        assert!(!presentation.restart_enabled);
+    }
+
+    #[test]
+    fn remote_locale_refresh_cannot_republish_local_cached_claims() {
+        let config = remote_config();
+        let mut local = crate::core_connection::remote_status(
+            &crate::core_connection::connection_from_config(&config).unwrap(),
+            crate::core_connection::CoreConnectionTestResult { connected: true, version: Some("local-version".into()), message: "Local".into() },
+        );
+        local.connection_mode = Some("local".into());
+        local.installed = true;
+        local.process_id = Some(123);
+        local.binary_path = Some("/local/core".into());
+        let status = tray_locale_status(&config, Some(local)).unwrap();
+        assert_eq!(status.connection_mode.as_deref(), Some("remote"));
+        assert!(!status.installed);
+        assert!(!status.ready);
+        assert!(status.process_id.is_none());
+        assert!(status.binary_path.is_none());
+        assert!(status.current_version.is_none());
+    }
+
+    #[test]
+    fn tray_publication_lease_rejects_remote_and_stale_clicks_and_fences_completion() {
+        let state = GuiConfigState::new(remote_config());
+        assert!(state.blocking_local_target_operation(&state.snapshot().unwrap()).is_err());
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let expected = state.snapshot().unwrap();
+        {
+            let _publication = state.blocking_local_target_operation(&expected).unwrap();
+            // save_core_connection takes the same mutex before changing targets.
+            assert!(state.target_operation.try_lock().is_err());
+        }
+        assert!(state.target_operation.try_lock().is_ok());
+        state.replace_external(remote_config()).unwrap();
+        assert!(state.blocking_local_target_operation(&expected).is_err());
+    }
 }

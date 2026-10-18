@@ -167,10 +167,8 @@ const { openApp } = require('./helpers/shell.cjs');
       assert.equal(await page.locator('.template-config-section').count(), 2);
       await noOverflow('request defaults');
 
-      await page.getByRole('radio', { name: 'Extensions' }).click();
-      await page.locator('.ec-models-collapsible').nth(2).locator('.template-config-card').first().waitFor();
-      assert.equal(await page.locator('.ec-models-collapsible').nth(2).locator('.ec-models-collapsible-head').getAttribute('aria-expanded'), 'true');
-      await noOverflow('extensions');
+      // Upstream moved the plugin settings template to the Plugins page: no Extensions view here.
+      assert.equal(await page.getByRole('radio', { name: 'Extensions' }).count(), 0);
       await page.close();
     }
 

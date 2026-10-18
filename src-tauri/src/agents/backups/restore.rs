@@ -173,6 +173,7 @@ pub(crate) async fn prepare_restore_plan(
     id: &str,
 ) -> Result<RestorePlan, String> {
     let mut plan = local_restore_plan(client, home, id)?;
+    super::target::validate_restore_target(config, client, &plan.after)?;
     if let Some((mappings, models)) = desktop_restore_configuration(&plan)? {
         let before = fetch_management_config_yaml(config)
             .await

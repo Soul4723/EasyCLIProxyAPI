@@ -7,14 +7,18 @@ pub(crate) fn get_lan_ipv4() -> Option<String> {
 
 #[tauri::command]
 pub(crate) async fn get_core_tls_settings(
-    gui_config_state: tauri::State<'_, GuiConfigState>,) -> Result<CoreTlsSettings, String> {
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
+) -> Result<CoreTlsSettings, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let document = serde_norway::from_str(content).map_err(|_| "Invalid remote core configuration".to_string())?;
             Ok((content.to_string(), core_tls_settings_from_value(&document)?))
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     current_core_tls_settings()
 }
@@ -22,17 +26,20 @@ pub(crate) async fn get_core_tls_settings(
 #[tauri::command]
 pub(crate) async fn save_core_tls_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: CoreTlsSettings,
 ) -> Result<CoreTlsSettings, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
         let settings = normalize_core_tls_settings(settings)?;
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let updated = patch_core_tls_settings_yaml(content, &settings)?.unwrap_or_else(|| content.to_string());
             Ok((updated, settings))
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let settings = normalize_core_tls_settings(settings)?;
     patch_core_tls_settings(&settings)?;
@@ -42,14 +49,18 @@ pub(crate) async fn save_core_tls_settings(
 
 #[tauri::command]
 pub(crate) async fn get_core_sensitive_words_settings(
-    gui_config_state: tauri::State<'_, GuiConfigState>,) -> Result<CoreSensitiveWordsSettings, String> {
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
+) -> Result<CoreSensitiveWordsSettings, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let document = serde_norway::from_str(content).map_err(|_| "Invalid remote core configuration".to_string())?;
             Ok((content.to_string(), core_sensitive_words_settings_from_value(&document)?))
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     read_core_sensitive_words_settings()
 }
@@ -57,16 +68,19 @@ pub(crate) async fn get_core_sensitive_words_settings(
 #[tauri::command]
 pub(crate) async fn save_core_sensitive_words_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     settings: CoreSensitiveWordsSettings,
 ) -> Result<CoreSensitiveWordsSettings, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
         let settings = normalize_core_sensitive_words_settings(settings);
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let updated = patch_core_sensitive_words_yaml(content, &settings)?.unwrap_or_else(|| content.to_string());
             Ok((updated, settings))
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let normalized = normalize_core_sensitive_words_settings(settings);
     patch_core_sensitive_words_settings(&normalized)?;
@@ -97,10 +111,12 @@ pub(crate) fn detect_lan_ipv4() -> Option<Ipv4Addr> {
 #[tauri::command]
 pub(crate) fn save_gui_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: GuiNetworkSettings,
 ) -> Result<GuiSettings, String> {
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     if settings.port == 0 {
         return Err("Port must be between 1 and 65535".to_string());
@@ -146,10 +162,12 @@ pub(crate) fn save_gui_settings(
 #[tauri::command]
 pub(crate) fn save_network_routing_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: GuiNetworkRoutingSettings,
 ) -> Result<CoreConfigView, String> {
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     if settings.port == 0 {
         return Err("Port must be between 1 and 65535".to_string());
@@ -201,12 +219,14 @@ pub(crate) fn save_network_routing_settings(
 #[tauri::command]
 pub(crate) async fn save_network_endpoint_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: GuiNetworkEndpointSettings,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
         if settings.port == 0 { return Err("Port must be between 1 and 65535".to_string()); }
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let mut next = remote_gui_config(content)?;
             next.host = normalize_optional_config_string(settings.host, "Listen IP")?;
             if !next.host.is_empty() && !next.host.eq_ignore_ascii_case("localhost") && next.host.parse::<IpAddr>().is_err() {
@@ -228,6 +248,7 @@ pub(crate) async fn save_network_endpoint_settings(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     if settings.port == 0 {
         return Err("Port must be between 1 and 65535".to_string());
@@ -277,10 +298,12 @@ pub(crate) async fn save_network_endpoint_settings(
 #[tauri::command]
 pub(crate) async fn save_retry_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     settings: GuiRetrySettings,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let mut next = remote_gui_config(content)?;
             next.disable_cooling = settings.disable_cooling;
             next.request_retry = settings.request_retry;
@@ -293,6 +316,7 @@ pub(crate) async fn save_retry_settings(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let previous = gui_config_state.snapshot()?;
     let mut next = previous.clone();
@@ -315,10 +339,12 @@ pub(crate) async fn save_retry_settings(
 #[tauri::command]
 pub(crate) async fn save_session_routing_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     settings: GuiSessionRoutingSettings,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let mut next = remote_gui_config(content)?;
             next.routing_session_affinity = settings.routing_session_affinity;
             next.routing_session_affinity_ttl = normalize_session_affinity_ttl(settings.routing_session_affinity_ttl)?;
@@ -328,6 +354,7 @@ pub(crate) async fn save_session_routing_settings(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let ttl = normalize_session_affinity_ttl(settings.routing_session_affinity_ttl)?;
     let previous = gui_config_state.snapshot()?;
@@ -348,11 +375,14 @@ pub(crate) async fn save_session_routing_settings(
 #[tauri::command]
 pub(crate) async fn get_core_config_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, |content| Ok((content.to_string(), remote_config_view(content)?))).await;
+        return remote_config_edit(&gui_config_state, expected_revision, |content| Ok((content.to_string(), remote_config_view(content)?))).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let settings = current_core_config_settings(gui_config_state.inner())?;
     let config = gui_config_state.sync_core_settings(&settings)?;
@@ -366,13 +396,15 @@ pub(crate) async fn get_core_config_settings(
 #[tauri::command]
 pub(crate) async fn save_core_logging_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     settings: CoreLoggingSettingsInput,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
         if !(1..=3600).contains(&settings.redis_usage_queue_retention_seconds) {
             return Err("Redis usage queue retention must be between 1 and 3600 seconds".to_string());
         }
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let mut next = CoreConfigSettings::from(&remote_gui_config(content)?);
             next.debug = settings.debug;
             next.commercial_mode = settings.commercial_mode;
@@ -387,6 +419,7 @@ pub(crate) async fn save_core_logging_settings(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     if !(1..=3600).contains(&settings.redis_usage_queue_retention_seconds) {
         return Err("Redis usage queue retention must be between 1 and 3600 seconds".to_string());
@@ -416,11 +449,13 @@ pub(crate) async fn save_core_logging_settings(
 #[tauri::command]
 pub(crate) async fn add_core_api_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     api_key: String,
     remark: String,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let next = remote_gui_config(content)?;
             let mut keys = gui_api_key_values(&next.api_keys);
             let api_key = api_key.trim().to_string(); validate_core_api_key(&api_key)?;
@@ -433,6 +468,7 @@ pub(crate) async fn add_core_api_key(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let api_key = api_key.trim().to_string();
     let remark = remark.trim().to_string();
@@ -491,12 +527,14 @@ pub(crate) fn remove_core_api_key_value(
 #[tauri::command]
 pub(crate) async fn update_core_api_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     original_api_key: String,
     api_key: String,
     remark: String,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let next = remote_gui_config(content)?;
             let mut keys = gui_api_key_values(&next.api_keys);
             let api_key = api_key.trim().to_string(); validate_core_api_key(&api_key)?;
@@ -508,6 +546,7 @@ pub(crate) async fn update_core_api_key(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let original_api_key = original_api_key.trim();
     let api_key = api_key.trim().to_string();
@@ -534,10 +573,12 @@ pub(crate) async fn update_core_api_key(
 #[tauri::command]
 pub(crate) async fn delete_core_api_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     api_key: String,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let next = remote_gui_config(content)?;
             let mut keys = gui_api_key_values(&next.api_keys);
             remove_core_api_key_value(&mut keys, api_key.trim())?;
@@ -547,6 +588,7 @@ pub(crate) async fn delete_core_api_key(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let api_key = api_key.trim();
     if api_key.is_empty() {
@@ -562,9 +604,11 @@ pub(crate) async fn delete_core_api_key(
 #[tauri::command]
 pub(crate) fn set_core_management_secret_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     secret_key: String,
 ) -> Result<CoreConfigView, String> {
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let secret_key = normalize_management_secret_key(secret_key)?;
     let previous = gui_config_state.snapshot()?;
@@ -583,8 +627,10 @@ pub(crate) fn set_core_management_secret_key(
 #[tauri::command]
 pub(crate) fn clear_core_management_secret_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
 ) -> Result<CoreConfigView, String> {
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let previous = gui_config_state.snapshot()?;
     patch_core_management_secret_key("")?;
@@ -602,11 +648,13 @@ pub(crate) fn clear_core_management_secret_key(
 #[tauri::command]
 pub(crate) async fn set_core_plugins_enabled(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
 
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let value = serde_norway::to_value(enabled).map_err(|_| "Invalid configuration value".to_string())?;
             let updated = patch_core_yaml_document(content, |doc| set_core_yaml_path_value(doc, &["plugins", "enabled"], value))?.unwrap_or_else(|| content.to_string());
             let view = remote_config_view(&updated)?;
@@ -614,6 +662,7 @@ pub(crate) async fn set_core_plugins_enabled(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     settings.plugins_enabled = enabled;
@@ -625,11 +674,13 @@ pub(crate) async fn set_core_plugins_enabled(
 #[tauri::command]
 pub(crate) async fn set_core_request_log(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
 
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let value = serde_norway::to_value(enabled).map_err(|_| "Invalid configuration value".to_string())?;
             let updated = patch_core_yaml_document(content, |doc| set_core_yaml_path_value(doc, &["observability", "logs", "request-log"], value))?.unwrap_or_else(|| content.to_string());
             let view = remote_config_view(&updated)?;
@@ -637,6 +688,7 @@ pub(crate) async fn set_core_request_log(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     let previous_enabled = settings.request_log;
@@ -655,11 +707,13 @@ pub(crate) async fn set_core_request_log(
 #[tauri::command]
 pub(crate) async fn set_core_routing_strategy(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     strategy: String,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
         validate_routing_strategy(&strategy)?;
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let value = serde_norway::to_value(strategy).map_err(|_| "Invalid configuration value".to_string())?;
             let updated = patch_core_yaml_document(content, |doc| set_core_yaml_path_value(doc, &["routing", "strategy"], value))?.unwrap_or_else(|| content.to_string());
             let view = remote_config_view(&updated)?;
@@ -667,6 +721,7 @@ pub(crate) async fn set_core_routing_strategy(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     validate_routing_strategy(&strategy)?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
@@ -679,11 +734,13 @@ pub(crate) async fn set_core_routing_strategy(
 #[tauri::command]
 pub(crate) async fn set_core_proxy_url(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     proxy_url: String,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
         let proxy_url = network_proxy::normalize_optional_proxy_url(&proxy_url)?;
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let value = serde_norway::to_value(proxy_url).map_err(|_| "Invalid configuration value".to_string())?;
             let updated = patch_core_yaml_document(content, |doc| set_core_yaml_path_value(doc, &["requests", "proxy-url"], value))?.unwrap_or_else(|| content.to_string());
             let view = remote_config_view(&updated)?;
@@ -691,6 +748,7 @@ pub(crate) async fn set_core_proxy_url(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     network_proxy::set_manual(gui_config_state.inner(), proxy_url)?;
     Ok(CoreConfigView::from(&gui_config_state.snapshot()?))
@@ -699,11 +757,13 @@ pub(crate) async fn set_core_proxy_url(
 #[tauri::command]
 pub(crate) async fn set_core_session_affinity(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
 
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let value = serde_norway::to_value(enabled).map_err(|_| "Invalid configuration value".to_string())?;
             let updated = patch_core_yaml_document(content, |doc| set_core_yaml_path_value(doc, &["routing", "session-affinity"], value))?.unwrap_or_else(|| content.to_string());
             let view = remote_config_view(&updated)?;
@@ -711,6 +771,7 @@ pub(crate) async fn set_core_session_affinity(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     let previous_enabled = settings.routing_session_affinity;
@@ -729,11 +790,13 @@ pub(crate) async fn set_core_session_affinity(
 #[tauri::command]
 pub(crate) async fn set_core_session_affinity_ttl(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     ttl: String,
 ) -> Result<CoreConfigView, String> {
+    gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
         let ttl = normalize_session_affinity_ttl(ttl)?;
-        return remote_config_edit(&gui_config_state, |content| {
+        return remote_config_edit(&gui_config_state, expected_revision, |content| {
             let value = serde_norway::to_value(ttl).map_err(|_| "Invalid configuration value".to_string())?;
             let updated = patch_core_yaml_document(content, |doc| set_core_yaml_path_value(doc, &["routing", "session-affinity-ttl"], value))?.unwrap_or_else(|| content.to_string());
             let view = remote_config_view(&updated)?;
@@ -741,6 +804,7 @@ pub(crate) async fn set_core_session_affinity_ttl(
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
+    gui_config_state.ensure_revision(expected_revision)?;
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let ttl = normalize_session_affinity_ttl(ttl)?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
@@ -760,11 +824,13 @@ pub(crate) async fn set_core_session_affinity_ttl(
 // Remote edits work on a fresh remote snapshot only. No local GUI/core settings are synchronized.
 async fn remote_config_edit<T>(
     state: &GuiConfigState,
+    expected_revision: u64,
     edit: impl FnOnce(&str) -> Result<(String, T), String>,
 ) -> Result<T, String> {
     let config = state.snapshot()?;
     let _target_operation = state.target_operation.lock().await;
     state.ensure_target(&config)?;
+    state.ensure_revision(expected_revision)?;
     if config.connection_mode != CoreConnectionMode::Remote {
         return Err("Core connection changed; reload settings".to_string());
     }

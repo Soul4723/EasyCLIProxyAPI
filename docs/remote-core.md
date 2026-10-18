@@ -129,3 +129,15 @@ across two machines. These checks do not establish live provider OAuth success,
 inference quality, quota availability, or every deployment's certificate/proxy setup.
 
 Upstream contract: [v8 management API at the bundled 8.0.29 source](https://github.com/router-for-me/CLIProxyAPI/blob/5fc580b1d72d87a7bcfe5cfb6f479c1aea5625b3/docs/management-api-v8.md).
+
+### Invalid saved connection settings
+
+If the saved GUI `config.toml` (or legacy `cpa-gui.yaml`) cannot be read or parsed,
+or its Remote origin/management key is invalid, startup stops with an error on
+stderr. The app does not replace the target with Local, overwrite the saved file,
+install/adopt/start a local core, or open a repair dialog. Correct the saved file
+and relaunch. Only an absent configuration uses first-run Local defaults.
+
+Local HTTPS management retains self-signed certificate compatibility when Local
+core TLS is enabled. Remote HTTPS requires a trusted, hostname-valid certificate;
+both management clients bypass proxies and refuse redirects.
