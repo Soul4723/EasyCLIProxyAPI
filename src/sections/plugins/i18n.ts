@@ -42,6 +42,16 @@ export const pluginsZhCN = {
   "sec.plugins.settings.githubTokenHint": "提高商店的 GitHub 请求额度",
   "sec.plugins.settings.unsaved": "有未保存的修改",
   "sec.plugins.settings.reset": "还原",
+  "sec.plugins.localInstall": "本地安装",
+  "sec.plugins.localBinary": "插件动态库",
+  "sec.plugins.localTrust": "仅安装你信任且适配当前系统、架构和内核版本的插件。插件可访问内核的数据与系统资源。文件将复制到插件目录；同名文件不会覆盖。压缩包请先解压。",
+  "sec.plugins.localInstalled": "文件已安装。请在本地插件中配置并启用，必要时重启内核；文件复制成功不代表插件已加载。",
+  "sec.plugins.developmentGuide": "开发指南",
+  "sec.plugins.officialStoreThirdParty": "此插件收录于官方商店，但代码仓库不属于官方组织。商店来源不代表插件作者身份，请确认信任该仓库后再继续。",
+  "sec.plugins.additionalStore": "附加商店",
+  "sec.plugins.officialStore": "官方商店",
+  "sec.plugins.trustTypeUpdate": "输入以下内容以确认更新",
+  "sec.plugins.localInstallRemote": "远程内核不支持本地安装",
 } as const;
 
 export const pluginsEn: Record<keyof typeof pluginsZhCN, string> = {
@@ -86,6 +96,16 @@ export const pluginsEn: Record<keyof typeof pluginsZhCN, string> = {
   "sec.plugins.settings.githubTokenHint": "Raises the store's GitHub rate limit",
   "sec.plugins.settings.unsaved": "Unsaved changes",
   "sec.plugins.settings.reset": "Reset",
+  "sec.plugins.localInstall": "Install local plugin",
+  "sec.plugins.localBinary": "Plugin library",
+  "sec.plugins.localTrust": "Only install plugins you trust that match your OS, architecture, and kernel version. Plugins can access kernel data and system resources. The file will be copied to the plugin directory without overwriting existing files. Extract archives first.",
+  "sec.plugins.localInstalled": "File installed. Configure and enable it in Local plugins; restart the kernel if needed. Copying the file does not confirm successful loading.",
+  "sec.plugins.developmentGuide": "Development guide",
+  "sec.plugins.officialStoreThirdParty": "This plugin is listed in the official store, but its repository is outside the official organization. The store source does not identify the plugin author. Continue only if you trust this repository.",
+  "sec.plugins.additionalStore": "Additional store",
+  "sec.plugins.officialStore": "Official store",
+  "sec.plugins.trustTypeUpdate": "Type the following to confirm update",
+  "sec.plugins.localInstallRemote": "Local install is not available for a remote core",
 };
 
 export const pluginsJa: Record<keyof typeof pluginsZhCN, string> = {
@@ -130,4 +150,14 @@ export const pluginsJa: Record<keyof typeof pluginsZhCN, string> = {
   "sec.plugins.settings.githubTokenHint": "ストアの GitHub リクエスト上限を緩和します",
   "sec.plugins.settings.unsaved": "未保存の変更",
   "sec.plugins.settings.reset": "元に戻す",
+  "sec.plugins.localInstall": "ローカルインストール",
+  "sec.plugins.localBinary": "プラグインライブラリ",
+  "sec.plugins.localTrust": "信頼できる、現在の OS・アーキテクチャ・コアに対応するプラグインのみインストールしてください。プラグインはコアのデータとシステム資源にアクセスできます。同名ファイルは上書きしません。圧縮ファイルは先に展開してください。",
+  "sec.plugins.localInstalled": "ファイルをインストールしました。ローカルプラグインで設定・有効化し、必要に応じてコアを再起動してください。コピー成功は読み込み成功を意味しません。",
+  "sec.plugins.developmentGuide": "開発ガイド",
+  "sec.plugins.officialStoreThirdParty": "公式ストアに掲載されていますが、リポジトリは公式組織のものではありません。ストアと作者は別です。リポジトリを信頼できる場合のみ続行してください。",
+  "sec.plugins.additionalStore": "追加ストア",
+  "sec.plugins.officialStore": "公式ストア",
+  "sec.plugins.trustTypeUpdate": "更新の確認のため次の文字列を入力",
+  "sec.plugins.localInstallRemote": "リモートコアではローカルインストールを利用できません",
 };

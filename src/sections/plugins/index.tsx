@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
-import { Puzzle, RefreshCw, RotateCw } from 'lucide-react';
+import { BookOpen, FolderInput, Puzzle, RefreshCw, RotateCw } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { PageHeader } from '../../shell/PageHeader';
 import { RouteTabs } from '../../shell/RouteTabs';
 import { navigate, routePath } from '../../shell/router';
 import type { SectionPageProps } from '../../shell/types';
+import { localPluginFileName } from '../../services/pluginLocalInstall';
 import { isPluginInstalled } from '../../services/pluginStatus';
 import { Button, ConfirmDialog, EmptyState, ErrorState, Masked, Skeleton, Toggle } from '../../ui';
 import { ConfigPanel } from './ConfigPanel';
@@ -40,8 +41,24 @@ export function PluginsSection({ sub }: SectionPageProps) {
   const removeInstalled = ctl.removeTarget ? isPluginInstalled(ctl.removeTarget) : true;
   const removeLabel = pt(removeInstalled ? 'remove' : 'removeConfig');
 
+  const toolActions = (
+    <>
+      {supported ? (
+        <Button variant="secondary" icon={<FolderInput size={14} />} disabled={locked || ctl.remote} data-action="local-install"
+          aria-label={t('sec.plugins.localInstall')} title={ctl.remote ? t('sec.plugins.localInstallRemote') : t('sec.plugins.localInstall')}
+          onClick={() => void ctl.chooseLocalInstall()}>
+          <span className="pl-btn-text">{t('sec.plugins.localInstall')}</span>
+        </Button>
+      ) : null}
+      <Button variant="secondary" icon={<BookOpen size={14} />} data-action="development-guide"
+        aria-label={t('sec.plugins.developmentGuide')} title={t('sec.plugins.developmentGuide')} onClick={ctl.openDevelopmentGuide}>
+        <span className="pl-btn-text">{t('sec.plugins.developmentGuide')}</span>
+      </Button>
+    </>
+  );
   const actions = supported && data ? (
     <>
+      {toolActions}
       <label className="pl-global" title={t('sec.plugins.enableGlobal')}>
         <span className="pl-global-label">{t('sec.plugins.enableGlobal')}</span>
         <Toggle checked={data.pluginsEnabled} label={pt('global')} disabled={locked}
@@ -52,9 +69,12 @@ export function PluginsSection({ sub }: SectionPageProps) {
       </Button>
     </>
   ) : supported === null && !ctl.error ? undefined : (
-    <Button variant="secondary" icon={<RefreshCw size={14} />} loading={ctl.loading} disabled={ctl.busy} aria-label={t('common.refresh')} title={t('common.refresh')} onClick={() => void ctl.load()}>
-      <span className="pl-btn-text">{t('common.refresh')}</span>
-    </Button>
+    <>
+      {toolActions}
+      <Button variant="secondary" icon={<RefreshCw size={14} />} loading={ctl.loading} disabled={ctl.busy} aria-label={t('common.refresh')} title={t('common.refresh')} onClick={() => void ctl.load()}>
+        <span className="pl-btn-text">{t('common.refresh')}</span>
+      </Button>
+    </>
   );
 
   let body;
@@ -124,6 +144,9 @@ export function PluginsSection({ sub }: SectionPageProps) {
         title={`${removeLabel} · ${ctl.removeTarget ? ctl.getPluginTitle(ctl.removeTarget) : ''}`}
         message={pt(removeInstalled ? 'removeHint' : 'removeConfigHint')} confirmLabel={removeLabel}
         onCancel={() => ctl.setRemoveTarget(null)} onConfirm={() => void ctl.confirmRemove()} />
+      <ConfirmDialog open={Boolean(ctl.localInstallFile)} danger title={t('sec.plugins.localInstall')}
+        message={<><code className="pl-confirm-file"><Masked value={ctl.localInstallFile ? localPluginFileName(ctl.localInstallFile) : ''} mono /></code><br />{t('sec.plugins.localTrust')}</>}
+        confirmLabel={pt('install')} onCancel={() => ctl.setLocalInstallFile(null)} onConfirm={() => void ctl.confirmLocalInstall()} />
       <ConfirmDialog open={ctl.restartOpen} title={pt('restartButton')} message={pt('restartConfirm')}
         confirmLabel={pt('restartButton')} onCancel={() => ctl.setRestartOpen(false)} onConfirm={() => void ctl.confirmRestart()} />
     </div>

@@ -181,3 +181,5 @@
   .ec-sec-plugins .pl-toolbar-end .pl-search { flex: 1; }
   .ec-sec-plugins .pl-source-add { flex-direction: column; }
 }
+.ec-sec-plugins .pl-token { display: inline-block; margin-left: var(--ec-sp-2); padding: 0 var(--ec-sp-2); background: var(--ec-code); border-radius: var(--ec-r-xs); font-family: var(--ec-mono); font-size: var(--ec-fs-xs); }
+.ec-sec-plugins .pl-confirm-file { display: inline-block; margin-bottom: var(--ec-sp-2); font-family: var(--ec-mono); }

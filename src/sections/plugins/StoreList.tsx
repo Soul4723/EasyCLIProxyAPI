@@ -1,5 +1,5 @@
 import { Download, ExternalLink, Store } from 'lucide-react';
-import { buildRepositoryURL, isOfficialPlugin } from '../../services/pluginResources';
+import { buildRepositoryURL, getPluginRepositorySlug, isDefaultPluginStoreSource, isOfficialPlugin } from '../../services/pluginResources';
 import type { PluginStoreEntry } from '../../services/plugins';
 import { Button, Card, Chip, EmptyState, FilterChips, IconButton, Masked, SearchInput, Skeleton } from '../../ui';
 import { GitHubTokenHint, PluginTile, isGitHubRateLimit } from './parts';
@@ -22,7 +22,7 @@ export function StoreList({ ctl }: { ctl: PluginsController }) {
       <div className="pl-toolbar">
         <FilterChips ariaLabel={t('sec.plugins.filterLabel')} value={ctl.storeFilter} onChange={ctl.setStoreFilter} options={filters} />
         <div className="pl-toolbar-end">
-          {ctl.storeSources.length > 1 || ctl.sourceFilter ? (
+          {ctl.storeSources.length > 0 || ctl.sourceFilter ? (
             <select className="pl-select" aria-label={pt('storeSource')} value={ctl.sourceFilter} onChange={event => ctl.setSourceFilter(event.target.value)}>
               <option value="">{pt('allStores')}</option>
               {ctl.storeSources.map(source => <option key={source.key} value={source.key}>{source.label}</option>)}
@@ -64,6 +64,8 @@ export function StoreList({ ctl }: { ctl: PluginsController }) {
 function StoreCard({ entry, ctl, locked }: { entry: PluginStoreEntry; ctl: PluginsController; locked: boolean }) {
   const { pt, t } = ctl;
   const official = isOfficialPlugin(entry);
+  const officialStore = isDefaultPluginStoreSource(entry);
+  const repositorySlug = entry.repository ? getPluginRepositorySlug(entry.repository) || entry.repository : '';
   const repository = buildRepositoryURL(entry.repository);
   const needsAuth = entry.authRequired && !entry.authConfigured;
   const label = needsAuth ? 'authMissing' : !entry.installed ? 'install' : entry.updateAvailable ? 'update' : 'reinstall';
@@ -85,8 +87,10 @@ function StoreCard({ entry, ctl, locked }: { entry: PluginStoreEntry; ctl: Plugi
           {entry.author ? <span className="ec-trunc">{entry.author}</span> : null}
           {entry.license ? <span className="pl-muted">{entry.license}</span> : null}
         </div>
+        {repositorySlug ? <div className="pl-card-meta pl-muted"><span className="ec-trunc" title={entry.repository}>{pt('repository')}: <Masked value={repositorySlug} mono /></span></div> : null}
         <div className="pl-card-meta pl-muted">
-          <span className="pl-card-source ec-trunc" title={`${pt('source')}: ${entry.sourceName || entry.sourceId}`}>{entry.sourceName || entry.sourceId}</span>
+          <Chip size="sm" tone={officialStore ? 'ok' : 'outline'}>{officialStore ? t('sec.plugins.officialStore') : t('sec.plugins.additionalStore')}</Chip>
+          <span className="pl-card-source ec-trunc" title={`${pt('storeSource')}: ${officialStore ? t('sec.plugins.officialStore') : entry.sourceName || entry.sourceId}`}>{officialStore ? entry.sourceName || entry.sourceId : entry.sourceName || entry.sourceId}</span>
           {platforms.length > 0 ? <span className="pl-platforms ec-trunc" title={platforms.join(' · ')}>{platforms.join(' · ')}</span> : null}
         </div>
         <div className="pl-card-foot">

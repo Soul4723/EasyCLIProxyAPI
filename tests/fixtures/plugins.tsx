@@ -99,6 +99,8 @@ mockIPC(async (command, args) => {
     if (args?.pluginId !== 'sample..plugin' || args?.menuIndex !== 2) throw new Error('Wrong original menu index');
     return `${location.origin}/tests/fixtures/plugins.html?resource=1`;
   }
+  if (command === 'plugin:dialog|open') return (window as unknown as { pluginsFixture: { dialogFile?: string } }).pluginsFixture.dialogFile ?? null;
+  if (command === 'install_local_plugin') return `plugins/${String(args?.source).split(/[\\/]/).pop()}`;
   if (command === 'open_external_url' || command === 'restart_core_process') return null;
   if (command !== 'management_request') return null;
   const request = args?.request as Request;
