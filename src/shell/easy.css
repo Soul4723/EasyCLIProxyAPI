@@ -1,0 +1,4 @@
+/* Guided setup (EasyModePage inside the shell): centred column; the old page keeps its own panels. */
+.ec-easy { align-items: stretch; }
+.ec-easy > .simple-mode-page { width: 100%; max-width: 1100px; margin: 0 auto; padding: 0; }
+.ec-easy .simple-mode-shell-bar { display: flex; justify-content: flex-start; margin-bottom: var(--ec-sp-3); }
