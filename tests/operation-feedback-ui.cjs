@@ -1,9 +1,8 @@
-// Run with AGENT_TEST_URL pointing at a Vite dev server of this checkout.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
-const base = process.env.AGENT_TEST_URL || process.env.FEEDBACK_TEST_BASE_URL || 'http://127.0.0.1:1421';
-(async () => {
-  const browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultTimeout(10000);
@@ -144,4 +143,4 @@ const base = process.env.AGENT_TEST_URL || process.env.FEEDBACK_TEST_BASE_URL ||
     assert.deepEqual(errors, []);
     console.log('PASS: no layout shifts, shared stack, owner cleanup, success expiry/repeat/hover/focus, persistent errors, quota details, native modal, light/dark at 3 widths, real pricing success/error.');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL || process.env.FEEDBACK_TEST_BASE_URL });

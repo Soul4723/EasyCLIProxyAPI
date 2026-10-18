@@ -1,10 +1,9 @@
-// Run with AGENT_TEST_URL pointing at a Vite dev server of this checkout.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     for (const scenario of ['desktop', 'both', 'running', 'cli']) {
       const page = await browser.newPage();
@@ -49,4 +48,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

@@ -1,12 +1,11 @@
-// Run against a Vite dev server: AGENT_TEST_URL=http://127.0.0.1:5391 node tests/claude-code-model-layout-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const os = require('node:os');
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(10000);
@@ -72,4 +71,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     assert.deepEqual(errors, []);
     console.log('PASS: 24 viewport/language/theme layouts, alias selection, keyboard search, context toggle and configuration update');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

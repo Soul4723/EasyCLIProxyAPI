@@ -2,13 +2,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 
 // Plugins section (#/plugins · #/plugins/store · #/plugins/settings) against the fake-IPC fixture tests/fixtures/plugins.html.
-(async () => {
-  const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
+runUi(async ({ base }) => {
   let browser;
   try {
-    browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
+    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultTimeout(12000);
     const errors = [];
@@ -25,7 +25,7 @@ const fs = require('node:fs');
     const card = title => page.locator('ul.pl-grid > li').filter({ has: page.locator('strong').filter({ hasText: new RegExp(`^${escapeRe(title)}$`) }) });
     const cards = () => page.locator('ul.pl-grid > li');
     const tab = name => page.getByRole('tab', { name });
-    const dialog = () => page.getByRole('dialog');
+    const dialog = () => page.locator('[role=dialog], [role=alertdialog]');
     const installs = () => page.evaluate(() => window.pluginsFixture.installs);
     const requests = () => page.evaluate(() => window.pluginsFixture.requests);
     const commands = () => page.evaluate(() => window.pluginsFixture.commands);
@@ -405,4 +405,4 @@ const fs = require('node:fs');
   } finally {
     await browser?.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

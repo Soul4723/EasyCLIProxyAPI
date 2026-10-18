@@ -1,8 +1,8 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
-const base = process.env.USAGE_TEST_URL || 'http://127.0.0.1:1439';
-(async () => {
-  const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true });
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage();
     const errors = [];
@@ -50,5 +50,5 @@ const base = process.env.USAGE_TEST_URL || 'http://127.0.0.1:1439';
     assert.deepEqual(errors, []);
     console.log('PASS: five filters, clipped/transformed containers, wheel and long-list selection, resize, ancestor scroll, scoped theme, outside focus/click.');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.USAGE_TEST_URL });
 
