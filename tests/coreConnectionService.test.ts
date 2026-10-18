@@ -26,3 +26,9 @@ describe('core connection helpers', () => {
     expect(changedConnectionFields({ ...remote, mode: 'local' }, remote)).toBe(1);
   });
 });
+
+test('plain http to a non-loopback host is flagged as sending keys in clear', async () => {
+  const { isInsecureRemoteOrigin } = await import('../src/services/coreConnection');
+  for (const origin of ['http://10.0.0.5:8317', 'http://core.example.test', 'http://100.64.1.2:8317']) expect(isInsecureRemoteOrigin(origin)).toBe(true);
+  for (const origin of ['https://core.example.test', 'http://localhost:8317', 'http://127.0.0.1:8317', 'http://[::1]:8317', 'http://app.localhost', 'not a url', 'http://x.test/path']) expect(isInsecureRemoteOrigin(origin)).toBe(false);
+});

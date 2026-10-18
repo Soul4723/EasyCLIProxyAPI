@@ -6,7 +6,7 @@ import { useCoreRuntime } from '../../../coreRuntime';
 import { routeHref } from '../../../shell/router';
 import {
   EMPTY_CONNECTION, changedConnectionFields, classifyConnectionResult, exportCoreConnection, getCoreConnection, importCoreConnection,
-  isValidOrigin, saveCoreConnection, testCoreConnection, type ConnectionFailure, type CoreConnection,
+  isInsecureRemoteOrigin, isValidOrigin, saveCoreConnection, testCoreConnection, type ConnectionFailure, type CoreConnection,
 } from '../../../services/coreConnection';
 import { Button, Card, Chip, ErrorState, IconButton, Masked, SegmentedControl, Skeleton, Toggle } from '../../../ui';
 import { useCoreConfig } from '../coreConfig';
@@ -66,6 +66,15 @@ export function ConnectionTab() {
   const clientOriginError = remoteDraft && !isValidOrigin(draft.clientOrigin) ? t('sec.settings.connection.errOrigin') : '';
   const mgmtKeyError = remoteDraft && !draft.managementKey.trim() ? t('sec.settings.connection.errRequired') : '';
   const invalid = remoteDraft && Boolean(mgmtOriginError || clientOriginError || mgmtKeyError);
+  const insecureHttp = remoteDraft && (isInsecureRemoteOrigin(draft.managementOrigin) || isInsecureRemoteOrigin(draft.clientOrigin));
+  // Field errors only render after Test/Save, and a disabled Save can never set that, so say why in the save bar.
+  const disabledReason = invalid
+    ? `${t('sec.settings.connection.cantSavePrefix')} ${[
+      mgmtOriginError && t('sec.settings.connection.cantSaveMgmtOrigin'),
+      mgmtKeyError && t('sec.settings.connection.cantSaveMgmtKey'),
+      clientOriginError && t('sec.settings.connection.cantSaveClientOrigin'),
+    ].filter(Boolean).join(' ')}`
+    : '';
   const blockedByLocal = remoteDraft && savedConn?.mode !== 'remote' && ownedLocalRunning;
 
   const change = (patch: Partial<CoreConnection>) => {
@@ -192,6 +201,10 @@ export function ConnectionTab() {
             </SettingRow>
           </SettingsGroup>
 
+          {insecureHttp ? (
+            <div className="ec-con-banner" role="alert" data-testid="connection-http-warning"><TriangleAlert size={14} aria-hidden="true" />{t('sec.settings.connection.httpWarn')}</div>
+          ) : null}
+
           <Card className="ec-con-test" data-testid="connection-test" data-state={test.state}>
             <div className="ec-con-test-row">
               <Button variant="secondary" icon={<PlugZap size={14} />} loading={test.state === 'running'} onClick={() => void runTest()}>{test.state === 'running' ? t('sec.settings.connection.testing') : t('sec.settings.connection.test')}</Button>
@@ -217,7 +230,7 @@ export function ConnectionTab() {
         {notice ? <p className="ec-con-notice" role="status">{notice}</p> : null}
       </SettingsGroup>
 
-      <SaveBar count={count} saved={justSaved} busy={busy === 'save'} error={saveError} disabled={invalid || blockedByLocal}
+      <SaveBar count={count} saved={justSaved} busy={busy === 'save'} error={saveError} disabled={invalid || blockedByLocal} disabledReason={disabledReason}
         saveLabel={t(remoteDraft ? 'sec.settings.connection.saveConnect' : 'sec.settings.connection.saveLocal')}
         onSave={() => void doSave()} onDiscard={() => { setDraft(savedConn); setTest({ state: 'idle' }); setSaveError(''); setNotice(''); setTouched(false); }} />
     </div>

@@ -63,6 +63,7 @@
 .ec-sec-settings .ec-set-hint:hover, .ec-sec-settings .ec-set-hint:focus-visible { color: var(--ec-fg); }
 .ec-sec-settings .ec-set-row-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--ec-sp-2); min-width: 0; }
 .ec-sec-settings .ec-set-row.is-stacked .ec-set-row-control { justify-content: stretch; }
+.ec-sec-settings .ec-set-savebar-reason { margin: 0; color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
 .ec-sec-settings .ec-set-row-error, .ec-sec-settings .ec-set-savebar-error { grid-column: 1 / -1; margin: 0; color: var(--ec-danger-fg); font-size: var(--ec-fs-xs); }
 
 /* inputs */

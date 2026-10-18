@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useId, useMemo, useR
 import { Check, Info, RotateCcw } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { useCoreRuntime } from '../../coreRuntime';
+import { isDocumentTargetBlocked } from '../../services/documentTarget';
 import { APP_NAVIGATION_REQUEST_EVENT, type AppNavigationRequest } from '../../navigation';
 import { Button, Card, ConfirmDialog, Chip } from '../../ui';
 import type { MessageKey } from '../../i18n/resources';
@@ -48,7 +49,9 @@ export function useSettingsDirtyState() {
   }, []);
   useEffect(() => {
     if (!anyDirty) return;
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    // A blocked document is about to reload for a core-connection change; a "Leave site?" prompt there
+    // would let the user keep a document that can no longer make any fenced call.
+    const warn = (event: BeforeUnloadEvent) => { if (!isDocumentTargetBlocked()) event.preventDefault(); };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [anyDirty]);
@@ -121,8 +124,10 @@ export function SettingRow({ label, hint, effect, icon, htmlFor, children, error
 }
 
 /** Sticky unsaved-changes bar. `count` = changed fields (0 hides the bar unless `saved` is set). */
-export function SaveBar({ count, busy, onSave, onDiscard, error, saved, saveLabel, disabled }: {
+export function SaveBar({ count, busy, onSave, onDiscard, error, saved, saveLabel, disabled, disabledReason }: {
   count: number; busy?: boolean; onSave: () => void; onDiscard: () => void; error?: string; saved?: boolean; saveLabel?: string; disabled?: boolean;
+  /** Visible reason shown while Save is disabled. */
+  disabledReason?: string;
 }) {
   const { t } = useI18n();
   if (count === 0 && !saved && !error) return null;
@@ -134,9 +139,10 @@ export function SaveBar({ count, busy, onSave, onDiscard, error, saved, saveLabe
           : <><Check size={14} aria-hidden="true" /> {t('sec.settings.save.saved')}</>}
       </span>
       {error ? <span className="ec-set-savebar-error" role="alert">{error}</span> : null}
+      {disabled && disabledReason && count > 0 ? <span className="ec-set-savebar-reason" id="ec-set-savebar-reason">{disabledReason}</span> : null}
       <span className="ec-set-spacer" />
       {count > 0 ? <Button size="sm" variant="ghost" icon={<RotateCcw size={14} />} disabled={busy} onClick={onDiscard}>{t('sec.settings.save.discard')}</Button> : null}
-      {count > 0 ? <Button size="sm" variant="primary" loading={busy} disabled={disabled} onClick={onSave}>{saveLabel ?? t('common.save')}</Button> : null}
+      {count > 0 ? <Button size="sm" variant="primary" loading={busy} disabled={disabled} aria-describedby={disabled && disabledReason ? 'ec-set-savebar-reason' : undefined} onClick={onSave}>{saveLabel ?? t('common.save')}</Button> : null}
     </div>
   );
 }

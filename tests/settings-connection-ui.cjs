@@ -36,6 +36,9 @@ const { openApp, setPrivacy, invoke } = require('./helpers/shell.cjs');
     await page.getByRole('radio', { name: 'Remote core' }).click();
     await page.locator('#con-mgmt-origin').fill('https://core.example.test');
     await page.locator('#con-mgmt-key').fill('fixture-management-key');
+    // Save is disabled before Test/Save can reveal field errors, so the save bar must say why.
+    await page.getByText('Cannot save yet: Enter a valid client API origin').waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Save & connect' }).isDisabled(), true);
     await page.locator('#con-client-origin').fill('https://core.example.test');
     await page.getByText('still running — stop it in Overview first').waitFor();
     assert.equal(await page.getByRole('button', { name: 'Save & connect' }).isDisabled(), true);
@@ -72,7 +75,9 @@ const { openApp, setPrivacy, invoke } = require('./helpers/shell.cjs');
     };
     await expectFailure('https://core.example.test', 'wrong', 'auth', /Management key rejected \(401\)/);
     await expectFailure('https://forbidden.example.test', 'x', 'forbidden', /allow-remote: true/);
+    assert.equal(await page.getByTestId('connection-http-warning').count(), 0, 'https origins carry no cleartext warning');
     await expectFailure('http://legacy.example.test', 'x', 'legacy', /Not a v8 core/);
+    await page.getByTestId('connection-http-warning').getByText(/sent unencrypted/).waitFor();
     await expectFailure('https://broken.example.test', 'x', 'http', /HTTP 500/);
     await expectFailure('https://offline.example.test', 'x', 'unreachable', /certificate may be untrusted/);
     await expectFailure('http://offline.example.test', 'x', 'unreachable', /Check the host, the port/);
@@ -92,17 +97,19 @@ const { openApp, setPrivacy, invoke } = require('./helpers/shell.cjs');
     await guard.getByRole('button', { name: 'Cancel' }).click();
     assert.equal(await page.locator('#con-mgmt-origin').inputValue(), 'https://core.example.test');
 
-    // Save activates it.
+    // Save activates it. The app reloads itself onto the new target: no beforeunload prompt may appear and
+    // the pre-save document must be replaced (a Stay choice would leave a fenced, unusable document).
+    await page.locator('#con-mgmt-origin').fill('https://core.example.test');
+    await page.locator('#con-mgmt-key').fill('fixture-management-key');
+    const dialogs = [];
+    page.on('dialog', dialog => { dialogs.push(dialog.type()); void dialog.dismiss(); });
+    await page.evaluate(() => { window.__beforeSave = true; });
     await page.getByRole('button', { name: 'Save & connect' }).click();
-    await page.getByText('Saved', { exact: true }).waitFor();
-    await active.locator('[data-mode], :scope').first().waitFor();
-    await page.waitForFunction(() => document.querySelector('[data-testid=connection-active]')?.getAttribute('data-mode') === 'remote');
+    await page.waitForFunction(() => window.__beforeSave === undefined
+      && document.querySelector('[data-testid=connection-active]')?.getAttribute('data-mode') === 'remote');
+    assert.deepEqual(dialogs, [], 'saving a connection must not trigger a leave-site prompt');
     assert.match((await footer.innerText()), /core\.example\.test/);
-    // Native save bumps the target revision and the document reloads onto it (dev: documentTarget fencing).
-    assert.equal(await invoke(page, 'get_management_target_revision'), 1, 'saving a target bumps the revision');
-    await page.reload();
-    await page.waitForFunction(() => document.querySelector('[data-testid=connection-active]')?.getAttribute('data-mode') === 'remote');
-    assert.equal(await invoke(page, 'get_management_target_revision'), 1, 'the revision survives the reload');
+    assert.equal(await invoke(page, 'get_management_target_revision'), 1, 'saving a target bumps the revision and the reloaded document owns it');
     assert.equal(await page.locator('[data-settings-tab=connection] [role=img]').count(), 0);
 
     // Privacy mode masks the target host.
