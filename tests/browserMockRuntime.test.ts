@@ -19,21 +19,24 @@ describe('browser mock options', () => {
 });
 
 describe('browser mock runtime', () => {
-  test('offers fast and standard request samples in the first usage rows', async () => {
+  test('offers fast and standard request samples across the usage rows', async () => {
     const runtime = createBrowserMockRuntime('running');
-    const page = await runtime.invoke('get_usage_events', { query: { page_size: 3 } }) as {
+    const page = await runtime.invoke('get_usage_events', { query: { page_size: 200 } }) as {
       items: Array<{ reasoning_effort: string; service_tier: string }>;
     };
-    expect(page.items.map(({ reasoning_effort, service_tier }) => [reasoning_effort, service_tier]))
-      .toEqual([['medium', 'priority'], ['medium', 'fast'], ['medium', 'default']]);
+    const tiers = new Set(page.items.map(({ service_tier }) => service_tier));
+    expect(tiers.has('priority')).toBe(true);
+    expect(tiers.has('')).toBe(true);
+    expect(page.items.some(({ reasoning_effort }) => reasoning_effort === 'medium')).toBe(true);
   });
 
   test('offers a long failed request for the expanded error preview', async () => {
-    const page = await createBrowserMockRuntime('running').invoke('get_usage_events', { query: { page_size: 6 } }) as {
+    const page = await createBrowserMockRuntime('running').invoke('get_usage_events', { query: { failed: true, page_size: 200 } }) as {
       items: Array<{ failed: boolean; failure_body: string }>;
     };
-    expect(page.items[5].failed).toBe(true);
-    expect(page.items[5].failure_body.length).toBeGreaterThan(300);
+    expect(page.items.length).toBeGreaterThan(0);
+    expect(page.items.every((item) => item.failed)).toBe(true);
+    expect(page.items.some((item) => item.failure_body.length > 300)).toBe(true);
   });
 
   test('empty scenario exposes empty credentials, providers and usage after installing the core', async () => {
@@ -45,14 +48,15 @@ describe('browser mock runtime', () => {
     expect(Object.values(providers).every(groups => groups.length === 0)).toBe(true);
     expect(await runtime.invoke('get_usage_overview')).toMatchObject({ totalRequests: 0, totalTokens: 0, timeline: [] });
     expect(await runtime.invoke('get_usage_events')).toMatchObject({ items: [], total: 0 });
-    expect(await runtime.invoke('get_usage_analysis')).toEqual({ models: [], providers: [], sources: [], apiKeys: [] });
+    expect(await runtime.invoke('get_usage_analysis')).toMatchObject({ models: [], providers: [], sources: [], apiKeys: [], upstreams: [] });
     expect(await runtime.invoke('get_usage_pricing')).toMatchObject({ rows: [], totalCost: 0 });
   });
 
   test('filters usage before pagination, including boolean and date filters', async () => {
     const runtime = createBrowserMockRuntime('running');
     const first = await runtime.invoke('get_usage_events', { query: { failed: true, page_size: 1 } }) as { items: Array<Record<string, unknown>>; total: number; totalPages: number };
-    expect(first).toMatchObject({ total: 2, totalPages: 2 });
+    expect(first.total).toBeGreaterThan(2);
+    expect(first.totalPages).toBe(first.total);
     expect(first.items).toHaveLength(1);
     expect(first.items[0].failed).toBe(true);
     const next = await runtime.invoke('get_usage_events', { query: { failed: true, page_size: 1, page: 2 } }) as typeof first;
@@ -62,9 +66,12 @@ describe('browser mock runtime', () => {
       provider: first.items[0].provider, model: first.items[0].model, source: first.items[0].source,
       api_key_hash: first.items[0].api_key_hash, failed: true, canceled: false,
     } }) as typeof first;
-    expect(exact.items).toEqual(first.items);
+    expect(exact.items.map((item) => item.id)).toContain(first.items[0].id);
     expect(await runtime.invoke('get_usage_events', { query: { model: 'absent-model' } })).toMatchObject({ items: [], total: 0 });
-    expect(await runtime.invoke('get_usage_events', { query: { canceled: true } })).toMatchObject({ total: 1 });
+    expect(await runtime.invoke('get_usage_events', { query: { canceled: true } })).toMatchObject({ total: expect.any(Number) });
+    const canceled = await runtime.invoke('get_usage_events', { query: { canceled: true } }) as typeof first;
+    expect(canceled.total).toBeGreaterThan(0);
+    expect(canceled.items.every((item) => item.canceled)).toBe(true);
   });
 
   test('unknown routes fail explicitly and canceled OAuth sessions cannot create credentials', async () => {

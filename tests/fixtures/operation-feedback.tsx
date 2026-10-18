@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { FloatingNotice, MessageNotice, useAppNotice } from '../../src/appNotice';
-import { UsageRecordsPage } from '../../src/pages/UsageRecordsPage';
+import { PricesTab } from '../../src/sections/usage/PricesTab';
+import { UsageProvider } from '../../src/sections/usage/UsageContext';
 import { AgentConfigurationFeedback } from '../../src/pages/AgentControls';
 import { useConfirmation } from '../../src/components/ConfirmationDialog';
 import { QuotaActionFeedback } from '../../src/components/QuotaActionFeedback';
@@ -11,7 +12,6 @@ import '../../src/styles/index.css';
 
 const params = new URLSearchParams(location.search);
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'zh-CN');
-localStorage.setItem('cpa-gui.usage-records-tab.v1', 'pricing');
 document.documentElement.dataset.theme = params.get('theme') ?? 'light';
 const fixture = window as typeof window & { feedbackFixture: { failSync: boolean } };
 fixture.feedbackFixture = { failSync: false };
@@ -80,5 +80,5 @@ function Fixture() {
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><I18nProvider>
-  {params.get('scenario') === 'pricing' ? <UsageRecordsPage /> : <Fixture />}
+  {params.get('scenario') === 'pricing' ? <UsageProvider params={new URLSearchParams()}><PricesTab /></UsageProvider> : <Fixture />}
 </I18nProvider></StrictMode>);
