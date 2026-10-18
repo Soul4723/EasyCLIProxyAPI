@@ -46,8 +46,10 @@ export type LightingApi = {
   remove: (schedule: LightingSchedule) => Promise<void>;
   runNow: (schedule: LightingSchedule) => Promise<LightingRunResult>;
   /** Call after every quota fetch: forwards the observed reset time to matching schedules. */
-  reportObserved: (account: QuotaAccount, quota: QuotaState) => void;
+  reportObserved: (account: AccountIdentity, quota: QuotaState) => void;
 };
+
+export type AccountIdentity = Pick<QuotaAccount, 'provider' | 'fileName' | 'authIndex'>;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -119,7 +121,7 @@ export function useLighting(locale: AppLocale): LightingApi {
     return result;
   }, [reload]);
 
-  const reportObserved = useCallback((account: QuotaAccount, quota: QuotaState) => {
+  const reportObserved = useCallback((account: AccountIdentity, quota: QuotaState) => {
     const schedule = schedulesRef.current.get(accountLightingKey(account));
     if (!schedule || quota.status !== 'success') return;
     const now = Date.now();
