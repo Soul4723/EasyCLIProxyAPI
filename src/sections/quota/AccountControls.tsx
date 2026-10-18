@@ -77,9 +77,21 @@ export function LightningButton({ account, ctx, size = 'sm' }: { account: QuotaA
   );
 }
 
-export function AccountControls({ account, ctx, size = 'sm' }: { account: QuotaAccount; ctx: ControlsContext; size?: 'xs' | 'sm' | 'md' }) {
+export function EnableToggle({ account, ctx }: { account: QuotaAccount; ctx: ControlsContext }) {
   const { t } = useI18n();
-  const busy = ctx.busyKeys.has(account.key);
+  return (
+    <Toggle
+      size="sm"
+      checked={!account.disabled}
+      label={account.toggleable ? t('sec.quota.enable') : t('sec.quota.enable.fileOnly')}
+      disabled={!account.toggleable || ctx.busyKeys.has(account.key)}
+      onChange={(next) => ctx.actions.setEnabled(account, next)}
+    />
+  );
+}
+
+export function AccountControls({ account, ctx, size = 'sm', toggle = true }: { account: QuotaAccount; ctx: ControlsContext; size?: 'xs' | 'sm' | 'md'; toggle?: boolean }) {
+  const { t } = useI18n();
   const refreshLabel = account.disabled ? t('sec.quota.refresh.disabled') : !account.canFetch ? t('sec.quota.refresh.noIndex') : t('sec.quota.refresh');
   return (
     <div className="qt-controls">
@@ -92,13 +104,7 @@ export function AccountControls({ account, ctx, size = 'sm' }: { account: QuotaA
         disabled={!account.canFetch || account.loading}
         onClick={() => ctx.actions.refresh(account)}
       />
-      <Toggle
-        size="sm"
-        checked={!account.disabled}
-        label={account.toggleable ? t('sec.quota.enable') : t('sec.quota.enable.fileOnly')}
-        disabled={!account.toggleable || busy}
-        onChange={(next) => ctx.actions.setEnabled(account, next)}
-      />
+      {toggle ? <EnableToggle account={account} ctx={ctx} /> : null}
     </div>
   );
 }

@@ -8,7 +8,7 @@ import {
 } from '../../services/lighting';
 import { managementApi } from '../../services/managementApi';
 import type { AppLocale } from '../../i18n';
-import type { QuotaAccount, WindowView } from './model';
+import type { QuotaAccount } from './model';
 import { windowsOf } from './model';
 import type { QuotaState } from '../../services/quotaService';
 
@@ -29,6 +29,18 @@ export function lightingStateOf(schedule: LightingSchedule | undefined, runningI
   if (schedule.mode === 'after_reset' && schedule.observedReset === null) return 'noReset';
   if (schedule.nextRun !== null) return 'scheduled';
   return schedule.lastRun?.ok ? 'ok' : 'off';
+}
+
+/** The reset time (epoch ms) a quota snapshot reports for a schedule's window, or undefined if nothing new is known. */
+export function observedResetFor(schedule: LightingSchedule, quota: QuotaState, now: number, locale: AppLocale): number | undefined {
+  if (quota.status !== 'success') return undefined;
+  const wanted = windowsOf(quota, now, locale).filter((window) => window.kind === schedule.windowKind
+    && window.resetAtMs !== undefined && window.resetAtMs > now && (window.leftPct ?? 100) < 100);
+  const resetAt = (wanted.find((window) => window.prefix === '') ?? wanted[0])?.resetAtMs;
+  if (resetAt === undefined) return undefined;
+  // Reset times drift by seconds between fetches; only report real changes.
+  if (schedule.observedReset !== null && Math.abs(schedule.observedReset - resetAt) < 120_000) return undefined;
+  return resetAt;
 }
 
 export type LightingApi = {
@@ -126,14 +138,8 @@ export function useLighting(locale: AppLocale): LightingApi {
     const schedule = schedulesRef.current.get(accountLightingKey(account));
     if (!schedule || quota.status !== 'success') return;
     const now = Date.now();
-    const windows: WindowView[] = windowsOf(quota, now, locale);
-    const wanted = windows.filter((window) => window.kind === schedule.windowKind && window.resetAtMs !== undefined
-      && window.resetAtMs > now && (window.leftPct ?? 100) < 100);
-    const plain = wanted.find((window) => window.prefix === '') ?? wanted[0];
-    const resetAt = plain?.resetAtMs;
+    const resetAt = observedResetFor(schedule, quota, now, locale);
     if (resetAt === undefined) return;
-    // Reset times drift by seconds between fetches; only report real changes.
-    if (schedule.observedReset !== null && Math.abs(schedule.observedReset - resetAt) < 120_000) return;
     const revision = quota.targetRevision;
     void (async () => {
       try {

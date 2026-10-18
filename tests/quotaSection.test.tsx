@@ -90,3 +90,28 @@ describe('quota account card and row', () => {
     expect(html.match(/qt-rowmeter/g)?.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('lighting observed reset', () => {
+  const schedule = (over: Partial<import('../src/services/lighting').LightingSchedule> = {}) => ({
+    id: 'x', credential: { provider: 'codex', authFileName: 'a.json', authIndex: 'i' }, target: 't', enabled: true, mode: 'after_reset',
+    times: [], weekdays: [1, 2, 3, 4, 5, 6, 7], timezone: 'UTC', windowKind: '5h', model: null, activeHours: null,
+    retry: { maxAttempts: 3, intervalSeconds: 60, backoff: 2, circuitSeconds: 900 }, lastRun: null, nextRun: null,
+    observedReset: null, consumedReset: null, attempt: 0, circuitUntil: null, ...over,
+  }) as import('../src/services/lighting').LightingSchedule;
+  const quota = ok([
+    { label: '5-hour window', remainingPercent: 40, resetAtMs: NOW + 3_600_000 },
+    { label: '7-day window', remainingPercent: 70, resetAtMs: NOW + 86_400_000 },
+  ]);
+  it('picks the schedule window reset from a fetched snapshot', async () => {
+    const { observedResetFor } = await import('../src/sections/quota/useLighting');
+    expect(observedResetFor(schedule(), quota, NOW, 'en')).toBe(NOW + 3_600_000);
+    expect(observedResetFor(schedule({ windowKind: 'weekly' }), quota, NOW, 'en')).toBe(NOW + 86_400_000);
+  });
+  it('ignores drift under two minutes, unfetched data and windows that have not started', async () => {
+    const { observedResetFor } = await import('../src/sections/quota/useLighting');
+    expect(observedResetFor(schedule({ observedReset: NOW + 3_600_000 + 30_000 }), quota, NOW, 'en')).toBeUndefined();
+    expect(observedResetFor(schedule(), { status: 'idle', rows: [] }, NOW, 'en')).toBeUndefined();
+    const full = ok([{ label: '5-hour window', remainingPercent: 100, resetAtMs: NOW + 3_600_000 }]);
+    expect(observedResetFor(schedule(), full, NOW, 'en')).toBeUndefined();
+  });
+});

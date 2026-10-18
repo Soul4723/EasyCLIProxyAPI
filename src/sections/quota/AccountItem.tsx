@@ -5,7 +5,7 @@ import {
 } from '../../ui';
 import { useI18n } from '../../i18n';
 import { routeHref } from '../../shell/router';
-import { AccountControls, type ControlsContext } from './AccountControls';
+import { AccountControls, EnableToggle, type ControlsContext } from './AccountControls';
 import { lightingStateOf } from './useLighting';
 import type { QuotaAccount } from './model';
 import { ResetTime, WindowMeter, tightest, windowLabel } from './WindowMeter';
@@ -133,14 +133,14 @@ export function AccountCard({ account, ctx, selected, grouped }: { account: Quot
     >
       <header className="qt-card__head">
         <Identity account={account} ctx={ctx} selected={selected} grouped={grouped} plan={!grouped} />
-        <AccountControls account={account} ctx={ctx} />
+        <AccountControls account={account} ctx={ctx} toggle={false} />
       </header>
       <div className="qt-card__state">
         <span className="qt-card__count ec-muted">
           {grouped && account.plan ? <Chip size="sm"><Masked value={account.plan} identities={account.identities} /></Chip>
             : account.windows.length ? <WindowCount account={account} /> : null}
         </span>
-        <StatusPill status={account.status} size="sm" />
+        <span className="qt-card__stat"><StatusPill status={account.status} size="sm" /><EnableToggle account={account} ctx={ctx} /></span>
       </div>
       <CardBody account={account} ctx={ctx} />
       <CooldownLine account={account} />

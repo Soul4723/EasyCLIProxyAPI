@@ -79,6 +79,7 @@
 .ec-sec-quota .qt-card.is-disabled .qt-wins { opacity: 0.55; }
 .ec-sec-quota .qt-card__head { display: flex; align-items: center; justify-content: space-between; gap: var(--ec-sp-2); min-width: 0; }
 .ec-sec-quota .qt-card__state { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--ec-border-soft); padding-top: var(--ec-sp-2); font-size: var(--ec-fs-xs); }
+.ec-sec-quota .qt-card__stat { display: inline-flex; align-items: center; gap: var(--ec-sp-2); }
 .ec-sec-quota .qt-card__foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--ec-sp-2); font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); min-height: 16px; }
 
 .ec-sec-quota .qt-identity {

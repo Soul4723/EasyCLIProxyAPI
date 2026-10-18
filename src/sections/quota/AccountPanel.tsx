@@ -64,7 +64,7 @@ export function AccountPanel({
           </span>
         </span>
       ) : ''}
-      actions={view ? <AccountControls account={view} ctx={ctx} size="md" /> : undefined}
+      actions={view ? <AccountControls account={view} ctx={ctx} size="md" toggle={false} /> : undefined}
     >
       {view ? (
         <div className="qt-panel">
