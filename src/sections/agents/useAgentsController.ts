@@ -3,7 +3,7 @@ import { invoke as invokeNative } from '../../services/platform';
 import { listen } from '../../services/platform';
 import { open } from '../../services/platform';
 import { useCoreTargetRevision } from '../../coreRuntime';
-import { getCurrentLocale, translate, useI18n } from '../../i18n';
+import { useI18n } from '../../i18n';
 import {
   CLAUDE_CODE_DEFAULT_MAX_CONTEXT_TOKENS,
   followClaudeCodeContextWindow,
@@ -167,7 +167,6 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
   const [detectionError, setDetectionError] = useState('');
   const [modelError, setModelError] = useState('');
   const [modelSelectionError, setModelSelectionError] = useState('');
-  const [backupsOpen, setBackupsOpen] = useState(false);
   const [defaultError, setDefaultError] = useState('');
   const [templatePreview, setTemplatePreview] = useState<{ revision: string; files: string[] } | null>(null);
   const [defaultConfirmOpen, setDefaultConfirmOpen] = useState(false);
@@ -229,15 +228,18 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
     setOauthConfigurationDraftState(value);
   }, []);
 
+  // Read through a ref so picking a path does not change `loadStatuses` and re-run the mount load next to the forced one.
+  const executablePathsRef = useRef(executablePaths);
+  executablePathsRef.current = executablePaths;
   const loadStatuses = useCallback(async (forceRefresh = false) => {
     const requestId = ++statusRequestRef.current;
     const command = forceRefresh
       ? 'refresh_agent_config_statuses'
       : 'get_agent_config_statuses';
-    const nextStatuses = await invoke<AgentConfigStatus[]>(command, { executableOverrides: executablePaths });
+    const nextStatuses = await invoke<AgentConfigStatus[]>(command, { executableOverrides: executablePathsRef.current });
     if (requestId !== statusRequestRef.current) return;
     setStatuses(nextStatuses);
-  }, [executablePaths]);
+  }, []);
 
   useEffect(() => {
     if (statuses.length && agentCacheRevision === targetRevision) agentStatusesCache = statuses;
@@ -327,8 +329,10 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
     };
   }, [detailOpen, loadModels, loadStatuses, selected]);
 
+  const harnessDetailOpen = detailOpen && selected === 'deepseek-harness';
   useEffect(() => {
-    if (detailOpen && selected !== 'deepseek-harness') return undefined;
+    // The grid card only needs one read for its running badge; the live poll belongs to the open DeepSeek detail.
+    if (detailOpen && !harnessDetailOpen) return undefined;
     let disposed = false;
     const refreshProcessStatus = () => {
       void loadDeepSeekHarnessProcessStatus().catch((requestError) => {
@@ -336,16 +340,16 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
       });
     };
     refreshProcessStatus();
+    if (!harnessDetailOpen) return () => { disposed = true; };
     const timer = window.setInterval(refreshProcessStatus, 2000);
     return () => {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [detailOpen, loadDeepSeekHarnessProcessStatus, selected]);
+  }, [detailOpen, harnessDetailOpen, loadDeepSeekHarnessProcessStatus]);
 
   useEffect(() => {
     setModelSelectionError('');
-    setBackupsOpen(false);
     setDefaultError('');
     setDefaultConfirmOpen(false);
     setClearError('');
@@ -629,15 +633,6 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
       claudeModelMappingsDirtyRef.current[selected] = true;
     }
     setClaudeModelMappingsDraftByClient((current) => ({ ...current, [selected]: next }));
-  };
-
-  const selectEmbeddedModel = (value: string) => {
-    const model = findAgentModel(models, value);
-    if (!model) return;
-    if (isClaudeModelMappingClient) {
-      editClaudeModelMappings((current) => ({ ...current, sonnet: model.name }));
-    }
-    selectModel(model.name);
   };
 
   const selectClaudeModelMapping = (
@@ -1038,10 +1033,10 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
       if (typeof selectedPath !== 'string' || !selectedPath.trim()) return;
       const key = desktop ? `${selected}:app` as const : selected;
       const next = { ...executablePaths, [key]: selectedPath.trim() };
+      executablePathsRef.current = next;
       setExecutablePaths(next);
       writeAgentExecutablePaths(next);
-      const refreshed = await invoke<AgentConfigStatus[]>('refresh_agent_config_statuses', { executableOverrides: next });
-      setStatuses(refreshed);
+      await loadStatuses(true);
       setConfigurationNotice(t('agents.executablePath.saved'));
     } catch (requestError) {
       setConfigurationError(String(requestError));
@@ -1051,10 +1046,10 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
   const clearExecutablePath = (desktop = false) => {
     const next = { ...executablePaths };
     delete next[desktop ? `${selected}:app` as const : selected];
+    executablePathsRef.current = next;
     setExecutablePaths(next);
     writeAgentExecutablePaths(next);
-    void invoke<AgentConfigStatus[]>('refresh_agent_config_statuses', { executableOverrides: next })
-      .then(setStatuses).catch((requestError) => setConfigurationError(String(requestError)));
+    void loadStatuses(true).catch((requestError) => setConfigurationError(String(requestError)));
   };
 
   const rememberLaunchDirectory = (client: AgentClientId, directory: string) => {

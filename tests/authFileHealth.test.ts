@@ -1,8 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { I18nProvider } from '../src/i18n';
-import { AuthFileHealthStatus } from '../src/components/AuthFileHealthStatus';
 import { dedupeAuthFiles } from '../src/services/authFiles';
 import {
   authFileHealth,
@@ -17,9 +13,6 @@ const record = {
   retry_at: '2026-01-01T10:00:32Z', remaining_seconds: 32, http_status: 429, backoff_level: 0,
 };
 const normalize = (value: unknown) => normalizeAuthFileCooldowns(value, receivedAtMs, '2026-01-01T10:00:00Z');
-const render = (file: Record<string, unknown>, received = receivedAtMs) => renderToStaticMarkup(
-  createElement(I18nProvider, { children: createElement(AuthFileHealthStatus, { file, receivedAtMs: received }) }),
-);
 
 describe('credential health and cooldowns', () => {
   it('distinguishes old cores, unknown snapshots and known-empty restrictions', () => {
@@ -98,26 +91,5 @@ describe('credential health and cooldowns', () => {
       expect(cooldownReasonKey(reason)).toBe('authFiles.health.reason.unknown');
     }
     expect(cooldownReasonKey('payment_required')).toBe('authFiles.health.reason.accessDenied');
-  });
-
-  it('renders expandable diagnostics with escaped error text and no fabricated HTTP status', () => {
-    const html = render({ status: 'error', status_message: '<script>unsafe</script>', cooldowns: [record] });
-    expect(html).toContain('<details>');
-    expect(html).toContain('<summary');
-    expect(html).toContain('model-a');
-    expect(html).toContain('HTTP 429');
-    expect(html).toContain('dateTime="2026-01-01T10:00:32.000Z"');
-    expect(html).not.toContain('<script>');
-    expect(html).toContain('&lt;script&gt;');
-    expect(render({ status: 'active', cooldowns: [{ ...record, http_status: undefined }] })).not.toContain('HTTP 429');
-  });
-
-  it('does not render elapsed timers as healthy, or hide disabled state behind a cooldown', () => {
-    expect(render({ status: 'active', cooldowns: [record] }, receivedAtMs - 60_000)).toContain('Cooldown timer elapsed');
-    expect(render({ disabled: true, status: 'error', cooldowns: [record] })).toContain('Disabled');
-    expect(render({ status: 'error', unavailable: true })).toContain('recovery time is unknown');
-    expect(render({ status: 'active', cooldowns: null })).toContain('Cooldown state is unknown');
-    const expiredToken = render({ status: 'error', status_message: 'token expired', cooldowns: [record] }, receivedAtMs - 60_000);
-    expect(expiredToken.slice(0, expiredToken.indexOf('</summary>'))).toContain('Access token expired');
   });
 });

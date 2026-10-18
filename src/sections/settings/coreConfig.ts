@@ -61,7 +61,8 @@ export function useCoreConfigLoader(): CoreConfigApi {
       setSettings(value); setError('');
     } catch (cause) {
       if (request !== revision.current) return;
-      setSettings(null); setError(String(cause));
+      // A failed background reload keeps the last good settings; the tabs only show the error when there are none.
+      setError(String(cause));
     } finally {
       if (request === revision.current) setLoading(false);
     }

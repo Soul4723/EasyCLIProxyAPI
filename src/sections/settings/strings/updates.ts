@@ -35,7 +35,6 @@ export const updatesZhCN = {
   "sec.settings.updates.sources.addLabel": "添加自定义镜像",
   "sec.settings.updates.sources.addHint": "输入 GitHub 镜像代理的 HTTPS 前缀，下载时会附加原始 GitHub 地址",
   "sec.settings.updates.sources.invalid": "请输入 https:// 开头的地址",
-  "sec.settings.updates.notes.latest": "最新",
 } as const;
 
 export const updatesEn: Record<keyof typeof updatesZhCN, string> = {
@@ -74,7 +73,6 @@ export const updatesEn: Record<keyof typeof updatesZhCN, string> = {
   "sec.settings.updates.sources.addLabel": "Add custom mirror",
   "sec.settings.updates.sources.addHint": "HTTPS prefix of a GitHub mirror proxy. The original GitHub URL is appended when downloading.",
   "sec.settings.updates.sources.invalid": "Enter an address starting with https://",
-  "sec.settings.updates.notes.latest": "Latest",
 };
 
 export const updatesJa: Record<keyof typeof updatesZhCN, string> = {
@@ -113,5 +111,4 @@ export const updatesJa: Record<keyof typeof updatesZhCN, string> = {
   "sec.settings.updates.sources.addLabel": "カスタムミラーを追加",
   "sec.settings.updates.sources.addHint": "GitHub ミラープロキシの HTTPS プレフィックス。ダウンロード時に元の GitHub URL が付加されます。",
   "sec.settings.updates.sources.invalid": "https:// で始まるアドレスを入力してください",
-  "sec.settings.updates.notes.latest": "最新",
 };

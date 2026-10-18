@@ -28,7 +28,7 @@ const hostOf = (origin: string | null | undefined) => {
 
 export function ConnectionTab() {
   const { t } = useI18n();
-  const { status, refreshStatus } = useCoreRuntime();
+  const { status } = useCoreRuntime();
   const { settings: coreSettings } = useCoreConfig();
   const [savedConn, setSavedConn] = useState<CoreConnection | null>(null);
   const [draft, setDraft] = useState<CoreConnection>(EMPTY_CONNECTION);
@@ -102,8 +102,8 @@ export function ConnectionTab() {
     try {
       const next = await saveCoreConnection(draft);
       if (!alive.current) return;
+      // saveCoreConnection reloads the document, so there is no status to refresh here.
       setSavedConn(next); setDraft(next); setJustSaved(true); setTest({ state: 'idle' });
-      void refreshStatus();
     } catch (cause) { savedFlag.set(false); if (alive.current) setSaveError(String(cause)); }
     finally { if (alive.current) setBusy(null); }
   };

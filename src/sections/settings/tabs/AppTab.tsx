@@ -8,6 +8,7 @@ import { AppearanceControls } from '../../../shell/AppMenu';
 import { routeHref } from '../../../shell/router';
 import { Chip, ErrorState, Skeleton, Toggle } from '../../../ui';
 import { SaveBar, SettingRow, SettingsGroup, useDraft, useReportDirty } from '../ui';
+import { useRequestGuard } from '../useRequestGuard';
 import './AppTab.css';
 
 type CloseBehavior = 'ask' | 'exit' | 'minimize-to-tray';
@@ -40,13 +41,15 @@ export function AppTab() {
   const [justSaved, setJustSaved] = useState(false);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const requests = useRequestGuard();
 
   const load = useCallback(async () => {
+    const isCurrent = requests.begin();
     try {
       const value = await invoke<SoftwareSettings>('get_software_settings');
-      if (alive.current) { setSoftware(value); setLoadError(''); }
-    } catch (cause) { if (alive.current) setLoadError(String(cause)); }
-  }, []);
+      if (isCurrent()) { setSoftware(value); setLoadError(''); }
+    } catch (cause) { if (isCurrent()) setLoadError(String(cause)); }
+  }, [requests]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void getVersion().then((value) => { if (alive.current) setVersion(value); }).catch(() => undefined); }, []);
 
@@ -65,6 +68,7 @@ export function AppTab() {
     setBusy(true); setSaveError('');
     try {
       const result = await invoke<SoftwareSettings>('save_software_settings', { settings: draft });
+      requests.invalidate();
       setSoftware(result); setJustSaved(true);
     } catch (cause) {
       setSaveError(t('config.error.saveFailed', { error: String(cause) }));

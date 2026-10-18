@@ -10,7 +10,7 @@ import {
 import { SettingsGroup } from '../ui';
 import { AliasEditorDialog, type AliasEditorState } from './AliasEditorDialog';
 import {
-  aliasEntryKey, combineModelAliasEntries, combineModelAliasSources, defaultModelAlias, sourceDetail, sourceKindLabel,
+  aliasEntryKey, combineModelAliasEntries, combineModelAliasSources, defaultModelAlias, sourceKindLabel,
   sourceProviderId, uniqueModelAlias,
   type AliasListEntry, type ModelAliasEditContext, type ModelAliasSource, type SpeedAliasEntry, type ThinkingAliasEntry,
   type ThinkingAliasSource,

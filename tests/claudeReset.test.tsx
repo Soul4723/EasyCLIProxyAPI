@@ -8,7 +8,6 @@ import { selectResetGrant } from '../src/services/selectClaudeResetGrant';
 import { loadQuota, quotaKey } from '../src/services/quotaService';
 import { canResetQuota, resetQuotaWithConfirmation } from '../src/services/quotaActions';
 import { getQuotaCacheSnapshot, pruneQuotaCache, updateQuotaCache } from '../src/services/quotaCache';
-import { AuthFileQuotaPanel } from '../src/components/AuthFileQuotaPanel';
 import { I18nProvider } from '../src/i18n';
 import { renderCard } from './helpers/quotaAccount';
 
@@ -48,13 +47,10 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis, 'window');
 });
 
-test('loads grant counts and renders a working reset action on both surfaces', async () => {
+test('loads grant counts and renders a working reset action', async () => {
   const quota = await loadQuota(file);
   expect(quota).toMatchObject({ status: 'success', resetCredits: 2 });
   expect(canResetQuota(file, quota)).toBe(true);
-  const panel = renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={file} quota={quota} disabled={false} compact dense onRefresh={() => {}} onReset={() => {}} /></I18nProvider>);
-  expect(panel).toContain('Reset Quota');
-  expect(panel).not.toContain('disabled=""');
   const card = renderCard(file, quota);
   expect(card).toMatch(/<button[^>]*qt-banked[^>]*>/);
   expect(card.match(/<button[^>]*qt-banked[^>]*>/)?.[0]).not.toContain('disabled=""');

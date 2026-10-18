@@ -265,9 +265,6 @@
 
 /* These three compact controls fit side by side at ordinary desktop widths. */
 @container agent-panel (min-width: 620px) and (max-width: 760px) {
-  .agent-claude-desktop-mapping-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 
   .agent-claude-code-runtime-settings {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr);

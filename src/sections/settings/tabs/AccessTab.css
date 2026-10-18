@@ -37,7 +37,6 @@
 .ec-access-input[aria-invalid='true'] { border-color: var(--ec-danger); }
 .ec-access-confirm-text { display: block; margin: var(--ec-sp-2) 0; }
 
-
 @container workspace (max-width: 760px) {
   .ec-sec-settings .ec-access-key { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--ec-sp-1); }
   .ec-sec-settings .ec-access-key-remark { grid-column: 1; grid-row: 2; }

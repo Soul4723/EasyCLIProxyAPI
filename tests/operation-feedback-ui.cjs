@@ -59,10 +59,6 @@ runUi(async ({ base }) => {
     await button('Clear').click(); await waitNotices(0);
     await button('Agent result').click(); await waitNotices(1);
     assert.deepEqual(await positions(), initial, 'Agent pending and success feedback leave controls stable');
-    await button('Quota result').click(); await waitNotices(2);
-    const quotaText = await notice.last().innerText();
-    for (const text of ['test.json', '重置请求已提交', '额度刷新失败', '避免重复消耗', 'query failed']) assert.ok(quotaText.includes(text));
-    assert.deepEqual(await positions(), initial, 'Quota reset error does not resize its row');
     await button('Clear').click(); await waitNotices(0);
 
     await button('Second').click(); await waitNotices(1);
@@ -141,6 +137,6 @@ runUi(async ({ base }) => {
     await priceDialog.getByRole('button', { name: '取消' }).click(); await priceDialog.waitFor({ state: 'detached' });
     assert.deepEqual(await table.boundingBox(), priceBefore, 'Real pricing error never shifts table');
     assert.deepEqual(errors, []);
-    console.log('PASS: no layout shifts, shared stack, owner cleanup, success expiry/repeat/hover/focus, persistent errors, quota details, native modal, light/dark at 3 widths, real pricing success/error.');
+    console.log('PASS: no layout shifts, shared stack, owner cleanup, success expiry/repeat/hover/focus, persistent errors, native modal, light/dark at 3 widths, real pricing success/error.');
   } finally { await browser.close(); }
 }, { url: process.env.AGENT_TEST_URL || process.env.FEEDBACK_TEST_BASE_URL });

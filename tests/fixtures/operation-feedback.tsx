@@ -7,7 +7,6 @@ import { PricesTab } from '../../src/sections/usage/PricesTab';
 import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { UsageProvider } from '../../src/sections/usage/UsageContext';
 import { useConfirmation } from '../../src/components/ConfirmationDialog';
-import { QuotaActionFeedback } from '../../src/components/QuotaActionFeedback';
 import '../../src/styles/index.css';
 import '../../src/ui/index.css';
 import '../../src/sections/agents/agents.css';
@@ -46,7 +45,6 @@ function Fixture() {
   const first = useAppNotice();
   const second = useAppNotice();
   const [agent, setAgent] = useState(false);
-  const [quota, setQuota] = useState(false);
   const [nativeError, setNativeError] = useState('');
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const [mounted, setMounted] = useState(true);
@@ -56,9 +54,8 @@ function Fixture() {
       <button onClick={() => first.showNotice('Saved', 'success')}>Success</button>
       <button onClick={() => first.showNotice('Failure '.repeat(120), 'error')}>Error</button>
       <button onClick={() => second.showNotice('Second result', 'info')}>Second</button>
-      <button onClick={() => { first.clearNotice(); second.clearNotice(); setAgent(false); setQuota(false); }}>Clear</button>
+      <button onClick={() => { first.clearNotice(); second.clearNotice(); setAgent(false); }}>Clear</button>
       <button onClick={() => setAgent(true)}>Agent result</button>
-      <button onClick={() => setQuota(true)}>Quota result</button>
       <button onClick={() => dialog.current?.showModal()}>Native dialog</button>
       <button onClick={() => void askConfirmation({ title: "Confirm test", message: "Confirm the operation", confirmText: "Confirm" })}>Confirmation dialog</button>
       <button onClick={() => setMounted(value => !value)}>Toggle source</button>
@@ -74,7 +71,6 @@ function Fixture() {
         </div>
       </div>
       <MessageNotice tone="success" message={agent ? 'Agent saved' : ''} />
-      {quota && <QuotaActionFeedback name="test.json" quota={{ status: 'success', rows: [], actionResult: { action: 'reset', status: 'refresh-error', error: 'query failed' } }} />}
       <input data-testid="after" defaultValue="Keep focus" />
     </section>
     {confirmationDialog}
