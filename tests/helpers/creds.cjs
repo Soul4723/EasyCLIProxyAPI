@@ -73,8 +73,10 @@ async function openCreds(browser, base, { creds = 'states', width = 1440, height
   }, privacy);
   await openApp(page, base, { path: '/providers', query: `creds=${creds}&preview_dummy=1` });
   // openApp builds the hash from a path without a query string; add the preview parameter.
-  await page.evaluate(() => { window.location.hash = '/providers?preview=creds'; });
+  await page.evaluate((hash) => { window.location.hash = hash; }, CREDS_HASH);
   await page.waitForFunction(() => document.querySelector('.ec-page-title') && /Providers/.test(document.querySelector('.ec-page-title').textContent));
+  // The dev-only mock toolbar floats over the bottom-right corner, where the panel footer buttons are.
+  await page.addStyleTag({ content: '#browser-mock-toolbar { display: none !important; }' });
   if (theme) await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
   if (remote) {
     await page.evaluate(async () => {
@@ -87,8 +89,12 @@ async function openCreds(browser, base, { creds = 'states', width = 1440, height
   return { page, errors };
 }
 
+// Where the credentials list lives. Retarget these two lines when the Providers page composition replaces the preview harness.
+const CREDS_HASH = '/providers?preview=creds';
+const openExclusions = (page) => page.getByText('Model exclusions', { exact: true }).click();
+
 const requestsOf = (page, method, pathName) => page.evaluate(([m, p]) => window.__creds.requests.filter((item) => item.method === m && item.path === p), [method, pathName]);
 const rowOf = (page, text) => page.locator('tr.ec-table__row', { hasText: text });
 const pills = (page) => page.locator('tr.ec-table__row .ec-pill, tr.ec-table__row [class*="ec-status"]');
 
-module.exports = { startApp, launch, openCreds, requestsOf, rowOf, pills };
+module.exports = { startApp, launch, openCreds, openExclusions, requestsOf, rowOf, pills };
