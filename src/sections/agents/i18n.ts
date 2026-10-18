@@ -1,12 +1,20 @@
-// Agents section strings. Own this file: add keys as 'sec.agents.*' (zh-CN is the key source; en/ja must mirror it; zh-TW is derived automatically).
+// Agents section strings ('sec.agents.*'); each part lives in strings/<part>.ts. zh-CN is the key source, en/ja mirror it, zh-TW is derived.
+import { catalogEn, catalogJa, catalogZhCN } from './strings/catalog';
+import { claudeEn, claudeJa, claudeZhCN } from './strings/claude';
+import { gridEn, gridJa, gridZhCN } from './strings/grid';
+import { manageEn, manageJa, manageZhCN } from './strings/manage';
+import { sessionsEn, sessionsJa, sessionsZhCN } from './strings/sessions';
+import { setupEn, setupJa, setupZhCN } from './strings/setup';
+import { shellEn, shellJa, shellZhCN } from './strings/shell';
+
 export const agentsZhCN = {
-  "sec.agents.title": "智能体",
+  ...shellZhCN, ...gridZhCN, ...claudeZhCN, ...catalogZhCN, ...setupZhCN, ...manageZhCN, ...sessionsZhCN,
 } as const;
 
 export const agentsEn: Record<keyof typeof agentsZhCN, string> = {
-  "sec.agents.title": "Agents",
+  ...shellEn, ...gridEn, ...claudeEn, ...catalogEn, ...setupEn, ...manageEn, ...sessionsEn,
 };
 
 export const agentsJa: Record<keyof typeof agentsZhCN, string> = {
-  "sec.agents.title": "エージェント",
+  ...shellJa, ...gridJa, ...claudeJa, ...catalogJa, ...setupJa, ...manageJa, ...sessionsJa,
 };
