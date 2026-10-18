@@ -1,0 +1,35 @@
+/* Usage → Overview. Scoped under .ec-sec-usage; tokens only. */
+.ec-sec-usage .ov { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; }
+.ec-sec-usage .ov-skeleton { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-usage .ov-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--ec-gap); min-width: 0; }
+@media (max-width: 1024px) { .ec-sec-usage .ov-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .ec-sec-usage .ov-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ec-sec-usage .ov-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ec-gap); min-width: 0; }
+@media (max-width: 1024px) { .ec-sec-usage .ov-pair { grid-template-columns: minmax(0, 1fr); } }
+
+.ec-sec-usage .ov-cost-hint { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ec-sec-usage .ov-link { color: var(--ec-accent); text-decoration: none; font-size: var(--ec-fs-xs); }
+.ec-sec-usage .ov-link:hover { text-decoration: underline; }
+.ec-sec-usage .ov-link:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 1px; border-radius: var(--ec-r-xs); }
+
+.ec-sec-usage .ov-modes { display: inline-flex; align-items: center; gap: var(--ec-sp-1); }
+.ec-sec-usage .ov-mode-off {
+  display: inline-flex; align-items: center; gap: var(--ec-sp-1); height: var(--ec-ctrl-h-sm, var(--ec-ctrl-h)); padding: 0 var(--ec-sp-2);
+  background: transparent; color: var(--ec-fg-subtle); border: 1px dashed var(--ec-border); border-radius: var(--ec-r-sm);
+  font: inherit; font-size: var(--ec-fs-xs); cursor: not-allowed;
+}
+
+.ec-sec-usage .ov-prov { display: inline-flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-usage .ov-trunc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ec-sec-usage .ov-bar { display: flex; gap: 2px; height: 14px; border-radius: var(--ec-r-pill); overflow: hidden; background: var(--ec-muted-bg); }
+.ec-sec-usage .ov-bar-seg { flex-basis: 0; min-width: 2px; }
+.ec-sec-usage .ov-bar-legend {
+  list-style: none; margin: var(--ec-sp-3) 0 0; padding: 0; display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--ec-sp-2) var(--ec-gap);
+}
+.ec-sec-usage .ov-bar-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: baseline; gap: var(--ec-sp-2); font-size: var(--ec-fs-sm); min-width: 0; }
+.ec-sec-usage .ov-bar-swatch { width: 10px; height: 10px; border-radius: var(--ec-r-xs); align-self: center; }
+.ec-sec-usage .ov-bar-name { color: var(--ec-fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-sec-usage .ov-bar-num { font-weight: 600; }
+.ec-sec-usage .ov-bar-pct { min-width: 4ch; text-align: right; font-size: var(--ec-fs-xs); }

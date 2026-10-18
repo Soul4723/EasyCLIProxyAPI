@@ -42,6 +42,10 @@ export function createQuotaMock() {
     const path = url.pathname.toLowerCase();
     const auth = String(body.authIndex ?? '');
     const used = spent.get(auth) ?? 0;
+    // Deterministic per-account variety so lists show a spread of 5h / weekly figures.
+    const seed = [...auth].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0, 7);
+    const fiveUsed = seed % 97;
+    const weekUsed = (seed >>> 5) % 97;
     const remaining = Math.max(0, 2 - used);
     const success = (payload: unknown) => ({ status_code: 200, header: { Date: new Date().toUTCString() }, body: payload });
     if (auth.endsWith('-expired')) return { status_code: 401, body: { error: { message: 'Mock OAuth token expired' } } };
@@ -67,8 +71,8 @@ export function createQuotaMock() {
       plan_type: 'pro', credits: { balance: '12.50', unlimited: false },
       rate_limit_reset_credits: { available_count: remaining },
       rate_limit: {
-        primary_window: { used_percent: auth.endsWith('-unknown-quota') ? null : used ? 0 : auth.endsWith('-exhausted') ? 100 : 28, reset_after_seconds: 7200, limit_window_seconds: 18000 },
-        secondary_window: { used_percent: used ? 0 : 42, reset_after_seconds: 345600, limit_window_seconds: 604800 },
+        primary_window: { used_percent: auth.endsWith('-unknown-quota') ? null : used ? 0 : auth.endsWith('-exhausted') ? 100 : fiveUsed, reset_after_seconds: 7200, limit_window_seconds: 18000 },
+        secondary_window: { used_percent: used ? 0 : weekUsed, reset_after_seconds: 345600, limit_window_seconds: 604800 },
       },
     });
     if (path.endsWith('/api/oauth/profile')) return success({ account: { has_claude_pro: true }, organization: { uuid: '00000000-0000-4000-8000-000000000001' } });
@@ -77,8 +81,8 @@ export function createQuotaMock() {
       return success({ result: consume() ? 'reset' : 'already_used' });
     }
     if (path.endsWith('/api/oauth/usage')) return success({
-      five_hour: { utilization: used ? 0 : 24, resets_at: future(3) },
-      seven_day: { utilization: used ? 0 : 41, resets_at: future(72) },
+      five_hour: { utilization: used ? 0 : fiveUsed, resets_at: future(1 + seed % 4) },
+      seven_day: { utilization: used ? 0 : weekUsed, resets_at: future(24 + seed % 120) },
       cedar_ember: { eligible: true, at_limit: false, next_grant_id: remaining ? 'mock-grant' : null,
         grants: [{ id: 'mock-grant', label: 'Preview quota resets', resets_total: 2, resets_left: remaining, ends_at: future(72), clears: ['five_hour', 'seven_day'], usable_now: remaining > 0, use_requires_limit: false }] },
     });
@@ -86,7 +90,7 @@ export function createQuotaMock() {
     if (path.endsWith(':retrieveuserquotasummary')) return success({ groups: auth.endsWith('-empty-quota') ? [] : ['Gemini Models', 'Claude Models'].map((displayName, index) => ({
       displayName, description: 'Models within this group share quota. The limit fully resets at the time shown above.',
       buckets: ['Five Hour Limit Remaining', 'Weekly Limit Remaining'].map((window, bucket) => ({
-        window, remainingFraction: index ? 0.06 : bucket ? 0.84 : 0.75,
+        window, remainingFraction: index ? 0.06 : bucket ? (100 - weekUsed) / 100 : (100 - fiveUsed) / 100,
         resetTime: future(bucket ? 72 : 3),
       })),
     })) });
@@ -95,7 +99,7 @@ export function createQuotaMock() {
       limits: [{ window: { duration: 5, timeUnit: 'TIME_UNIT_HOUR' }, detail: { limit: 100, remaining: 80, reset_in: 3600 } }],
     });
     if (path.endsWith('/getuserstatus')) return success({ userStatus: { planStatus: {
-      planInfo: { planName: 'Devin Pro' }, dailyQuotaRemainingPercent: 63, weeklyQuotaRemainingPercent: 42,
+      planInfo: { planName: 'Devin Pro' }, dailyQuotaRemainingPercent: 100 - fiveUsed, weeklyQuotaRemainingPercent: 100 - weekUsed,
       dailyQuotaResetAtUnix: Math.floor(Date.now() / 1000) + 3600, weeklyQuotaResetAtUnix: Math.floor(Date.now() / 1000) + 259200,
       planEnd: future(24 * 30),
     } } });

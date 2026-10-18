@@ -1,0 +1,23 @@
+.ec-sec-settings .ec-app-tab { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-settings .ec-app-version { text-decoration: none; display: inline-flex; border-radius: var(--ec-r-pill); }
+.ec-sec-settings .ec-app-version:hover .ec-chip { border-color: var(--ec-accent); }
+.ec-sec-settings .ec-app-version:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 2px; }
+
+/* AppearanceControls renders heading / control pairs; lay them out as label | control rows. */
+.ec-sec-settings .ec-app-appearance { padding: var(--ec-sp-2) var(--ec-pad); }
+.ec-sec-settings .ec-app-appearance .ec-appearance {
+  display: grid; grid-template-columns: minmax(96px, 200px) minmax(0, 1fr); align-items: center; column-gap: var(--ec-sp-4); row-gap: var(--ec-sp-1);
+}
+.ec-sec-settings .ec-app-appearance .ec-appearance > * { min-width: 0; }
+.ec-sec-settings .ec-app-appearance .ec-appearance > :nth-child(odd) {
+  margin: 0; padding: 0; min-height: calc(var(--ec-row-h) + 12px); display: flex; align-items: center;
+  font-size: var(--ec-fs-sm); font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ec-fg);
+}
+.ec-sec-settings .ec-app-appearance .ec-appearance > [role='radiogroup'] { justify-self: start; }
+.ec-sec-settings .ec-app-appearance .ec-appearance > [role='listbox'] { display: flex; flex-wrap: wrap; gap: var(--ec-sp-1); }
+.ec-sec-settings .ec-app-appearance .ec-appearance > [role='listbox'] > * { width: auto; }
+
+@container workspace (max-width: 760px) {
+  .ec-sec-settings .ec-app-appearance .ec-appearance { grid-template-columns: minmax(0, 1fr); }
+  .ec-sec-settings .ec-app-appearance .ec-appearance > :nth-child(odd) { min-height: 0; padding-top: var(--ec-sp-2); color: var(--ec-fg-muted); }
+}

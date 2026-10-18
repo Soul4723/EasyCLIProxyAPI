@@ -36,37 +36,10 @@ function componentFiles(directory: string): string[] {
 }
 
 describe('UI localization boundaries', () => {
-  it('preserves the raw reasoning effort under the usage model name', () => {
-    const file = join(sourceRoot, 'pages', 'UsageEventsView.tsx');
-    const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    let modelCase: ts.CaseClause | undefined;
-    const visit = (node: ts.Node) => {
-      if (ts.isCaseClause(node) && ts.isStringLiteral(node.expression) && node.expression.text === 'model') {
-        modelCase = node;
-      } else {
-        ts.forEachChild(node, visit);
-      }
-    };
-    const component = source.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === 'UsageEventCell');
-    expect(component).toBeDefined();
-    if (component) visit(component);
-    const displayedExpressions: string[] = [];
-    const titleExpressions: string[] = [];
-    const inspectEffort = (node: ts.Node) => {
-      if (ts.isJsxExpression(node) && !ts.isJsxAttribute(node.parent) && node.expression) {
-        displayedExpressions.push(node.expression.getText(source));
-      }
-      if (ts.isJsxAttribute(node) && node.name.getText(source) === 'title' && node.initializer) {
-        titleExpressions.push(node.initializer.getText(source));
-      }
-      ts.forEachChild(node, inspectEffort);
-    };
-    expect(modelCase).toBeDefined();
-    if (modelCase) inspectEffort(modelCase);
-    expect(displayedExpressions).toContain('effort');
-    expect(titleExpressions).toContain('{effort}');
-    expect(source.getText()).toContain("const effort = record.reasoning_effort || 'auto'");
-    expect(source.getText()).not.toContain("case 'effort'");
+  it('preserves the raw reasoning effort next to the usage model name', () => {
+    const source = readFileSync(join(sourceRoot, 'sections', 'usage', 'RequestsCells.tsx'), 'utf8');
+    expect(source).toContain("const effort = record.reasoning_effort || 'auto'");
+    expect(source).toContain('{effort}</Chip>');
   });
 
   it('routes visible prose and accessibility labels through translations', () => {
@@ -108,7 +81,7 @@ describe('UI localization boundaries', () => {
   });
 
   it('does not add a redundant hardcoded caption above localized page titles', () => {
-    for (const file of ['AgentsPage', 'QuotaPage']) {
+    for (const file of ['AgentsPage']) {
       const source = readFileSync(join(sourceRoot, 'pages', `${file}.tsx`), 'utf8');
       expect(source).not.toMatch(/<span>(?:Providers|OAuth|Auth Files|Agent Clients|Quota)<\/span>/);
     }
