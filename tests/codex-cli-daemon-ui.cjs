@@ -36,7 +36,8 @@ runUi(async ({ base }) => {
     assert.equal(await waiting.isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: 'Start CLI', exact: true }).isDisabled(), true);
     await page.evaluate(() => {
-      localStorage.setItem('cpa-gui.agent-selected-client.v1', 'opencode');
+      // The Agents section selects its client from the route (#/agents?client=<id>).
+      location.hash = '/agents?client=opencode';
       window.fixtureRemount();
     });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -44,7 +45,7 @@ runUi(async ({ base }) => {
     await page.evaluate(() => { window.fixtureDeferredCommands = []; window.fixturePendingCommands.splice(0).forEach(entry => entry.resolve()); });
     const restarted = page.getByText('Codex CLI background service restarted. Start Codex CLI again to use the latest configuration.', { exact: true });
     assert.equal(await restarted.count(), 0);
-    await page.getByText('Codex', { exact: true }).click();
+    await page.evaluate(() => { location.hash = '/agents?client=codex'; });
     await restarted.waitFor();
     assert.equal(await calls('restart_codex_cli_daemon'), 1);
     await page.evaluate(() => {
@@ -55,7 +56,8 @@ runUi(async ({ base }) => {
     await page.getByRole('alertdialog').getByRole('button', { name: 'Restart service', exact: true }).click();
     await page.getByRole('button', { name: 'Waiting for tasks', exact: true }).waitFor();
     await page.evaluate(() => {
-      localStorage.setItem('cpa-gui.agent-selected-client.v1', 'opencode');
+      // The Agents section selects its client from the route (#/agents?client=<id>).
+      location.hash = '/agents?client=opencode';
       window.fixtureRemount();
     });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -64,7 +66,7 @@ runUi(async ({ base }) => {
       window.fixturePendingCommands.splice(0).forEach(entry => entry.resolve());
     });
     assert.equal(await page.getByText(/模拟后台刷新失败/).count(), 0);
-    await page.getByText('Codex', { exact: true }).click();
+    await page.evaluate(() => { location.hash = '/agents?client=codex'; });
     await page.getByText(/模拟后台刷新失败/).waitFor();
     await open('daemon-stopped');
     await restart().click();
