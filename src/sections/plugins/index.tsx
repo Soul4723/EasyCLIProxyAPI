@@ -64,14 +64,14 @@ export function PluginsSection({ sub }: SectionPageProps) {
         <Toggle checked={data.pluginsEnabled} label={pt('global')} disabled={locked}
           onChange={ctl.setGlobalEnabled} />
       </label>
-      <Button variant="secondary" icon={<RefreshCw size={14} />} loading={ctl.loading} disabled={ctl.busy} aria-label={t('common.refresh')} title={t('common.refresh')} onClick={() => void ctl.load()}>
+      <Button variant="secondary" icon={<RefreshCw size={14} />} loading={ctl.loading} disabled={ctl.busy} aria-label={t('common.refresh')} title={t('common.refresh')} onClick={() => void ctl.load(undefined, true)}>
         <span className="pl-btn-text">{t('common.refresh')}</span>
       </Button>
     </>
   ) : supported === null && !ctl.error ? undefined : (
     <>
       {toolActions}
-      <Button variant="secondary" icon={<RefreshCw size={14} />} loading={ctl.loading} disabled={ctl.busy} aria-label={t('common.refresh')} title={t('common.refresh')} onClick={() => void ctl.load()}>
+      <Button variant="secondary" icon={<RefreshCw size={14} />} loading={ctl.loading} disabled={ctl.busy} aria-label={t('common.refresh')} title={t('common.refresh')} onClick={() => void ctl.load(undefined, true)}>
         <span className="pl-btn-text">{t('common.refresh')}</span>
       </Button>
     </>
@@ -85,19 +85,19 @@ export function PluginsSection({ sub }: SectionPageProps) {
     );
   } else if (supported === null) {
     body = ctl.error
-      ? <ErrorState title={t('sec.plugins.loadFailed')} message={<Masked value={ctl.error} />} onRetry={() => void ctl.load()} />
+      ? <ErrorState title={t('sec.plugins.loadFailed')} message={<Masked value={ctl.error} />} onRetry={() => void ctl.load(undefined, true)} />
       : <div className="pl-stack" aria-busy="true"><Skeleton height={44} lines={3} /></div>;
   } else if (ctl.error && (active === 'installed' ? !data : active === 'store' ? !ctl.store : false)) {
     // Nothing to show yet: a full error state with retry instead of a banner above an empty list.
     body = (
-      <ErrorState title={t('sec.plugins.loadFailed')} onRetry={() => void ctl.load()}
+      <ErrorState title={t('sec.plugins.loadFailed')} onRetry={() => void ctl.load(undefined, true)}
         message={<><Masked value={ctl.error} />{isGitHubRateLimit(ctl.error) ? <GitHubTokenHint /> : null}</>} />
     );
   } else {
     body = (
       <>
         {ctl.error ? (
-          <Banner tone="error" action={<Button size="xs" variant="secondary" disabled={ctl.busy || ctl.loading} onClick={() => void ctl.load()}>{pt('retry')}</Button>}>
+          <Banner tone="error" action={<Button size="xs" variant="secondary" disabled={ctl.busy || ctl.loading} onClick={() => void ctl.load(undefined, true)}>{pt('retry')}</Button>}>
             <Masked value={ctl.error} />{isGitHubRateLimit(ctl.error) ? <GitHubTokenHint /> : null}
           </Banner>
         ) : null}

@@ -68,7 +68,7 @@ const pluginEntries: Record<string, unknown>[] = [
 const storeEntries: Record<string, unknown>[] = [
   { id: 'sample..plugin', name: 'Sample provider', source_id: 'official', source_name: 'Official',
     source_url: 'https://official.example.test/plugins.json', repository: 'router-for-me/sample',
-    version: '2.0.0', install_type: 'github-release', installed: true, installed_version: '1.0.0', update_available: true,
+    version: '2.0.0', install_type: 'github-release', installed: true, installed_version: '1.0.0', update_available: true, install_source_status: 'matched',
     description: 'Official fixture provider', platforms: [{ goos: 'windows', goarch: 'amd64' }], tags: ['chat'],
   },
   { id: 'analytics', name: 'Community analytics', source_id: 'community', source_name: 'Community',
@@ -101,6 +101,10 @@ mockIPC(async (command, args) => {
   }
   if (command === 'plugin:dialog|open') return (window as unknown as { pluginsFixture: { dialogFile?: string } }).pluginsFixture.dialogFile ?? null;
   if (command === 'install_local_plugin') return `plugins/${String(args?.source).split(/[\\/]/).pop()}`;
+  if (command === 'get_plugin_latest_releases') {
+    const repositories = (args?.repositories ?? []) as string[];
+    return repositories.map(repository => ({ repository, version: repository === 'router-for-me/sample' ? '3.0.0' : null, error: null }));
+  }
   if (command === 'open_external_url' || command === 'restart_core_process') return null;
   if (command !== 'management_request') return null;
   const request = args?.request as Request;

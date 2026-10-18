@@ -220,7 +220,9 @@ const fs = require('node:fs');
     assert.deepEqual((await installs())[0].query, { source: 'community', version: 'v1.2.3' });
     await page.evaluate(() => { window.pluginsFixture.holdInstall = false; window.pluginsFixture.releaseInstall(); });
     await dialog().waitFor({ state: 'detached' });
-    await page.getByText('Restart the core to fully apply this change.', { exact: true }).waitFor();
+    // A restart-required install reports through the toast (no runtime polling can change that) and the persistent banner.
+    await page.locator('.pl-banner-text', { hasText: 'Restart the core to fully apply this change.' }).waitFor();
+    await page.locator('.pl-toast', { hasText: 'Restart the core to fully apply this change.' }).waitFor();
 
     // ---- Official update with retry, direct artifacts ------------------------------------------------------------------
     await card('Sample provider').getByRole('button', { name: 'Update', exact: true }).click();
@@ -267,6 +269,24 @@ const fs = require('node:fs');
     assert.equal(await page.evaluate(() => window.pluginsFixture.settings['auth-revision']), 9);
     assert.equal(await page.evaluate(() => window.pluginsFixture.settings.configs['sample..plugin'].untouched.retained), true);
     await page.getByText('Saved', { exact: true }).waitFor();
+
+    // ---- Installed-tab update check + runtime polling after a toggle --------------------------------------------------------
+    await tab(/^Installed/).click();
+    await row('Sample provider').getByRole('button', { name: 'Configure · Sample provider', exact: true }).waitFor();
+    await refresh().click();
+    await row('Sample provider').getByText('3.0.0', { exact: true }).waitFor();
+    const latest = (await commands()).filter(call => call.command === 'get_plugin_latest_releases');
+    assert.ok(latest.length > 0, 'an explicit refresh asks for the latest GitHub releases');
+    assert.deepEqual(latest.at(-1).args.repositories, ['router-for-me/sample'], 'only installed, source-matched GitHub plugins are checked');
+    await idle();
+    const dormantSwitch = row('Dormant provider').getByRole('switch');
+    const wasOn = (await dormantSwitch.getAttribute('aria-checked')) === 'true';
+    await dormantSwitch.click();
+    await page.getByText(wasOn ? /Plugin state applied/ : /Plugin state applied/).waitFor();
+    assert.equal((await dormantSwitch.getAttribute('aria-checked')) === 'true', !wasOn, 'the toggle is confirmed by the runtime before success is reported');
+    await dormantSwitch.click();
+    await page.getByText(/Plugin state applied/).waitFor();
+    await idle();
 
     // ---- Local install, development guide, store source details ----------------------------------------------------------
     await tab(/^Installed/).click();

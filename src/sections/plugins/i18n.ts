@@ -52,6 +52,8 @@ export const pluginsZhCN = {
   "sec.plugins.officialStore": "官方商店",
   "sec.plugins.trustTypeUpdate": "输入以下内容以确认更新",
   "sec.plugins.localInstallRemote": "远程内核不支持本地安装",
+  "sec.plugins.runtimePending": "配置已提交，插件状态尚未确认，请稍后刷新或检查内核日志。",
+  "sec.plugins.runtimeReady": "插件状态已生效",
 } as const;
 
 export const pluginsEn: Record<keyof typeof pluginsZhCN, string> = {
@@ -106,6 +108,8 @@ export const pluginsEn: Record<keyof typeof pluginsZhCN, string> = {
   "sec.plugins.officialStore": "Official store",
   "sec.plugins.trustTypeUpdate": "Type the following to confirm update",
   "sec.plugins.localInstallRemote": "Local install is not available for a remote core",
+  "sec.plugins.runtimePending": "Changes submitted; plugin state is not yet confirmed. Refresh later or check core logs.",
+  "sec.plugins.runtimeReady": "Plugin state applied",
 };
 
 export const pluginsJa: Record<keyof typeof pluginsZhCN, string> = {
@@ -160,4 +164,6 @@ export const pluginsJa: Record<keyof typeof pluginsZhCN, string> = {
   "sec.plugins.officialStore": "公式ストア",
   "sec.plugins.trustTypeUpdate": "更新の確認のため次の文字列を入力",
   "sec.plugins.localInstallRemote": "リモートコアではローカルインストールを利用できません",
+  "sec.plugins.runtimePending": "変更を送信しましたが、状態を確認できません。再読み込みするかコアのログを確認してください。",
+  "sec.plugins.runtimeReady": "プラグインの状態を反映しました",
 };
