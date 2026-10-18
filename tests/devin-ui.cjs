@@ -61,15 +61,16 @@ const base = process.env.DEVIN_TEST_BASE_URL || 'http://127.0.0.1:1421';
     assert.equal(await page.locator('.devin-logo').count(), 1);
 
     await open('view=quota');
-    await page.getByRole('button', { name: 'Fetch Quota', exact: true }).click();
+    // The quota page reads quota for never-fetched accounts on first load.
     await page.getByText('Daily quota', { exact: true }).waitFor();
-    assert.ok((await page.locator('.real-quota-card').innerText()).includes('Pro'));
-    assert.equal(await page.locator('.real-quota-track').count(), 2);
-    assert.equal(await page.locator('.real-quota-track span').last().evaluate(node => node.style.width), '0%');
+    assert.ok((await page.locator('.qt-card').innerText()).includes('Pro'));
+    assert.equal(await page.locator('.qt-card .ec-bar').count(), 2);
+    assert.equal(await page.locator('.qt-card .ec-bar__fill').last().evaluate(node => node.style.width), '0%');
     await page.evaluate(() => { window.devinFixture.quotaError = true; });
-    await page.getByRole('button', { name: 'Refresh All', exact: true }).click();
-    await page.getByText('Session expired', { exact: false }).waitFor();
-    assert.equal(await page.locator('.real-quota-track').count(), 0);
+    await page.getByRole('button', { name: 'Refresh all', exact: true }).click();
+    // A 401 from the quota endpoint is classified as an expired credential.
+    await page.locator('.qt-card[data-status="expired"]').waitFor();
+    assert.equal(await page.locator('.qt-card .ec-bar').count(), 0);
 
     fs.mkdirSync('misc', { recursive: true });
     for (const theme of ['light', 'dark']) {
