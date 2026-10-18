@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
-import { OAuthLoginPage } from '../../src/pages/ManagementPages';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
+import { PluginOAuthProviders } from '../../src/sections/plugins/OAuthProviders';
 import { notifyPluginResourcesChanged } from '../../src/services/pluginResources';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
 
 const params = new URLSearchParams(location.search);
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'en');
@@ -35,6 +38,7 @@ const fixture = {
     : [...installedPlugins, ...filteredPlugins],
   installedPlugins,
   listCalls: 0,
+  listError: params.has('listError'),
   holdNextList: false,
   releaseList: null as (() => void) | null,
   releasedLists: 0,
@@ -52,7 +56,7 @@ window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[
 mockIPC(async (cmd, unknownArgs) => {
   const args = (unknownArgs ?? {}) as Record<string, unknown>;
   fixture.calls.push({ cmd, args });
-  if (cmd === 'set_app_locale') return null;
+  if (cmd === 'set_app_locale' || cmd === 'get_core_status') return null;
   if (cmd === 'list_oauth_browsers') return [
     { id: 'default', label: 'System Default' }, { id: 'edge', label: 'Microsoft Edge' },
   ];
@@ -72,7 +76,7 @@ mockIPC(async (cmd, unknownArgs) => {
     const request = args.request as { method: string; path: string; query?: Record<string, string> };
     if (request.path === '/plugins') {
       fixture.listCalls += 1;
-      if (params.has('listError')) throw new Error('Fixture plugin list unavailable');
+      if (fixture.listError) throw new Error('Fixture plugin list unavailable');
       const response = {
         plugins_enabled: true, plugins_dir: '/plugins', plugins: structuredClone(fixture.plugins),
       };
@@ -94,6 +98,20 @@ mockIPC(async (cmd, unknownArgs) => {
   throw new Error(`Unexpected command: ${cmd}`);
 }, { shouldMockEvents: true });
 
+// Provider ids the OAuth page already handles itself; plugin providers with these ids are not offered again (codex, vertex).
+const builtInProviderIds = ['codex', 'claude', 'gemini-cli', 'antigravity', 'qwen', 'kimi', 'xai', 'vertex'];
+
+// The plugin sign-in cards are not mounted by any section yet, so the fixture hosts the component the way the OAuth page will:
+// next to a browser choice that is passed down as the `browser` prop.
+function Host() {
+  const [browser, setBrowser] = useState('default');
+  return <main style={{ padding: 20 }}>
+    <select aria-label="Choose Browser" value={browser} onChange={event => setBrowser(event.target.value)}>
+      <option value="default">System Default</option><option value="edge">Microsoft Edge</option>
+    </select>
+    <PluginOAuthProviders builtInProviderIds={builtInProviderIds} browser={browser} />
+  </main>;
+}
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider><main style={{ padding: 20 }}><OAuthLoginPage /></main></I18nProvider>,
+  <I18nProvider><CoreRuntimeProvider><Host /></CoreRuntimeProvider></I18nProvider>,
 );

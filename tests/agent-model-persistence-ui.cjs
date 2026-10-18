@@ -1,16 +1,18 @@
-// Run Vite on port 1421, then node tests/agent-model-persistence-ui.cjs.
+// Run Vite, then: AGENT_TEST_URL=<vite url> node tests/agent-model-persistence-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 
+const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
+
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const browser = await chromium.launch({ headless: true });
   try {
     for (const client of ['codex', 'antigravity-cli', 'copilot-cli', 'vscode-copilot']) {
-      for (const embedded of [false, true]) {
+      {
         const page = await browser.newPage();
         const errors = [];
         page.on('pageerror', error => errors.push(String(error)));
-        const url = `${process.env.AGENT_CLIENT_TEST_URL || "http://127.0.0.1:1421"}/tests/fixtures/agent-backups.html?client=${client}${embedded ? '&embedded' : ''}`;
+        const url = `${base}/tests/fixtures/agent-backups.html?client=${client}&tab=setup`;
         await page.goto(url);
         const picker = page.locator('.agent-model-trigger');
         const missing = page.getByText('当前选择已不在可用模型列表中，请刷新模型后重新选择', { exact: true });
@@ -55,6 +57,6 @@ const assert = require('node:assert/strict');
         await page.close();
       }
     }
-    console.log('PASS: Codex, Antigravity and Copilot clients preserve selections across empty/partial lists, remount, reload and recovery in both page layouts');
+    console.log('PASS: Codex, Antigravity and Copilot clients preserve selections across empty/partial lists, remount, reload and recovery in the Setup tab');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

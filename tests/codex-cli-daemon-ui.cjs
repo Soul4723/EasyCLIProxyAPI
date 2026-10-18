@@ -1,18 +1,14 @@
+// Run a Vite dev server for the worktree, then:
+// AGENT_TEST_URL=http://127.0.0.1:5391 node tests/codex-cli-daemon-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
-const path = require('node:path');
+
+const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
 (async () => {
-  const { createServer } = await import('vite');
-  const react = (await import('@vitejs/plugin-react')).default;
-  const server = await createServer({ configFile: false, root: path.resolve(__dirname, '..'),
-    plugins: [react()], logLevel: 'error', server: { host: '127.0.0.1', port: 0, watch: null } });
   let browser;
   try {
-    await server.listen();
-    const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    const channel = process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined);
-    browser = await chromium.launch(channel ? { channel, headless: true } : { headless: true });
+    browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
@@ -25,7 +21,7 @@ const path = require('node:path');
     };
     await open('');
     await restart().click();
-    const dialog = page.getByRole('alertdialog');
+    const dialog = page.getByRole('dialog');
     await dialog.waitFor();
     assert.equal(await calls('restart_codex_cli_daemon'), 0);
     await page.evaluate(() => { window.fixtureDeferredCommands = ['restart_codex_cli_daemon']; });
@@ -50,12 +46,11 @@ const path = require('node:path');
     await open('daemon-error');
     await restart().click();
     await page.getByText(/Codex daemon probe failed/).waitFor();
-    assert.equal(await page.getByRole('alertdialog').count(), 0);
+    assert.equal(await page.getByRole('dialog').count(), 0);
     assert.equal(await calls('restart_codex_cli_daemon'), 0);
     assert.deepEqual(errors, []);
     console.log('PASS: shared daemon confirmation, non-blocking restart that survives remounts, stopped status, and probe errors.');
   } finally {
     await browser?.close();
-    await server.close();
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

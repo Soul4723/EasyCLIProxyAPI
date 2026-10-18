@@ -1,0 +1,40 @@
+// Agents section strings: Claude Code / Claude Desktop model mapping.
+export const claudeZhCN = {
+  'sec.agents.claude.asksFor': '{client} 请求的模型',
+  'sec.agents.claude.sendTo': '转发到',
+  'sec.agents.claude.alias': '别名',
+  'sec.agents.claude.context': '上下文',
+  'sec.agents.claude.startupRow': '启动模型',
+  'sec.agents.claude.subagentRow': '子代理',
+  'sec.agents.claude.followsRole': '跟随 {role} 行',
+  'sec.agents.claude.tokens': 'tokens',
+  'sec.agents.claude.rangeContext': '请输入 100,000–1,000,000 之间的值',
+  'sec.agents.claude.rangePct': '请输入 1–100 之间的值',
+  'sec.agents.claude.mappingFor': '模型映射',
+} as const;
+export const claudeEn: Record<keyof typeof claudeZhCN, string> = {
+  'sec.agents.claude.asksFor': '{client} asks for',
+  'sec.agents.claude.sendTo': 'Send to',
+  'sec.agents.claude.alias': 'Alias',
+  'sec.agents.claude.context': 'Context',
+  'sec.agents.claude.startupRow': 'Starts with',
+  'sec.agents.claude.subagentRow': 'Subagents',
+  'sec.agents.claude.followsRole': 'Follows the {role} row',
+  'sec.agents.claude.tokens': 'tokens',
+  'sec.agents.claude.rangeContext': 'Enter a value from 100,000 to 1,000,000',
+  'sec.agents.claude.rangePct': 'Enter a value from 1 to 100',
+  'sec.agents.claude.mappingFor': 'Model mapping',
+};
+export const claudeJa: Record<keyof typeof claudeZhCN, string> = {
+  'sec.agents.claude.asksFor': '{client} が要求するモデル',
+  'sec.agents.claude.sendTo': '送信先',
+  'sec.agents.claude.alias': 'エイリアス',
+  'sec.agents.claude.context': 'コンテキスト',
+  'sec.agents.claude.startupRow': '起動モデル',
+  'sec.agents.claude.subagentRow': 'サブエージェント',
+  'sec.agents.claude.followsRole': '{role} の行に従います',
+  'sec.agents.claude.tokens': 'tokens',
+  'sec.agents.claude.rangeContext': '100,000〜1,000,000 の値を入力してください',
+  'sec.agents.claude.rangePct': '1〜100 の値を入力してください',
+  'sec.agents.claude.mappingFor': 'モデルマッピング',
+};
