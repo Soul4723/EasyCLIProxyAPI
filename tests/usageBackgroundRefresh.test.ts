@@ -9,7 +9,7 @@ describe('usage records background refresh', () => {
     const block = source.slice(start, end);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
-    expect(block).toContain("listen('usage-records-updated', bump)");
+    expect(block).toContain("onUsageRecordsUpdated(bump)");
     expect(block).toContain('window.setInterval(bump');
     expect(block).not.toContain('document.hidden');
   });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/usageApi';
 import { Eye } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { usagePreferences } from '../../services/usagePreferences';

@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke, onUsageRecordsUpdated } from '../../services/usageApi';
 import { managementApi } from '../../services/managementApi';
 import { usagePreferences } from '../../services/usagePreferences';
 import type { CollectorStatus, UsageAnalysis, UsageQuery, UsageRange } from './types';
@@ -188,7 +187,7 @@ export function UsageProvider({ params, children }: { params: URLSearchParams; c
     let disposed = false;
     let unlisten: (() => void) | null = null;
     const bump = () => { if (!disposed) { setTick((n) => n + 1); setClock((n) => n + 1); } };
-    listen('usage-records-updated', bump).then((stop) => { if (disposed) stop(); else unlisten = stop; }).catch(() => {});
+    onUsageRecordsUpdated(bump).then((stop) => { if (disposed) stop(); else unlisten = stop; }).catch(() => {});
     const timer = window.setInterval(bump, 3_000);
     window.addEventListener('focus', bump);
     return () => { disposed = true; unlisten?.(); window.clearInterval(timer); window.removeEventListener('focus', bump); };

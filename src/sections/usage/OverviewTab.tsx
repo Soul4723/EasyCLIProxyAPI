@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/usageApi';
 import { BarChart3, Ban } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { navigate, routePath } from '../../shell/router';

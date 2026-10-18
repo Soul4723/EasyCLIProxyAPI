@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { chooseUsageExportPath, invoke } from '../../services/usageApi';
 import type { UsageEventPage, UsageQuery, UsageRecord } from './types';
 
 export function usageEventsExportName(date = new Date()) {
@@ -25,7 +24,7 @@ export function usageEventsCsv(records: UsageRecord[]) {
  * Resolves with the number of exported rows, or null when the save dialog was cancelled.
  */
 export async function exportFilteredEvents(query: UsageQuery, dialog: { title: string; fileType: string }): Promise<number | null> {
-  const path = await save({ title: dialog.title, defaultPath: usageEventsExportName(), filters: [{ name: dialog.fileType, extensions: ['csv'] }] });
+  const path = await chooseUsageExportPath({ title: dialog.title, defaultPath: usageEventsExportName(), fileType: dialog.fileType });
   if (!path) return null;
   const items: UsageRecord[] = [];
   const pageSize = 5000;

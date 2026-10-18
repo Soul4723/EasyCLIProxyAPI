@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/usageApi';
 import { CheckCircle2, CircleAlert, CloudDownload, Pencil, Plus, Trash2, TriangleAlert, X } from 'lucide-react';
 import { getCurrentLocale, useI18n } from '../../i18n';
 import {

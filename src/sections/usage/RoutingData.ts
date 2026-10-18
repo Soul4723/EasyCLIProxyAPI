@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/usageApi';
 import { managementApi, normalizeAuthIndex, readString, responseList } from '../../services/managementApi';
 import {
   authFileIdentities, authFileName, dedupeAuthFiles, normalizeOAuthProvider, parseAuthFilePriority, sortAuthFilesByPriority,

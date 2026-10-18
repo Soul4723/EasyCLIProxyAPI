@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/usageApi';
 import { HardDrive, Wrench, X } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { Button, Card, CardHeader, Chip, ConfirmDialog, CopyButton, EmptyState, ErrorState, IconButton, Masked, ProgressBar, Skeleton, cx } from '../../ui';
