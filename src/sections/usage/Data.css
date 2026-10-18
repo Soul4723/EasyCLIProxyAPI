@@ -1,0 +1,51 @@
+/* Usage → Data. Page rules are scoped under .ec-sec-usage; the confirm dialogs are kit components and need no overrides here. */
+.ec-sec-usage .data-tab { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; }
+.ec-sec-usage .data-toolbar { display: flex; justify-content: flex-end; }
+.ec-sec-usage .data-export { color: var(--ec-accent); font-size: var(--ec-fs-sm); text-decoration: none; }
+.ec-sec-usage .data-export:hover { text-decoration: underline; }
+.ec-sec-usage .data-export:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 2px; border-radius: var(--ec-r-sm); }
+.ec-sec-usage .data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: var(--ec-gap); align-items: start; min-width: 0; }
+.ec-sec-usage .data-card { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; }
+.ec-sec-usage .data-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: var(--ec-sp-2); }
+.ec-sec-usage .data-stat {
+  display: flex; flex-direction: column; gap: var(--ec-sp-1); min-width: 0; padding: var(--ec-sp-2);
+  border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface);
+}
+.ec-sec-usage .data-stat-label { color: var(--ec-fg-muted); font-size: var(--ec-fs-2xs); }
+.ec-sec-usage .data-stat-value { color: var(--ec-fg); font-size: var(--ec-fs-md); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ec-sec-usage .data-limit, .ec-sec-usage .data-action-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ec-sp-2); }
+.ec-sec-usage .data-field { display: flex; flex-direction: column; gap: var(--ec-sp-1); min-width: 0; color: var(--ec-fg-2); font-size: var(--ec-fs-sm); }
+.ec-sec-usage .data-input {
+  width: 160px; max-width: 100%; height: var(--ec-ctrl-h); padding: 0 var(--ec-sp-2);
+  border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm); background: var(--ec-field);
+  color: var(--ec-fg); font: inherit; font-variant-numeric: tabular-nums;
+}
+.ec-sec-usage .data-input[aria-invalid='true'] { border-color: var(--ec-danger); }
+.ec-sec-usage .data-input:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 1px; }
+.ec-sec-usage .data-action { display: flex; flex-direction: column; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-usage .data-action + .data-action { padding-top: var(--ec-sp-2); border-top: 1px solid var(--ec-border); }
+.ec-sec-usage .data-tip { display: inline-flex; }
+.ec-sec-usage .data-repair { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ec-sp-2); }
+.ec-sec-usage .data-backup { display: inline-flex; align-items: center; gap: var(--ec-sp-1); min-width: 0; font-size: var(--ec-fs-sm); }
+.ec-sec-usage .data-backup > :last-child { flex: none; }
+.ec-sec-usage .data-collector-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-usage .data-message { margin: 0; color: var(--ec-fg-2); font-size: var(--ec-fs-sm); overflow-wrap: anywhere; }
+.ec-sec-usage .data-rows {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--ec-sp-2) var(--ec-sp-3); margin: 0;
+  font-size: var(--ec-fs-sm);
+}
+.ec-sec-usage .data-rows dt { color: var(--ec-fg-muted); }
+.ec-sec-usage .data-rows dd { min-width: 0; margin: 0; color: var(--ec-fg); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ec-sec-usage .data-notice {
+  display: flex; align-items: center; gap: var(--ec-sp-2); padding: var(--ec-sp-1) var(--ec-sp-3);
+  border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface); font-size: var(--ec-fs-sm);
+}
+.ec-sec-usage .data-notice span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ec-sec-usage .data-notice--ok { border-color: var(--ec-ok); color: var(--ec-ok-fg); }
+.ec-sec-usage .data-notice--error { border-color: var(--ec-danger); color: var(--ec-danger-fg); }
+
+@media (max-width: 680px) {
+  .ec-sec-usage .data-grid { grid-template-columns: minmax(0, 1fr); }
+  .ec-sec-usage .data-input { width: 100%; }
+  .ec-sec-usage .data-limit > .data-field, .ec-sec-usage .data-action-row > .data-field { flex: 1 1 100%; }
+}
