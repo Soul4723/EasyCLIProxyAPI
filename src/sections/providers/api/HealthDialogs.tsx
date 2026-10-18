@@ -59,15 +59,13 @@ export function ProviderHealthDialog({ row: baseRow, onClose, onSummary }: {
   const controllerRef = useRef<AbortController | null>(null);
   const options = useMemo(() => healthOptionsFor(row), [row]);
 
+  // A different key of a group is a different upstream identity: start from a clean slate
+  // and stop any probe batch of the previous one, as closing the dialog does.
   useEffect(() => {
     const controller = new AbortController();
     controllerRef.current = controller;
-    return () => controller.abort();
-  }, []);
-
-  // A different key of a group is a different upstream identity: start from a clean slate.
-  useEffect(() => {
     setResults({});
+    setCheckingAll(false);
     setModels(configuredModels);
     let disposed = false;
     setModelLoading(true);
@@ -81,6 +79,7 @@ export function ProviderHealthDialog({ row: baseRow, onClose, onSummary }: {
     });
     return () => {
       disposed = true;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row]);

@@ -1,10 +1,10 @@
 // Download-source state for the Updates tab: selected source, built-in channels and custom HTTPS mirrors.
 // Same commands/events as the old Version page (get_version_source_settings, set_download_source, add/remove_custom_download_mirror).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invoke } from '../../../services/platform';
-import { listen } from '../../../services/platform';
+import { invoke, listen } from '../../../services/platform';
 import { useI18n } from '../../../i18n';
 import type { NoticeMessage, NoticeTone } from '../../../appNotice';
+import { useRequestGuard } from '../useRequestGuard';
 import { downloadSourceLabel, type VersionDownloadSource, type VersionSourceSettings } from './model';
 
 type Notify = (message: NoticeMessage, tone?: NoticeTone) => void;
@@ -24,14 +24,19 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
   const refreshRef = useRef(refreshStatus);
   refreshRef.current = refreshStatus;
 
+  // A save result or auto-switch event supersedes any load still in flight.
+  const requests = useRequestGuard();
   const load = useCallback(async () => {
+    const isCurrent = requests.begin();
     try {
-      setSettings(await invoke<VersionSourceSettings>('get_version_source_settings'));
+      const value = await invoke<VersionSourceSettings>('get_version_source_settings');
+      if (!isCurrent()) return;
+      setSettings(value);
       setError('');
     } catch (cause) {
-      setError(String(cause));
+      if (isCurrent()) setError(String(cause));
     }
-  }, []);
+  }, [requests]);
 
   useEffect(() => {
     let disposed = false;
@@ -47,6 +52,7 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     });
     void listen<VersionSourceSettings>('version-download-source-changed', (event) => {
       if (disposed) return;
+      requests.invalidate();
       setSettings(event.payload);
       setError('');
       notifyRef.current({ key: 'kernel.versions.sourceAutoSwitched', variables: { source: downloadSourceLabel(event.payload.source, tRef.current) } }, 'info');
@@ -60,13 +66,14 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
       stopConfig?.();
       stopSource?.();
     };
-  }, [load]);
+  }, [load, requests]);
 
   const select = useCallback(async (source: VersionDownloadSource) => {
     setSaving(true);
     setError('');
     try {
       const next = await invoke<VersionSourceSettings>('set_download_source', { source });
+      requests.invalidate();
       setSettings(next);
       changedRef.current();
       notifyRef.current({ key: 'kernel.versions.sourceSwitched', variables: { source: downloadSourceLabel(next.source, tRef.current) } }, 'info');
@@ -76,7 +83,7 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     } finally {
       setSaving(false);
     }
-  }, [load]);
+  }, [load, requests]);
 
   /** Resolves true when the mirror was added (the backend validates the URL and selects it). */
   const addMirror = useCallback(async (raw: string) => {
@@ -85,7 +92,9 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     setSaving(true);
     setAddError('');
     try {
-      setSettings(await invoke<VersionSourceSettings>('add_custom_download_mirror', { url }));
+      const next = await invoke<VersionSourceSettings>('add_custom_download_mirror', { url });
+      requests.invalidate();
+      setSettings(next);
       changedRef.current();
       notifyRef.current({ key: 'kernel.versions.customMirrorAdded' }, 'success');
       return true;
@@ -95,13 +104,15 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [requests]);
 
   const removeMirror = useCallback(async (url: string, wasSelected: boolean) => {
     setSaving(true);
     setError('');
     try {
-      setSettings(await invoke<VersionSourceSettings>('remove_custom_download_mirror', { url }));
+      const next = await invoke<VersionSourceSettings>('remove_custom_download_mirror', { url });
+      requests.invalidate();
+      setSettings(next);
       notifyRef.current({ key: 'kernel.versions.customMirrorRemoved' }, 'success');
       if (wasSelected) changedRef.current();
     } catch (cause) {
@@ -109,7 +120,7 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [requests]);
 
   return { settings, saving, error, addError, clearAddError: () => setAddError(''), clearError: () => setError(''), select, addMirror, removeMirror };
 }

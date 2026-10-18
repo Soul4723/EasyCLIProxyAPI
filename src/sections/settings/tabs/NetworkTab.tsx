@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '../../../services/documentTarget';
-import { listen } from '../../../services/platform';
-import { open } from '../../../services/platform';
+import { listen, open } from '../../../services/platform';
 import { FolderOpen, Globe, Link2, LockKeyhole, Network, Wifi } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime, type CoreStatus } from '../../../coreRuntime';
@@ -9,6 +8,7 @@ import { Button, Chip, ErrorState, Skeleton, Toggle } from '../../../ui';
 import { useCoreConfig, type CoreConfigSettings } from '../coreConfig';
 import { SaveBar, SettingRow, SettingsGroup, useReportDirty } from '../ui';
 import { useFieldDrafts } from '../useFieldDrafts';
+import { useRequestGuard } from '../useRequestGuard';
 import './NetworkTab.css';
 
 type TlsSettings = { enabled: boolean; cert: string; key: string };
@@ -28,16 +28,20 @@ export function NetworkTab() {
   const [tls, setTls] = useState<TlsSettings | null>(null);
   const [tlsLoading, setTlsLoading] = useState(true);
   const [tlsLoadError, setTlsLoadError] = useState('');
+  const tlsRequests = useRequestGuard();
   const loadTls = useCallback(async () => {
+    const isCurrent = tlsRequests.begin();
     try {
-      setTls(await invoke<TlsSettings>('get_core_tls_settings'));
+      const value = await invoke<TlsSettings>('get_core_tls_settings');
+      if (!isCurrent()) return;
+      setTls(value);
       setTlsLoadError('');
     } catch (cause) {
-      setTlsLoadError(String(cause));
+      if (isCurrent()) setTlsLoadError(String(cause));
     } finally {
-      setTlsLoading(false);
+      if (isCurrent()) setTlsLoading(false);
     }
-  }, []);
+  }, [tlsRequests]);
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | undefined;
@@ -143,7 +147,9 @@ export function NetworkTab() {
     }
     if (!failure && tlsDirty) {
       try {
-        setTls(await invoke<TlsSettings>('save_core_tls_settings', { settings: { enabled: draft.tlsEnabled, cert, key } }));
+        const saved = await invoke<TlsSettings>('save_core_tls_settings', { settings: { enabled: draft.tlsEnabled, cert, key } });
+        tlsRequests.invalidate();
+        setTls(saved);
         needsRestart = true;
       } catch (cause) {
         failure = String(cause);

@@ -328,7 +328,7 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
   }, [detailOpen, loadModels, loadStatuses, selected]);
 
   useEffect(() => {
-    if (detailOpen && selected !== 'deepseek-harness') return undefined;
+    // The grid card only needs one read for its running badge; the live poll belongs to the open detail.
     let disposed = false;
     const refreshProcessStatus = () => {
       void loadDeepSeekHarnessProcessStatus().catch((requestError) => {
@@ -336,6 +336,7 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
       });
     };
     refreshProcessStatus();
+    if (!detailOpen || selected !== 'deepseek-harness') return () => { disposed = true; };
     const timer = window.setInterval(refreshProcessStatus, 2000);
     return () => {
       disposed = true;
