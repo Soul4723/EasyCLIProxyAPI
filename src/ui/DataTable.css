@@ -1,0 +1,163 @@
+/* DataTable: wrapper, header, cells, sort buttons, row states. Row height comes from --ec-row-h. */
+
+.ec-table-wrap {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.ec-table-wrap--sticky {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.ec-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--ec-fs-sm);
+  color: var(--ec-fg-2);
+  table-layout: auto;
+}
+
+.ec-table__caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ec-table th,
+.ec-table td {
+  box-sizing: border-box;
+  height: var(--ec-row-h);
+  padding: 0 var(--ec-sp-3);
+  border-bottom: 1px solid var(--ec-border-soft);
+  vertical-align: middle;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ec-table th {
+  height: auto;
+  min-height: var(--ec-row-h);
+  padding-top: var(--ec-sp-2);
+  padding-bottom: var(--ec-sp-2);
+  font-size: var(--ec-fs-xs);
+  font-weight: 500;
+  color: var(--ec-fg-muted);
+  text-align: start;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--ec-border);
+  background: var(--ec-surface);
+}
+
+.ec-table--compact th,
+.ec-table--compact td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.ec-table--compact td {
+  height: auto;
+}
+
+.ec-table-wrap--sticky .ec-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.ec-table__cell--start {
+  text-align: start;
+}
+
+.ec-table__cell--center {
+  text-align: center;
+}
+
+.ec-table__cell--end {
+  text-align: end;
+}
+
+.ec-table__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  border-radius: var(--ec-r-xs, var(--ec-r-sm));
+}
+
+.ec-table__sort:hover {
+  color: var(--ec-fg);
+}
+
+.ec-table__sort:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ec-ring);
+}
+
+.ec-table__sort-icon {
+  flex: none;
+  color: var(--ec-fg-2);
+}
+
+.ec-table__sort-icon--idle {
+  opacity: 0.45;
+}
+
+.ec-table__cell--end .ec-table__sort {
+  flex-direction: row-reverse;
+}
+
+.ec-table__row:hover td {
+  background: var(--ec-hover);
+}
+
+.ec-table__row--clickable {
+  cursor: pointer;
+}
+
+.ec-table__row--clickable:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: -2px;
+}
+
+.ec-table__row--selected td {
+  background: var(--ec-accent-soft);
+}
+
+.ec-table__row--selected:hover td {
+  background: var(--ec-accent-soft);
+}
+
+.ec-table__row--skeleton td {
+  pointer-events: none;
+}
+
+.ec-table__empty {
+  height: auto;
+  padding: var(--ec-sp-3);
+  border-bottom: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-table__sort-icon {
+    transition: none;
+  }
+}
