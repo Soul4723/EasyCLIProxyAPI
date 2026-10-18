@@ -31,17 +31,19 @@ export function StatusBar({ counts, keys, keysDisabled }: { counts: StatusCounts
 }
 
 /** Provider-first card (C1/C5 language + 9Router tile): logo, counts, status bar, primary actions. */
-export function ProviderCard({ brand, summary, onSignIn, onAddKey, signInDisabledReason }: {
+export function ProviderCard({ brand, summary, onSignIn, onAddKey, signInDisabledReason, signInLabel }: {
   brand: Brand;
   summary: BrandSummary;
   onSignIn?: () => void;
   onAddKey?: (anchor: HTMLElement) => void;
   signInDisabledReason?: string;
+  signInLabel?: string;
 }) {
   const { t } = useI18n();
-  const problems = summary.accountStatus.error + summary.accountStatus.expired + summary.accountStatus.cooldown;
+  const problems = summary.accountStatus.error + summary.accountStatus.expired;
+  const empty = summary.accounts + summary.keys === 0;
   return (
-    <Card as="article" className="pv-card" data-brand={brand.id}>
+    <Card as="article" className={empty ? 'pv-card pv-card--empty' : 'pv-card'} data-brand={brand.id}>
       <a className="pv-card__link" href={routeHref('providers', null, { p: brand.id })} aria-label={brand.name}>
         <div className="pv-card__head">
           <ProviderLogo provider={brand.id} size={32} />
@@ -61,11 +63,11 @@ export function ProviderCard({ brand, summary, onSignIn, onAddKey, signInDisable
       <div className="pv-card__actions">
         {onSignIn ? (
           <Button size="sm" variant="secondary" icon={<LogIn size={14} />} onClick={onSignIn} disabled={Boolean(signInDisabledReason)} title={signInDisabledReason}>
-            {t('sec.providers.card.signIn')}
+            {signInLabel ?? t('sec.providers.card.signIn')}
           </Button>
         ) : null}
         {onAddKey ? (
-          <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={(event) => onAddKey(event.currentTarget)}>
+          <Button size="sm" variant={onSignIn ? 'ghost' : 'secondary'} icon={<Plus size={14} />} onClick={(event) => onAddKey(event.currentTarget)}>
             {t('sec.providers.card.addKey')}
           </Button>
         ) : null}

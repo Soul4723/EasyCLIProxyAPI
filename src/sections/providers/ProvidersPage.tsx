@@ -142,6 +142,7 @@ function BrandGroup({ title, brands, loading, creds, api, signIn, onAddKey, sign
   onAddKey: (brand: Brand, anchor?: HTMLElement) => void;
   signInDisabled: (brand: Brand) => string | undefined;
 }) {
+  const { t } = useI18n();
   return (
     <section className="pv-group" aria-label={title}>
       <h2 className="pv-group__title">{title}</h2>
@@ -155,6 +156,7 @@ function BrandGroup({ title, brands, loading, creds, api, signIn, onAddKey, sign
             summary={summaryOf(brand, creds, api)}
             onSignIn={brand.signInId ? () => signIn.start(brand.signInId!) : undefined}
             signInDisabledReason={signInDisabled(brand)}
+            signInLabel={signIn.providers.find((p) => p.id === brand.signInId)?.kind === 'vertex' ? t('sec.providers.card.importJson') : undefined}
             onAddKey={brand.kinds.length ? (anchor) => onAddKey(brand, anchor) : undefined}
           />
         ))}
