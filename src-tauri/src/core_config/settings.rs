@@ -770,16 +770,37 @@ pub(crate) fn apply_gui_managed_settings(
 }
 
 pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_directly_with_mode(path, content, false)
+}
+
+/// Direct write for a file that holds credentials (the GUI config.toml). On Unix the file is created 0600 and an
+/// existing file is tightened before any content is written. Windows relies on the inherited per-user ACL of the
+/// profile directory.
+pub(crate) fn write_private_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_directly_with_mode(path, content, true)
+}
+
+fn write_bytes_directly_with_mode(path: &Path, content: &[u8], private: bool) -> Result<(), String> {
     let directory = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
 
     let write_result = (|| -> io::Result<()> {
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(path)?;
+        let mut options = fs::OpenOptions::new();
+        options.create(true).write(true).truncate(false);
+        #[cfg(unix)]
+        if private {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(path)?;
+        #[cfg(unix)]
+        if private {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        }
+        #[cfg(not(unix))]
+        let _ = private;
         file.seek(SeekFrom::Start(0))?;
         file.write_all(content)?;
         file.set_len(content.len() as u64)?;
@@ -2202,9 +2223,16 @@ pub(crate) fn write_gui_config_to_path(
     toml::from_str::<GuiConfigFile>(&content)
         .map_err(|error| format!("Failed to validate GUI configuration: {error}"))?;
     if existing.as_deref() == Some(content.as_str()) {
+        // A file written by an older build may still be world-readable.
+        #[cfg(unix)]
+        if existing.is_some() {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(config_path, fs::Permissions::from_mode(0o600))
+                .map_err(|error| format!("Failed to restrict GUI configuration permissions: {error}"))?;
+        }
         return Ok(());
     }
-    write_bytes_directly(config_path, content.as_bytes())
+    write_private_bytes_directly(config_path, content.as_bytes())
 }
 
 pub(crate) fn validate_gui_config(config: &GuiConfigFile) -> Result<(), String> {

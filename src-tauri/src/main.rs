@@ -2671,6 +2671,18 @@ struct GithubAsset {
     digest: Option<String>,
 }
 
+/// Fail-closed startup has no window to report in. Release builds on Windows have no console and a macOS bundle
+/// logs to Console only, so without a native message box a refused start looks like the app silently not opening.
+fn show_startup_failure(message: &str) {
+    eprintln!("{message}");
+    let _ = rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title("EasyCLIProxyAPI cannot start")
+        .set_description(message)
+        .set_buttons(rfd::MessageButtons::Ok)
+        .show();
+}
+
 fn main() {
     let helper_args = env::args_os().collect::<Vec<_>>();
     if helper_args.get(1).is_some_and(|a| a == "--cpa-copilot-cli") {
@@ -2717,7 +2729,7 @@ fn main() {
     let gui_config = match load_or_create_gui_config() {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("{error}. Startup stopped without selecting Local. Repair the saved GUI config.toml (or legacy cpa-gui.yaml) and relaunch.");
+            show_startup_failure(&format!("{error}\n\nStartup stopped without selecting Local. Repair the saved GUI config.toml (or legacy cpa-gui.yaml) and relaunch."));
             return;
         }
     };
