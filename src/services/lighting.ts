@@ -1,3 +1,4 @@
+import { createDataSource } from './dataSource';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
@@ -71,16 +72,28 @@ export type SaveLightingSchedule = (schedule: LightingSchedule, expectedRevision
 export const listLightingSchedules = () => invoke<LightingSchedule[]>('lighting_list');
 export const getLightingSchedule = (id: string) => invoke<LightingSchedule | null>('lighting_get', { id });
 export const saveLightingSchedule: SaveLightingSchedule = (schedule, expectedRevision) =>
-  invoke<LightingSchedule>('lighting_save', { schedule, expectedRevision });
-export const deleteLightingSchedule = (id: string) => invoke<void>('lighting_delete', { id });
+  invoke<LightingSchedule>('lighting_save', { schedule, expectedRevision }).then(changed);
+export const deleteLightingSchedule = (id: string) => invoke<void>('lighting_delete', { id }).then(changed);
 export const setLightingEnabled = (id: string, enabled: boolean) =>
-  invoke<LightingSchedule>('lighting_set_enabled', { id, enabled });
+  invoke<LightingSchedule>('lighting_set_enabled', { id, enabled }).then(changed);
 export const runLightingNow = (id: string) => invoke<LightingRunResult>('lighting_run_now', { id });
 export const reportLightingReset = (id: string, resetAt: number, expectedRevision: number) =>
-  invoke<LightingSchedule>('lighting_report_reset', { id, resetAt, expectedRevision });
+  invoke<LightingSchedule>('lighting_report_reset', { id, resetAt, expectedRevision }).then(changed);
 export const getLightingHistory = (id?: string) => invoke<LightingRunResult[]>('lighting_history', { id });
 export const getLightingCapabilities = () => invoke<LightingCapabilities[]>('lighting_capabilities');
 export const getLightingStatus = () => invoke<LightingStatus>('lighting_status');
 
 export const listenForLightingRunResult = (handler: (result: LightingRunResult) => void): Promise<UnlistenFn> =>
   listen<LightingRunResult>('lighting-run-result', (event) => handler(event.payload));
+
+export const lightingSource = createDataSource({
+  events: ['lighting-run-result'],
+  load: async () => {
+    const [schedules, capabilities, status] = await Promise.all([
+      listLightingSchedules(), getLightingCapabilities(), getLightingStatus(),
+    ]);
+    return { schedules, capabilities, status };
+  },
+});
+
+function changed<T>(value: T): T { lightingSource.invalidate(); return value; }

@@ -1,3 +1,5 @@
+import { credentialsSource } from '../../../services/credentials';
+import { useDataSource } from '../../../services/dataSource';
 /**
  * useCredentials(): state + actions for the OAuth credential files of the Providers section.
  *
@@ -14,12 +16,10 @@ import { ConfirmDialog } from '../../../ui/Dialog';
 import { X } from 'lucide-react';
 import {
   authFileCooldownResetIndex,
-  dedupeAuthFiles,
   resetAuthFileCooldown,
   setOAuthCredentialFileDisabled,
-  sortAuthFilesByPriority,
 } from '../../../services/authFiles';
-import { managementApi, readString, responseList } from '../../../services/managementApi';
+import { managementApi, readString } from '../../../services/managementApi';
 import { CredentialPanel } from './CredentialPanel';
 import {
   buildCredentialRows,
@@ -27,7 +27,6 @@ import {
   type AuthFile,
   type BrandSummary,
   type CredentialRow,
-  type CredentialSnapshot,
 } from './model';
 import './creds.css';
 
@@ -88,9 +87,11 @@ export function useCredentials({ onReSignIn }: UseCredentialsOptions = {}): Cred
   connectionRevisionRef.current = connectionRevision;
   const now = useNow(10_000);
 
-  const [snapshot, setSnapshot] = useState<CredentialSnapshot>({ files: [], receivedAtMs: 0 });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const source = useDataSource(credentialsSource);
+  const snapshot = source.data ?? { files: [], receivedAtMs: 0 };
+  const loading = source.loading;
+  const error = source.error ?? '';
+  const setSnapshot = credentialsSource.mutate;
   const [busy, setBusy] = useState(false);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [selectedSection, setSelectedSection] = useState<PanelSection | null>(null);
@@ -100,7 +101,6 @@ export function useCredentials({ onReSignIn }: UseCredentialsOptions = {}): Cred
   const [notice, setNotice] = useState<Notice | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mountedRef = useRef(true);
-  const requestRef = useRef(0);
   const pendingCooldownRef = useRef(new Set<string>());
   const noticeId = useRef(0);
 
@@ -114,36 +114,13 @@ export function useCredentials({ onReSignIn }: UseCredentialsOptions = {}): Cred
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  const load = useCallback(async (showLoading: boolean) => {
-    const requestId = ++requestRef.current;
-    if (showLoading) setLoading(true);
-    setError('');
-    try {
-      const payload = await managementApi.get('/credentials');
-      if (!mountedRef.current || requestId !== requestRef.current) return;
-      setSnapshot({
-        files: sortAuthFilesByPriority(dedupeAuthFiles(responseList(payload, 'files'))),
-        receivedAtMs: Date.now(),
-        observedAt: readString(payload, 'observed_at') || undefined,
-      });
-    } catch (requestError) {
-      if (mountedRef.current && requestId === requestRef.current) setError(requestError instanceof Error ? requestError.message : String(requestError));
-    } finally {
-      if (mountedRef.current && requestId === requestRef.current) setLoading(false);
-    }
-  }, []);
-
+  const load = useCallback((_showLoading: boolean) => credentialsSource.refresh(), []);
   useEffect(() => {
     mountedRef.current = true;
-    void load(true);
-    return () => {
-      mountedRef.current = false;
-      requestRef.current += 1;
-    };
-  }, [load, connectionRevision]);
-
-  const reload = useCallback(() => load(true), [load]);
-  const refresh = useCallback(() => load(false), [load]);
+    return () => { mountedRef.current = false; };
+  }, []);
+  const reload = credentialsSource.refresh;
+  const refresh = credentialsSource.refresh;
 
   const rows = useMemo(() => buildCredentialRows(snapshot, now), [snapshot, now]);
   const summaryByBrand = useMemo(() => summarizeByBrand(rows), [rows]);
@@ -226,8 +203,8 @@ export function useCredentials({ onReSignIn }: UseCredentialsOptions = {}): Cred
     setBusy(true);
     // Optimistic: flip the row now, reload settles the truth.
     setSnapshot((current) => ({
-      ...current,
-      files: current.files.map((file) => (file === row.file ? { ...file, disabled, status: disabled ? 'disabled' : 'active' } : file)),
+      ...current!,
+      files: (current?.files ?? []).map((file) => (file === row.file ? { ...file, disabled, status: disabled ? 'disabled' : 'active' } : file)),
     }));
     try {
       await setOAuthCredentialFileDisabled(row.file, disabled);
@@ -283,10 +260,9 @@ export function useCredentials({ onReSignIn }: UseCredentialsOptions = {}): Cred
           await resetAuthFileCooldown(index);
           if (!mountedRef.current) return;
           // Drop list requests started before the reset and clear this credential's records at once.
-          requestRef.current += 1;
           setSnapshot((current) => ({
-            ...current,
-            files: current.files.map((file) => (authFileCooldownResetIndex(file) === index ? { ...file, cooldowns: [] } : file)),
+            ...current!,
+            files: (current?.files ?? []).map((file) => (authFileCooldownResetIndex(file) === index ? { ...file, cooldowns: [] } : file)),
           }));
           notify(t('authFiles.cooldown.resetSuccess', { name: shownName(row) }));
           await load(false);

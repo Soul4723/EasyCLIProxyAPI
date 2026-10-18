@@ -1,3 +1,6 @@
+import { credentialsSource } from '../../services/credentials';
+import { useDataSource } from '../../services/dataSource';
+import { refreshQuotaBatch } from '../../services/quotaBatch';
 // Data + actions for the quota page. Wraps the real services: /credentials (management API), quotaService
 // (provider quota via the core request proxy), quotaCache, reset-credit actions, credential enable/disable and
 // cooldown clear. No new backend behaviour.
@@ -7,21 +10,18 @@ import type { ConfirmationOptions } from '../../components/ConfirmationDialog';
 import { useQuotaReset } from '../../components/useQuotaReset';
 import { authFileHealth } from '../../services/authFileHealth';
 import {
-  authFileCooldownResetIndex, dedupeAuthFiles, resetAuthFileCooldown, setOAuthCredentialFileDisabled,
+  authFileCooldownResetIndex, resetAuthFileCooldown, setOAuthCredentialFileDisabled,
 } from '../../services/authFiles';
-import { managementApi, readBoolean, readString, responseList } from '../../services/managementApi';
-import { assertQuotaOperation, startQuotaOperation } from '../../services/quotaOperation';
+import { readBoolean, readString } from '../../services/managementApi';
 import {
-  captureQuotaCacheGeneration, getQuotaCacheSnapshot, pruneQuotaCache, updateQuotaCache, useQuotaCache,
+  pruneQuotaCache, useQuotaCache,
 } from '../../services/quotaCache';
-import { commitFetchedQuota } from '../../services/quotaEnrichment';
 import {
-  idleQuota, loadQuota, providerForFile, quotaKey, type AuthFile, type QuotaState,
+  idleQuota, providerForFile, quotaKey, type AuthFile, type QuotaState,
 } from '../../services/quotaService';
 import { useNow } from '../../ui';
 import { buildAccount, sortAccounts, type QuotaAccount } from './model';
 
-const REFRESH_CONCURRENCY = 4;
 const NOW_TICK_MS = 30_000;
 
 type FileSnapshot = { files: AuthFile[]; receivedAtMs: number; observedAt?: string };
@@ -37,46 +37,28 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
   const { locale, t } = useI18n();
   const quotas = useQuotaCache();
   const now = useNow(NOW_TICK_MS);
-  const [snapshot, setSnapshot] = useState<FileSnapshot>({ files: [], receivedAtMs: 0 });
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const source = useDataSource(credentialsSource);
+  const snapshot: FileSnapshot = useMemo(() => ({
+    files: (source.data?.files ?? []).filter(file => providerForFile(file)),
+    receivedAtMs: source.data?.receivedAtMs ?? 0, observedAt: source.data?.observedAt,
+  }), [source.data]);
+  const loading = source.loading;
+  const loadError = source.error;
+  const setSnapshot = credentialsSource.mutate;
   const [actionError, setActionError] = useState<string>('');
   const [notice, setNotice] = useState<string>('');
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [busyKeys, setBusyKeys] = useState<ReadonlySet<string>>(new Set());
   const mounted = useRef(true);
-  const filesRequest = useRef(0);
   const onFetchedRef = useRef(onFetched);
   onFetchedRef.current = onFetched;
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
-  const loadFiles = useCallback(async (showSpinner = true) => {
-    const request = ++filesRequest.current;
-    if (showSpinner) setLoading(true);
-    setLoadError(null);
-    try {
-      const payload = await managementApi.get('/credentials');
-      if (!mounted.current || request !== filesRequest.current) return;
-      const all = dedupeAuthFiles(responseList(payload, 'files'));
-      const files = all.filter((file) => providerForFile(file));
-      setSnapshot({ files, receivedAtMs: Date.now(), observedAt: readString(payload, 'observed_at') || undefined });
-      pruneQuotaCache(new Set(all.map(quotaKey)));
-      updateQuotaCache((current) => {
-        const next = { ...current };
-        files.forEach((file) => {
-          const key = quotaKey(file);
-          if (!next[key]) next[key] = idleQuota();
-        });
-        return next;
-      });
-    } catch (reason) {
-      if (mounted.current && request === filesRequest.current) setLoadError(errorText(reason));
-    } finally {
-      if (mounted.current && request === filesRequest.current) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void loadFiles(); }, [loadFiles]);
+  const loadFiles = useCallback((_showSpinner = true) => credentialsSource.refresh(), []);
+  useEffect(() => {
+    if (!source.data) return;
+    pruneQuotaCache(new Set(source.data.files.map(quotaKey)));
+  }, [source.data]);
 
   const accounts = useMemo(() => {
     const list = snapshot.files.flatMap((file) => {
@@ -105,50 +87,18 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
     });
   }, []);
 
-  const refreshOne = useCallback(async (account: QuotaAccount) => {
-    if (!account.canFetch || getQuotaCacheSnapshot()[account.key]?.status === 'loading') return;
-    const generation = captureQuotaCacheGeneration();
-    updateQuotaCache((current) => ({ ...current, [account.key]: { ...(current[account.key] ?? idleQuota()), status: 'loading' } }));
-    const result = await loadQuota(account.file).catch((error): QuotaState => ({ status: 'error', rows: [], error: errorText(error) }));
-    await commitFetchedQuota(generation, account.file, result);
+  const refreshOne = useCallback((account: QuotaAccount) => {
+    if (!account.canFetch) return Promise.resolve();
+    return refreshQuotaBatch([account.file]);
   }, []);
-
-  const fetchBatch = useCallback(async (targets: QuotaAccount[]) => {
-    if (!targets.length || Object.values(getQuotaCacheSnapshot()).some((quota) => quota.status === 'loading')) return;
+  const refreshAll = useCallback(async () => {
     setRefreshingAll(true);
-    setActionError('');
-    const generation = captureQuotaCacheGeneration();
-    const operation = startQuotaOperation();
-    void operation.catch(() => undefined);
-    updateQuotaCache((current) => ({
-      ...current,
-      ...Object.fromEntries(targets.map((account) => [account.key, { ...(current[account.key] ?? idleQuota()), status: 'loading' as const }])),
-    }));
-    try {
-      for (let index = 0; index < targets.length; index += REFRESH_CONCURRENCY) {
-        assertQuotaOperation(await operation);
-        await Promise.all(targets.slice(index, index + REFRESH_CONCURRENCY).map(async (account) => {
-          const result = await loadQuota(account.file, operation)
-            .catch((error): QuotaState => ({ status: 'error', rows: [], error: errorText(error) }));
-          await commitFetchedQuota(generation, account.file, result);
-        }));
-      }
-    } catch (reason) {
-      if (captureQuotaCacheGeneration() === generation) setActionError(errorText(reason));
-    } finally {
-      if (mounted.current) setRefreshingAll(false);
-    }
-  }, []);
-
-  const refreshAll = useCallback(() => fetchBatch(accounts.filter((account) => account.canFetch)), [accounts, fetchBatch]);
-
-  // First visit in this session: read quota for accounts that have never been fetched (cached snapshots are kept).
-  const autoFetched = useRef(false);
+    try { await refreshQuotaBatch(snapshot.files); }
+    finally { if (mounted.current) setRefreshingAll(false); }
+  }, [snapshot.files]);
   useEffect(() => {
-    if (autoFetched.current || loading || !accounts.length) return;
-    autoFetched.current = true;
-    void fetchBatch(accounts.filter((account) => account.canFetch && account.quota.status === 'idle'));
-  }, [accounts, loading, fetchBatch]);
+    if (!loading) void refreshQuotaBatch(snapshot.files, true);
+  }, [loading, snapshot.files]);
 
   const consumeReset = useQuotaReset(askConfirmation, setActionError);
   const resetQuota = useCallback((account: QuotaAccount) => consumeReset(account.file, account.quota), [consumeReset]);
@@ -161,8 +111,8 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
       await setOAuthCredentialFileDisabled(account.file, !enabled);
       // Reflect the change immediately; the reload below is the authority.
       setSnapshot((current) => ({
-        ...current,
-        files: current.files.map((file) => quotaKey(file) === account.key
+        ...current!,
+        files: (current?.files ?? []).map((file) => quotaKey(file) === account.key
           ? { ...file, disabled: !enabled, status: !enabled ? 'disabled' : readString(file, 'status') === 'disabled' ? 'active' : file.status }
           : file),
       }));
@@ -188,8 +138,8 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
     try {
       await resetAuthFileCooldown(authIndex);
       setSnapshot((current) => ({
-        ...current,
-        files: current.files.map((file) => quotaKey(file) === account.key ? { ...file, cooldowns: [] } : file),
+        ...current!,
+        files: (current?.files ?? []).map((file) => quotaKey(file) === account.key ? { ...file, cooldowns: [] } : file),
       }));
       setNotice(t('authFiles.cooldown.resetSuccess', { name: account.fileName }));
       await loadFiles(false);

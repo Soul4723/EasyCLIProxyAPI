@@ -1,3 +1,8 @@
+import { getCoreConnection, type CoreConnection } from './services/coreConnection';
+import { createDataSource, useDataSource, type DataSource } from './services/dataSource';
+import { credentialsSource } from './services/credentials';
+import { pluginListSource } from './services/pluginList';
+import { lightingSource } from './services/lighting';
 import { invalidateQuotaCache } from './services/quotaCache';
 import { invalidateQuotaRequests } from './services/quotaService';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -30,6 +35,7 @@ export type CoreStatus = {
 type CoreRuntimeContextValue = {
   status: CoreStatus | null;
   statusError: string;
+  connection: CoreConnection | null;
   connectionRevision: number;
   refreshStatus: () => Promise<void>;
   publishStatus: (status: CoreStatus | null) => void;
@@ -38,89 +44,52 @@ type CoreRuntimeContextValue = {
 const CoreRuntimeContext = createContext<CoreRuntimeContextValue | null>(null);
 
 export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<CoreStatus | null>(null);
-  const [statusError, setStatusError] = useState('');
   const [connectionRevision, setConnectionRevision] = useState(0);
-  const refreshRequest = useRef<Promise<void> | null>(null);
-  const statusRevision = useRef(0);
-
-  const publishStatus = useCallback((nextStatus: CoreStatus | null) => {
-    ++statusRevision.current;
-    setStatus((previous) => JSON.stringify(previous) === JSON.stringify(nextStatus) ? previous : nextStatus);
-    if (nextStatus) {
-      setStatusError('');
-    }
+  const [connection, setConnection] = useState<CoreConnection | null>(null);
+  const connectionRef = useRef(connection);
+  connectionRef.current = connection;
+  const source: DataSource<CoreStatus> = useMemo(() => createDataSource<CoreStatus>({
+    load: () => invoke<CoreStatus>('get_core_status'),
+    pollMs: () => connectionRef.current?.mode === 'remote' || source.getSnapshot().data?.connectionMode === 'remote' ? 15_000 : 30_000,
+    maxPollMs: 60_000,
+    focusMs: 10_000,
+    subscribeEvents: () => {
+      let disposed = false;
+      let stop: (() => void) | undefined;
+      // get_core_status emits this event too: publish its payload, never invalidate/refetch it.
+      void listen<CoreStatus>('core-status-changed', event => {
+        if (!disposed) source.mutate(() => event.payload);
+      }).then(off => { if (disposed) off(); else stop = off; });
+      return () => { disposed = true; stop?.(); };
+    },
+  }), []);
+  const snapshot = useDataSource(source);
+  useEffect(() => {
+    let active = true;
+    void getCoreConnection().then(config => {
+      if (active) { connectionRef.current = config; setConnection(config); }
+    }).catch(() => { /* Status remains independently available if connection metadata cannot be read. */ });
+    return () => { active = false; };
   }, []);
-
-  const refreshStatus = useCallback(() => {
-    if (refreshRequest.current) return refreshRequest.current;
-    const revision = statusRevision.current;
-    const request = invoke<CoreStatus>('get_core_status')
-      .then((nextStatus) => {
-        if (revision === statusRevision.current) publishStatus(nextStatus);
-      })
-      .catch((error) => {
-        if (revision !== statusRevision.current) return;
-        setStatus(null);
-        setStatusError(String(error));
-      })
-      .finally(() => { if (refreshRequest.current === request) refreshRequest.current = null; });
-    refreshRequest.current = request;
-    return request;
-  }, [publishStatus]);
-
   useEffect(() => {
     let disposed = false;
-    let unlisten: (() => void) | null = null;
-    let unlistenConnection: (() => void) | null = null;
-    listen('core-connection-changed', () => {
+    let stop: (() => void) | undefined;
+    void listen('core-connection-changed', () => {
       if (disposed) return;
-      ++statusRevision.current;
-      invalidateQuotaRequests();
-      invalidateQuotaCache();
-      refreshRequest.current = null;
-      setStatus(null);
-      setStatusError('');
+      invalidateQuotaRequests(); invalidateQuotaCache();
+      credentialsSource.reset(); lightingSource.reset(); pluginListSource.reset();
+      source.reset();
       setConnectionRevision(value => value + 1);
-      void refreshStatus();
-    }).then(stop => { if (disposed) stop(); else unlistenConnection = stop; }).catch(error => { if (!disposed) setStatusError(String(error)); });
-
-    listen<CoreStatus>('core-status-changed', (event) => {
-      if (!disposed) {
-        publishStatus(event.payload);
-      }
-    }).then((stop) => {
-      if (disposed) {
-        stop();
-      } else {
-        unlisten = stop;
-      }
-    }).catch((error) => {
-      if (!disposed) {
-        setStatusError(String(error));
-      }
-    });
-
-    void refreshStatus();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) {
-        void refreshStatus();
-      }
-    }, 10_000);
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-      unlistenConnection?.();
-      window.clearInterval(timer);
-    };
-  }, [publishStatus, refreshStatus]);
-
-  const value = useMemo(
-    () => ({ status, statusError, connectionRevision, refreshStatus, publishStatus }),
-    [connectionRevision, publishStatus, refreshStatus, status, statusError],
-  );
-
+    }).then(off => { if (disposed) off(); else stop = off; });
+    return () => { disposed = true; stop?.(); };
+  }, [source]);
+  const publishStatus = useCallback((status: CoreStatus | null) => {
+    if (status) source.mutate(() => status); else source.reset();
+  }, [source]);
+  const value = useMemo(() => ({
+    status: snapshot.data ?? null, statusError: snapshot.error ?? '', connection, connectionRevision,
+    refreshStatus: source.refresh, publishStatus,
+  }), [snapshot, connection, connectionRevision, source, publishStatus]);
   return <CoreRuntimeContext.Provider value={value}>{children}</CoreRuntimeContext.Provider>;
 }
 

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { refreshQuotaBatch } from '../../services/quotaBatch';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getVersion } from '../../services/platform';
 import { invoke } from '../../services/documentTarget';
 import { RefreshCw } from 'lucide-react';
@@ -7,10 +8,7 @@ import { useCoreRuntime, type CoreStatus } from '../../coreRuntime';
 import { useCoreUpdate } from '../../coreUpdate';
 import { useI18n } from '../../i18n';
 import { clientApiProfiles } from '../../services/clientAccess';
-import { providerForFile, quotaKey, loadQuota, idleQuota, type QuotaState } from '../../services/quotaService';
-import { authFileHealth } from '../../services/authFileHealth';
-import { captureQuotaCacheGeneration, getQuotaCacheSnapshot, updateQuotaCache, useQuotaCache } from '../../services/quotaCache';
-import { commitFetchedQuota } from '../../services/quotaEnrichment';
+import { useQuotaCache } from '../../services/quotaCache';
 import { PageHeader } from '../../shell/PageHeader';
 import type { SectionPageProps } from '../../shell/types';
 import { Button, useNow } from '../../ui';
@@ -25,7 +23,6 @@ import './overview.css';
 
 type CoreProcessCommand = 'start_core_process' | 'stop_core_process' | 'restart_core_process';
 
-const QUOTA_CONCURRENCY = 3;
 const hostOf = (origin: string | null | undefined) => {
   if (!origin) return '';
   try { return new URL(origin).host; } catch { return origin; }
@@ -37,13 +34,13 @@ export function OverviewSection(_props: SectionPageProps) {
   const { status, statusError, refreshStatus, publishStatus } = useCoreRuntime();
   const { info: appUpdate } = useAppUpdate();
   const { latest, hasUpdate: coreHasUpdate } = useCoreUpdate();
-  const details = useRuntimeDetails(refreshStatus);
+  const details = useRuntimeDetails();
   const now = useNow(30_000);
 
   const remote = details.connection?.mode === 'remote' || status?.connectionMode === 'remote';
   const coreReady = Boolean(status?.ready);
   const healthContext = [details.connection?.mode, details.connection?.managementOrigin, details.port, details.tls, status?.processId, details.configRevision].join(':');
-  const { snapshot, loading, refresh } = useOverviewSnapshot(coreReady, healthContext);
+  const { snapshot, loading, refresh } = useOverviewSnapshot(coreReady);
   const quotas = useQuotaCache();
 
   const [busy, setBusy] = useState(false);
@@ -67,47 +64,13 @@ export function OverviewSection(_props: SectionPageProps) {
     }
   };
 
-  // Quota cache entries for the accounts we know about; the Quota page owns fetching/refreshing in depth.
-  useEffect(() => {
-    const current = getQuotaCacheSnapshot();
-    const missing = snapshot.files.filter((file) => providerForFile(file) && !authFileHealth(file).disabled && !current[quotaKey(file)]);
-    if (missing.length === 0) return;
-    updateQuotaCache((existing) => {
-      const next = { ...existing };
-      missing.forEach((file) => { next[quotaKey(file)] = idleQuota(); });
-      return next;
-    });
-  }, [snapshot.files]);
-
   const refreshQuota = useCallback(async (onlyIdle = false) => {
-    if (Object.values(getQuotaCacheSnapshot()).some((quota) => quota.status === 'loading')) return;
-    const files = snapshot.files.filter((file) => providerForFile(file) && !authFileHealth(file).disabled
-      && (!onlyIdle || (getQuotaCacheSnapshot()[quotaKey(file)]?.status ?? 'idle') === 'idle'));
-    if (files.length === 0) return;
     setRefreshingQuota(true);
-    const generation = captureQuotaCacheGeneration();
-    updateQuotaCache((existing) => ({
-      ...existing,
-      ...Object.fromEntries(files.map((file) => [quotaKey(file), { ...existing[quotaKey(file)], status: 'loading', rows: [] } as QuotaState])),
-    }));
-    try {
-      for (let index = 0; index < files.length; index += QUOTA_CONCURRENCY) {
-        await Promise.all(files.slice(index, index + QUOTA_CONCURRENCY).map(async (file) => {
-          const result = await loadQuota(file).catch((error): QuotaState => ({ status: 'error', rows: [], error: String(error) }));
-          await commitFetchedQuota(generation, file, result);
-        }));
-      }
-    } finally {
-      setRefreshingQuota(false);
-    }
+    try { await refreshQuotaBatch(snapshot.files, onlyIdle); }
+    finally { setRefreshingQuota(false); }
   }, [snapshot.files]);
-
-  // One automatic pass for never-fetched accounts so the provider row isn't empty on first landing.
-  const autoLoaded = useRef(false);
   useEffect(() => {
-    if (autoLoaded.current || !coreReady || snapshot.files.length === 0) return;
-    autoLoaded.current = true;
-    void refreshQuota(true);
+    if (coreReady && snapshot.files.length) void refreshQuota(true);
   }, [coreReady, snapshot.files, refreshQuota]);
 
   const needs = useMemo(
@@ -149,6 +112,8 @@ export function OverviewSection(_props: SectionPageProps) {
         actions={<Button size="sm" variant="outline" icon={<RefreshCw size={13} />} loading={loading && coreReady} onClick={() => { refresh(); void refreshStatus(); }}>{t('sec.overview.refresh')}</Button>}
       />
       <div className="ec-page-body ec-sec-overview" data-testid="overview-page">
+        {details.error && <p role="alert">{details.error}</p>}
+        {snapshot.blockErrors.map((error, index) => <p role="alert" key={index}>{error}</p>)}
         {firstRun && (
           <Onboarding remote={Boolean(remote)} coreReady={coreReady} coreInstalled={Boolean(status?.installed)} starting={state === 'starting'} hasCredentials={snapshot.files.length > 0} onStart={() => void runCommand('start_core_process')} />
         )}
