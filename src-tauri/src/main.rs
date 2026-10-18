@@ -2266,15 +2266,19 @@ impl GuiConfigState {
     // Acquire in the blocking worker, not its awaiter: cancellation must not
     // release the fence while an accepted filesystem/process write is running.
     fn blocking_client_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
-        let guard = self.target_operation.blocking_lock();
-        self.ensure_target(expected)?;
+        let guard = self.blocking_target_operation(expected)?;
         expected.validate_client_origin()?;
         Ok(guard)
     }
 
-    fn blocking_local_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+    fn blocking_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
         let guard = self.target_operation.blocking_lock();
         self.ensure_target(expected)?;
+        Ok(guard)
+    }
+
+    fn blocking_local_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+        let guard = self.blocking_target_operation(expected)?;
         crate::core_connection::require_local(&self.snapshot()?)?;
         Ok(guard)
     }
@@ -2705,19 +2709,8 @@ fn main() {
     let gui_config = match load_or_create_gui_config() {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("{error}");
-            if portable_update_ack.is_some() {
-                return;
-            }
-            let mut config = GuiConfigFile::default();
-            // If the GUI configuration cannot be read before the kernel starts,
-            // use the shared recovery key so requests and the generated kernel
-            // configuration stay synchronized.
-            config.management_secret_key = LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY.to_string();
-            if let Err(sanitize_error) = sanitize_gui_config(&mut config) {
-                eprintln!("Failed to initialize fixed credentials directory: {sanitize_error}");
-            }
-            config
+            eprintln!("{error}. Startup stopped without selecting Local. Repair the saved GUI config.toml (or legacy cpa-gui.yaml) and relaunch.");
+            return;
         }
     };
     let initial_window_size = configured_window_size(&gui_config);
