@@ -9,6 +9,7 @@ import { canOpenAppPage } from '../navigation';
 import { Chip } from '../ui/Chip';
 import { AppMenu } from './AppMenu';
 import { routeHref } from './router';
+import { PluginPages } from './PluginPages';
 import { routes } from './routes';
 import { useCoreStatusLine } from './useCoreStatusLine';
 import type { SectionRoute } from './types';
@@ -80,6 +81,7 @@ export function Sidebar({ activeId, drawerOpen, onNavigate }: { activeId: string
         {main.map(item)}
         <div className="ec-nav-sep" role="separator" />
         {secondary.map(item)}
+        <PluginPages />
       </nav>
       {remote ? <p id="remote-navigation-reason" className="ec-sr-only">{t('connection.navigationReason')}</p> : null}
       <div className="ec-sidebar-foot">

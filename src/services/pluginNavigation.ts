@@ -89,3 +89,27 @@ export function writeCachedPluginNavEntries(entries: PluginNavEntry[]) {
     return;
   }
 }
+
+/** Hash path of a plugin page in the cohesive shell: `/plugin/<pluginId>` (+ `?menu=<n>` for menus after the first). */
+export function pluginPagePath(entry: Pick<PluginNavEntry, 'pluginID' | 'menuIndex'>): string {
+  const base = `/plugin/${encodeURIComponent(entry.pluginID)}`;
+  return entry.menuIndex > 0 ? `${base}?menu=${entry.menuIndex}` : base;
+}
+
+/** Maps an old `/plugin-pages/<id>/<n>` route (still used by app:navigate callers) to its shell path. */
+export function pluginPagePathFromLegacyRoute(route: string): string | null {
+  if (!isPluginRoute(route)) return null;
+  const [pluginID, menu] = route.slice(ROUTE_PREFIX.length).split('/');
+  let id: string;
+  try { id = decodeURIComponent(pluginID ?? ''); } catch { return null; }
+  const menuIndex = Number(menu ?? 0);
+  if (!id || !Number.isInteger(menuIndex) || menuIndex < 0) return null;
+  return pluginPagePath({ pluginID: id, menuIndex });
+}
+
+/** Resolves the `plugin` route (sub = plugin id, `menu` param) to a nav entry. */
+export function findPluginEntryForPage(entries: PluginNavEntry[], pluginID: string | null, menu: string | null): PluginNavEntry | undefined {
+  const menuIndex = menu === null ? 0 : Number(menu);
+  if (!pluginID || !Number.isInteger(menuIndex)) return undefined;
+  return entries.find((entry) => entry.pluginID === pluginID && entry.menuIndex === menuIndex);
+}

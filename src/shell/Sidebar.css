@@ -18,7 +18,7 @@
 .ec-brand-name { font-size: var(--ec-fs-md); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ec-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; }
 .ec-nav-item {
-  display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 0; border-radius: var(--ec-r-md);
+  display: flex; flex: none; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 0; border-radius: var(--ec-r-md);
   background: none; color: var(--ec-fg-muted); font: inherit; font-size: var(--ec-fs-md); text-decoration: none; cursor: pointer; width: 100%; text-align: left;
 }
 .ec-nav-item svg { flex: none; opacity: 0.9; }

@@ -6,7 +6,9 @@ import { canOpenAppPage, isAlwaysAvailablePage } from '../navigation';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { AppUpdateDialog } from '../appUpdate';
+import { closePluginWebview } from '../services/pluginWebview';
 import { PageHeader } from './PageHeader';
+import { PluginNavProvider } from './PluginNav';
 import { ShellContext } from './ShellContext';
 import { Sidebar } from './Sidebar';
 import { WindowsCloseHandler } from './WindowsCloseHandler';
@@ -31,6 +33,11 @@ export function Shell() {
     if (!route.page) replaceRoute(`/${defaultRouteId}`);
     else if (blocked) replaceRoute(`/${defaultRouteId}`);
   }, [route.page, blocked]);
+
+  // The native plugin webview floats above the page: drop it as soon as the core is no longer usable.
+  useEffect(() => {
+    if (statusKnown && !coreReady) void closePluginWebview().catch(() => undefined);
+  }, [statusKnown, coreReady]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -74,11 +81,13 @@ export function Shell() {
 
   return (
     <ShellContext.Provider value={shell}>
+      <PluginNavProvider>
       <div className={`ec-app${current?.bare ? ' ec-app--bare' : ''}`} data-page={route.page}>
         {current?.bare ? null : <Sidebar activeId={route.page} drawerOpen={drawerOpen} onNavigate={closeDrawer} />}
         {drawerOpen ? <div className="ec-drawer-scrim" onClick={closeDrawer} aria-hidden="true" /> : null}
         <main className="ec-main" id="main" key={connectionRevision}>{body}</main>
       </div>
+      </PluginNavProvider>
       <WindowsCloseHandler />
       <AppUpdateDialog />
     </ShellContext.Provider>
