@@ -1,4 +1,3 @@
-import { useSyncExternalStore } from 'react';
 import { getCurrentLocale, translate, type AppLocale } from '../i18n';
 
 export const quotaResetInstant = (value: unknown): number | undefined => {
@@ -51,25 +50,3 @@ export const formatQuotaReset = (
       : relative.format(minutes, 'minute');
   return `${absolute} · ${label}`;
 };
-
-let now = Date.now();
-let timer: ReturnType<typeof setInterval> | undefined;
-const listeners = new Set<() => void>();
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  if (!timer) {
-    now = Date.now();
-    timer = setInterval(() => {
-      now = Date.now();
-      listeners.forEach((notify) => notify());
-    }, 60_000);
-  }
-  return () => {
-    listeners.delete(listener);
-    if (!listeners.size) {
-      clearInterval(timer);
-      timer = undefined;
-    }
-  };
-};
-export const useQuotaClock = () => useSyncExternalStore(subscribe, () => now, () => now);
