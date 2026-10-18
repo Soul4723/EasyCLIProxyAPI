@@ -113,16 +113,19 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let disposed = false;
+    let progressSeen = false;
     let stopListening: (() => void) | undefined;
 
+    // The hydrated task is only a starting point: a progress event that arrived first is newer.
     void invoke<AppUpdateTask>('get_app_update_task')
       .then((current) => {
-        if (!disposed) setTask(current);
+        if (!disposed && !progressSeen) setTask(current);
       })
       .catch(() => undefined);
 
     void listen<AppUpdateTask>('app-update-progress', (event) => {
       if (disposed) return;
+      progressSeen = true;
       setTask(event.payload);
       if (event.payload.phase === 'failed') {
         setError(event.payload.message || translate(getCurrentLocale(), 'appUpdate.phase.failed'));
