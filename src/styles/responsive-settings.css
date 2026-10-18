@@ -1,10 +1,17 @@
 /* Keep each section responsive to its available content width, including the
    sidebar and the narrower cards in the two-column home layout. */
 
+.client-api-panel {
+  container: home-api / inline-size;
+}
+
 /* The download source is one control group: move the group together, then let
    the select shrink while the action retains a readable label. */
 
 @container workspace (max-width: 620px) {
+  .version-list {
+    gap: 16px;
+  }
 
   .app-release-notes-heading {
     flex-wrap: wrap;
@@ -31,8 +38,15 @@
 /* Settings have variable-length descriptions; fixed row heights and controls
    sized from the window instead of the workspace can make adjacent cards overlap. */
 
+.config-keys-panel {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 /* Alias routes should keep their names readable before metadata and actions
    wrap onto a second line. The editor uses its own width inside a modal. */
+.thinking-alias-list-panel {
+  container: alias-list / inline-size;
+}
 
 /* Keep novice-mode actions compact at intermediate widths. Existing phone
    rules made every action full-width even when two controls easily fit. */

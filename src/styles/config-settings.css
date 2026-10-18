@@ -1,10 +1,22 @@
 /* Only flatten page sections. Dialogs may be rendered inside these sections. */
+.config-search-result-list { display: grid; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
+.config-search-result-list > button { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; padding: 16px 18px; border: 0; background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer; }
+.config-search-result-list > button + button { border-top: 1px solid var(--border-color); }
+.config-search-result-list > button:hover { background: var(--bg-hover); }
+.config-search-result-list > button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -3px; }
+.config-search-result-list > button > svg { flex: none; }
+
+.config-field-label { display: flex; align-items: center; gap: 6px; min-width: 0; line-height: 1.5; }
+.config-field-label > label { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .settings-help { display: inline-flex; flex: none; vertical-align: middle; }
 .settings-help-trigger { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-tertiary); cursor: pointer; }
 .settings-help-trigger:hover,
 .settings-help-trigger[aria-expanded="true"] { background: var(--bg-hover); color: var(--text-primary); }
 .settings-help-trigger:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
 .settings-help-popover { position: fixed; z-index: 1000; display: block; width: min(320px, calc(100vw - 24px)); max-height: min(360px, calc(100vh - 24px)); overflow-y: auto; box-sizing: border-box; padding: 12px 14px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-card); box-shadow: 0 8px 28px rgba(0, 0, 0, .14); color: var(--text-secondary); font-size: 12px; font-weight: 400; line-height: 1.7; overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .config-search-result-list > button { padding: 14px; }
+}
 
 /* Settings rows share a label column; controls size to their content, not the window. */
 

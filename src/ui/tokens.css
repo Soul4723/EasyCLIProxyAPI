@@ -48,9 +48,10 @@
   --ec-st-limited: #fe9a00;    --ec-st-limited-fg: #ffb900;
   --ec-st-cooldown: #3b82f6;   --ec-st-cooldown-fg: #60a5fa;
   --ec-st-exhausted: #ef4444;  --ec-st-exhausted-fg: #ff7373;
-  --ec-st-disabled: #8b7f7c;
-  --ec-st-expired: #a78bfa;
+  --ec-st-disabled: #8b7f7c;   --ec-st-disabled-fg: #a59996;
+  --ec-st-expired: #a78bfa;    --ec-st-expired-fg: #c4b5fd;
   --ec-st-error: #fb414a;      --ec-st-error-fg: #ff6467;
+  --ec-st-notfetched: #8b7f7c; --ec-st-notfetched-fg: #a59996;
   --ec-tint: 16%;
 
   /* generic semantic aliases (buttons, toasts, banners) */
@@ -73,7 +74,8 @@
   /* z-index scale */
   --ec-z-header: 20; --ec-z-sidebar: 30; --ec-z-scrim: 60; --ec-z-drawer: 62; --ec-z-panel: 65; --ec-z-dialog: 70; --ec-z-popover: 80; --ec-z-toast: 90;
 
-  /* shadows */ --ec-shade-2: rgb(0 0 0 / 25%); --ec-shade-3: rgb(0 0 0 / 30%);
+  /* shadows */
+  --ec-shade-1: rgb(0 0 0 / 20%); --ec-shade-2: rgb(0 0 0 / 25%); --ec-shade-3: rgb(0 0 0 / 30%);
   --ec-knob: #ffffff;
   --ec-shadow-xs: 0 1px 2px rgb(0 0 0 / 18%);
   --ec-shadow-card: 0 1px 2px rgb(0 0 0 / 8%);
@@ -84,7 +86,7 @@
   --ec-r-xs: 4px; --ec-r-sm: 6px; --ec-r-md: 8px; --ec-r-lg: 12px; --ec-r-pill: 9999px;
 
   /* spacing scale */
-  --ec-sp-1: 4px; --ec-sp-2: 8px; --ec-sp-3: 12px; --ec-sp-4: 16px; --ec-sp-5: 24px;
+  --ec-sp-1: 4px; --ec-sp-2: 8px; --ec-sp-3: 12px; --ec-sp-4: 16px; --ec-sp-5: 24px; --ec-sp-6: 32px;
 
   /* type */
   --ec-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Hiragino Sans", "Microsoft YaHei", sans-serif;
@@ -150,9 +152,10 @@
   --ec-st-limited: #d97706;    --ec-st-limited-fg: #a35a00;
   --ec-st-cooldown: #2563eb;   --ec-st-cooldown-fg: #1d4ed8;
   --ec-st-exhausted: #dc2626;  --ec-st-exhausted-fg: #b91c1c;
-  --ec-st-disabled: #8a7a71;
-  --ec-st-expired: #7c3aed;
+  --ec-st-disabled: #8a7a71;   --ec-st-disabled-fg: #6f5f57;
+  --ec-st-expired: #7c3aed;    --ec-st-expired-fg: #6d28d9;
   --ec-st-error: #e11d48;      --ec-st-error-fg: #be123c;
+  --ec-st-notfetched: #8a7a71; --ec-st-notfetched-fg: #6f5f57;
   --ec-tint: 12%;
 
   --ec-s1: #d9733f; --ec-s2: #c94a34; --ec-s3: #c79a1f; --ec-s4: #2f8f9d; --ec-s5: #7c5bc2; --ec-s6: #8a7a71;

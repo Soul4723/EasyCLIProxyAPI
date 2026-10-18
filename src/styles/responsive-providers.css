@@ -4,6 +4,11 @@
 
 /* Keep controls compact while allowing complete groups to move to the next line. */
 
+.auth-files-page .real-auth-files-panel {
+  container: credential-files / inline-size;
+  min-width: 0;
+}
+
 .auth-files-page .auth-files-toolbar select {
   min-width: 0;
 }

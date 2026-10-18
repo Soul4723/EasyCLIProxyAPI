@@ -23,6 +23,10 @@
   margin-left: auto;
 }
 
+.usage-filter-panel {
+  flex-shrink: 0;
+}
+
 .oauth-subpage-tabs {
   min-width: 0;
   max-width: 100%;
@@ -39,9 +43,18 @@
   max-width: 100%;
 }
 
+.usage-pricing-panel {
+  overflow: auto;
+}
+
 @media (max-width: 760px) {
   :root:has(.usage-records-page) {
     scrollbar-gutter: stable;
+  }
+
+  .usage-health-panel {
+    container-type: inline-size;
+    grid-template-rows: auto auto;
   }
 }
 

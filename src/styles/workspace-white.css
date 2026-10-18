@@ -22,11 +22,15 @@
   --bg-hover: var(--theme-hover-background, #fff);
   --theme-f0ede6: var(--theme-soft-surface, #fff);
   --theme-f0eee8: var(--theme-soft-surface, #fff);
+  --theme-f2efe8: var(--theme-soft-surface, #fff);
   --theme-f2f0ea: var(--theme-soft-surface, #fff);
   --theme-f4f1ea: var(--theme-soft-surface, #fff);
   --theme-f4f2ec: var(--theme-soft-surface, #fff);
+  --theme-f6f2ec: var(--theme-soft-surface, #fff);
+  --theme-f8f5ee: var(--theme-soft-surface, #fff);
   --theme-f8f5ef: var(--theme-soft-surface, #fff);
   --theme-f8f6f1: var(--theme-soft-surface, #fff);
+  --theme-faf8f2: var(--theme-soft-surface, #fff);
   --theme-faf8f4: var(--theme-soft-surface, #fff);
   --theme-faf9f5: var(--theme-soft-surface, #fff);
   --theme-fffdf8: var(--theme-surface, #fff);
@@ -94,6 +98,10 @@
   border-color: transparent;
   color: var(--ui-accent);
   box-shadow: none;
+}
+
+:root:not([data-theme='dark']) .workspace .usage-tab-panel {
+  --bg-secondary: var(--theme-workspace-background, #fff);
 }
 
 :root:not([data-theme='dark']) .workspace :is(
