@@ -98,7 +98,7 @@ export function ModelTransferDialog({ providerLabel, found, unselected, selected
           <span role="status">{t('apiAccess.modelDialog.summary', { found, selected: selected.length })}</span>
           <IconButton size="sm" label={t('common.refresh')} icon={<RefreshCw size={14} className={loading ? 'ec-api-spin' : undefined} />} onClick={onRefresh} disabled={loading} />
         </div>
-        {error ? <ErrorLine message={t('apiAccess.modelDialog.fetchFailed', { error })} onDismiss={onDismissError} /> : null}
+        {error ? <ErrorLine title={t('apiAccess.modelDialog.fetchFailed')} message={error} onDismiss={onDismissError} /> : null}
         <div className="ec-api-transfer__panels">
           <ModelPanel models={unselected} selected={false} loading={loading} onMove={onMove} />
           <ModelPanel models={selected} selected loading={loading} onMove={onMove} />

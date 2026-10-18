@@ -86,20 +86,24 @@ export function useApiProviders(): ApiProvidersController {
           records: await providerGroupsApi.get(definition.section),
         })),
       );
+      // Failures are collected outside the state updater: the updater runs later, so reading them right after
+      // setRecords (as the old page did) usually saw an empty list and the partial-load error never showed.
       const failures: string[] = [];
+      const loaded = new Map<ProviderSection, Record<string, unknown>[]>();
+      responses.forEach((result, index) => {
+        const definition = providerLoadDefinitions[index];
+        if (result.status === 'fulfilled') loaded.set(result.value.section, result.value.records);
+        else failures.push(`${providerLabel(definition)}: ${String(result.reason).replace(/^Error:\s*/i, '')}`);
+      });
       setRecords((current) => {
         const next = { ...current };
-        responses.forEach((result, index) => {
-          const definition = providerLoadDefinitions[index];
-          if (result.status === 'fulfilled') {
-            next[result.value.section] = result.value.records;
-          } else {
-            failures.push(`${providerLabel(definition)}: ${String(result.reason)}`);
-          }
-        });
+        loaded.forEach((sectionRecords, section) => { next[section] = sectionRecords; });
         return next;
       });
-      if (failures.length > 0) {
+      if (loaded.size === 0 && failures.length > 0) {
+        // Everything failed (core down, bad key): one distinct message instead of the same error per kind.
+        setError([...new Set(failures.map((failure) => failure.replace(/^[^:]*:\s*/, '')))].join('; '));
+      } else if (failures.length > 0) {
         setError(t('apiAccess.error.partialLoad', { errors: failures.join('; ') }));
       }
     } catch (requestError) {

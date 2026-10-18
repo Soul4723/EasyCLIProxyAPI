@@ -36,11 +36,25 @@ function seedExtras(host: SectionMockHost) {
   }
 }
 
-/** Browser-mock handlers for the api part of Providers; chained from ../mock.ts. */
+const mockProviders = () => (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('mockProviders'));
+
+/**
+ * Browser-mock handlers for the api part of Providers; chained from ../mock.ts.
+ * `?mockProviders=many` adds ~30 more rows, `none` removes every provider, `error` makes the provider config requests fail.
+ */
 export const apiMock: SectionMockFactory = (host) => {
   seedExtras(host);
+  if (mockProviders() === 'none' && host.providerConfig) {
+    for (const section of Object.keys(host.providerConfig as ProviderConfig)) (host.providerConfig as ProviderConfig)[section] = [];
+  }
   return {
     handle(command, payload) {
+      if (mockProviders() === 'error' && command === 'management_request') {
+        const request = (payload.request ?? {}) as { method?: string; path?: string };
+        if (String(request.path ?? '').startsWith('/config/api-keys/')) {
+          return { handled: true, value: Promise.reject(new Error('Browser Mock: provider config is unavailable')) };
+        }
+      }
       // Health probes against a "broken" upstream fail; every other probe succeeds (shared mock behaviour).
       if (command === 'provider_health_probe') {
         const request = (payload.request ?? {}) as { url?: string };

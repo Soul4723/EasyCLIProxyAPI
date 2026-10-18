@@ -2,13 +2,15 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
-import { ApiProviderDialog, type ProviderDraft } from '../../src/pages/ApiAccessPage';
+import { ApiProviderForm, type ProviderDraft } from '../../src/sections/providers/api';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
 
 const params = new URLSearchParams(location.search);
 const scenario = params.get('scenario') ?? 'saved';
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'en');
 document.documentElement.dataset.theme = params.get('theme') ?? 'light';
+document.documentElement.dataset.density = params.get('density') ?? 'comfortable';
 const fixture = window as typeof window & {
   fixtureCatalog: { name: string }[];
   fixtureFailFetch: boolean;
@@ -54,8 +56,8 @@ const initialDraft: ProviderDraft = {
 };
 createRoot(document.getElementById('root')!).render(
   <I18nProvider>
-    <ApiProviderDialog
-      activeCategory={scenario === 'new' ? 'deepseek' : 'codex-api-key'}
+    <ApiProviderForm
+      kind={scenario === 'new' ? 'deepseek' : 'codex-api-key'}
       editingRow={null}
       initialDraft={initialDraft}
       busy={false}

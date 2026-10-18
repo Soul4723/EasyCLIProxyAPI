@@ -1,15 +1,11 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { I18nProvider } from '../../src/i18n';
 import {
-  ApiAccessPage,
   apiAccessRemarkLocatorFromRecord,
   providerRemarkIdentity,
   type ApiAccessRemarkLocator,
   type ProviderSection,
-} from '../../src/pages/ApiAccessPage';
-import '../../src/styles/index.css';
+} from '../../src/sections/providers/api/logic';
+import { mountApiHarness } from './apiHarness';
 
 const query = new URLSearchParams(location.search);
 const denseLayout = query.get('layout') === 'dense';
@@ -121,4 +117,4 @@ mockIPC((cmd, args: any) => {
   persistRemarkScenario();
   return { status: 'ok' };
 });
-createRoot(document.getElementById('root')!).render(<I18nProvider><div className="app-shell"><aside className="sidebar" /><div className="workspace"><main className="content"><ApiAccessPage /></main></div></div></I18nProvider>);
+mountApiHarness();

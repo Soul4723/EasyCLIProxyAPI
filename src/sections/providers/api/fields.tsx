@@ -90,13 +90,13 @@ export function FormSection({ title, action, children }: { title: ReactNode; act
 }
 
 /** One clear error line (role=alert); the text goes through the privacy mask because errors often echo hosts and keys. */
-export function ErrorLine({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
+export function ErrorLine({ message, title, onDismiss }: { message: string; title?: string; onDismiss?: () => void }) {
   const mask = usePrivacyMask();
   const { t } = useI18n();
   return (
     <p className="ec-api-error" role="alert">
       <CircleAlert size={14} aria-hidden="true" />
-      <span>{mask.text(message)}</span>
+      <span>{title ? <strong>{title}: </strong> : null}{mask.text(message)}</span>
       {onDismiss ? <IconButton size="xs" label={t('common.close')} icon={<X size={12} />} onClick={onDismiss} /> : null}
     </p>
   );

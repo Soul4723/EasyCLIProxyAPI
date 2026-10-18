@@ -1,9 +1,6 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { I18nProvider } from '../../src/i18n';
-import { ApiAccessPage, providerRemarkIdentity, type ApiAccessRemarkLocator, type ProviderSection } from '../../src/pages/ApiAccessPage';
-import '../../src/styles/index.css';
+import { providerRemarkIdentity, type ApiAccessRemarkLocator, type ProviderSection } from '../../src/sections/providers/api/logic';
+import { mountApiHarness } from './apiHarness';
 
 localStorage.setItem('easy-cli-proxy-api.locale', 'en');
 const fixture = window as typeof window & {
@@ -51,8 +48,4 @@ mockIPC((cmd, rawArgs) => {
   throw new Error(`Unhandled fixture command: ${cmd}`);
 });
 
-createRoot(document.getElementById('root')!).render(
-  <I18nProvider><div className="app-shell"><aside className="sidebar" /><div className="workspace"><main className="content">
-    <ApiAccessPage />
-  </main></div></div></I18nProvider>,
-);
+mountApiHarness();
