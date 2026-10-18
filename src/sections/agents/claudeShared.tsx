@@ -4,7 +4,7 @@ import { useI18n } from '../../i18n';
 import { Button } from '../../ui';
 
 /** Width below which mapping rows stack. A class flag rather than a container query: containment would break the picker's fixed dropdown. */
-const NARROW_PX = 560;
+const NARROW_PX = 700;
 
 /** Returns [ref, narrow]; attach the ref to the panel root. */
 export function useNarrowPanel<T extends HTMLElement>() {

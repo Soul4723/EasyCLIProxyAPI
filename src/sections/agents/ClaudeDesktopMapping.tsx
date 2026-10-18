@@ -59,7 +59,6 @@ export function ClaudeDesktopMapping({ ctl }: { ctl: AgentsController }) {
       };
     }
     if (aliasNotice === 'sameModel') return { tone: 'info', text: t('agents.claudeDesktopMapping.sameModel') };
-    if (isClaudeDesktopModel(entry.model)) return { tone: 'info', text: t('agents.claudeDesktopMapping.claudeDefault') };
     return null;
   };
 
