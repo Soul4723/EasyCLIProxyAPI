@@ -56,6 +56,8 @@ const USAGE_QUEUE_BATCH_SIZE: usize = 10_000;
 const USAGE_INBOX_PROCESS_LIMIT: usize = 500;
 const USAGE_INBOX_MAX_ATTEMPTS: i64 = 5;
 const USAGE_SUBSCRIBE_RETRY_SECONDS: u64 = 30;
+const REMOTE_EMPTY_POLL_MIN_SECONDS: u64 = 2;
+const REMOTE_EMPTY_POLL_MAX_SECONDS: u64 = 30;
 const USAGE_QUEUE_KEY: &str = "usage";
 const LEGACY_USAGE_QUEUE_KEY: &str = "queue";
 const HTTP_USAGE_QUEUE_SOURCE: &str = "http_pull:usage_queue";
@@ -2049,8 +2051,14 @@ where
     Some(fetch().await)
 }
 
+fn next_empty_remote_poll_seconds(current: u64) -> u64 {
+    (current * 2).min(REMOTE_EMPTY_POLL_MAX_SECONDS)
+}
+
 async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut retry_seconds = 1_u64;
+    // Idle remote cores are polled less often each time the queue comes back empty.
+    let mut empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
     let mut subscription: Option<UsageSubscription> = None;
     let mut redis_queue = RedisUsageQueueSource::default();
     let mut subscribe_retry_at = tokio::time::Instant::now();
@@ -2230,9 +2238,11 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                         None,
                     );
                     retry_seconds = 1;
-                    wait_or_cancel(&token, 2).await;
+                    wait_or_cancel(&token, empty_poll_seconds).await;
+                    empty_poll_seconds = next_empty_remote_poll_seconds(empty_poll_seconds);
                 }
                 Ok(messages) => {
+                    empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
                     pending_remote_batch = Some(PendingRemoteUsageBatch::new(
                         root,
                         remote_usage_queue_source(&config),
@@ -5374,6 +5384,17 @@ fn usage_source_display(config: &GuiConfigFile, provider: &str, source: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_remote_queue_polling_backs_off_to_a_cap() {
+        let mut seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
+        let mut waits = Vec::new();
+        for _ in 0..7 {
+            waits.push(seconds);
+            seconds = next_empty_remote_poll_seconds(seconds);
+        }
+        assert_eq!(waits, [2, 4, 8, 16, 30, 30, 30]);
+    }
 
     fn load_usage_events(
         connection: &Connection,
