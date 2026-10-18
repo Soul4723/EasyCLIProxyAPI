@@ -3,11 +3,14 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { FloatingNotice, MessageNotice, useAppNotice } from '../../src/appNotice';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { UsageRecordsPage } from '../../src/pages/UsageRecordsPage';
-import { AgentConfigurationFeedback } from '../../src/pages/AgentControls';
 import { useConfirmation } from '../../src/components/ConfirmationDialog';
 import { QuotaActionFeedback } from '../../src/components/QuotaActionFeedback';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
+import '../../src/sections/agents/agents.css';
+import '../../src/sections/agents/setup.css';
 
 const params = new URLSearchParams(location.search);
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'zh-CN');
@@ -62,16 +65,18 @@ function Fixture() {
       {mounted && <><FloatingNotice key={first.revision} notice={first.notice} onDismiss={first.clearNotice} />
         <FloatingNotice key={second.revision} notice={second.notice} onDismiss={second.clearNotice} /></>}
       <div data-testid="before">Existing form</div>
-      <div className="agent-save-bar">
-        <AgentConfigurationFeedback pending={agent} description="" />
-        <div className="agent-save-actions"><button>Apply agent</button></div>
+      <div className="ec-sec-agents">
+        <div className="ag-savebar" role="group" aria-label="Save bar">
+          <div className="ag-save-feedback" aria-live="polite">{agent ? <span className="ag-save-state is-pending">Pending changes</span> : null}</div>
+          <div className="ag-save-actions"><button>Apply agent</button></div>
+        </div>
       </div>
       <MessageNotice tone="success" message={agent ? 'Agent saved' : ''} />
       {quota && <QuotaActionFeedback name="test.json" quota={{ status: 'success', rows: [], actionResult: { action: 'reset', status: 'refresh-error', error: 'query failed' } }} />}
       <input data-testid="after" defaultValue="Keep focus" />
     </section>
     {confirmationDialog}
-    <dialog ref={dialog} className="agent-backup-modal" style={{ width: 400, height: 'calc(100vh - 48px)' }}>
+    <dialog ref={dialog} style={{ width: 400, height: 'calc(100vh - 48px)' }}>
       <h2>Native backup dialog</h2>
       <button onClick={() => setNativeError('Native modal error')}>Native error</button>
       <MessageNotice message={nativeError} onDismiss={() => setNativeError('')} />
@@ -80,5 +85,5 @@ function Fixture() {
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><I18nProvider>
-  {params.get('scenario') === 'pricing' ? <UsageRecordsPage /> : <Fixture />}
+  {params.get('scenario') === 'pricing' ? <CoreRuntimeProvider><UsageRecordsPage /></CoreRuntimeProvider> : <Fixture />}
 </I18nProvider></StrictMode>);
