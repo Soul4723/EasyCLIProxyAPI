@@ -1,6 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '../../i18n';
-import { Button, Chip, EmptyState, Masked, Tabs, tabPanelProps } from '../../ui';
+import { Button, Chip, EmptyState, Tabs, tabPanelProps } from '../../ui';
 import { navigate, routeHref, routePath } from '../../shell/router';
 import { ClientLogo } from './ClientLogo';
 import { clientState, clientVersion } from './clientState';

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Activity, Eye, EyeOff, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { Activity, Eye, EyeOff, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { providerText } from '../../../i18n/providerTemplate';
 import { isRecord, maskSecret, readString } from '../../../services/managementApi';
@@ -11,7 +11,7 @@ import {
   type ModelProvider,
 } from '../../../services/modelService';
 import { checkProviderModelHealth, PROVIDER_HEALTH_TIMEOUT_MS } from '../../../services/providerHealthCheck';
-import { Button, Chip, Dialog, IconButton, Masked, ProviderLogo, StatusPill } from '../../../ui';
+import { Button, Chip, Dialog, IconButton, ProviderLogo, StatusPill } from '../../../ui';
 import {
   type ProviderCategory, type ProviderDraft, type ProviderRow, type ProviderSaveResult,
   applyProviderPreset, definitionFor, exclusionsForModelSelection, modelSelectionForDiscovery, parseProviderHeaders,
@@ -578,17 +578,5 @@ export function ApiProviderForm({ kind, editingRow, initialDraft, busy, onClose,
         />
       ) : null}
     </>
-  );
-}
-
-/** Masked one-line summary of a row's key(s), shared by the list and dialogs. */
-export function KeySummary({ row }: { row: Pick<ProviderRow, 'apiKey' | 'apiKeys'> }) {
-  const { t } = useI18n();
-  if (!row.apiKey) return null;
-  return (
-    <span className="ec-api-keysummary" title={t('apiAccess.keys.count', { count: row.apiKeys.length })}>
-      <Masked kind="identifier" mono value={maskSecret(row.apiKey)} />
-      {row.apiKeys.length > 1 ? <span className="ec-api-keysummary__more">+{row.apiKeys.length - 1}</span> : null}
-    </span>
   );
 }

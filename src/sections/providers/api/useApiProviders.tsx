@@ -75,8 +75,13 @@ export function useApiProviders(): ApiProvidersController {
   const [pendingDelete, setPendingDelete] = useState<ApiRow | null>(null);
   const [checkAll, setCheckAll] = useState<{ items: CheckAllItem[]; running: boolean } | null>(null);
   const checkAllRun = useRef(0);
+  const loadRun = useRef(0);
+  // Synchronous re-entrancy guard for the write actions: `busy` state lags a rapid second click by a render.
+  const writing = useRef(false);
 
   const loadProviders = useCallback(async (showLoading = true) => {
+    // Only the latest load may publish: an older, slower response must not overwrite newer records.
+    const run = ++loadRun.current;
     if (showLoading) setLoading(true);
     setError('');
     try {
@@ -88,6 +93,7 @@ export function useApiProviders(): ApiProvidersController {
       );
       // Failures are collected outside the state updater: the updater runs later, so reading them right after
       // setRecords (as the old page did) usually saw an empty list and the partial-load error never showed.
+      if (run !== loadRun.current) return;
       const failures: string[] = [];
       const loaded = new Map<ProviderSection, Record<string, unknown>[]>();
       responses.forEach((result, index) => {
@@ -107,9 +113,9 @@ export function useApiProviders(): ApiProvidersController {
         setError(t('apiAccess.error.partialLoad', { errors: failures.join('; ') }));
       }
     } catch (requestError) {
-      setError(String(requestError));
+      if (run === loadRun.current) setError(String(requestError));
     } finally {
-      if (showLoading) setLoading(false);
+      if (run === loadRun.current) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -299,6 +305,8 @@ export function useApiProviders(): ApiProvidersController {
     } catch (requestError) {
       return { saved: false, target: 'form', error: requestErrorMessage(requestError) };
     }
+    if (writing.current) return { saved: false, target: 'form', error: '' };
+    writing.current = true;
     setBusy(true);
     setError('');
     try {
@@ -366,11 +374,14 @@ export function useApiProviders(): ApiProvidersController {
     } catch (requestError) {
       return { saved: false, target: 'form', error: requestErrorMessage(requestError) };
     } finally {
+      writing.current = false;
       setBusy(false);
     }
   };
 
   const deleteRow = async (row: ApiRow) => {
+    if (writing.current) return;
+    writing.current = true;
     feedback.clearNotice();
     setBusy(true);
     setError('');
@@ -385,11 +396,14 @@ export function useApiProviders(): ApiProvidersController {
     } catch (requestError) {
       setNotice(requestErrorMessage(requestError), 'error');
     } finally {
+      writing.current = false;
       setBusy(false);
     }
   };
 
   const toggleProvider = async (row: ApiRow) => {
+    if (writing.current) return;
+    writing.current = true;
     setBusy(true);
     setError('');
     setNotice('');
@@ -404,12 +418,14 @@ export function useApiProviders(): ApiProvidersController {
     } catch (requestError) {
       setNotice(requestErrorMessage(requestError), 'error');
     } finally {
+      writing.current = false;
       setBusy(false);
     }
   };
 
   const reorderProviders = async (source: ApiRow, target: ApiRow) => {
-    if (source.section !== target.section || source.kind !== target.kind || source.index === target.index) return;
+    if (writing.current || source.section !== target.section || source.kind !== target.kind || source.index === target.index) return;
+    writing.current = true;
     setBusy(true);
     setError('');
     setNotice('');
@@ -425,6 +441,7 @@ export function useApiProviders(): ApiProvidersController {
       await loadProviders(false);
       setNotice(requestErrorMessage(requestError), 'error');
     } finally {
+      writing.current = false;
       setBusy(false);
     }
   };
