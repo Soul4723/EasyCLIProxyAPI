@@ -17,6 +17,7 @@ Use the bottom toolbar or query parameters:
 | `?mock=error` | Main backend reads fail so error and retry UI can be inspected |
 | `?mock=off` | Disable mock IPC |
 | `?mock=running&mockDelay=500` | Delay each IPC call by 500 ms (maximum 5000 ms) |
+| `?mock=running&mockRecovery=waiting` | Supervisor recovery state of the managed core (`waiting`, `restarting`, `failed`; payload has attempt, limit and delay). Stop or Start clears it |
 | `?mock=running&mockPluginPages=12` | Add 12 extra plugin pages (maximum 30) so the sidebar plugin submenu auto-collapses at normal window sizes |
 
 Plugin pages are native child webviews in the desktop app, which the browser cannot

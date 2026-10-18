@@ -20,6 +20,8 @@ export type CoreStatus = {
   recovery?: {
     phase: 'waiting' | 'restarting' | 'failed';
     attempt: number;
+    /** Supervisor restart budget; absent in payloads from older builds. */
+    limit?: number;
     delaySeconds: number;
     detail: string;
   } | null;

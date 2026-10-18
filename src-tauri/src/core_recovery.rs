@@ -7,6 +7,8 @@ use super::*;
 pub(crate) struct RecoveryStatus {
     pub phase: &'static str,
     pub attempt: usize,
+    /// Restart budget of the supervisor, so the UI never hardcodes it.
+    pub limit: usize,
     pub delay_seconds: u64,
     pub detail: String,
 }
@@ -54,6 +56,7 @@ impl CoreRecovery {
             state.status = Some(RecoveryStatus {
                 phase: "waiting",
                 attempt: 1,
+                limit: MAX_CORE_CRASH_RESTART_ATTEMPTS as usize,
                 delay_seconds: 1,
                 detail,
             });
@@ -74,6 +77,7 @@ impl CoreRecovery {
             state.status = Some(RecoveryStatus {
                 phase: "waiting",
                 attempt: attempt as usize,
+                limit: MAX_CORE_CRASH_RESTART_ATTEMPTS as usize,
                 delay_seconds: delay.as_secs(),
                 detail,
             });
@@ -112,6 +116,7 @@ impl CoreRecovery {
             state.status = Some(RecoveryStatus {
                 phase: "failed",
                 attempt,
+                limit: MAX_CORE_CRASH_RESTART_ATTEMPTS as usize,
                 delay_seconds: 0,
                 detail,
             });
@@ -142,6 +147,7 @@ mod tests {
         assert_eq!(recovery.status().unwrap().detail, "PID 123 exited");
         recovery.waiting(2, Duration::from_secs(2));
         assert_eq!(recovery.status().unwrap().attempt, 2);
+        assert_eq!(recovery.status().unwrap().limit, MAX_CORE_CRASH_RESTART_ATTEMPTS as usize);
         recovery.restarting();
         assert_eq!(recovery.status().unwrap().phase, "restarting");
         recovery.attempt_failed("occupied port".into());

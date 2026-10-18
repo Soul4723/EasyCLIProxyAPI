@@ -119,6 +119,8 @@ export function resolveBrowserMockOptions(
 
 type BrowserMockState = ReturnType<typeof createState>;
 
+export type MockRecoveryPhase = 'waiting' | 'restarting' | 'failed';
+
 function createCoreStatus(scenario: BrowserMockScenario) {
   const installed = scenario !== 'empty';
   const running = scenario === 'running';
@@ -964,8 +966,16 @@ export function createBrowserMockRuntime(
   pluginPages = 0,
   onPluginWebview?: (state: PluginWebviewMockState) => void,
   connectionStorage?: ConnectionStorage,
+  recovery?: MockRecoveryPhase,
 ): BrowserMockRuntime {
   const state = createState(scenario);
+  // Shape of the native RecoveryStatus (core_recovery.rs): the supervisor's own attempt/limit/delay.
+  if (recovery) {
+    Object.assign(state.coreStatus, {
+      running: false, ready: false, managed: true, processId: null, message: 'Browser Mock core exited unexpectedly',
+      recovery: { phase: recovery, attempt: recovery === 'failed' ? 5 : 3, limit: 5, delaySeconds: recovery === 'waiting' ? 5 : 0, detail: 'PID 42817 exited with code 1 (mock)' },
+    });
+  }
   let connection: CoreConnection = { mode: 'local', managementOrigin: '', managementKey: '', clientOrigin: '', clientKey: '' };
   let localStatus = clone(state.coreStatus);
   let portableConnection: CoreConnection | null = null;
@@ -1133,14 +1143,14 @@ export function createBrowserMockRuntime(
       case 'start_core_process': {
         if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
-        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42817, message: 'Browser Mock core is running' });
+        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42817, message: 'Browser Mock core is running', recovery: null });
         state.guiSettings.runOnStartup = true;
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }
       case 'stop_core_process': {
         if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
-        Object.assign(state.coreStatus, { running: false, ready: false, managed: false, starting: false, processId: null, message: 'Browser Mock core is stopped' });
+        Object.assign(state.coreStatus, { running: false, ready: false, managed: false, starting: false, processId: null, message: 'Browser Mock core is stopped', recovery: null });
         state.guiSettings.runOnStartup = false;
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
@@ -1148,7 +1158,7 @@ export function createBrowserMockRuntime(
       case 'restart_core_process': {
         if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
-        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42818, message: 'Browser Mock core restarted' });
+        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42818, message: 'Browser Mock core restarted', recovery: null });
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }

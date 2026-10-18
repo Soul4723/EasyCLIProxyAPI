@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../services/documentTarget';
 import { RefreshCw } from 'lucide-react';
 import { useAppUpdate } from '../../appUpdate';
 import { useCoreRuntime, type CoreStatus } from '../../coreRuntime';
@@ -124,6 +124,8 @@ export function OverviewSection(_props: SectionPageProps) {
     ? (coreReady ? 'remoteUp' : status ? 'remoteDown' : statusError ? 'error' : 'loading')
     : statusError ? 'error'
       : !status ? 'loading'
+        : status.recovery?.phase === 'waiting' || status.recovery?.phase === 'restarting' ? 'recovering'
+          : status.recovery?.phase === 'failed' ? 'recoveryFailed'
         : status.starting || busy ? 'starting'
           : status.running ? 'running'
             : status.installed ? 'stopped' : 'notInstalled';

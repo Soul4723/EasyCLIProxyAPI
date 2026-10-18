@@ -5,6 +5,8 @@ import { useCoreRuntime } from '../coreRuntime';
 export type CoreStatusLine =
   | { kind: 'running'; tone: 'ok'; port: number | null }
   | { kind: 'starting' | 'stopped' | 'notInstalled'; tone: 'warn' | 'muted' }
+  | { kind: 'recovering'; tone: 'warn'; attempt: number; limit: number | null }
+  | { kind: 'recoveryFailed'; tone: 'danger' }
   | { kind: 'remote' | 'remoteDown'; tone: 'ok' | 'warn'; host: string };
 
 function hostOf(origin: string | null | undefined) {
@@ -29,6 +31,11 @@ export function useCoreStatusLine(): CoreStatusLine {
     const host = hostOf(status.remoteOrigin);
     return running ? { kind: 'remote', tone: 'ok', host } : { kind: 'remoteDown', tone: 'warn', host };
   }
+  const recovery = status?.recovery;
+  if (recovery?.phase === 'waiting' || recovery?.phase === 'restarting') {
+    return { kind: 'recovering', tone: 'warn', attempt: recovery.attempt, limit: recovery.limit ?? null };
+  }
+  if (recovery?.phase === 'failed') return { kind: 'recoveryFailed', tone: 'danger' };
   if (running) return { kind: 'running', tone: 'ok', port };
   if (status?.starting) return { kind: 'starting', tone: 'warn' };
   if (status && !status.installed) return { kind: 'notInstalled', tone: 'muted' };

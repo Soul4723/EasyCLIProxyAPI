@@ -94,3 +94,9 @@
 .ec-sec-overview .ov-grid--runtime { align-items: stretch; }
 .ec-sec-overview .ov-runtime__actions { margin-top: auto; }
 .ec-sec-overview .ov-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.ec-sec-overview .ov-recovery { display: flex; flex-direction: column; gap: var(--ec-sp-2); padding: var(--ec-sp-2) var(--ec-sp-3); border: 1px solid var(--ec-border-soft); border-radius: var(--ec-r-md); background: var(--ec-muted-bg); }
+.ec-sec-overview .ov-recovery__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ec-sp-2); font-size: var(--ec-fs-sm); }
+.ec-sec-overview .ov-recovery__hint { margin: 0; color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-sec-overview .ov-recovery__detail summary { cursor: pointer; color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-sec-overview .ov-recovery__detail .ov-error { margin-top: var(--ec-sp-1); }

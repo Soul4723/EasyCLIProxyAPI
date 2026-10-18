@@ -5,6 +5,7 @@ import {
   createBrowserMockRuntime,
   resolveBrowserMockOptions,
   type BrowserMockScenario,
+  type MockRecoveryPhase,
 } from './browserMockRuntime';
 import { clampPluginPages, type PluginWebviewMockState } from './pluginMock';
 import './browserMock.css';
@@ -82,6 +83,9 @@ function installToolbar(scenario: BrowserMockScenario, delayMs: number) {
   document.body.dataset.browserMock = scenario;
 }
 
+const clampRecovery = (value: string | null): MockRecoveryPhase | undefined =>
+  value === 'waiting' || value === 'restarting' || value === 'failed' ? value : undefined;
+
 function installPluginWebviewPlaceholder() {
   document.querySelector('[data-mock-plugin-webview]')?.remove();
 
@@ -134,6 +138,7 @@ export function installBrowserMock(): InstalledBrowserMock | null {
     clampPluginPages(new URLSearchParams(window.location.search).get('mockPluginPages')),
     installPluginWebviewPlaceholder(),
     window.sessionStorage,
+    clampRecovery(new URLSearchParams(window.location.search).get('mockRecovery')),
   );
 
   mockIPC((command, payload) => runtime.invoke(command, payload), {

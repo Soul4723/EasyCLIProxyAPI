@@ -60,7 +60,9 @@ export function Sidebar({ activeId, drawerOpen, onNavigate }: { activeId: string
     ? (line.port ? t('shell.core.running', { port: line.port }) : t('shell.core.runningNoPort'))
     : line.kind === 'remote' ? t('shell.core.remote', { host: line.host })
       : line.kind === 'remoteDown' ? t('shell.core.remoteDown', { host: line.host })
-        : t(`shell.core.${line.kind}`);
+        : line.kind === 'recovering'
+          ? (line.limit ? t('shell.core.recovering', { attempt: line.attempt, limit: line.limit }) : t('shell.core.recoveringNoLimit', { attempt: line.attempt }))
+          : t(`shell.core.${line.kind}`);
   const item = (route: SectionRoute) => (
     <NavItem key={route.id} route={route} active={route.id === activeId} locked={!canOpenAppPage(route.id, coreReady)}
       updateDot={route.id === 'settings' ? updateState : null} dotTitle={updateLabel} />
