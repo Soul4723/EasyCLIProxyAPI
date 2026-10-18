@@ -2266,15 +2266,19 @@ impl GuiConfigState {
     // Acquire in the blocking worker, not its awaiter: cancellation must not
     // release the fence while an accepted filesystem/process write is running.
     fn blocking_client_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
-        let guard = self.target_operation.blocking_lock();
-        self.ensure_target(expected)?;
+        let guard = self.blocking_target_operation(expected)?;
         expected.validate_client_origin()?;
         Ok(guard)
     }
 
-    fn blocking_local_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+    fn blocking_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
         let guard = self.target_operation.blocking_lock();
         self.ensure_target(expected)?;
+        Ok(guard)
+    }
+
+    fn blocking_local_target_operation(&self, expected: &GuiConfigFile) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+        let guard = self.blocking_target_operation(expected)?;
         crate::core_connection::require_local(&self.snapshot()?)?;
         Ok(guard)
     }

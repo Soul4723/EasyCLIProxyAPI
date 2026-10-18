@@ -327,6 +327,42 @@ mod tests {
         assert_eq!(published, "published");
     }
 
+    #[test]
+    fn remote_locale_publication_runs_without_local_core_requirements() {
+        let mut remote = GuiConfigFile::default();
+        remote.connection_mode = CoreConnectionMode::Remote;
+        remote.remote_management_origin = "https://remote.example".into();
+        remote.remote_management_key = "management-only-key".into();
+        let state = GuiConfigState::new(remote);
+        let expected = state.snapshot().unwrap();
+        let published = with_target_locale_publication(&state, &expected, |target| {
+            assert_eq!(target.connection_mode, CoreConnectionMode::Remote);
+            true
+        })
+        .unwrap();
+        assert!(published);
+    }
+
+    #[test]
+    fn stale_remote_locale_publication_is_rejected_before_callback() {
+        let mut remote = GuiConfigFile::default();
+        remote.connection_mode = CoreConnectionMode::Remote;
+        remote.remote_management_origin = "https://remote.example".into();
+        remote.remote_management_key = "management-only-key".into();
+        let state = GuiConfigState::new(remote);
+        let expected = state.snapshot().unwrap();
+        let mut replacement = expected.clone();
+        replacement.target_revision = expected.target_revision.wrapping_add(1);
+        state.replace_external(replacement).unwrap();
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let callback_called = called.clone();
+        assert!(with_target_locale_publication(&state, &expected, |_| {
+            callback_called.store(true, std::sync::atomic::Ordering::Release);
+        })
+        .is_err());
+        assert!(!called.load(std::sync::atomic::Ordering::Acquire));
+    }
+
     fn locator(base_url: &str, api_keys: &[&str]) -> ApiAccessRemarkLocator {
         ApiAccessRemarkLocator {
             provider_name: String::new(),
@@ -831,7 +867,7 @@ fn with_target_locale_publication<R>(
     expected: &GuiConfigFile,
     publish: impl FnOnce(&GuiConfigFile) -> R,
 ) -> Result<R, String> {
-    let _target = gui_config_state.blocking_local_target_operation(expected)?;
+    let _target = gui_config_state.blocking_target_operation(expected)?;
     Ok(publish(expected))
 }
 
