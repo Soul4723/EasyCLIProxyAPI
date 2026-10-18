@@ -1,7 +1,7 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const fs = require('node:fs/promises');
+const { setTheme } = require('./helpers/shell.cjs');
 
 const USER_AGENTS = {
   windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
@@ -47,52 +47,57 @@ const coversCenterOf = (locator) => locator.evaluate(el => {
     // --- Browser preview of the full app shell ---
     const page = await newPage();
     await page.goto(`${base}/?mock=running&mockDelay=0`);
-    await page.locator('.app-shell').waitFor();
+    await page.locator('.ec-app').waitFor();
     assert.equal(await page.locator('.window-titlebar').count(), 0, 'ordinary browser is unchanged');
     await page.goto(`${base}/?mock=running&mockDelay=0&windowPreview=windows`);
     await page.locator('.window-titlebar').waitFor();
     assert.equal(await page.locator('.window-caption, .window-preview-label').count(), 0);
-    const sidebarBounds = await page.locator('.sidebar').boundingBox();
+    const sidebarBounds = await page.locator('.ec-sidebar').boundingBox();
     const titlebarBounds = await page.locator('.window-titlebar').boundingBox();
-    const workspaceBounds = await page.locator('.workspace').boundingBox();
+    const workspaceBounds = await page.locator('.ec-main').boundingBox();
     assert.equal(sidebarBounds.y, 0, 'sidebar starts at the top edge');
     assert.equal(sidebarBounds.height, 800, 'sidebar fills the entire window height');
     assert.equal(titlebarBounds.x, sidebarBounds.width, 'titlebar only occupies the workspace');
-    assert.equal(workspaceBounds.y, titlebarBounds.height, 'workspace scrollport starts below the titlebar');
-    assert.equal(workspaceBounds.y + workspaceBounds.height, 800, 'workspace reaches the bottom edge');
+    assert.equal(workspaceBounds.y, titlebarBounds.height, 'main scrollport starts below the titlebar');
+    assert.equal(workspaceBounds.y + workspaceBounds.height, 800, 'main reaches the bottom edge');
     await page.getByRole('button', { name: 'Maximize', exact: true }).click();
     await page.getByRole('button', { name: 'Restore window', exact: true }).waitFor();
     await page.locator('.window-drag-region').dblclick();
     await page.getByRole('button', { name: 'Maximize', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Minimize', exact: true }).click();
     await page.locator('.window-close').click();
-    assert.equal(await page.locator('.app-shell').count(), 1, 'preview controls do not close the browser');
+    assert.equal(await page.locator('.ec-app').count(), 1, 'preview controls do not close the browser');
     await page.getByRole('button', { name: 'Maximize', exact: true }).focus();
     await page.keyboard.press('Tab');
     assert.equal(await page.locator('.window-close').evaluate(el => el.matches(':focus-visible')), true);
-    await fs.mkdir('bin-work', { recursive: true });
-    await page.locator('.theme-selector-trigger').click();
-    await page.locator('.theme-selector-card[data-theme-id="light"]').click();
-    await page.keyboard.press('Escape');
+    await setTheme(page, 'light');
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
-    await page.screenshot({ path: 'bin-work/windows-immersive-light.png' });
-    await page.locator('.theme-selector-trigger').click();
-    await page.locator('.theme-selector-card[data-theme-id="dark"]').click();
-    await page.keyboard.press('Escape');
+    await setTheme(page, 'dark');
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
-    await page.screenshot({ path: 'bin-work/windows-immersive-dark.png' });
 
-    await page.locator('.sidebar-easy-entry').click();
-    await page.locator('.app-shell-easy-mode').waitFor();
+    await page.evaluate(() => { window.location.hash = '/easy'; });
+    await page.locator('.ec-app--bare').waitFor();
     assert.equal(await page.locator('.window-titlebar').count(), 1, 'easy mode keeps controls');
-    const easyBounds = await page.locator('.app-shell-easy-mode .workspace').boundingBox();
+    const easyBounds = await page.locator('.ec-app--bare').boundingBox();
     assert.equal(easyBounds.y + easyBounds.height, 800, 'easy mode is not clipped below the titlebar');
     await page.setViewportSize({ width: 640, height: 600 });
     assert.equal(await page.locator('.window-close').isVisible(), true);
     const bounds = await page.locator('.window-close').boundingBox();
     assert.ok(bounds.x + bounds.width <= 640 && bounds.y === 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    await page.screenshot({ path: 'bin-work/windows-immersive-compact.png' });
+
+    // The icon rail remains full height; at <=1100px the titlebar begins beside its fixed width.
+    await page.setViewportSize({ width: 964, height: 600 });
+    await page.evaluate(() => { window.location.hash = '/overview'; });
+    await page.locator('.ec-sidebar').waitFor();
+    const railSidebarBounds = await page.locator('.ec-sidebar').boundingBox();
+    const railTitlebarBounds = await page.locator('.window-titlebar').boundingBox();
+    const railMainBounds = await page.locator('.ec-main').boundingBox();
+    assert.equal(railSidebarBounds.y, 0, 'rail sidebar starts at the top edge');
+    assert.equal(railSidebarBounds.height, 600, 'rail sidebar fills the window height');
+    assert.equal(railTitlebarBounds.x, railSidebarBounds.width, 'rail titlebar starts after the icon rail');
+    assert.equal(railMainBounds.y, railTitlebarBounds.height, 'rail main starts below the titlebar');
+    assert.equal(railMainBounds.y + railMainBounds.height, 600, 'rail main reaches the bottom edge');
 
     // --- Native window API through the Tauri IPC mock (Windows WebView2 user agent) ---
     const native = await newPage({ userAgent: USER_AGENTS.windows });

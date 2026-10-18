@@ -1,3 +1,4 @@
+const h = require('./helpers/shell.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -11,7 +12,7 @@ const path = require('node:path');
   try {
     await server.listen();
     const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : undefined, headless: true, args: ['--no-proxy-server'] });
+    browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true, args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1505, height: 1000 } });
     page.setDefaultTimeout(10000);
     const errors = [], externalRequests = [];
@@ -23,7 +24,7 @@ const path = require('node:path');
     });
     await page.addInitScript(() => localStorage.setItem('easy-cli-proxy-api.locale', 'en'));
     await page.goto(`${base}/?mock=running&mockDelay=5`, { timeout: 30000 });
-    await page.locator('.app-shell').waitFor();
+    await page.locator('.ec-app').waitFor();
     await page.getByRole('button', { name: 'Core connection settings', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Core connection settings', exact: true });
     await dialog.getByLabel('Mode', { exact: true }).selectOption('remote');
@@ -49,27 +50,22 @@ const path = require('node:path');
     assert.equal(await page.getByRole('button', { name: /^start$/i }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Restart', exact: true }).count(), 0);
-    const beginner = page.getByRole('button', { name: 'Beginner Mode', exact: true });
     const reason = page.locator('#remote-navigation-reason');
-    assert.equal(await beginner.isDisabled(), true);
-    assert.equal(await beginner.getAttribute('aria-describedby'), 'remote-navigation-reason');
-    assert.match(await reason.innerText(), /Beginner Mode requires Local mode\. Configure remote clients from Agent Configuration\./);
-    await beginner.evaluate(el => el.click());
-    await page.getByRole('button', { name: /^Version Management/ }).focus();
-    await page.keyboard.press('Tab');
-    assert.equal(await page.getByRole('button', { name: 'Join Discord Server', exact: true }).evaluate(el => el === document.activeElement), true);
+    assert.match(await reason.textContent(), /Beginner Mode requires Local mode/);
+    assert.equal(await page.locator('.ec-nav [data-nav="easy"]').count(), 0, 'Easy mode is not a sidebar destination');
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'easy' })));
-    assert.equal(await page.locator('.app-shell-easy-mode').count(), 0);
+    await page.waitForFunction(() => location.hash === '#/overview');
+    assert.equal(await page.locator('.ec-app--bare').count(), 0, 'remote mode rejects Easy mode');
     await page.setViewportSize({ width: 390, height: 844 });
-    assert.equal(await reason.isVisible(), true);
-    const bounds = await reason.evaluate(el => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, bottom: r.bottom, width: innerWidth, height: innerHeight }; });
-    assert.ok(bounds.left >= 0 && bounds.right <= bounds.width && bounds.bottom <= bounds.height, JSON.stringify(bounds));
+    await h.openDrawerIfNeeded(page);
+    assert.equal(await page.locator('.ec-mode-chip').innerText(), 'Remote');
+    await h.closeDrawer(page);
     await page.setViewportSize({ width: 1505, height: 1000 });
     await page.getByText('http://client.example.test:8317/v1', { exact: true }).waitFor();
-    await page.getByRole('button', { name: /^Version Management/ }).click();
+    await h.gotoPage(page, 'versions');
     assert.equal(await page.getByRole('button', { name: 'Install Latest', exact: true }).isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: 'Install Bundled Core', exact: true }).isDisabled(), true);
-    await page.getByRole('button', { name: 'Home', exact: true }).click();
+    await h.gotoPage(page, 'home');
     // Existing client workflows stay available; native owns endpoint/key resolution.
     await page.evaluate(async () => {
       window.clientOperations = [];
@@ -82,7 +78,7 @@ const path = require('node:path');
         return original(command, args);
       };
     });
-    await page.getByRole('button', { name: 'Agent Configuration', exact: true }).click();
+    await h.gotoPage(page, 'agents');
     await page.locator('.agent-client-list-heading button:not([disabled])').waitFor();
     const codexRow = page.locator('.agent-list-items button').filter({ has: page.getByText('Codex', { exact: true }) });
     for (let index = 0; index < 16 && !await codexRow.count(); index++) {
@@ -104,7 +100,7 @@ const path = require('node:path');
     }
     assert.ok(!JSON.stringify(clientEvidence).includes('fixture-management-key'));
     assert.ok(!JSON.stringify(clientEvidence).includes('fixture-client-key'));
-    await page.getByRole('button', { name: 'Home', exact: true }).click();
+    await h.gotoPage(page, 'home');
     // Failed draft authentication leaves the active successful connection alone.
     await page.getByRole('button', { name: 'Core connection settings', exact: true }).click();
     const retry = page.getByRole('dialog', { name: 'Core connection settings', exact: true });
@@ -131,7 +127,9 @@ const path = require('node:path');
     await page.getByRole('button', { name: /^start$/i }).waitFor();
     assert.equal(await page.locator('[data-runtime="installation"]').count(), 1);
     assert.equal(await reason.count(), 0);
-    assert.equal(await beginner.isEnabled(), true);
+    await h.gotoPage(page, 'easy');
+    assert.equal(await page.locator('.ec-app--bare').count(), 1, 'local mode permits Easy mode');
+    await h.gotoPage(page, 'home');
     // A credential read started on an old target must never invoke the upload command.
     await page.evaluate(async () => {
       const { managementApi } = await import('/src/services/managementApi.ts');
