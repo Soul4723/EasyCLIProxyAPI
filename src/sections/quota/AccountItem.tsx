@@ -12,7 +12,7 @@ import { ResetTime, WindowMeter, tightest, windowLabel } from './WindowMeter';
 
 const MAX_CARD_WINDOWS = 3;
 
-function Identity({ account, ctx, selected, grouped }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean; grouped?: boolean }) {
+function Identity({ account, ctx, selected, grouped, plan = true }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean; grouped?: boolean; plan?: boolean }) {
   return (
     <button type="button" className="qt-identity" aria-pressed={selected} onClick={() => ctx.actions.open(account)}>
       <ProviderLogo provider={account.provider} size={28} />
@@ -20,7 +20,7 @@ function Identity({ account, ctx, selected, grouped }: { account: QuotaAccount; 
         {grouped ? (
           <span className="qt-identity__top">
             <Masked className="qt-identity__provider ec-trunc" value={account.label} identities={account.identities} />
-            {account.plan ? <Chip size="sm"><Masked value={account.plan} identities={account.identities} /></Chip> : null}
+            {plan && account.plan ? <Chip size="sm"><Masked value={account.plan} identities={account.identities} /></Chip> : null}
           </span>
         ) : (
           <>
@@ -132,11 +132,14 @@ export function AccountCard({ account, ctx, selected, grouped }: { account: Quot
       onClick={open}
     >
       <header className="qt-card__head">
-        <Identity account={account} ctx={ctx} selected={selected} grouped={grouped} />
+        <Identity account={account} ctx={ctx} selected={selected} grouped={grouped} plan={!grouped} />
         <AccountControls account={account} ctx={ctx} />
       </header>
       <div className="qt-card__state">
-        <span className="qt-card__count ec-muted">{account.windows.length ? <WindowCount account={account} /> : null}</span>
+        <span className="qt-card__count ec-muted">
+          {grouped && account.plan ? <Chip size="sm"><Masked value={account.plan} identities={account.identities} /></Chip>
+            : account.windows.length ? <WindowCount account={account} /> : null}
+        </span>
         <StatusPill status={account.status} size="sm" />
       </div>
       <CardBody account={account} ctx={ctx} />
