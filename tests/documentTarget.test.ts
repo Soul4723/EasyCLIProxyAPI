@@ -84,3 +84,12 @@ test('revision initialization failure is fail-closed and is not retried into ano
   await expect(f.invoke('start_oauth_login')).rejects.toThrow('unavailable');
   expect(calls).toBe(1);
 });
+
+test('isBlocked follows block and restore', () => {
+  const f = fixture();
+  expect(f.target.isBlocked()).toBe(false);
+  f.target.block();
+  expect(f.target.isBlocked()).toBe(true);
+  f.target.restore();
+  expect(f.target.isBlocked()).toBe(false);
+});

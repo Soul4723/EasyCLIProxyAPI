@@ -24,6 +24,7 @@ export function createDocumentTarget(transport: Transport) {
   const assertActive = () => { if (blocked) throw changed(); };
   return {
     getRevision,
+    isBlocked: () => blocked,
     block: () => { blocked = true; },
     restore: () => { blocked = false; },
     async invoke<T>(command: string, args: InvokeArgs = {}, options?: InvokeOptions): Promise<T> {
@@ -47,3 +48,4 @@ export function createDocumentTarget(transport: Transport) {
 
 export const documentTarget = createDocumentTarget(nativeInvoke);
 export const invoke = documentTarget.invoke;
+export const isDocumentTargetBlocked = documentTarget.isBlocked;

@@ -1,5 +1,5 @@
 export const connectionEn = {
-  "connection.navigationReason": "Beginner Mode requires Local mode. Configure remote clients from Agent Configuration.",
+  "connection.navigationReason": "Connected to a remote core. Local lifecycle controls are unavailable; change the connection in Settings → Connection.",
   "connection.export": "Export settings",
   "connection.import": "Import settings",
   "connection.includeSecrets": "Include API keys (handle exported file as secret)",
@@ -35,7 +35,7 @@ export const connectionEn = {
   "connection.target": "Management target",
 };
 export const connectionZhCN = {
-  "connection.navigationReason": "新手模式需要本地模式。请在客户端配置中设置远程客户端。",
+  "connection.navigationReason": "已连接远程内核，本机生命周期控制不可用；请在 设置 → 连接 中更改连接。",
   "connection.export": "导出设置",
   "connection.import": "导入设置",
   "connection.includeSecrets": "包含 API 密钥（请将导出文件作为机密保管）",
@@ -71,7 +71,7 @@ export const connectionZhCN = {
   "connection.target": "管理目标",
 };
 export const connectionJa = {
-  "connection.navigationReason": "初心者モードにはローカルモードが必要です。リモートクライアントはクライアント設定で構成してください。",
+  "connection.navigationReason": "リモートコアに接続中です。ローカルのライフサイクル操作は利用できません。接続は 設定 → 接続 で変更してください。",
   "connection.export": "設定をエクスポート",
   "connection.import": "設定をインポート",
   "connection.includeSecrets": "API キーを含める（ファイルを機密として扱ってください）",

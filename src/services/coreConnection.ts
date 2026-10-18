@@ -37,6 +37,15 @@ export function isValidOrigin(value: string): boolean {
   } catch { return false; }
 }
 
+/** True for an http: origin whose host is not loopback: keys sent there cross the network unencrypted. */
+export function isInsecureRemoteOrigin(value: string): boolean {
+  if (!isValidOrigin(value)) return false;
+  const url = new URL(value.trim());
+  if (url.protocol !== 'http:') return false;
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return !(host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host));
+}
+
 const CONNECTION_FIELDS = ['mode', 'managementOrigin', 'managementKey', 'clientOrigin', 'clientKey'] as const;
 /** Number of draft fields that differ from the saved connection (remote-only fields are ignored in local mode). */
 export function changedConnectionFields(draft: CoreConnection, saved: CoreConnection): number {

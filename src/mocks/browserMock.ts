@@ -7,6 +7,7 @@ import {
   type BrowserMockScenario,
   type MockRecoveryPhase,
 } from './browserMockRuntime';
+import { assertFencedArgs } from './fencedCommands';
 import { clampPluginPages, type PluginWebviewMockState } from './pluginMock';
 import './browserMock.css';
 
@@ -141,7 +142,10 @@ export function installBrowserMock(): InstalledBrowserMock | null {
     clampRecovery(new URLSearchParams(window.location.search).get('mockRecovery')),
   );
 
-  mockIPC((command, payload) => runtime.invoke(command, payload), {
+  mockIPC(async (command, payload) => {
+    assertFencedArgs(command, payload);
+    return runtime.invoke(command, payload);
+  }, {
     shouldMockEvents: true,
   });
   installToolbar(options.mode, options.delayMs);

@@ -21,10 +21,10 @@ runUi(async ({ base }) => {
     const waitSession = () => page.getByLabel('Sign-in URL', { exact: true }).waitFor();
 
     await open(); await waitSession();
-    assert.deepEqual((await calls('start_oauth_login'))[0].args, { provider: 'grok', browser: 'none', pluginProvider: true });
+    assert.deepEqual((await calls('start_oauth_login'))[0].args, { provider: 'grok', browser: 'none', pluginProvider: true, expectedRevision: 0 });
     assert.equal((await calls('open_oauth_url')).length, 0, 'Opening the dialog must not launch a browser automatically');
     await page.getByRole('button', { name: 'Open in browser', exact: true }).click();
-    assert.deepEqual((await calls('open_oauth_url'))[0].args, { url: 'https://login.example.test/authorize?state=plugin-1', browser: 'default' });
+    assert.deepEqual((await calls('open_oauth_url'))[0].args, { url: 'https://login.example.test/authorize?state=plugin-1', browser: 'default', expectedRevision: 0 });
     await page.getByRole('button', { name: 'Copy link', exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.pluginOAuthFixture.copied), ['https://login.example.test/authorize?state=plugin-1']);
     const callback = page.getByLabel('Callback URL', { exact: true });
@@ -34,7 +34,7 @@ runUi(async ({ base }) => {
     assert.equal((await calls('submit_oauth_callback')).length, 0);
     await callback.fill('http://localhost/callback?code=secret&state=plugin-1');
     await page.getByRole('button', { name: 'Submit callback', exact: true }).click();
-    assert.deepEqual((await calls('submit_oauth_callback'))[0].args, { provider: 'grok', redirectUrl: 'http://localhost/callback?code=secret&state=plugin-1', pluginProvider: true });
+    assert.deepEqual((await calls('submit_oauth_callback'))[0].args, { provider: 'grok', redirectUrl: 'http://localhost/callback?code=secret&state=plugin-1', pluginProvider: true, expectedRevision: 0 });
     await page.evaluate(() => { window.pluginOAuthFixture.status = 'ok'; });
     await page.getByText('Authorization completed and credentials saved.', { exact: true }).waitFor();
     await page.waitForFunction(() => window.pluginOAuthFixture.completed === 1);
