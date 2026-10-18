@@ -1,6 +1,7 @@
 import { emit } from '@tauri-apps/api/event';
 import { mockConvertFileSrc, mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import {
+  BROWSER_MOCK_CONNECTION_STORAGE_KEY,
   createBrowserMockRuntime,
   resolveBrowserMockOptions,
   type BrowserMockScenario,
@@ -58,6 +59,7 @@ function installToolbar(scenario: BrowserMockScenario, delayMs: number) {
   });
   select.addEventListener('change', () => {
     const next = select.value as BrowserMockScenario;
+    window.sessionStorage.removeItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
     storeScenario(next);
     const url = new URL(window.location.href);
     url.searchParams.set('mock', next);
@@ -67,7 +69,15 @@ function installToolbar(scenario: BrowserMockScenario, delayMs: number) {
   const hint = document.createElement('span');
   hint.textContent = delayMs > 0 ? `${delayMs} ms` : 'Browser debugging';
 
-  toolbar.append(badge, select, hint);
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.textContent = 'Reset mock data';
+  reset.addEventListener('click', () => {
+    window.sessionStorage.removeItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
+    window.location.reload();
+  });
+
+  toolbar.append(badge, select, hint, reset);
   document.body.append(toolbar);
   document.body.dataset.browserMock = scenario;
 }
@@ -104,6 +114,7 @@ function installPluginWebviewPlaceholder() {
 export function installBrowserMock(): InstalledBrowserMock | null {
   const options = resolveBrowserMockOptions(window.location.search, readStoredScenario());
   if (options.mode === 'off') {
+    window.sessionStorage.removeItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
     console.info('[Browser Mock] Disabled via ?mock=off.');
     return null;
   }
@@ -122,6 +133,7 @@ export function installBrowserMock(): InstalledBrowserMock | null {
     options.delayMs,
     clampPluginPages(new URLSearchParams(window.location.search).get('mockPluginPages')),
     installPluginWebviewPlaceholder(),
+    window.sessionStorage,
   );
 
   mockIPC((command, payload) => runtime.invoke(command, payload), {

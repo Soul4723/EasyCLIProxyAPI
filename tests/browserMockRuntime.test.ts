@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  BROWSER_MOCK_CONNECTION_STORAGE_KEY,
   createBrowserMockRuntime,
   resolveBrowserMockOptions,
 } from '../src/mocks/browserMockRuntime';
@@ -279,5 +280,92 @@ describe('remote agent client fixture', () => {
     const pending = runtime.invoke('get_agent_models', { client: 'codex' });
     await saving;
     await expect(pending).rejects.toThrow('connection changed');
+  });
+});
+
+
+describe('browser mock connection persistence across documents', () => {
+  const target = {
+    mode: 'remote', managementOrigin: 'http://core.example.test:8317', managementKey: 'fixture-management-key',
+    clientOrigin: 'http://client.example.test:8317', clientKey: 'fixture-client-key',
+  };
+  const storageFixture = () => {
+    const values = new Map<string, string>();
+    return {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    };
+  };
+  const documentRuntime = (storage: ReturnType<typeof storageFixture>, scenario: 'running' | 'stopped' = 'running') =>
+    createBrowserMockRuntime(scenario, undefined, 0, 0, undefined, storage);
+
+  test('reload restores active remote identity/revision and saved stopped local state', async () => {
+    const storage = storageFixture();
+    const first = documentRuntime(storage);
+    await first.invoke('stop_core_process');
+    await first.invoke('save_core_connection', { connection: target });
+    const reloaded = documentRuntime(storage);
+    expect(await reloaded.invoke('get_core_connection')).toEqual(target);
+    expect(await reloaded.invoke('get_management_target_revision')).toBe(1);
+    expect(await reloaded.invoke('get_core_status')).toMatchObject({ connectionMode: 'remote', remoteOrigin: target.managementOrigin, ready: true });
+    await expect(reloaded.invoke('management_request', { request: { method: 'GET', path: '/credentials', expectedRevision: 0 } })).rejects.toThrow('connection changed');
+    await reloaded.invoke('save_core_connection', { connection: { ...target, mode: 'local' } });
+    const localReload = documentRuntime(storage);
+    expect(await localReload.invoke('get_core_connection')).toMatchObject({ mode: 'local' });
+    expect(await localReload.invoke('get_management_target_revision')).toBe(2);
+    expect(await localReload.invoke('get_core_status')).toMatchObject({ connectionMode: 'local', running: false, managed: false });
+  });
+
+  test('reload retains disconnected remote instead of falling back to local', async () => {
+    const storage = storageFixture();
+    await documentRuntime(storage, 'stopped').invoke('save_core_connection', { connection: { ...target, managementKey: 'wrong-fixture-key' } });
+    const reloaded = documentRuntime(storage, 'stopped');
+    expect(await reloaded.invoke('get_core_connection')).toMatchObject({ mode: 'remote', managementKey: 'wrong-fixture-key' });
+    expect(await reloaded.invoke('get_core_status')).toMatchObject({ connectionMode: 'remote', ready: false, installed: false });
+    expect(await reloaded.invoke('get_management_target_revision')).toBe(1);
+  });
+
+  test('failed saves leave persisted and active connection/revision unchanged', async () => {
+    const storage = storageFixture();
+    const first = documentRuntime(storage);
+    await expect(first.invoke('save_core_connection', { connection: target })).rejects.toThrow('Stop the GUI-managed');
+    expect(storage.getItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY)).toBeNull();
+    await first.invoke('stop_core_process');
+    await first.invoke('save_core_connection', { connection: target });
+    const saved = storage.getItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
+    await expect(first.invoke('save_core_connection', { connection: { ...target, clientOrigin: 'invalid' } })).rejects.toThrow();
+    expect(storage.getItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY)).toBe(saved);
+    const failingStorage = { ...storage, setItem: () => { throw new Error('storage unavailable'); } };
+    const reloaded = documentRuntime(failingStorage);
+    await expect(reloaded.invoke('save_core_connection', { connection: { ...target, mode: 'local' } })).rejects.toThrow('storage unavailable');
+    expect(await reloaded.invoke('get_core_connection')).toEqual(target);
+    expect(await reloaded.invoke('get_management_target_revision')).toBe(1);
+    expect(storage.getItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY)).toBe(saved);
+  });
+
+  test('reset, another tab/storage and another scenario start with independent local state', async () => {
+    const storage = storageFixture();
+    await documentRuntime(storage, 'stopped').invoke('save_core_connection', { connection: target });
+    expect(await documentRuntime(storageFixture(), 'stopped').invoke('get_core_connection')).toMatchObject({ mode: 'local' });
+    storage.removeItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
+    expect(await documentRuntime(storage, 'stopped').invoke('get_management_target_revision')).toBe(0);
+    await documentRuntime(storage, 'stopped').invoke('save_core_connection', { connection: target });
+    const otherScenario = documentRuntime(storage);
+    expect(await otherScenario.invoke('get_core_connection')).toMatchObject({ mode: 'local' });
+    expect(await otherScenario.invoke('get_core_status')).toMatchObject({ running: true });
+    expect(storage.getItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY)).toBeNull();
+  });
+
+  test('invalid stored data is cleared instead of accepting a forged revision or target', async () => {
+    for (const raw of ['invalid-json', 'null', JSON.stringify({ scenario: 'running', connection: target, revision: -1 }),
+      JSON.stringify({ scenario: 'running', connection: target, revision: 3, localStatus: {} })]) {
+      const storage = storageFixture();
+      storage.setItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY, raw);
+      const fresh = documentRuntime(storage);
+      expect(await fresh.invoke('get_core_connection')).toMatchObject({ mode: 'local' });
+      expect(await fresh.invoke('get_management_target_revision')).toBe(0);
+      expect(storage.getItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY)).toBeNull();
+    }
   });
 });
