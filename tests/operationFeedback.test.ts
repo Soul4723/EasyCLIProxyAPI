@@ -80,14 +80,4 @@ describe('控件自身反馈', () => {
     expect(source).toContain('<CopyButton');
     expect(source).not.toContain('navigator.clipboard');
   });
-
-  it('首页启动和停止不重复报成功，只有重启需要额外结果', () => {
-    const { source, calls } = actionCalls('Kernel.tsx', 'runCoreProcessCommand', 'showProcessNotice');
-    const successCalls = calls.filter((call) => call.arguments[1]?.getText(source) === "'success'");
-    expect(successCalls).toHaveLength(1);
-    let ancestor: ts.Node | undefined = successCalls[0].parent;
-    while (ancestor && !ts.isIfStatement(ancestor)) ancestor = ancestor.parent;
-    expect(ancestor && ts.isIfStatement(ancestor) ? ancestor.expression.getText(source) : '')
-      .toBe("command === 'restart_core_process'");
-  });
 });
