@@ -134,7 +134,8 @@ export function Countdown({ to, compact = false, onDone, className }: CountdownP
   const target = toTimestamp(to);
   const coarse = useNow(30_000);
   const remainingEstimate = target === null ? Infinity : target - coarse;
-  const fine = useNow(remainingEstimate < HOUR_MS ? 1_000 : 30_000);
+  // Fine ticks only while the target is under an hour away; once it has passed, fall back to the coarse clock.
+  const fine = useNow(remainingEstimate > 0 && remainingEstimate < HOUR_MS ? 1_000 : 30_000);
   const tu = useUiText();
   const onDoneRef = useRef(onDone);
 
