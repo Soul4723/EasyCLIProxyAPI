@@ -29,7 +29,7 @@ const formatUnit = (value: number) => {
 /** Usage → Prices: estimated cost summary and the per-model price table (add / edit / delete / sync). */
 export function PricesTab() {
   const { t } = useI18n();
-  const { query, queryKey, tick, refresh } = useUsage();
+  const { query, refreshVersion, refresh } = useUsage();
   const [pricing, setPricing] = useState<UsagePricing | null>(null);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
@@ -40,20 +40,18 @@ export function PricesTab() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [reload, setReload] = useState(0);
 
-  const queryRef = useRef(query);
-  queryRef.current = query;
   const requestId = useRef(0);
   const noticeTimer = useRef<number | undefined>(undefined);
 
-  // Quiet refresh: keeps the previous rows while refetching; only a failed first load shows the error state.
+  // Quiet refresh: keep previous rows and show refresh errors alongside them.
   useEffect(() => {
     const id = ++requestId.current;
-    invoke<UsagePricing>('get_usage_pricing', { query: queryRef.current })
+    invoke<UsagePricing>('get_usage_pricing', { query })
       .then((next) => { if (id === requestId.current) { setPricing(next); setLoadError(''); } })
       .catch((cause) => { if (id === requestId.current) setLoadError(String(cause)); });
-  }, [queryKey, tick, reload]);
+    return () => { requestId.current += 1; };
+  }, [query, refreshVersion]);
   useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
 
   const showNotice = useCallback((next: Notice) => {
@@ -61,7 +59,7 @@ export function PricesTab() {
     setNotice(next);
     noticeTimer.current = window.setTimeout(() => setNotice(null), 6000);
   }, []);
-  const changed = useCallback(() => { setReload((n) => n + 1); refresh(); }, [refresh]);
+  const changed = refresh;
 
   const unpricedCount = useMemo(
     () => pricing?.rows.filter((row) => row.price === null && row.requests > 0).length ?? 0,
@@ -168,6 +166,7 @@ export function PricesTab() {
 
   return (
     <div className="prices-tab">
+      {loadError ? <ErrorState title={t('sec.usage.error.load')} message={loadError} onRetry={changed} retryLabel={t('sec.usage.retry')} /> : null}
       <div className="prices-stats">
         <StatTile label={t('sec.usage.prices.stat.cost')} value={`~${formatUsd(pricing.totalCost)}`} accent="var(--ec-s1)" />
         <StatTile label={t('sec.usage.prices.stat.requests')} value={compactNumber(pricing.totalRequests)} accent="var(--ec-s2)" />

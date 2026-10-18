@@ -26,25 +26,20 @@ const rank = (items: UsageCategory[], metric: Metric) =>
 
 export function OverviewTab() {
   const { t } = useI18n();
-  const { query, timeQuery, queryKey, tick, activeFilterCount, resetFilters } = useUsage();
+  const { query, timeQuery, refreshVersion, loadAnalysis, activeFilterCount, resetFilters } = useUsage();
   const [overview, setOverview] = useState<UsageOverview | null>(null);
   const [analysis, setAnalysis] = useState<UsageAnalysis>(emptyAnalysis);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const requestId = useRef(0);
-  const lastKey = useRef('');
 
-  // Quiet refresh on tick: keep previous data, only show the skeleton when the filters change or nothing is loaded.
+  // Retain the last successful snapshot for both refreshes and changed queries.
   useEffect(() => {
     const id = ++requestId.current;
-    if (lastKey.current !== queryKey) {
-      lastKey.current = queryKey;
-      setLoading(true);
-    }
     Promise.all([
       invoke<UsageOverview>('get_usage_overview', { query }),
-      invoke<UsageAnalysis>('get_usage_analysis', { query }),
+      loadAnalysis(query),
     ]).then(([nextOverview, nextAnalysis]) => {
       if (id !== requestId.current) return;
       setOverview(nextOverview);
@@ -56,15 +51,15 @@ export function OverviewTab() {
       setFailed(true);
       setLoading(false);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey, tick, reload]);
+    return () => { requestId.current += 1; };
+  }, [query, refreshVersion, loadAnalysis, reload]);
 
-  const retry = useCallback(() => { setLoading(true); setReload((n) => n + 1); }, []);
+  const retry = useCallback(() => { setReload((n) => n + 1); }, []);
 
   let body;
   if (!overview && failed) {
     body = <ErrorState title={t('sec.usage.error.load')} onRetry={retry} retryLabel={t('sec.usage.retry')} />;
-  } else if (!overview || (loading && overview.totalRequests === 0)) {
+  } else if (!overview) {
     body = <OverviewSkeleton />;
   } else if (overview.totalRequests === 0) {
     body = (
@@ -81,6 +76,7 @@ export function OverviewTab() {
   return (
     <div className="ov" aria-busy={loading}>
       <FilterBar />
+      {overview && failed ? <ErrorState title={t('sec.usage.error.load')} onRetry={retry} retryLabel={t('sec.usage.retry')} /> : null}
       {body}
     </div>
   );

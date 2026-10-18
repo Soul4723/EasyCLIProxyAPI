@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke, onUsageRecordsUpdated } from '../../services/usageApi';
+import { useCoreRuntime } from '../../coreRuntime';
 import { managementApi } from '../../services/managementApi';
 import { usagePreferences } from '../../services/usagePreferences';
 import type { CollectorStatus, UsageAnalysis, UsageQuery, UsageRange } from './types';
@@ -54,14 +55,15 @@ type UsageContextValue = {
   timeQuery: Pick<UsageQuery, 'start' | 'end'>;
   /** Full filter query for overview/events/pricing. */
   query: UsageQuery;
-  /** Stable string of `query` + range tick, for effect deps. */
-  queryKey: string;
   status: CollectorStatus | null;
   setStatus: (status: CollectorStatus) => void;
   /** Filter option lists (models, upstream sources, keys) for the selected time window. */
   options: UsageAnalysis;
-  /** Increments when the collector reports new records (event + 3s poll). Effects depend on it to refresh quietly. */
-  tick: number;
+  /** One invalidation version for records events and explicit refreshes. */
+  refreshVersion: number;
+  manualVersion: number;
+  loadAnalysis: (query: UsageQuery) => Promise<UsageAnalysis>;
+  error: string;
   refresh: () => void;
 };
 
@@ -90,7 +92,9 @@ async function resolveAccountSource(account: string): Promise<string> {
 }
 
 /** `params` carries deep links: ?account=<auth file name | auth_index> ?provider=<p> ?model=<m> ?result=failed. */
-export function UsageProvider({ params, children }: { params: URLSearchParams; children: ReactNode }) {
+export function UsageProvider({ params, needsOptions, children }: { params: URLSearchParams; needsOptions: boolean; children: ReactNode }) {
+  const { status: coreStatus, connectionRevision } = useCoreRuntime();
+  const coreReady = coreStatus?.ready === true;
   const [filters, setFilters] = useState<UsageFilters>(() => {
     const base = defaultFilters(loadRange());
     const account = params.get('account');
@@ -105,10 +109,23 @@ export function UsageProvider({ params, children }: { params: URLSearchParams; c
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSizeState] = useState(loadPageSize);
-  const [status, setStatus] = useState<CollectorStatus | null>(null);
+  const [status, setStatusState] = useState<CollectorStatus | null>(null);
+  const statusRequest = useRef(0);
   const [options, setOptions] = useState<UsageAnalysis>(emptyAnalysis);
-  const [tick, setTick] = useState(0);
-  const [clock, setClock] = useState(0);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
+  const [manualVersion, setManualVersion] = useState(0);
+  const [statusError, setStatusError] = useState('');
+  const [optionsError, setOptionsError] = useState('');
+  const [eventError, setEventError] = useState('');
+  const lastRefresh = useRef(Date.now());
+
+  const setStatus = useCallback((next: CollectorStatus) => {
+    statusRequest.current += 1;
+    setStatusState(next);
+    setStatusError('');
+    setRefreshVersion((n) => n + 1);
+  }, []);
 
   // Resolve a file-name account link to the collector's auth_index source key.
   const accountParam = params.get('account');
@@ -117,7 +134,7 @@ export function UsageProvider({ params, children }: { params: URLSearchParams; c
     let cancelled = false;
     resolveAccountSource(accountParam).then((source) => { if (!cancelled) setFilters((f) => (f.source === source ? f : { ...f, source })); });
     return () => { cancelled = true; };
-  }, [accountParam]);
+  }, [accountParam, manualVersion]);
 
   // Deep links arriving while the page is open (same hash route, new query) re-apply their filters.
   const paramsKey = params.toString();
@@ -134,6 +151,7 @@ export function UsageProvider({ params, children }: { params: URLSearchParams; c
     setFilters((f) => ({ ...f, [key]: value }));
     setPage(1);
     if (key === 'range') {
+      setClock(Date.now());
       try { usagePreferences.setItem(RANGE_KEY, String(value)); } catch { /* preference only */ }
     }
   }, []);
@@ -147,10 +165,8 @@ export function UsageProvider({ params, children }: { params: URLSearchParams; c
     try { usagePreferences.setItem(PAGE_SIZE_KEY, String(size)); } catch { /* preference only */ }
   }, []);
 
-  // `clock` re-evaluates relative windows (24h ends "now") on every refresh tick.
   const timeQuery = useMemo(
-    () => rangeQuery(filters.range, filters.customStart, filters.customEnd),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    () => rangeQuery(filters.range, filters.customStart, filters.customEnd, new Date(clock)),
     [filters.range, filters.customStart, filters.customEnd, clock],
   );
   const query = useMemo<UsageQuery>(() => ({
@@ -163,41 +179,100 @@ export function UsageProvider({ params, children }: { params: URLSearchParams; c
     failed: filters.result === 'failed' ? true : filters.result === 'success' ? false : undefined,
     canceled: filters.result === 'canceled' ? true : filters.result === 'failed' ? false : undefined,
   }), [timeQuery, filters]);
-  const queryKey = useMemo(() => JSON.stringify({ ...query, start: undefined, end: undefined, r: filters.range, cs: filters.customStart, ce: filters.customEnd }), [query, filters.range, filters.customStart, filters.customEnd]);
+  useEffect(() => { lastRefresh.current = Date.now(); }, [query]);
 
-  const refresh = useCallback(() => { setTick((n) => n + 1); }, []);
+  const invalidate = useCallback(() => {
+    lastRefresh.current = Date.now();
+    setRefreshVersion((n) => n + 1);
+  }, []);
+  const refresh = useCallback(() => {
+    setManualVersion((n) => n + 1);
+    invalidate();
+  }, [invalidate]);
 
-  // Collector status + option lists refresh on every tick; options only matter for the time window.
+  // The page owns analysis reads. Identical option/breakdown queries share one promise,
+  // including StrictMode and the no-filter Overview case. A signal starts a new snapshot.
+  const analyses = useMemo(() => ({ refreshVersion, connectionRevision, timeQuery, requests: new Map<string, Promise<UsageAnalysis>>() }), [refreshVersion, connectionRevision, timeQuery]);
+  const loadAnalysis = useCallback((analysisQuery: UsageQuery) => {
+    const key = JSON.stringify(analysisQuery);
+    let request = analyses.requests.get(key);
+    if (!request) {
+      request = invoke<UsageAnalysis>('get_usage_analysis', { query: analysisQuery });
+      analyses.requests.set(key, request);
+      const current = request;
+      void request.catch(() => { if (analyses.requests.get(key) === current) analyses.requests.delete(key); });
+    }
+    return request;
+  }, [analyses]);
+
+  useEffect(() => {
+    if (!needsOptions) return;
+    let cancelled = false;
+    loadAnalysis(timeQuery).then((next) => {
+      if (!cancelled) { setOptions(next); setOptionsError(''); }
+    }, (error) => { if (!cancelled) setOptionsError(String(error)); });
+    return () => { cancelled = true; };
+  }, [needsOptions, timeQuery, loadAnalysis]);
+
+  // Rust set_collector_status updates memory without emitting an event (pause/error
+  // paths included). Poll only this small status while visible and the core is ready.
   useEffect(() => {
     let cancelled = false;
-    invoke<CollectorStatus>('get_usage_collector_status').then((next) => { if (!cancelled) setStatus(next); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [tick]);
-  const optionsKey = JSON.stringify([filters.range, filters.customStart, filters.customEnd]);
-  // Option lists re-fetch when the window changes and about every 10 ticks (~30s) otherwise.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = 30_000;
+    const load = async () => {
+      const id = ++statusRequest.current;
+      clearTimeout(timer);
+      try {
+        const next = await invoke<CollectorStatus>('get_usage_collector_status');
+        if (!cancelled && id === statusRequest.current) { setStatusState(next); setStatusError(''); delay = 30_000; }
+      } catch (error) {
+        if (!cancelled && id === statusRequest.current) { setStatusError(String(error)); delay = Math.min(delay * 2, 120_000); }
+      }
+      if (!cancelled && id === statusRequest.current && coreReady && !document.hidden) timer = setTimeout(load, delay);
+    };
+    const visible = () => {
+      clearTimeout(timer);
+      if (!document.hidden && coreReady) timer = setTimeout(load, delay);
+    };
+    void load();
+    document.addEventListener('visibilitychange', visible);
+    return () => { cancelled = true; statusRequest.current += 1; clearTimeout(timer); document.removeEventListener('visibilitychange', visible); };
+  }, [refreshVersion, coreReady, connectionRevision]);
+
+  const relative = filters.range !== 'custom' && filters.range !== 'all';
   useEffect(() => {
-    let cancelled = false;
-    invoke<UsageAnalysis>('get_usage_analysis', { query: rangeQuery(filters.range, filters.customStart, filters.customEnd) })
-      .then((next) => { if (!cancelled) setOptions(next); }).catch(() => {});
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [optionsKey, Math.floor(tick / 10)]);
+    if (!relative || !coreReady) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) {
+        lastRefresh.current = Date.now();
+        setClock(Date.now());
+      }
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [relative, coreReady]);
 
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
-    const bump = () => { if (!disposed) { setTick((n) => n + 1); setClock((n) => n + 1); } };
-    onUsageRecordsUpdated(bump).then((stop) => { if (disposed) stop(); else unlisten = stop; }).catch(() => {});
-    const timer = window.setInterval(bump, 3_000);
-    window.addEventListener('focus', bump);
-    return () => { disposed = true; unlisten?.(); window.clearInterval(timer); window.removeEventListener('focus', bump); };
-  }, []);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Fixed trailing windows: a continuous stream cannot postpone refresh forever.
+    const recordsUpdated = () => {
+      if (disposed || timer !== undefined) return;
+      timer = setTimeout(() => { timer = undefined; if (!disposed) invalidate(); }, 2_000);
+    };
+    const focus = () => { if (!document.hidden && Date.now() - lastRefresh.current > 30_000) invalidate(); };
+    onUsageRecordsUpdated(recordsUpdated).then((stop) => { if (disposed) stop(); else unlisten = stop; },
+      (error) => { if (!disposed) setEventError(String(error)); });
+    window.addEventListener('focus', focus);
+    return () => { disposed = true; unlisten?.(); clearTimeout(timer); window.removeEventListener('focus', focus); };
+  }, [invalidate]);
 
   const activeFilterCount = [filters.model, filters.agent, filters.source, filters.apiKeyHash, filters.provider, filters.result !== 'all' ? 'x' : ''].filter(Boolean).length;
 
   const value = useMemo<UsageContextValue>(() => ({
     filters, setFilter, resetFilters, activeFilterCount, page, setPage, pageSize, setPageSize,
-    timeQuery, query, queryKey, status, setStatus, options, tick, refresh,
-  }), [filters, setFilter, resetFilters, activeFilterCount, page, pageSize, setPageSize, timeQuery, query, queryKey, status, options, tick, refresh]);
+    timeQuery, query, status, setStatus, options, refreshVersion, refresh, manualVersion, loadAnalysis, error: [statusError, optionsError, eventError].filter(Boolean).join(" · "),
+  }), [filters, setFilter, resetFilters, activeFilterCount, page, pageSize, setPageSize, timeQuery, query, status, setStatus, options, refreshVersion, refresh, manualVersion, loadAnalysis, statusError, optionsError, eventError]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

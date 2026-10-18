@@ -20,7 +20,7 @@ type Notice = { tone: 'ok' | 'danger'; text: string } | null;
 export function RequestsTab() {
   const { t } = useI18n();
   const agentLabel = useAgentLabel();
-  const { query, queryKey, page, setPage, pageSize, setPageSize, tick, activeFilterCount, resetFilters, setFilter, filters } = useUsage();
+  const { query, page, setPage, pageSize, setPageSize, refreshVersion, activeFilterCount, resetFilters, setFilter, filters } = useUsage();
   const [data, setData] = useState<UsageEventPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
@@ -41,13 +41,12 @@ export function RequestsTab() {
       })
       .catch((reason) => {
         if (id !== requestId.current) return;
-        // A failed background refresh keeps the rows already shown; only a first load surfaces the error.
+        // Keep the last successful rows alongside the refresh error.
         setError(String(reason instanceof Error ? reason.message : reason));
       })
       .finally(() => { if (id === requestId.current) setFetching(false); });
-    // `query` is derived from queryKey (+ a moving time window refreshed by tick).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey, page, pageSize, tick, retry]);
+    return () => { requestId.current += 1; };
+  }, [query, page, pageSize, refreshVersion, retry]);
 
   // The log shrank under the current page (filters, retention): fall back to the last page.
   useEffect(() => {
@@ -78,8 +77,7 @@ export function RequestsTab() {
     { id: 'tokens', header: t('sec.usage.requests.col.tokens'), width: 124, cell: (r) => <TokensCell record={r} /> },
     { id: 'latency', header: t('sec.usage.requests.col.latency'), width: 156, cell: (r) => <LatencyCell record={r} /> },
     { id: 'cost', header: t('sec.usage.requests.col.cost'), width: 112, align: 'end', cell: (r) => <CostCell record={r} /> },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [t]);
+  ], [t, agentLabel]);
 
   const initialLoading = data === null && error === null;
   const emptyState = activeFilterCount > 0 ? (
@@ -109,10 +107,11 @@ export function RequestsTab() {
         </Button>
       </div>
 
+      {error && data ? <ErrorState title={t('sec.usage.error.load')} message={error} onRetry={() => setRetry((n) => n + 1)} retryLabel={t('sec.usage.retry')} /> : null}
       {error && data === null ? (
         <ErrorState title={t('sec.usage.error.load')} message={error} onRetry={() => { setError(null); setRetry((n) => n + 1); }} retryLabel={t('sec.usage.retry')} />
       ) : (
-        <div className={`req-table${fetching && data ? ' is-fetching' : ''}`} aria-busy={fetching}>
+        <div className={`req-table${fetching && data ? ' is-fetching' : ''}`} aria-busy={initialLoading}>
           <DataTable<UsageRecord>
             caption={t('sec.usage.requests.table')}
             columns={columns}

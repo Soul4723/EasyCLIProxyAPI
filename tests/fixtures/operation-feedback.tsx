@@ -4,6 +4,7 @@ import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { FloatingNotice, MessageNotice, useAppNotice } from '../../src/appNotice';
 import { PricesTab } from '../../src/sections/usage/PricesTab';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { UsageProvider } from '../../src/sections/usage/UsageContext';
 import { useConfirmation } from '../../src/components/ConfirmationDialog';
 import { QuotaActionFeedback } from '../../src/components/QuotaActionFeedback';
@@ -19,6 +20,7 @@ const fixture = window as typeof window & { feedbackFixture: { failSync: boolean
 fixture.feedbackFixture = { failSync: false };
 mockIPC(async (cmd) => {
   if (cmd === 'get_management_target_revision') return 0; // usage commands go through documentTarget
+  if (cmd === 'get_core_status') return { ready: true };
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'get_usage_collector_status') return { state: 'collecting', totalRecords: 1 };
   if (cmd === 'get_usage_analysis') return { models: [], providers: [], sources: [], apiKeys: [] };
@@ -85,5 +87,5 @@ function Fixture() {
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><I18nProvider>
-  {params.get('scenario') === 'pricing' ? <UsageProvider params={new URLSearchParams()}><PricesTab /></UsageProvider> : <Fixture />}
+  {params.get('scenario') === 'pricing' ? <CoreRuntimeProvider><UsageProvider params={new URLSearchParams()} needsOptions={false}><PricesTab /></UsageProvider></CoreRuntimeProvider> : <Fixture />}
 </I18nProvider></StrictMode>);
