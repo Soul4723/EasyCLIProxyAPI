@@ -31,11 +31,6 @@ pub(crate) fn save_usage_view_preferences(values: UsageViewPreferences) -> Resul
 }
 
 #[tauri::command]
-pub(crate) fn health_check() -> &'static str {
-    "EasyCLIProxyAPI Rust backend is ready"
-}
-
-#[tauri::command]
 pub(crate) fn detect_core_platform() -> Result<CorePlatform, String> {
     current_core_platform()
 }
