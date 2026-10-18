@@ -24,6 +24,29 @@ type MockBackup = {
   files: { path: string; exists: boolean | null; size: number | null }[]; restorable: boolean; error: string | null;
 };
 
+type AgentStatus = Record<string, unknown> & { id: string };
+
+/**
+ * `?mockAgents=mixed` (or the `empty` scenario → nothing installed) gives the client grid every state:
+ * connected, not configured, needs update, invalid, not installed, unsupported platform, Pi without extension.
+ */
+function shapeAgentStatuses(statuses: AgentStatus[] | undefined, variant: string | null) {
+  if (!statuses || !variant) return;
+  const bare = { installed: false, configExists: false, configured: false, configurationSynchronized: false, currentModel: null, appliedModel: null,
+    modificationState: 'unconfigured', modificationEnabled: false, connectionState: 'not-configured', version: null, cliVersion: null, appVersion: null,
+    launchTargets: [], pluginInstalled: false, pluginVersion: null };
+  const patches: Record<string, Record<string, unknown>> = variant === 'none'
+    ? Object.fromEntries(statuses.map((status) => [status.id, bare]))
+    : {
+      openclaw: bare, 'grok-build': bare, hermes: { ...bare, supportedPlatform: false },
+      zcode: { configured: false, configurationSynchronized: false, currentModel: null, appliedModel: null, modificationState: 'unconfigured', connectionState: 'not-configured' },
+      'kimi-code': { connectionState: 'needs-update', configurationSynchronized: false },
+      'copilot-cli': { connectionState: 'invalid', modificationState: 'invalid', configValid: false },
+      pi: { pluginInstalled: false, pluginVersion: null },
+    };
+  for (const status of statuses) Object.assign(status, patches[status.id] ?? {});
+}
+
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
 
 /**
@@ -34,7 +57,9 @@ const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toI
  */
 export const agentsMock: SectionMockFactory = (host) => {
   const variant = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('mockSessions');
+  const agentsVariant = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('mockAgents');
   let seeded = false;
+  let statusesShaped = false;
   const backups = new Map<string, MockBackup[]>();
   const makeBackup = (client: string, id: string, createdAt: string, restorable = true): MockBackup => ({
     id, createdAt, fileCount: 2, location: `C:\\EasyCLIProxyAPI\\agent-backups\\${client}\\${id}`,
@@ -50,6 +75,10 @@ export const agentsMock: SectionMockFactory = (host) => {
   return {
     handle(command, payload) {
       const client = String(payload.client ?? '');
+      if ((command === 'get_agent_config_statuses' || command === 'refresh_agent_config_statuses') && !statusesShaped) {
+        statusesShaped = true;
+        shapeAgentStatuses(host.agentStatuses as AgentStatus[] | undefined, host.scenario === 'empty' ? 'none' : agentsVariant);
+      }
       if (command === 'list_agent_config_backups') return { handled: true, value: { versions: backupsFor(client).map((item) => ({ ...item })) } };
       if (command === 'create_agent_config_backup') {
         backupsFor(client).unshift(makeBackup(client, `manual-${Date.now()}`, new Date().toISOString()));
