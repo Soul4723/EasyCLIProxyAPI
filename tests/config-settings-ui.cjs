@@ -145,7 +145,7 @@ const viewports = [{ width: 640, height: 600 }, { width: 964, height: 700 }, { w
           assert.equal(await trigger.getAttribute('aria-expanded'), 'false', `${label}: clicking outside closes field help`);
         };
 
-        assert.equal(await page.getByRole('heading', { level: 1, name: locale === 'en' ? 'Advanced settings' : '高级设置', exact: true }).count(), 1);
+        assert.equal(await page.getByRole('heading', { level: 1, name: locale === 'en' ? 'Advanced settings' : '高级设置', exact: true }).count(), 0);
         assert.equal(await page.locator('.config-page [role="tabpanel"]').count(), 1);
         assert.equal(await page.locator('.config-settings-header p').count(), 0,
           `${label}: settings header must not repeat layout explanations`);

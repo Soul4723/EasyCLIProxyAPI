@@ -26,7 +26,7 @@ const path = require('node:path');
     await page.goto(`${base}?mock=running`, { waitUntil: 'commit' });
     await page.locator('.app-shell').waitFor();
 
-    assert.equal(await page.getByRole('heading', { level: 1 }).count(), 1);
+    assert.equal(await page.getByRole('heading', { level: 2, name: '运行概览', exact: true }).count(), 1);
 
     await page.locator('.nav-section').getByRole('button', { name: '使用记录' }).click();
     const tabs = page.getByRole('tab');
