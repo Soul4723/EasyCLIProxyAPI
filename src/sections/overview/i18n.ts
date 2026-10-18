@@ -89,6 +89,12 @@ export const overviewZhCN = {
   "sec.overview.offline": "核心未运行，启动后可查看额度与计划事件",
   "sec.overview.offlineError": "无法检查状态",
   "sec.overview.offlineRemote": "远程核心无法连接",
+  "sec.overview.reason.signIn": "需要重新登录",
+  "sec.overview.reason.unavailable": "凭据不可用",
+  "sec.overview.reason.fetchFailed": "额度获取失败",
+  "sec.overview.event.many": "{count} 个 {provider} 账号",
+  "sec.overview.step.install": "安装核心",
+  "sec.overview.notRunningReason": "核心未运行",
 } as const;
 
 export const overviewEn: Record<keyof typeof overviewZhCN, string> = {
@@ -181,6 +187,12 @@ export const overviewEn: Record<keyof typeof overviewZhCN, string> = {
   "sec.overview.offline": "Core is stopped. Start it to see quota and upcoming resets.",
   "sec.overview.offlineError": "Can’t check status",
   "sec.overview.offlineRemote": "Remote core is unreachable",
+  "sec.overview.reason.signIn": "Sign in again",
+  "sec.overview.reason.unavailable": "Credential unavailable",
+  "sec.overview.reason.fetchFailed": "Quota fetch failed",
+  "sec.overview.event.many": "{count} {provider} accounts",
+  "sec.overview.step.install": "Install core",
+  "sec.overview.notRunningReason": "Core is not running",
 };
 
 export const overviewJa: Record<keyof typeof overviewZhCN, string> = {
@@ -273,4 +285,10 @@ export const overviewJa: Record<keyof typeof overviewZhCN, string> = {
   "sec.overview.offline": "コアが停止中です。起動するとクォータと予定が表示されます",
   "sec.overview.offlineError": "状態を確認できません",
   "sec.overview.offlineRemote": "リモートコアに接続できません",
+  "sec.overview.reason.signIn": "再ログインが必要",
+  "sec.overview.reason.unavailable": "認証情報が利用不可",
+  "sec.overview.reason.fetchFailed": "クォータ取得に失敗",
+  "sec.overview.event.many": "{provider} {count} アカウント",
+  "sec.overview.step.install": "コアをインストール",
+  "sec.overview.notRunningReason": "コアが実行されていません",
 };

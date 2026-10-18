@@ -18,6 +18,10 @@ export type NeedsAction = {
   identities: string[];
   /** Short detail: reason text from the core, HTTP status, or window label. Never an explanatory sentence. */
   detail: string;
+  /** Short status-vocabulary reason shown instead of a raw message (the raw text goes to the tooltip). */
+  reason: 'signIn' | 'unavailable' | 'fetchFailed' | null;
+  /** Raw core/quota message for the tooltip. */
+  raw: string;
   /** Epoch ms of the retry/reset time when known. */
   at: number | null;
   /** Hash route that owns the item. */
@@ -34,6 +38,8 @@ export type ComingUp = {
   identities: string[];
   /** Window label (5h, Weekly …) or light summary key. */
   detail: string;
+  /** Identical resets (same provider, window, minute) collapsed into one row. */
+  count: number;
   at: number;
   to: { page: 'quota'; params: Record<string, string> };
 };
@@ -122,12 +128,15 @@ export function buildNeedsAction(
     const text = `${health.status} ${health.message}`;
     let kind: NeedsKind | null = null;
     let detail = '';
+    let reason: NeedsAction['reason'] = null;
+    let raw = '';
     let at: number | null = null;
     let page: NeedsAction['to']['page'] = 'quota';
     if (health.tone === 'error' && EXPIRED_MARKERS.test(text)) {
-      kind = 'expired'; detail = health.message; page = 'providers';
+      kind = 'expired'; raw = health.message; reason = 'signIn'; page = 'providers';
     } else if (health.tone === 'error' || quota?.status === 'error') {
-      kind = 'error'; detail = health.message || quota?.error || '';
+      kind = 'error'; raw = health.message || quota?.error || '';
+      reason = health.tone === 'error' ? 'unavailable' : 'fetchFailed';
     } else if (quotaLeft !== null && quotaLeft <= 0 && exhaustedRow || quotaCooldown) {
       kind = 'exhausted';
       detail = exhaustedRow?.label ?? quotaCooldown?.record.model ?? '';
@@ -140,7 +149,7 @@ export function buildNeedsAction(
     }
     if (kind) {
       rows.push({
-        id: `${kind}:${quotaKey(file)}`, kind, ...base, detail,
+        id: `${kind}:${quotaKey(file)}`, kind, ...base, detail, reason, raw,
         at: at !== null && Number.isFinite(at) ? at : null,
         to: { page, params: credentialRoute(file) },
       });
@@ -148,8 +157,8 @@ export function buildNeedsAction(
     for (const schedule of lightFor(file, schedules)) {
       if (!schedule.enabled || !schedule.lastRun || schedule.lastRun.ok) continue;
       rows.push({
-        id: `light:${schedule.id}`, kind: 'light', ...base,
-        detail: schedule.lastRun.httpStatus ? `HTTP ${schedule.lastRun.httpStatus}` : schedule.lastRun.message,
+        id: `light:${schedule.id}`, kind: 'light', ...base, reason: null, raw: schedule.lastRun.message,
+        detail: schedule.lastRun.httpStatus ? `HTTP ${schedule.lastRun.httpStatus}` : '',
         at: schedule.lastRun.at,
         to: { page: 'quota', params: credentialRoute(file) },
       });
@@ -175,23 +184,43 @@ export function buildComingUp(
       for (const row of quota.rows) {
         // A full window has nothing to wait for; only windows that were started are interesting.
         if (row.resetAtMs && row.resetAtMs > nowMs && row.remainingPercent !== null && row.remainingPercent < 100) {
-          events.push({ id: `reset:${quotaKey(file)}:${row.label}`, kind: 'reset', ...base, detail: row.label, at: row.resetAtMs, to });
+          events.push({ id: `reset:${quotaKey(file)}:${row.label}`, kind: 'reset', ...base, detail: row.label, count: 1, at: row.resetAtMs, to });
         }
       }
     }
     for (const { record } of activeCooldown(file, nowMs, receivedAtMs).active) {
       const at = Date.parse(record.retryAt);
       if (Number.isFinite(at) && at > nowMs) {
-        events.push({ id: `cooldown:${quotaKey(file)}:${record.model ?? 'all'}`, kind: 'cooldown', ...base, detail: record.model ?? '', at, to });
+        events.push({ id: `cooldown:${quotaKey(file)}:${record.model ?? 'all'}`, kind: 'cooldown', ...base, detail: record.model ?? '', count: 1, at, to });
       }
     }
     for (const schedule of lightFor(file, schedules)) {
       if (schedule.enabled && schedule.nextRun && schedule.nextRun > nowMs) {
-        events.push({ id: `light:${schedule.id}`, kind: 'light', ...base, detail: schedule.windowKind, at: schedule.nextRun, to });
+        events.push({ id: `light:${schedule.id}`, kind: 'light', ...base, detail: schedule.windowKind, count: 1, at: schedule.nextRun, to });
       }
     }
   }
-  return events.sort((a, b) => a.at - b.at);
+  return collapseResets(events.sort((a, b) => a.at - b.at));
+}
+
+/** Same provider + window resetting in the same minute → one row with a count. */
+export function collapseResets(events: ComingUp[]): ComingUp[] {
+  const out: ComingUp[] = [];
+  const seen = new Map<string, ComingUp>();
+  for (const event of events) {
+    if (event.kind !== 'reset') { out.push(event); continue; }
+    const key = `${event.provider}|${event.detail}|${Math.floor(event.at / 60_000)}`;
+    const first = seen.get(key);
+    if (first) {
+      first.count += 1;
+      first.to = { page: 'quota', params: { provider: event.provider } };
+    } else {
+      const copy = { ...event };
+      seen.set(key, copy);
+      out.push(copy);
+    }
+  }
+  return out;
 }
 
 export type DayBucket = 'today' | 'tomorrow' | 'later';

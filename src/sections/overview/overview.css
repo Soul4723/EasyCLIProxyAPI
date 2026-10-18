@@ -84,3 +84,13 @@
 .ec-sec-overview .ov-grid--lists { align-items: start; }
 .ec-sec-overview .ov-field__label .ov-link { text-transform: none; letter-spacing: 0; }
 .ec-sec-overview .ov-offline { margin: 0; padding: var(--ec-sp-3); border: 1px dashed var(--ec-border); border-radius: var(--ec-r-md); color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
+
+/* round 2 */
+.ec-sec-overview .ov-providers__grid { display: flex; flex-wrap: wrap; gap: var(--ec-sp-2); }
+.ec-sec-overview .ov-provider { flex: 1 1 88px; flex-direction: row; align-items: center; justify-content: space-between; gap: var(--ec-sp-2); min-width: 0; padding: var(--ec-sp-2) var(--ec-sp-3); }
+.ec-sec-overview .ov-provider__pct { font-size: var(--ec-fs-lg, 1.1rem); }
+.ec-sec-overview .ov-top { align-items: stretch; }
+.ec-sec-overview .ov-link--primary { color: var(--ec-accent); }
+.ec-sec-overview .ov-grid--runtime { align-items: stretch; }
+.ec-sec-overview .ov-runtime__actions { margin-top: auto; }
+.ec-sec-overview .ov-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }

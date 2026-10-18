@@ -1,5 +1,7 @@
 import { CheckCircle2, ChevronRight, RotateCcw, Timer, Zap } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import { usePrivacyMask } from '../../privacy';
+import { providerInfo } from '../../ui';
 import { Card, CardHeader, Countdown, EmptyState, Masked, ProviderLogo, RelativeTime, Skeleton, StatusPill, type CredentialStatus } from '../../ui';
 import { routeHref } from '../../shell/router';
 import { groupByDay, type ComingKind, type ComingUp, type NeedsAction, type NeedsKind } from './model';
@@ -24,6 +26,8 @@ export type NeedsActionCardProps = {
 /** Needs-action: one line per item (kind pill · provider · account · detail · time) linking to the item's home. */
 export function NeedsActionCard({ rows, loading, error }: NeedsActionCardProps) {
   const { t } = useI18n();
+  const mask = usePrivacyMask();
+  const maskedTitle = (value: string, identities: string[]) => mask.text(value, identities);
   const shown = rows.slice(0, MAX_NEEDS);
   return (
     <Card as="section" className="ov-needs" aria-labelledby="ov-needs-title" data-testid="ov-needs">
@@ -43,9 +47,9 @@ export function NeedsActionCard({ rows, loading, error }: NeedsActionCardProps) 
                   ? <span className="ov-kind ov-kind--light"><Zap size={11} aria-hidden="true" />{t('sec.overview.kind.light')}</span>
                   : <StatusPill status={NEEDS_STATUS[row.kind]} size="sm" label={t(`sec.overview.kind.${row.kind}`)} />}
                 <ProviderLogo provider={row.provider} size={18} />
-                <span className="ov-row__main ec-trunc">
+                <span className="ov-row__main ec-trunc" title={row.raw ? maskedTitle(row.raw, row.identities) : undefined}>
                   <Masked value={row.account} identities={row.identities} />
-                  {row.detail && <span className="ov-row__detail"> · <Masked value={row.detail} identities={row.identities} /></span>}
+                  {(row.reason || row.detail) && <span className="ov-row__detail"> · {row.reason ? t(`sec.overview.reason.${row.reason}`) : <Masked value={row.detail} identities={row.identities} />}</span>}
                 </span>
                 {row.at !== null && (
                   <span className="ov-row__when ec-num">
@@ -98,7 +102,9 @@ export function ComingUpCard({ events, loading, nowMs }: ComingUpCardProps) {
                       <span className={`ov-event-icon ov-event-icon--${event.kind}`}><Icon size={13} aria-hidden="true" /></span>
                       <ProviderLogo provider={event.provider} size={18} />
                       <span className="ov-row__main ec-trunc">
-                        <Masked value={event.account} identities={event.identities} />
+                        {event.count > 1
+                          ? <span>{t('sec.overview.event.many', { count: event.count, provider: providerInfo(event.provider).name })}</span>
+                          : <Masked value={event.account} identities={event.identities} />}
                         <span className="ov-row__detail"> · {t(`sec.overview.event.${event.kind}`, { window: event.detail })}</span>
                       </span>
                       <ChevronRight size={14} aria-hidden="true" className="ov-row__go" />

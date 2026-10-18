@@ -104,17 +104,17 @@ export function RuntimeCard(props: RuntimeCardProps) {
               <Button variant="primary" size="sm" icon={<RotateCw size={13} />} loading={busy} onClick={props.onRetry}>{t('sec.overview.retry')}</Button>
             ) : (
               <Button
-                variant="primary" size="sm" icon={<Play size={13} />} loading={busy || state === 'starting'}
+                variant={state === 'notInstalled' ? 'secondary' : 'primary'} size="sm" icon={<Play size={13} />} loading={busy || state === 'starting'}
                 disabled={state === 'notInstalled' || state === 'loading'}
                 title={state === 'notInstalled' ? t('sec.overview.notInstalledReason') : undefined}
                 onClick={props.onStart}
               >{t('sec.overview.start')}</Button>
             )}
-            <Button variant="secondary" size="sm" icon={<RotateCw size={13} />} disabled={!running || busy} onClick={props.onRestart}>{t('sec.overview.restart')}</Button>
+            <Button variant="secondary" size="sm" icon={<RotateCw size={13} />} disabled={!running || busy} title={!running ? t(state === 'notInstalled' ? 'sec.overview.notInstalledReason' : 'sec.overview.notRunningReason') : undefined} onClick={props.onRestart}>{t('sec.overview.restart')}</Button>
           </>
         )}
         {state === 'notInstalled' && !remote && (
-          <a className="ov-link" href={routeHref('settings', 'updates')}>{t('sec.overview.install')} →</a>
+          <a className="ov-link ov-link--primary" href={routeHref('settings', 'updates')}>{t('sec.overview.install')} →</a>
         )}
         <span className="ov-spacer" />
         <Button variant="outline" size="sm" icon={<Activity size={13} />} disabled={!ready} title={!ready ? t('sec.overview.healthOffline') : undefined} onClick={props.onHealth}>

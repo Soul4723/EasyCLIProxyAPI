@@ -2,7 +2,7 @@ import { Check, KeyRound, LogIn, Plug, Play } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n';
 import type { HomeUsageSummary } from '../../services/homeOverview';
-import { Button, Card, CardHeader, ProviderLogo, ProviderName, QuotaBar, Skeleton, Sparkline, StatTile, formatCompactNumber, formatPercent, providerInfo, quotaTone } from '../../ui';
+import { Button, Card, CardHeader, ProviderLogo, Skeleton, Sparkline, StatTile, formatCompactNumber, formatPercent, providerInfo, quotaTone } from '../../ui';
 import { navigate, routeHref } from '../../shell/router';
 import type { ProviderQuotaSummary } from './model';
 
@@ -29,12 +29,11 @@ export function ProviderRow({ providers, loading, refreshing, onRefresh }: Provi
           {providers.map((summary) => {
             const tone = summary.leftPct === null ? null : quotaTone(summary.leftPct);
             return (
-              <a key={summary.provider} className="ov-provider" href={routeHref('quota', null, { provider: summary.provider })} data-provider={summary.provider} style={{ ['--ov-provider' as string]: providerInfo(summary.provider).colorVar }}>
-                <span className="ov-provider__id"><ProviderLogo provider={summary.provider} size={18} /><ProviderName provider={summary.provider} /></span>
+              <a key={summary.provider} className="ov-provider" href={routeHref('quota', null, { provider: summary.provider })} data-provider={summary.provider} title={providerInfo(summary.provider).name} aria-label={`${providerInfo(summary.provider).name} ${summary.leftPct === null ? '' : formatPercent(summary.leftPct)}`} style={{ ['--ov-provider' as string]: providerInfo(summary.provider).colorVar }}>
+                <ProviderLogo provider={summary.provider} size={20} />
                 <span className={`ov-provider__pct ov-provider__pct--${tone ?? 'none'}`} data-testid={`ov-pct-${summary.provider}`}>
                   {summary.leftPct === null ? '—' : formatPercent(summary.leftPct)}
                 </span>
-                <QuotaBar leftPct={summary.leftPct} height={4} label={t('sec.overview.quotaLeft')} />
               </a>
             );
           })}
@@ -81,9 +80,10 @@ export function Onboarding({ remote, coreReady, coreInstalled, starting, hasCred
   const gate = coreReady ? undefined : t('sec.overview.startFirst');
   const steps: Step[] = [
     ...(remote ? [] : [{
-      id: 'core', icon: <Play size={16} />, label: t('sec.overview.step.core'), done: coreReady,
-      locked: coreInstalled ? undefined : t('sec.overview.notInstalledReason'),
-      action: <Button size="sm" variant="primary" loading={starting} disabled={!coreInstalled || coreReady} onClick={onStart}>{t('sec.overview.start')}</Button>,
+      id: 'core', icon: <Play size={16} />, label: t(coreInstalled ? 'sec.overview.step.core' : 'sec.overview.step.install'), done: coreReady,
+      action: coreInstalled
+        ? <Button size="sm" variant="primary" loading={starting} disabled={coreReady} onClick={onStart}>{t('sec.overview.start')}</Button>
+        : <Button size="sm" variant="primary" onClick={() => navigate('/settings/updates')}>{t('sec.overview.install')}</Button>,
     } satisfies Step]),
     {
       id: 'signin', icon: <LogIn size={16} />, label: t('sec.overview.step.signin'), done: hasCredentials, locked: gate,
