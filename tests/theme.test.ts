@@ -1,9 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { createThemeRegistry, themeRegistry } from '../src/themes/registry';
+import { createThemeRegistry, themeRegistry, type ThemeRegistry } from '../src/themes/registry';
 import { FIRST_PAINT_KEY, firstPaint } from '../src/themes/firstPaint';
 import type { SystemThemes, ThemeDefinition } from '../src/themes/types';
 import { createThemeController, type AppTheme, type NativeThemeSource, type ThemePreference } from '../src/themeController';
+import { warmSand } from '../src/themes/warmSand';
+import { graphite } from '../src/themes/graphite';
+import { midnight } from '../src/themes/midnight';
+import { sakura } from '../src/themes/sakura';
+
+// Retired theme IDs are not shipped, so these tests resolve them through a local registry.
+const registryWithRetiredThemes = createThemeRegistry([...themeRegistry.themes, warmSand, graphite, midnight, sakura]);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -22,6 +29,7 @@ function setup(options: {
   system?: AppTheme;
   media?: AppTheme;
   platform?: 'windows' | 'macos' | 'linux' | 'browser';
+  registry?: ThemeRegistry;
 } = {}) {
   let saved = options.preference ?? 'system';
   let savedSystemThemes = options.systemThemes;
@@ -67,7 +75,7 @@ function setup(options: {
     },
     applyTheme(theme, definition) { displayed = theme; displayedId = definition.id; },
     connectNative: () => connection.promise,
-  });
+  }, options.registry ?? registryWithRetiredThemes);
   return {
     controller, native, writes, nativeWrites,
     get displayed() { return displayed; },
@@ -361,23 +369,30 @@ describe('desktop first paint', () => {
     return { theme: root.dataset.theme, background: root.style.backgroundColor };
   };
   const cache = (preference: ThemePreference, systemThemes: SystemThemes, applied: string) => ({
-    [FIRST_PAINT_KEY]: JSON.stringify(firstPaint(themeRegistry, preference, systemThemes, themeRegistry.get(applied)!)),
+    [FIRST_PAINT_KEY]: JSON.stringify(firstPaint(registryWithRetiredThemes, preference, systemThemes, registryWithRetiredThemes.get(applied)!)),
   });
 
   test('paints the cached theme before the app loads', () => {
     expect(paint(cache('midnight-dark', { light: 'light', dark: 'dark' }, 'midnight-dark')))
-      .toEqual({ theme: 'dark', background: themeRegistry.get('midnight-dark')!.windowBackground });
+      .toEqual({ theme: 'dark', background: registryWithRetiredThemes.get('midnight-dark')!.windowBackground });
     const system = cache('system', { light: 'sakura-light', dark: 'graphite-dark' }, 'sakura-light');
-    expect(paint(system, 'dark')).toEqual({ theme: 'dark', background: themeRegistry.get('graphite-dark')!.windowBackground });
-    expect(paint(system, 'light')).toEqual({ theme: 'light', background: themeRegistry.get('sakura-light')!.windowBackground });
+    expect(paint(system, 'dark')).toEqual({ theme: 'dark', background: registryWithRetiredThemes.get('graphite-dark')!.windowBackground });
+    expect(paint(system, 'light')).toEqual({ theme: 'light', background: registryWithRetiredThemes.get('sakura-light')!.windowBackground });
   });
 
-  test('falls back to the previous cache and then to light', () => {
-    expect(paint({ 'easy-cli-proxy-api.theme': 'dark' })).toEqual({ theme: 'dark', background: '#0b0d11' });
-    expect(paint({ 'easy-cli-proxy-api.theme': 'system' }, 'dark')).toEqual({ theme: 'dark', background: '#0b0d11' });
-    expect(paint({}, 'dark')).toEqual({ theme: 'light', background: '#ffffff' });
-    expect(paint({ [FIRST_PAINT_KEY]: '{' }, 'dark')).toEqual({ theme: 'light', background: '#ffffff' });
-    expect(paint({ [FIRST_PAINT_KEY]: '{', 'easy-cli-proxy-api.theme': 'dark' })).toEqual({ theme: 'dark', background: '#0b0d11' });
+  test('falls back to the previous cache and then to the dark default from index.html', () => {
+    // index.html defaults to dark (matching the app default) with its own window colours.
+    expect(paint({ 'easy-cli-proxy-api.theme': 'dark' })).toEqual({ theme: 'dark', background: '#291e1a' });
+    expect(paint({ 'easy-cli-proxy-api.theme': 'system' }, 'dark')).toEqual({ theme: 'dark', background: '#291e1a' });
+    expect(paint({ 'easy-cli-proxy-api.theme': 'system' }, 'light')).toEqual({ theme: 'light', background: '#fbf8f5' });
+    expect(paint({}, 'light')).toEqual({ theme: 'dark', background: '#291e1a' });
+    expect(paint({ [FIRST_PAINT_KEY]: '{' }, 'dark')).toEqual({ theme: 'dark', background: '#291e1a' });
+    expect(paint({ [FIRST_PAINT_KEY]: '{', 'easy-cli-proxy-api.theme': 'dark' })).toEqual({ theme: 'dark', background: '#291e1a' });
+  });
+
+  test('a cached light paint is used when it is the stored appearance', () => {
+    const light = JSON.stringify({ system: false, appearance: 'light', light: '#fbf8f5', dark: '#291e1a' });
+    expect(paint({ [FIRST_PAINT_KEY]: light }, 'dark')).toEqual({ theme: 'light', background: '#fbf8f5' });
   });
 });
 

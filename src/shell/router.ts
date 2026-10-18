@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { requestAppNavigation } from '../navigation';
+import { APP_NAVIGATION_REQUEST_EVENT, requestAppNavigation } from '../navigation';
 
 /**
  * Hash router: `#/<page>[/<sub>][?k=v&…]`, e.g. `#/quota`, `#/usage/requests`, `#/settings/connection`.
@@ -32,7 +32,7 @@ export function routePath(page: string, sub?: string | null, params?: Record<str
   if (params instanceof URLSearchParams) params.forEach((value, key) => query.set(key, value));
   else for (const [key, value] of Object.entries(params ?? {})) if (value !== undefined) query.set(key, value);
   const q = query.toString();
-  return `/${[page, sub].filter(Boolean).map(encodeURIComponent).join('/')}${q ? `?${q}` : ''}`;
+  return `/${[page, sub].filter(Boolean).map((segment) => encodeURIComponent(segment as string)).join('/')}${q ? `?${q}` : ''}`;
 }
 
 /** `href` for anchors: `href={routeHref('usage', 'requests')}`. */
@@ -77,7 +77,7 @@ function onHashChange() {
   if (next.path === committed.path) return;
   const target = committed;
   let allowed = true;
-  const probe = new CustomEvent('cpa-gui-navigation-request', {
+  const probe = new CustomEvent(APP_NAVIGATION_REQUEST_EVENT, {
     cancelable: true,
     detail: () => commit(parseRoute(window.location.hash)),
   });

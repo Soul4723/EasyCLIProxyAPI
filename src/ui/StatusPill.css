@@ -1,0 +1,59 @@
+/* StatusPill: see StatusPill.tsx. Colours come from --ec-pill-c / --ec-pill-fg, set inline per status. */
+
+.ec-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--ec-pill-c) 30%, transparent);
+  border-radius: var(--ec-r-pill);
+  background: color-mix(in srgb, var(--ec-pill-c) var(--ec-tint), transparent);
+  color: var(--ec-pill-fg);
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.ec-pill--md {
+  padding: 1px var(--ec-sp-2);
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-pill--sm {
+  padding: 0 6px;
+  font-size: var(--ec-fs-xs);
+}
+
+.ec-pill__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ec-pill__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ec-pill-c);
+}
+
+.ec-pill--sm .ec-pill__dot {
+  width: 5px;
+  height: 5px;
+}
+
+.ec-pill__dot--hollow {
+  box-sizing: border-box;
+  width: 7px;
+  height: 7px;
+  background: transparent;
+  border: 1.5px dashed var(--ec-pill-c);
+}
+
+.ec-pill--sm .ec-pill__dot--hollow {
+  width: 6px;
+  height: 6px;
+}

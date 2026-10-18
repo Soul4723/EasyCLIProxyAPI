@@ -2,6 +2,7 @@ import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type Templat
 import type { CoreConnection } from '../services/coreConnection';
 import { createPluginMock } from './pluginMock';
 import { createQuotaMock, createQuotaMockFiles } from './quotaMock';
+import { sectionMocks } from './sectionMocks';
 
 export type BrowserMockScenario = 'running' | 'stopped' | 'empty' | 'error';
 export type BrowserMockMode = BrowserMockScenario | 'off';
@@ -1005,6 +1006,7 @@ export function createBrowserMockRuntime(
     state.coreConfig.apiKeys = [];
   }
   const pluginMock = createPluginMock(state);
+  const sectionHandlers = sectionMocks.map(create => create(state as never));
   const emit = (event: string, payload: unknown) => emitEvent(event, clone(payload));
 
   const invoke = async (command: string, rawPayload?: unknown): Promise<unknown> => {
@@ -1019,6 +1021,10 @@ export function createBrowserMockRuntime(
 
     const pluginResponse = pluginMock.handle(command, payload);
     if (pluginResponse.handled) return pluginResponse.value;
+    for (const handler of sectionHandlers) {
+      const sectionResponse = handler.handle(command, payload);
+      if (sectionResponse.handled) return sectionResponse.value;
+    }
 
     switch (command) {
       case 'plugin:app|version': return '0.2.97-mock';

@@ -1,0 +1,84 @@
+/* Tabs: see Tabs.tsx. Pill row on a raised track with an accent-soft active chip. */
+
+.ec-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border: 1px solid var(--ec-border);
+  border-radius: var(--ec-r-pill);
+  background: var(--ec-raised);
+}
+
+.ec-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.ec-tabs__tab {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: calc(var(--ec-ctrl-h-sm) - 6px);
+  padding: 0 var(--ec-sp-3);
+  border: 0;
+  border-radius: var(--ec-r-pill);
+  background: transparent;
+  color: var(--ec-fg-muted);
+  font: inherit;
+  font-size: var(--ec-fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.ec-tabs__tab:hover:not(:disabled) {
+  color: var(--ec-fg);
+}
+
+.ec-tabs__tab:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 1px;
+}
+
+.ec-tabs__tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ec-tabs__tab--on,
+.ec-tabs__tab--on:hover:not(:disabled) {
+  background: var(--ec-accent-soft);
+  color: var(--ec-fg);
+  font-weight: 600;
+}
+
+.ec-tabs__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ec-tabs__count {
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-2xs);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--ec-fg-subtle);
+}
+
+.ec-tabs__tab--on .ec-tabs__count {
+  color: var(--ec-fg-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-tabs__tab {
+    transition: none;
+  }
+}

@@ -1,0 +1,4 @@
+/* Old page bodies keep their own layout; the new shell supplies the header, so hide the old page title row where it duplicates. */
+.ec-legacy { min-height: 100%; display: flex; flex-direction: column; }
+.ec-legacy-workspace { height: auto; overflow: visible; flex: 1; background: var(--ec-bg); }
+.ec-legacy-workspace .content { background: var(--ec-bg); padding: clamp(12px, 1.5vw, 20px) var(--ec-page-pad-x) 32px; }

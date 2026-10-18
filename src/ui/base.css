@@ -1,0 +1,7 @@
+/* Global baseline for the new shell. Keep tiny: everything else is scoped under ec-* classes. */
+html, body, #root { background: var(--ec-bg) !important; }
+body { color: var(--ec-fg); }
+.ec-mono { font-family: var(--ec-mono); font-variant-numeric: tabular-nums; }
+.ec-num { font-variant-numeric: tabular-nums; }
+.ec-muted { color: var(--ec-fg-muted); }
+.ec-trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
