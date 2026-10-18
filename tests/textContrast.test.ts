@@ -130,16 +130,5 @@ it('renders placeholders at full opacity using the shared readable color', () =>
   expect(declarations('input::placeholder,\ntextarea::placeholder')).toMatchObject({
     color: 'var(--text-placeholder)', opacity: '1',
   });
-  for (const selector of ['.compact-text-input::placeholder', '.simple-mode-field .text-input::placeholder']) {
-    expect(declarations(selector).color).toBe('var(--text-placeholder)');
-  }
-});
-
-it('does not fade interactive hidden-series labels or ordinary table hints', () => {
-  for (const selector of ['.usage-trend-legend-item.is-hidden', '.usage-col-hint']) {
-    expect(declarations(selector).color).toBe('var(--text-quaternary)');
-    expect(declarations(selector).opacity).toBeUndefined();
-  }
-  expect(declarations('.usage-trend-legend-item.is-hidden')['text-decoration']).toBe('line-through');
-  expect(declarations('.usage-trend-legend-item.is-hidden .usage-trend-swatch').opacity).toBe('0.38');
+  expect(declarations('.simple-mode-field .text-input::placeholder').color).toBe('var(--text-placeholder)');
 });

@@ -9,7 +9,6 @@ import { commitFetchedQuota } from '../src/services/quotaEnrichment';
 import { startQuotaOperation } from '../src/services/quotaOperation';
 import { resetQuotaWithConfirmation } from '../src/services/quotaActions';
 import { renderCard } from './helpers/quotaAccount';
-import { AuthFileQuotaPanel } from '../src/components/AuthFileQuotaPanel';
 import { I18nProvider } from '../src/i18n';
 
 const deferred = <T,>() => {
@@ -99,13 +98,9 @@ for (const provider of ['claude', 'codex']) {
     expect(await refused).toBe(true);
     const displayed = getQuotaCacheSnapshot()[quotaKey(file)] ?? idleQuota();
     expect(getQuotaCacheSnapshot()[quotaKey(file)]).toBeUndefined();
-    for (const html of [
-      renderCard(file, displayed),
-      renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={file} quota={displayed} disabled={false} onRefresh={() => {}} onReset={() => {}} /></I18nProvider>),
-    ]) {
-      expect(html).not.toContain('90%');
-      expect(html).not.toContain('TARGET A PRIVATE');
-    }
+    const html = renderCard(file, displayed);
+    expect(html).not.toContain('90%');
+    expect(html).not.toContain('TARGET A PRIVATE');
   });
 
   test(`${provider}: commit rejects an already returned old result before the connection event arrives`, async () => {

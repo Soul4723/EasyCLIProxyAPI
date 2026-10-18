@@ -32,15 +32,12 @@ const coreZhCN = {
   "sec.providers.detail.keys": "API 密钥",
   "sec.providers.detail.unknown": "未找到该提供商",
   "sec.providers.detail.emptyAccounts": "还没有登录的账号",
-  "sec.providers.detail.emptyKeys": "还没有 API 密钥",
   "sec.providers.all.kind": "类型",
   "sec.providers.all.kindAll": "全部",
   "sec.providers.all.kindAccounts": "账号",
   "sec.providers.all.kindKeys": "API 密钥",
   "sec.providers.all.empty": "尚未连接任何提供商",
-  "sec.providers.all.emptyAction": "添加提供商",
   "sec.providers.error": "无法加载提供商",
-  "sec.providers.quotaLink": "额度",
 } as const;
 
 export const providersZhCN = {
@@ -77,15 +74,12 @@ const coreEn: Record<keyof typeof coreZhCN, string> = {
   "sec.providers.detail.keys": "API keys",
   "sec.providers.detail.unknown": "Provider not found",
   "sec.providers.detail.emptyAccounts": "No accounts signed in yet",
-  "sec.providers.detail.emptyKeys": "No API keys yet",
   "sec.providers.all.kind": "Type",
   "sec.providers.all.kindAll": "All",
   "sec.providers.all.kindAccounts": "Accounts",
   "sec.providers.all.kindKeys": "API keys",
   "sec.providers.all.empty": "No providers connected yet",
-  "sec.providers.all.emptyAction": "Add a provider",
   "sec.providers.error": "Couldn't load providers",
-  "sec.providers.quotaLink": "Quota",
 };
 
 const coreJa: Record<keyof typeof coreZhCN, string> = {
@@ -115,15 +109,12 @@ const coreJa: Record<keyof typeof coreZhCN, string> = {
   "sec.providers.detail.keys": "APIキー",
   "sec.providers.detail.unknown": "プロバイダーが見つかりません",
   "sec.providers.detail.emptyAccounts": "サインイン済みのアカウントはありません",
-  "sec.providers.detail.emptyKeys": "APIキーはまだありません",
   "sec.providers.all.kind": "種類",
   "sec.providers.all.kindAll": "すべて",
   "sec.providers.all.kindAccounts": "アカウント",
   "sec.providers.all.kindKeys": "APIキー",
   "sec.providers.all.empty": "接続済みのプロバイダーはありません",
-  "sec.providers.all.emptyAction": "プロバイダーを追加",
   "sec.providers.error": "プロバイダーを読み込めません",
-  "sec.providers.quotaLink": "クォータ",
 };
 
 export const providersEn: Record<keyof typeof providersZhCN, string> = {

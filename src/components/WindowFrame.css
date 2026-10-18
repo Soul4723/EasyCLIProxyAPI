@@ -57,10 +57,6 @@
 .window-content { flex: 1; min-height: 0; overflow: hidden; }
 
 /* Beginner mode has no sidebar and sizes itself to 100vh; fit it below the titlebar instead. */
-.immersive-window .app-shell.app-shell-easy-mode,
-.immersive-window .app-shell-easy-mode .workspace {
-  min-height: 100%;
-}
 
 /* The sidebar starts at the window edge; only the workspace reserves titlebar space. */
 @media (min-width: 901px) {

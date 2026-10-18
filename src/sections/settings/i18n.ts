@@ -33,7 +33,6 @@ const baseZhCN = {
   "sec.settings.save.saved": "已保存",
   "sec.settings.save.discard": "放弃",
   "sec.settings.loadFailed": "无法读取设置",
-  "sec.settings.remoteBanner": "已连接远程内核 · 以下为远程主机上的设置",
 } as const;
 
 const baseEn: Record<keyof typeof baseZhCN, string> = {
@@ -60,7 +59,6 @@ const baseEn: Record<keyof typeof baseZhCN, string> = {
   "sec.settings.save.saved": "Saved",
   "sec.settings.save.discard": "Discard",
   "sec.settings.loadFailed": "Couldn't read settings",
-  "sec.settings.remoteBanner": "Connected to a remote core · these settings live on the remote host",
 };
 
 const baseJa: Record<keyof typeof baseZhCN, string> = {
@@ -87,7 +85,6 @@ const baseJa: Record<keyof typeof baseZhCN, string> = {
   "sec.settings.save.saved": "保存しました",
   "sec.settings.save.discard": "破棄",
   "sec.settings.loadFailed": "設定を読み込めません",
-  "sec.settings.remoteBanner": "リモートコアに接続中 · これらの設定はリモートホスト上にあります",
 };
 
 export const settingsZhCN = {

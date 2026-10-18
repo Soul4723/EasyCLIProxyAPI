@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { themeTokenProperties } from '../src/themes/types';
 
 const semanticPaint = new Set([
-  'components/AuthFileUsageSummary.css|.auth-file-usage-metric.rate svg',
   'components/WindowFrame.css|.window-controls .window-close:hover',
   'components/WindowFrame.css|.window-controls .window-close:active',
   'styles/feature-pages.css|.simple-guide-pulse-dot',
