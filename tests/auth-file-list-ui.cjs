@@ -93,11 +93,11 @@ const chip = (page, group, label) => page.getByRole('group', { name: group }).ge
     // Closing with unsaved edits asks first.
     await panel(page).locator('[data-section=routing] input').first().fill('1');
     await page.keyboard.press('Escape');
-    await page.getByRole('dialog', { name: 'Discard unsaved changes?' }).waitFor();
+    await page.getByRole('alertdialog', { name: 'Discard unsaved changes?' }).waitFor();
     await page.getByRole('button', { name: 'Cancel' }).click();
     assert.equal(await panel(page).isVisible(), true);
     await page.keyboard.press('Escape');
-    await page.getByRole('dialog', { name: 'Discard unsaved changes?' }).getByRole('button', { name: 'Discard changes' }).click();
+    await page.getByRole('alertdialog', { name: 'Discard unsaved changes?' }).getByRole('button', { name: 'Discard changes' }).click();
     await panel(page).waitFor({ state: 'detached' });
 
     // Claude credential: Claude block + aliases, and the panel reached from the row menu jumps to the models section.
@@ -132,13 +132,13 @@ const chip = (page, group, label) => page.getByRole('group', { name: group }).ge
     // ---- delete: confirmation, request, runtime guard ---------------------------------------------------------------------
     await page.locator('button[aria-label*="xai-api-paid"]').click();
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
-    const confirm = page.getByRole('dialog', { name: 'Delete' });
+    const confirm = page.getByRole('alertdialog', { name: 'Delete' });
     assert.ok((await confirm.innerText()).includes('xai-api-paid_example_test.json'));
     await confirm.getByRole('button', { name: 'Cancel' }).click();
     assert.equal((await requestsOf(page, 'DELETE', '/credentials')).length, 0, 'cancel leaves the backend untouched');
     await page.locator('button[aria-label*="xai-api-paid"]').click();
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Delete' }).getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('alertdialog', { name: 'Delete' }).getByRole('button', { name: 'Delete', exact: true }).click();
     await page.waitForFunction(() => !document.body.textContent.includes('api-paid@example.test'));
     assert.deepEqual((await requestsOf(page, 'DELETE', '/credentials')).map((item) => item.query), [{ name: 'xai-api-paid_example_test.json' }]);
     assert.equal(await rowCount(page), 9);

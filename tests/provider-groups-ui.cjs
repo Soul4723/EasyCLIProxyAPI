@@ -93,13 +93,13 @@ const { startFixtureServer, launchBrowser, openPage, selectors } = require('./he
     assert.equal(saved[0]['excluded-models'], undefined, 'Disabling a key leaves the group enabled');
     assert.equal(await rows.nth(1).getByRole('switch').getAttribute('aria-checked'), 'true');
     await rows.nth(0).getByRole('button', { name: 'Delete', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Delete', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('alertdialog', { name: 'Delete', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
     await page.waitForFunction(() => window.groupFixture.groups[0].keys.length === 1);
     saved = await groups();
     assert.deepEqual(saved[0].keys[0], beforeToggle[0].keys[1], 'Deleting one key preserves its sibling');
     assert.deepEqual(saved[1], initial[1]);
     await rows.nth(0).getByRole('button', { name: 'Delete', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Delete', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('alertdialog', { name: 'Delete', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
     await page.waitForFunction(() => window.groupFixture.groups.length === 2);
     assert.deepEqual((await groups())[0], initial[1], 'Deleting the final key removes only its empty group');
 
