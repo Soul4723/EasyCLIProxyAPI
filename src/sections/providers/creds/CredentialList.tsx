@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ArrowUpRight, Boxes, Copy, FileDown, MoreHorizontal, RotateCcw, Settings2, Trash2 } from 'lucide-react';
+import { useDensity } from '../../../density';
 import { useI18n } from '../../../i18n';
 import { usePrivacyMask } from '../../../privacy';
 import { routeHref } from '../../../shell/router';
@@ -79,6 +80,7 @@ function RowMenu({ row, controller }: { row: CredentialRow; controller: Credenti
 export function CredentialList({ controller, provider, query, status, pageSize: initialPageSize = 10, showProvider = true }: CredentialListProps) {
   const { t } = useI18n();
   const mask = usePrivacyMask();
+  const [density] = useDensity();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(initialPageSize);
   const [sort, setSort] = useState<SortState | undefined>(undefined);
@@ -115,8 +117,8 @@ export function CredentialList({ controller, provider, query, status, pageSize: 
 
   const columns: DataTableColumn<CredentialRow>[] = [
     {
-      id: 'identity', header: t('authFiles.list.credential'), sortable: true,
-      cell: (row) => <CredentialIdentity row={row} showProvider={showProvider} />,
+      id: 'identity', header: t('authFiles.list.credential'), sortable: true, className: 'ec-cred-col--identity',
+      cell: (row) => <CredentialIdentity row={row} showProvider={showProvider} logoSize={density === 'compact' ? 20 : 28} />,
     },
     {
       id: 'plan', header: t('authFiles.list.plan'), className: 'ec-cred-col--plan', width: 96,

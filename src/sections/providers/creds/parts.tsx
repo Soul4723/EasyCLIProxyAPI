@@ -6,12 +6,12 @@ import { authFileRequestStats } from '../../../services/authFileRequests';
 import { requestShare, type CredentialRow } from './model';
 
 /** Logo + identity + file name. `showProvider` adds the brand name under the logo tile's row when the list is mixed. */
-export function CredentialIdentity({ row, showProvider = true }: { row: CredentialRow; showProvider?: boolean }) {
+export function CredentialIdentity({ row, showProvider = true, logoSize = 28 }: { row: CredentialRow; showProvider?: boolean; logoSize?: number }) {
   const { t } = useI18n();
   const primary = row.identity || row.name;
   return (
     <div className="ec-cred-identity">
-      {showProvider ? <ProviderLogo provider={row.provider} size={28} title={providerInfo(row.provider).name} /> : null}
+      {showProvider ? <ProviderLogo provider={row.provider} size={logoSize} title={providerInfo(row.provider).name} /> : null}
       <div className="ec-cred-identity__text">
         <span className="ec-cred-identity__primary">
           <Masked value={primary} identities={row.identities} />

@@ -177,12 +177,19 @@ function PanelBody({ controller, row, suspended }: PanelProps & { row: Credentia
         subtitle={(
           <span className="ec-cred-subtitle">
             {row.identity ? <Masked value={row.name} identities={row.identities} mono /> : <span>{providerInfo(row.provider).name}</span>}
-            <CopyButton value={row.name} size="sm" label={t('authFiles.copyName')} />
+            <CopyButton value={row.name} size="sm" />
           </span>
         )}
         actions={(
-          <Toggle checked={!row.disabled} disabled={controller.busy || !editable}
+          <>
+            {row.quotaProvider ? (
+              <a className="ec-cred-link" href={routeHref('quota', null, { cred: row.name })}>
+                {t('sec.providers.creds.quotaLink')}<ArrowUpRight size={12} aria-hidden="true" />
+              </a>
+            ) : null}
+            <Toggle checked={!row.disabled} disabled={controller.busy || !editable}
             label={`${t(row.disabled ? 'common.enable' : 'common.disable')} ${shown}`} onChange={() => void controller.toggle(row)} />
+          </>
         )}
         footer={editable ? (
           <div className="ec-cred-footer">
@@ -314,12 +321,6 @@ function Overview({ row, formatNumber }: { row: CredentialRow; formatNumber: (va
         <div>
           <dt>{t('sec.providers.creds.subscription')}</dt>
           <dd title={formatDate(expiry)}>{expiryMs <= Date.now() ? t('authFiles.list.expired') : t('authFiles.list.daysRemaining', { count: Math.ceil((expiryMs - Date.now()) / 86_400_000) })}</dd>
-        </div>
-      ) : null}
-      {row.quotaProvider ? (
-        <div>
-          <dt>{t('authFiles.list.quota')}</dt>
-          <dd><a className="ec-cred-link" href={routeHref('quota', null, { cred: row.name })}>{t('sec.providers.creds.quotaLink')}<ArrowUpRight size={12} aria-hidden="true" /></a></dd>
         </div>
       ) : null}
     </dl>

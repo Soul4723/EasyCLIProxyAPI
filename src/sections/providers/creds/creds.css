@@ -25,19 +25,27 @@
 .ec-cred-req__bar-ok { background: var(--ec-st-available); }
 .ec-cred-req__bar-fail { background: var(--ec-st-error); }
 
-.ec-cred-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--ec-sp-2); }
+.ec-cred-actions { white-space: nowrap; display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--ec-sp-2); }
 .ec-cred-cell-stop { display: inline-flex; }
 .ec-cred-link {
   display: inline-flex; align-items: center; gap: 2px; color: var(--ec-fg-2); font-size: var(--ec-fs-sm);
-  text-decoration: none; padding: 2px var(--ec-sp-1); border-radius: var(--ec-r-xs);
+  text-decoration: none; white-space: nowrap; padding: 2px var(--ec-sp-1); border-radius: var(--ec-r-xs);
 }
 .ec-cred-link:hover { color: var(--ec-accent); background: var(--ec-hover); }
 .ec-cred-link:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 1px; }
 
-/* Narrow containers drop the secondary columns first: plan, then requests, then priority. */
+/* The identity column takes the leftover width and truncates (max-width 0 lets a table cell shrink under its text). */
+.ec-cred-col--identity { width: 100%; max-width: 0; min-width: 150px; }
+/* Narrow containers drop the secondary columns first: plan, then requests, then priority and the Quota link. */
 @container (max-width: 860px) { .ec-cred-col--plan { display: none; } }
-@container (max-width: 760px) { .ec-cred-col--requests { display: none; } }
-@container (max-width: 620px) { .ec-cred-col--priority { display: none; } .ec-cred-link { display: none; } }
+@container (max-width: 740px) { .ec-cred-col--requests { display: none; } }
+@container (max-width: 640px) { .ec-cred-col--priority { display: none; } .ec-cred-link { display: none; } }
+
+/* Compact density: logo shrinks and the file name sits beside the identity on one line. */
+html[data-density='compact'] .ec-cred-identity { gap: var(--ec-sp-2); }
+html[data-density='compact'] .ec-cred-identity__text { flex-direction: row; align-items: baseline; gap: var(--ec-sp-3); }
+html[data-density='compact'] .ec-cred-identity__primary { flex: 0 1 auto; }
+html[data-density='compact'] .ec-cred-identity__secondary { flex: 1 1 0; min-width: 0; }
 
 /* ---- filters ------------------------------------------------------------------------------------------------- */
 .ec-cred-filters { display: flex; flex-direction: column; gap: var(--ec-sp-2); min-width: 0; }

@@ -80,7 +80,7 @@ export function ModelRules({ models, rulesText, onRulesText, loading = false, ca
                 {model.displayName ? <span className="ec-cred-model__name">{model.displayName}</span> : null}
               </span>
               {checked ? <Chip size="sm" tone="danger">{t('sec.providers.creds.models.excluded')}</Chip> : null}
-              <CopyButton value={model.id} size="sm" label={t('authFiles.models.copyModel')} />
+              <CopyButton value={model.id} size="sm" />
             </label>
           );
         })}
