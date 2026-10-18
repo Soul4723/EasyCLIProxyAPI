@@ -20,12 +20,12 @@ export function PageHeader({ title, count, actions, tabs, children }: {
   children?: ReactNode;
 }) {
   const { t } = useI18n();
-  const { openMenu } = useShell();
+  const { openMenu, menuOpen } = useShell();
   const [privacy, setPrivacy] = usePrivacyMode();
   return (
     <header className="ec-page-header">
       <div className="ec-page-header-row">
-        <IconButton className="ec-page-menu" label={t('shell.menu.open')} icon={<Menu size={16} />} onClick={openMenu} />
+        <IconButton className="ec-page-menu" label={t('shell.menu.open')} icon={<Menu size={16} />} onClick={openMenu} aria-expanded={menuOpen} aria-controls="ec-sidebar" />
         <h1 className="ec-page-title">{title}</h1>
         {count !== undefined ? <Badge>{count}</Badge> : null}
         {children}

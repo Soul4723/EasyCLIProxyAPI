@@ -79,7 +79,8 @@ function onHashChange() {
   let allowed = true;
   const probe = new CustomEvent(APP_NAVIGATION_REQUEST_EVENT, {
     cancelable: true,
-    detail: () => commit(parseRoute(window.location.hash)),
+    // Resumes a guard-cancelled navigation: the hash was restored to `target`, so go to `next` again.
+    detail: () => { window.location.hash = next.path; commit(next); },
   });
   allowed = window.dispatchEvent(probe);
   if (allowed) commit(next);
