@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { ArrowRight, RefreshCw, X } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { modelSearchText, type ModelOption } from '../../../services/modelService';
@@ -13,15 +13,16 @@ function ModelPanel({ models, selected, loading, onMove }: {
   onMove: (models: ModelOption[], selected: boolean) => void;
 }) {
   const { t } = useI18n();
+  const titleId = useId();
   const [search, setSearch] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const query = search.trim().toLowerCase();
   const visible = useMemo(() => models.filter((model) => modelSearchText(model).includes(query)), [models, query]);
   const searchLabel = t(selected ? 'apiAccess.modelDialog.searchSelected' : 'apiAccess.modelDialog.searchUnselected');
   return (
-    <section className="ec-api-transfer__panel" aria-busy={loading}>
+    <section className="ec-api-transfer__panel" aria-labelledby={titleId} aria-busy={loading}>
       <header className="ec-api-transfer__head">
-        <h3>{t(selected ? 'apiAccess.modelDialog.selected' : 'apiAccess.modelDialog.unselected')}</h3>
+        <h3 id={titleId}>{t(selected ? 'apiAccess.modelDialog.selected' : 'apiAccess.modelDialog.unselected')}</h3>
         <span className="ec-api-transfer__count ec-num">{query ? `${visible.length} / ${models.length}` : models.length}</span>
         <Button size="xs" disabled={loading || visible.length === 0} onClick={() => onMove(visible, !selected)}>
           {t(selected
