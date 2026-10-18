@@ -10,11 +10,11 @@ import './Routing.css';
 
 /** Usage → live routing: policy strip, candidate accounts per provider, live request stream. Three independent data blocks. */
 export function RoutingTab() {
-  const { tick } = useUsage();
-  const policy = useBlock(fetchPolicy, 0);
-  // Credentials carry cooldowns; refetch about every 15s (Countdown onDone also triggers a reload).
-  const credentials = useBlock(fetchCredentials, Math.floor(tick / 5));
-  const events = useBlock(fetchEvents, tick);
+  const { refreshVersion, manualVersion } = useUsage();
+  const policy = useBlock(fetchPolicy, manualVersion);
+  // Credentials load on mount/manual refresh; cooldown expiry can request its own reload.
+  const credentials = useBlock(fetchCredentials, manualVersion);
+  const events = useBlock(fetchEvents, refreshVersion);
   const groups = useMemo(() => buildGroups(credentials.data), [credentials.data]);
   const served = useMemo(() => serveCounts(events.data?.items ?? [], groups).byAuthIndex, [events.data, groups]);
   return (

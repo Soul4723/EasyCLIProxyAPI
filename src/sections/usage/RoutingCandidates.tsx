@@ -55,7 +55,7 @@ export function RoutingCandidates({ block, groups, served, onCooldownDone }: Pro
   const { t } = useI18n();
   const total = groups.reduce((n, g) => n + g.items.length, 0);
   const max = Math.max(0, ...served.values());
-  const showError = block.error && block.data === null;
+  const showError = block.error;
   return (
     <Card as="section" className="rt-card rt-candidates" aria-label={t('sec.usage.routing.candidates.title')}>
       <CardHeader title={t('sec.usage.routing.candidates.title')} count={total} icon={<Users size={16} />} />

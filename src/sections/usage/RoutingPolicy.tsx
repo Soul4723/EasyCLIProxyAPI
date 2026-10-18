@@ -37,7 +37,7 @@ export function RoutingPolicy({ block }: { block: Block<Policy> }) {
     <Card as="section" className="rt-policy" aria-label={t('sec.usage.routing.policy.title')}>
       <CardHeader title={t('sec.usage.routing.policy.title')} icon={<Route size={16} />} actions={edit} />
       {block.loading && !policy ? <Skeleton height={28} /> : null}
-      {block.error && !policy ? <ErrorState title={t('sec.usage.routing.policy.error')} onRetry={block.reload} /> : null}
+      {block.error ? <ErrorState title={t('sec.usage.routing.policy.error')} onRetry={block.reload} /> : null}
       {policy ? (
         <div className="rt-facts">
           <Fact icon={<Layers size={14} />} label={t('sec.usage.routing.policy.strategy')}>

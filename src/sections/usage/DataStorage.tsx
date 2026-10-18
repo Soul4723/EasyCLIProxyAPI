@@ -59,7 +59,7 @@ function DataStat({ label, value }: { label: string; value: ReactNode }) {
 /** Storage card (size, limit editor) and maintenance card (shrink, repair). */
 export function DataStorage({ onNotice }: { onNotice: (notice: DataNotice) => void }) {
   const { t } = useI18n();
-  const { tick } = useUsage();
+  const { refreshVersion, refresh } = useUsage();
   const [storage, setStorage] = useState<UsageStorageSettings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [limitDraft, setLimitDraft] = useState('');
@@ -79,6 +79,7 @@ export function DataStorage({ onNotice }: { onNotice: (notice: DataNotice) => vo
     requestId.current += 1;
     setStorage(next);
     setLoadError(null);
+    refresh();
   };
 
   const load = useCallback(() => {
@@ -98,8 +99,8 @@ export function DataStorage({ onNotice }: { onNotice: (notice: DataNotice) => vo
       });
   }, []);
 
-  // Quiet refresh on every tick: previous data stays on screen while the request runs.
-  useEffect(() => { load(); }, [load, tick]);
+  // Quiet refresh on invalidation: previous data stays on screen while the request runs.
+  useEffect(() => { load(); return () => { requestId.current += 1; }; }, [load, refreshVersion]);
 
   const limitMb = parseMb(limitDraft);
   const saveLimit = () => {
@@ -162,8 +163,7 @@ export function DataStorage({ onNotice }: { onNotice: (notice: DataNotice) => vo
           tone: 'ok',
           text: t('sec.usage.data.repair.done', { repaired: compactNumber(result.repaired), deleted: compactNumber(result.deleted) }),
         });
-        // The repair already succeeded; a failed storage re-fetch is retried by the next tick instead of reported as an error.
-        return invoke<UsageStorageSettings>('get_usage_storage_settings').then(applyStorage, () => undefined);
+        refresh();
       }, () => {
         setConfirmRepair(false);
         onNotice({ tone: 'error', text: t('sec.usage.data.error.action') });
@@ -180,7 +180,7 @@ export function DataStorage({ onNotice }: { onNotice: (notice: DataNotice) => vo
     <>
       <Card as="section" className="data-card" aria-label={t('sec.usage.data.storage.title')}>
         <CardHeader title={t('sec.usage.data.storage.title')} icon={<HardDrive size={14} />} />
-        {!storage && loadError ? (
+        {loadError ? (
           <ErrorState title={t('sec.usage.error.load')} message={loadError} onRetry={load} retryLabel={t('sec.usage.retry')} />
         ) : null}
         {!storage && !loadError ? <Skeleton lines={3} height={18} /> : null}
