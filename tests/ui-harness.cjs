@@ -1,14 +1,14 @@
 // Shared harness for tests/*-ui.cjs: browser selection and a self-contained Vite server.
 //
-// Browser: PLAYWRIGHT_CHANNEL (for example `msedge` or `chrome`) when set; otherwise Edge on
-// Windows, where Playwright's bundled Chromium may be absent, and the bundled Chromium
-// elsewhere. Set PLAYWRIGHT_MODULE to use an existing Playwright installation.
+// Browser: PLAYWRIGHT_CHANNEL (for example `msedge` or `chrome`) when set; otherwise
+// bundled Chromium on every platform. THEME_BROWSER retains the older theme-suite
+// override. Set PLAYWRIGHT_MODULE to use an existing Playwright installation.
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 
 function browserChannel() {
-  return process.env.PLAYWRIGHT_CHANNEL || process.env.THEME_BROWSER || (process.platform === 'win32' ? 'msedge' : undefined);
+  return process.env.PLAYWRIGHT_CHANNEL || process.env.THEME_BROWSER || undefined;
 }
 
 // Playwright launch options for Chromium; `extra` (for example `{ args }`) is merged in.

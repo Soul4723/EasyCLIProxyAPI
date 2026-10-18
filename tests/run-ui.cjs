@@ -5,7 +5,7 @@
 //   node tests/run-ui.cjs usage theme     run tests whose file name contains any argument
 //
 // PLAYWRIGHT_CHANNEL selects an installed browser (for example `msedge` or `chrome`);
-// bundled Chromium is used otherwise (Edge on Windows). PLAYWRIGHT_MODULE points at an
+// bundled Chromium is used otherwise. PLAYWRIGHT_MODULE points at an
 // existing Playwright installation.
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
