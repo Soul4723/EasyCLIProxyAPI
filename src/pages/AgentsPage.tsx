@@ -1019,7 +1019,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
         opus1m: Boolean(source.opus1m),
         sonnet1m: Boolean(source.sonnet1m),
         haiku1m: Boolean(source.haiku1m),
-        fable: findAgentModel(models, source.fable)?.name ?? '',
+        fable: findAgentModel(models, source.fable ?? source.sonnet)?.name ?? '',
         fable1m: Boolean(source.fable1m),
         maxContextTokens: source.maxContextTokens ?? CLAUDE_CODE_DEFAULT_MAX_CONTEXT_TOKENS,
         autoCompactPct: source.autoCompactPct ?? DEFAULT_CLAUDE_AUTO_COMPACT_PCT,
