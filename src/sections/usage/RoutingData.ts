@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../../services/usageApi';
-import { managementApi, normalizeAuthIndex, readString, responseList } from '../../services/managementApi';
+import { credentialsSource } from '../../services/credentials';
+import { useDataSource } from '../../services/dataSource';
+import { normalizeAuthIndex, readString } from '../../services/managementApi';
 import {
-  authFileIdentities, authFileName, dedupeAuthFiles, normalizeOAuthProvider, parseAuthFilePriority, sortAuthFilesByPriority,
+  authFileIdentities, authFileName, normalizeOAuthProvider, parseAuthFilePriority, sortAuthFilesByPriority,
 } from '../../services/authFiles';
 import { authFileHealth, normalizeAuthFileCooldowns, summarizeAuthFileCooldowns } from '../../services/authFileHealth';
 import { providerInfo, type CredentialStatus } from '../../ui';
@@ -66,11 +68,16 @@ export const fetchEvents = () => invoke<UsageEventPage>('get_usage_events', { qu
 
 type CredentialSnapshot = { files: Record<string, unknown>[]; receivedAtMs: number; observedAt?: string };
 
-export async function fetchCredentials(): Promise<CredentialSnapshot> {
-  const payload = await managementApi.get('/credentials');
-  const receivedAtMs = Date.now();
-  const observedAt = readString(payload, 'observed_at', 'observedAt') || undefined;
-  return { files: dedupeAuthFiles(responseList(payload, 'files')), receivedAtMs, observedAt };
+/** Credentials as a Block, read from the shared credentials source; a change of `key` (manual refresh) refetches. */
+export function useCredentialsBlock(key: number): Block<CredentialSnapshot> {
+  const snapshot = useDataSource(credentialsSource);
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (mounted.current) void credentialsSource.refresh();
+    mounted.current = true;
+  }, [key]);
+  const reload = useCallback(() => { void credentialsSource.refresh(); }, []);
+  return { data: snapshot.data ?? null, error: snapshot.error !== null, loading: snapshot.loading, reload };
 }
 
 const statusOf = (file: Record<string, unknown>, snapshot: CredentialSnapshot): { status: CredentialStatus; until: number | null } => {
