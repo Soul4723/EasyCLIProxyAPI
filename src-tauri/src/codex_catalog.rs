@@ -43,6 +43,17 @@ struct CatalogSources {
     max_template_priority: i64,
 }
 
+impl CatalogSources {
+    fn template_for_slug(&self, slug: &str) -> Option<&Template> {
+        let key = normalize_id(slug);
+        // Keep the public routing ID intact; strip slash-delimited prefixes only
+        // for template lookup, preferring the most specific exact match.
+        std::iter::once(key.as_str())
+            .chain(key.match_indices('/').map(|(index, _)| &key[index + 1..]))
+            .find_map(|candidate| self.templates.get(candidate))
+    }
+}
+
 #[derive(Clone, Debug)]
 struct CatalogState {
     sources: CatalogSources,
@@ -106,6 +117,19 @@ pub(crate) fn activate_catalog_json(catalog_json: &str) -> Result<bool, String> 
         .write()
         .map_err(|_| "Codex model catalog memory lock is poisoned".to_string())?;
     Ok(state.activate(catalog_json, parsed))
+}
+
+pub(crate) fn reset_to_embedded_catalog() -> Result<bool, String> {
+    let parsed = parse_sources(MODEL_CATALOG_JSON)?;
+    let mut state = catalog_state()?
+        .write()
+        .map_err(|_| "Codex model catalog memory lock is poisoned".to_string())?;
+    if state.json == MODEL_CATALOG_JSON {
+        return Ok(false);
+    }
+    state.sources = parsed;
+    state.json = MODEL_CATALOG_JSON.to_string();
+    Ok(true)
 }
 
 pub(crate) fn validate_catalog_json(catalog_json: &str) -> Result<u64, String> {
@@ -464,7 +488,7 @@ fn prepare_catalog_with_customizations(
         if key.is_empty() {
             continue;
         }
-        if let Some(template) = sources.templates.get(&key) {
+        if let Some(template) = sources.template_for_slug(&runtime.slug) {
             let mut value = template.value.clone();
             value.insert("slug".to_string(), Value::String(runtime.slug.clone()));
             value.insert(
@@ -685,17 +709,68 @@ fn disable_fallback_capabilities(model: &mut Map<String, Value>) {
 }
 
 fn enable_fast_mode(model: &mut Map<String, Value>) {
-    model.insert(
-        "service_tiers".to_string(),
-        serde_json::json!([{
-            "id": "priority",
-            "name": "Fast",
-            "description": "1.5x speed, increased usage"
-        }]),
-    );
+    let mut seen = HashSet::new();
+    let mut tiers = Vec::new();
+    for tier in model
+        .get("service_tiers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(mut tier) = tier.as_object().cloned() else {
+            continue;
+        };
+        let id = string_value(&tier, "id");
+        if id.is_empty() || seen.contains(&id) {
+            continue;
+        }
+        if id == "priority" {
+            if string_value(&tier, "name").is_empty() {
+                tier.insert("name".to_string(), Value::String("Fast".to_string()));
+            }
+            if !tier.get("description").is_some_and(Value::is_string) {
+                tier.insert(
+                    "description".to_string(),
+                    Value::String("1.5x speed, increased usage".to_string()),
+                );
+            }
+        } else if string_value(&tier, "name").is_empty()
+            || !tier.get("description").is_some_and(Value::is_string)
+        {
+            continue;
+        }
+        seen.insert(id);
+        tiers.push(Value::Object(tier));
+    }
+    if !seen.contains("priority") {
+        tiers.insert(
+            0,
+            serde_json::json!({
+                "id": "priority",
+                "name": "Fast",
+                "description": "1.5x speed, increased usage"
+            }),
+        );
+    }
+    model.insert("service_tiers".to_string(), Value::Array(tiers));
+
+    let mut seen = HashSet::new();
+    let mut speed_tiers = model
+        .get("additional_speed_tiers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|tier| !tier.is_empty() && seen.insert(tier.to_string()))
+        .map(|tier| Value::String(tier.to_string()))
+        .collect::<Vec<_>>();
+    if !seen.contains("fast") {
+        speed_tiers.insert(0, Value::String("fast".to_string()));
+    }
     model.insert(
         "additional_speed_tiers".to_string(),
-        serde_json::json!(["fast"]),
+        Value::Array(speed_tiers),
     );
 }
 
@@ -704,6 +779,7 @@ pub(crate) fn parse_modalities(value: &Value) -> Option<Vec<String>> {
         .get("input_modalities")
         .or_else(|| value.get("inputModalities"))
         .or_else(|| value.get("supported_input_modalities"))
+        .or_else(|| value.get("supportedInputModalities"))
         .and_then(Value::as_array)?;
     let mut seen = HashSet::new();
     let modalities = raw
@@ -1162,6 +1238,51 @@ mod tests {
     }
 
     #[test]
+    fn template_speed_tiers_are_preserved_when_fast_mode_is_enabled() {
+        let mut sources = test_sources();
+        let template = &mut sources.templates.get_mut("a").unwrap().value;
+        template.insert(
+            "service_tiers".to_string(),
+            serde_json::json!([
+                {"id": "priority", "name": "Fast", "description": "2x speed"},
+                {"id": "ultrafast"},
+                {"id": "ultrafast", "name": "Ultrafast", "description": "Highest speed"},
+                {"id": "ultrafast", "name": "Duplicate", "description": "Duplicate"},
+                {"id": "incomplete"}
+            ]),
+        );
+        template.insert(
+            "additional_speed_tiers".to_string(),
+            serde_json::json!(["fast", "ultrafast", "ultrafast"]),
+        );
+        let runtime = runtime(serde_json::json!({"models":[{"id":"A"},{"id":"B"}]}));
+
+        let catalog = prepare_catalog_with_sources(&runtime, &sources).unwrap();
+        let models = output_models(&catalog);
+
+        assert_eq!(
+            models[0]["service_tiers"],
+            serde_json::json!([
+                {"id": "priority", "name": "Fast", "description": "2x speed"},
+                {"id": "ultrafast", "name": "Ultrafast", "description": "Highest speed"}
+            ])
+        );
+        assert_eq!(
+            models[0]["additional_speed_tiers"],
+            serde_json::json!(["fast", "ultrafast"])
+        );
+        assert_eq!(
+            models[1]["service_tiers"],
+            serde_json::json!([{
+                "id": "priority",
+                "name": "Fast",
+                "description": "1.5x speed, increased usage"
+            }])
+        );
+        assert_eq!(models[1]["additional_speed_tiers"], serde_json::json!(["fast"]));
+    }
+
+    #[test]
     fn known_and_unknown_models_are_composed_from_the_correct_sources() {
         let runtime = runtime(serde_json::json!({"models":[
             {"id":"b","display_name":"Runtime B","context_window":1},
@@ -1247,6 +1368,47 @@ mod tests {
             let model = &output_models(&catalog)[0];
             assert_eq!(model["context_window"], maximum);
             assert_eq!(model["max_context_window"], maximum);
+        }
+    }
+
+    #[test]
+    fn prefixed_models_inherit_official_capabilities_without_changing_routing_ids() {
+        let sources = parse_sources(MODEL_CATALOG_JSON).unwrap();
+        for (slug, base) in [
+            ("Fy/gpt-6.1-sol", "gpt-6.1-sol"),
+            ("Plus-Yf/gpt-6.1-sol", "gpt-6.1-sol"),
+            ("Any-Test/gpt-6-astra", "gpt-6-astra"),
+            ("team/provider/GPT-6.1-SOL", "gpt-6.1-sol"),
+        ] {
+            let generate = |id: &str| {
+                let runtime = runtime(serde_json::json!({"data":[{"id":id}]}));
+                output_models(&prepare_catalog_with_sources(&runtime, &sources).unwrap())[0].clone()
+            };
+            let prefixed = generate(slug);
+            let original = generate(base);
+            assert_eq!(prefixed["slug"], slug);
+            assert_eq!(prefixed["display_name"], slug);
+            for (field, value) in &original {
+                if !matches!(field.as_str(), "slug" | "display_name") {
+                    assert_eq!(prefixed.get(field), Some(value), "{slug}: {field}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn prefix_template_lookup_prefers_exact_matches_and_does_not_guess_aliases() {
+        let mut sources = test_sources();
+        let mut exact = sources.templates["a"].clone();
+        exact.order = 99;
+        sources.templates.insert("provider/a".into(), exact);
+        assert_eq!(sources.template_for_slug("provider/a").unwrap().order, 99);
+        assert_eq!(sources.template_for_slug("team/provider/a").unwrap().order, 99);
+        for slug in ["provider/unknown", "provider/a-fast", "provider/not-a", "a/"] {
+            assert!(sources.template_for_slug(slug).is_none(), "{slug}");
+            let runtime = runtime(serde_json::json!({"data":[{"id":slug}]}));
+            let models = output_models(&prepare_catalog_with_sources(&runtime, &sources).unwrap());
+            assert_eq!(models[0]["supports_search_tool"], false);
         }
     }
 
@@ -1368,14 +1530,7 @@ mod tests {
         assert_eq!(model["supports_reasoning_effort_updates"], true);
         assert_eq!(model["default_service_tier"], Value::Null);
         assert_eq!(model["additional_speed_tiers"], serde_json::json!(["fast"]));
-        assert_eq!(
-            model["service_tiers"],
-            serde_json::json!([{
-                "id": "priority",
-                "name": "Fast",
-                "description": "1.5x speed, increased usage"
-            }])
-        );
+        assert_eq!(model["service_tiers"], template["service_tiers"]);
         assert_eq!(
             model["base_instructions"],
             model["model_messages"]["instructions_template"]
@@ -1396,6 +1551,7 @@ mod tests {
         }]}));
         let catalog = prepare_catalog_with_sources(&runtime, &sources).unwrap();
         let model = &output_models(&catalog)[0];
+        let template = &sources.templates["gpt-6-astra"].value;
 
         assert_eq!(model["context_window"], 1_048_576);
         assert_eq!(model["max_context_window"], 1_048_576);
@@ -1406,14 +1562,7 @@ mod tests {
         );
         assert_eq!(model["default_service_tier"], Value::Null);
         assert_eq!(model["additional_speed_tiers"], serde_json::json!(["fast"]));
-        assert_eq!(
-            model["service_tiers"],
-            serde_json::json!([{
-                "id": "priority",
-                "name": "Fast",
-                "description": "1.5x speed, increased usage"
-            }])
-        );
+        assert_eq!(model["service_tiers"], template["service_tiers"]);
     }
 
     #[test]

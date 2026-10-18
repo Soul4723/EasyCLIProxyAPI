@@ -34,6 +34,7 @@ const path = require('node:path');
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
     await page.locator('.real-provider-row').getByRole('button', { name: 'Edit', exact: true }).click();
     const form = page.getByRole('dialog', { name: 'Edit API Key', exact: true });
+    await page.waitForFunction(() => document.querySelectorAll('[role=dialog] .model-config-entry').length === 30);
     assert.equal(await form.locator('.model-config-entry').count(), 30);
     assert.equal(await form.getByLabel('API Key', { exact: true }).count(), 1);
     assert.equal(await form.locator('.provider-group-key').count(), 0);

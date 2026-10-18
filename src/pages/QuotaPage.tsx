@@ -227,7 +227,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset, compact = false }: 
     const label = privacy.text(row.label, identities);
     const detail = row.detail ? privacy.text(row.detail, identities) : '';
     return <div className="real-quota-row" key={`${row.label}-${index}`}>
-      <div><span title={label}>{label}</span><strong>{row.remainingPercent === null ? '—' : t('quota.remaining', { percent: Math.round(row.remainingPercent) })}</strong></div>
+      <div><span title={label}>{label}</span><strong>{row.quotaAvailable ? t('quota.service.antigravity.available') : row.remainingPercent === null ? '—' : t('quota.remaining', { percent: Math.round(row.remainingPercent) })}</strong></div>
       {row.remainingPercent !== null ? <div className="real-quota-track"><span style={{ width: `${Math.max(0, Math.min(100, row.remainingPercent))}%` }} /></div> : null}
       {!preview || reset ? <small title={(preview ? [reset] : [detail, reset]).filter(Boolean).join(' · ') || undefined}>{(preview ? [reset] : [detail, reset]).filter(Boolean).join(' · ')}</small> : null}
     </div>;

@@ -115,6 +115,11 @@ consumer: another GUI/collector can consume events first, and the core's live
 subscriber behavior can prevent HTTP backfill. Lost events cannot be promised back.
 After an uncertain dequeue result, remote collection pauses instead of retrying the
 pop automatically. Inspect the visible collector message before explicitly resuming.
+After a successful pop, local persistence failures retain the batch in memory and
+retry against its captured origin/store before any further collection, even after
+a target switch. A blocked original store therefore blocks collection for other
+targets too. A crash, collector stop, or shutdown before persistence can still lose
+the in-memory batch; this is not an exactly-once delivery guarantee.
 
 ## Verification boundary
 

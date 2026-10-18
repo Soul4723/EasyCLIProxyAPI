@@ -1,6 +1,7 @@
 import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type TemplateConfigChange } from '../services/templateConfig';
 import type { CoreConnection } from '../services/coreConnection';
-import { createPluginMock } from './pluginMock';
+import { createPluginMock, type PluginWebviewMockState } from './pluginMock';
+
 import { createQuotaMock, createQuotaMockFiles } from './quotaMock';
 
 export type BrowserMockScenario = 'running' | 'stopped' | 'empty' | 'error';
@@ -605,6 +606,7 @@ function createState(scenario: BrowserMockScenario) {
           input_modalities: ['text', 'image'],
           visibility: 'list',
           supports_parallel_tool_calls: true,
+          supports_search_tool: true,
           base_instructions: 'You are Codex, a coding assistant.',
         };
         return {
@@ -954,6 +956,8 @@ export function createBrowserMockRuntime(
   scenario: BrowserMockScenario,
   emitEvent: EmitMockEvent = () => {},
   delayMs = 0,
+  pluginPages = 0,
+  onPluginWebview?: (state: PluginWebviewMockState) => void,
 ): BrowserMockRuntime {
   const state = createState(scenario);
   let connection: CoreConnection = { mode: 'local', managementOrigin: '', managementKey: '', clientOrigin: '', clientKey: '' };
@@ -1004,7 +1008,7 @@ export function createBrowserMockRuntime(
     state.usageStorage.totalRecords = 0;
     state.coreConfig.apiKeys = [];
   }
-  const pluginMock = createPluginMock(state);
+  const pluginMock = createPluginMock(state, pluginPages, onPluginWebview);
   const emit = (event: string, payload: unknown) => emitEvent(event, clone(payload));
 
   const invoke = async (command: string, rawPayload?: unknown): Promise<unknown> => {
