@@ -1,16 +1,16 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { mkdirSync } = require('node:fs');
 
 const screenshots = path.resolve(__dirname, '..', 'output', 'playwright');
 mkdirSync(screenshots, { recursive: true });
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
+runUi(async ({ base }) => {
   let browser;
   try {
-    browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
+    browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1600, height: 1100 } });
     page.setDefaultTimeout(15000);
     const errors = [];
@@ -225,4 +225,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     assert.deepEqual(externalRequests, []);
     console.log('PASS: No context preloading; one target read on entry; collapsed metadata; saves, draft guards, themes and unclipped 43/1000-message lists.');
   } finally { await browser?.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

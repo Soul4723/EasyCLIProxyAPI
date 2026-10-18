@@ -1,11 +1,11 @@
-// Run Vite, then: AGENT_TEST_URL=<vite url> node tests/agent-model-persistence-ui.cjs
+// AGENT_TEST_URL, when set, reuses an existing dev server: AGENT_TEST_URL=<vite url> node tests/agent-model-persistence-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     for (const client of ['codex', 'antigravity-cli', 'copilot-cli', 'vscode-copilot']) {
       {
@@ -59,4 +59,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     }
     console.log('PASS: Codex, Antigravity and Copilot clients preserve selections across empty/partial lists, remount, reload and recovery in the Setup tab');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });

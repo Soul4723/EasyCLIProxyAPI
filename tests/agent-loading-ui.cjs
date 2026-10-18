@@ -1,14 +1,14 @@
-// Agents background loading. Run Vite, then: AGENT_TEST_URL=http://127.0.0.1:1421 node tests/agent-loading-ui.cjs
+// Agents background loading. AGENT_TEST_URL, when set, reuses an existing dev server.
 //
 // The old page kept a client list next to the form; now the same cached data is checked on the client grid
 // (statuses) and on the Codex detail page (statuses + model list, draft selection).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors = [];
@@ -92,4 +92,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     assert.deepEqual(errors, []);
     console.log('PASS: cached page return, nonblocking revalidation, preserved selection, failed refresh and explicit detection');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });

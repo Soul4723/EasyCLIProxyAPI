@@ -1,14 +1,14 @@
-// Run a Vite dev server for the worktree, then:
+// AGENT_TEST_URL, when set, reuses an existing dev server:
 // AGENT_TEST_URL=http://127.0.0.1:5391 node tests/codex-cli-daemon-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
+runUi(async ({ base }) => {
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser(chromium);
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
@@ -21,7 +21,7 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     };
     await open('');
     await restart().click();
-    const dialog = page.getByRole('dialog');
+    const dialog = page.locator('[role=dialog], [role=alertdialog]');
     await dialog.waitFor();
     assert.equal(await calls('restart_codex_cli_daemon'), 0);
     await page.evaluate(() => { window.fixtureDeferredCommands = ['restart_codex_cli_daemon']; });
@@ -73,11 +73,11 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     await open('daemon-error');
     await restart().click();
     await page.getByText(/Codex daemon probe failed/).waitFor();
-    assert.equal(await page.getByRole('dialog').count(), 0);
+    assert.equal(await page.locator('[role=dialog], [role=alertdialog]').count(), 0);
     assert.equal(await calls('restart_codex_cli_daemon'), 0);
     assert.deepEqual(errors, []);
     console.log('PASS: shared daemon confirmation, non-blocking restart that survives remounts, stopped status, and probe errors.');
   } finally {
     await browser?.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

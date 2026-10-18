@@ -1,12 +1,11 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
 // Plugin OAuth sign-in dialog, opened from the Sign in button of an installed row (fixture: tests/fixtures/plugin-oauth.html).
-(async () => {
-  const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
-  let browser;
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
-    browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1024, height: 800 } });
     page.setDefaultTimeout(10000);
     const errors = [];
@@ -111,5 +110,5 @@ const assert = require('node:assert/strict');
     if (process.env.PLUGIN_OAUTH_SCREENSHOT) await page.screenshot({ path: process.env.PLUGIN_OAUTH_SCREENSHOT });
     assert.deepEqual(errors, []);
     console.log('Plugin OAuth UI passed: native contract, callback validation, device code, polling, expiry/retry, cancellation/stale responses, focus and mobile layout.');
-  } finally { await browser?.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+  } finally { await browser.close(); }
+}, { url: process.env.AGENT_TEST_URL });

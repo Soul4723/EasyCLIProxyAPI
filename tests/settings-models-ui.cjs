@@ -54,7 +54,7 @@ const { openApp } = require('./helpers/shell.cjs');
       await noOverflow('aliases');
 
       await page.getByRole('button', { name: 'Create Alias' }).first().click();
-      const dialog = page.getByRole('dialog');
+      const dialog = page.locator('[role=dialog], [role=alertdialog]');
       await dialog.waitFor();
       await expectDot(0, 'an untouched editor is not dirty');
       await dialog.getByRole('button', { name: 'Create Alias' }).click(); // nothing selected
@@ -102,7 +102,7 @@ const { openApp } = require('./helpers/shell.cjs');
 
       // Delete (confirm first)
       await table.locator('tbody tr', { hasText: 'sonnet-low' }).getByRole('button', { name: /Delete/ }).click();
-      const confirm = page.getByRole('dialog').or(page.getByRole('alertdialog'));
+      const confirm = page.locator('[role=dialog], [role=alertdialog]');
       await confirm.waitFor();
       await confirm.getByRole('button', { name: 'Cancel' }).click();
       const rowsBefore = await table.locator('tbody tr').count();

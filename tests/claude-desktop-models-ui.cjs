@@ -1,12 +1,11 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const os = require('node:os');
-// Run against a Vite dev server: AGENT_TEST_URL=http://127.0.0.1:5391 node tests/claude-desktop-models-ui.cjs
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 const shot = name => path.join(os.tmpdir(), name);
-(async () => {
-  const browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     page.setDefaultTimeout(10000);
@@ -238,4 +237,4 @@ const shot = name => path.join(os.tmpdir(), name);
     assert.deepEqual(errors, []);
     console.log('PASS: shared original model picker, editable alias suggestions, three-point help, custom IDs, save/remount, legacy migration and narrow layout');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });

@@ -65,7 +65,7 @@ const { startFixtureServer, launchBrowser, openPage, selectors } = require('./he
     assert.equal((await records())[0].priority, 10);
 
     await rows.filter({ hasText: 'Second route' }).getByRole('button', { name: 'Delete', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Delete', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('alertdialog', { name: 'Delete', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
     await page.waitForFunction(() => window.providerFixture.records.length === 1);
     saved = await records();
     assert.equal(saved[0].models[0].alias, 'claude-a', 'Deleting the second route preserves the first');

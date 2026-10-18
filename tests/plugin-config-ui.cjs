@@ -1,12 +1,11 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
 // Plugin configuration side panel, opened from the Configure button of an installed row (fixture: tests/fixtures/plugin-config.html).
-(async () => {
-  const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
-  let browser;
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
-    browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1024, height: 800 } });
     page.setDefaultTimeout(30000);
     const errors = [];
@@ -101,6 +100,6 @@ const assert = require('node:assert/strict');
     assert.deepEqual(errors, []);
     console.log('Plugin configuration UI passed: typed validation, touched-only patches, JSON fallback, retry, discard, pending state, keyboard focus, mobile layout.');
   } finally {
-    await browser?.close();
+    await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

@@ -1,12 +1,12 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   const page = await browser.newPage();
   await page.route('**/*', route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
   const errors = [];
@@ -99,7 +99,7 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
       await dialog().getByRole('alert').filter({ hasText: /模型列表或配置已变化/ }).waitFor();
       await page.evaluate(() => window.fixtureStaleHarnessSave = false);
       await page.keyboard.press('Escape');
-      const confirmation = page.getByRole('dialog', { name: '有尚未保存的修改。' });
+      const confirmation = page.getByRole('alertdialog', { name: '有尚未保存的修改。' });
       await confirmation.waitFor();
       assert.equal(await confirmation.getByRole('button', { name: '放弃修改', exact: true }).isVisible(), true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -125,4 +125,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     console.log('PASS: default model preserved, catalog overrides, API reset, reasoning, validation, retry, stale save, responsive themes');
     console.log(screenshots);
   } finally { await browser.close(); }
-})().catch(e => { console.error(e); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });
