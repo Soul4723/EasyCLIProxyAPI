@@ -3,21 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// Plugin-provided OAuth sign-in cards (src/sections/plugins/OAuthProviders.tsx), hosted by tests/fixtures/plugin-oauth-providers.html.
 (async () => {
-  const { createServer } = await import('vite');
-  const react = (await import('@vitejs/plugin-react')).default;
-  const server = await createServer({
-    configFile: false, root: path.resolve(__dirname, '..'),
-    cacheDir: 'node_modules/.vite-plugin-oauth-providers-test', plugins: [react()],
-    logLevel: 'error', optimizeDeps: { entries: ['tests/fixtures/plugin-oauth-providers.html'] },
-    server: { host: '127.0.0.1', port: 1436, strictPort: false, watch: null },
-  });
+  const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
   let browser;
   try {
-    await server.listen();
-    const base = `http://127.0.0.1:${server.httpServer.address().port}`;
-    const channel = process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined);
-    browser = await chromium.launch({ channel, headless: true, args: ['--no-proxy-server'] });
+    browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1366, height: 1000 } });
     page.setDefaultTimeout(10000);
     const errors = [];
@@ -25,11 +16,12 @@ const path = require('node:path');
     await page.route('**/*', route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
     const open = async (query = '') => {
       await page.goto(`${base}/tests/fixtures/plugin-oauth-providers.html?${query}`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('heading', { name: 'Codex OAuth', exact: true }).waitFor();
+      await page.getByLabel('Choose Browser', { exact: true }).waitFor();
       await page.waitForFunction(() => window.pluginOAuthProvidersFixture.calls.some(call => call.cmd === 'get_plugin_support'));
-      await page.waitForFunction(() => document.querySelector('.oauth-browser-picker select')?.disabled === false);
     };
-    const card = name => page.locator('.oauth-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
+    // One <section> card per eligible plugin provider; the title is the <strong> "<name> OAuth".
+    const cards = () => page.locator('section').filter({ has: page.locator('strong') });
+    const card = name => cards().filter({ has: page.locator('strong').filter({ hasText: new RegExp(`^${name}$`) }) });
     const calls = cmd => page.evaluate(command => window.pluginOAuthProvidersFixture.calls.filter(call => call.cmd === command), cmd);
     const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const screenshot = async (name, fullPage = true) => {
@@ -42,9 +34,9 @@ const path = require('node:path');
     await open();
     await card('ZCode OAuth').waitFor();
     await card('CodeBuddy OAuth').waitFor();
-    assert.equal(await page.locator('.oauth-card').count(), 9, 'seven built-ins plus two eligible plugin providers');
+    assert.equal(await cards().count(), 2, 'only the two eligible plugin providers get a card');
     for (const name of ['Disabled provider', 'Unregistered provider', 'Non OAuth provider', 'Invalid provider', 'Missing provider', 'Duplicate ZCode', 'Duplicate Codex']) {
-      assert.equal(await page.getByRole('heading', { name: `${name} OAuth`, exact: true }).count(), 0, `${name} must not become a provider card`);
+      assert.equal(await page.getByText(`${name} OAuth`, { exact: true }).count(), 0, `${name} must not become a provider card`);
     }
     await screenshot('plugin-oauth-providers-light-desktop.png');
     await page.getByLabel('Choose Browser', { exact: true }).selectOption('edge');
@@ -52,7 +44,7 @@ const path = require('node:path');
     const zcodeLogin = card('ZCode OAuth').getByRole('button', { name: 'Start Sign-In', exact: true });
     await zcodeLogin.focus();
     await page.keyboard.press('Enter');
-    await page.getByRole('dialog', { name: 'Plugin sign-in', exact: true }).waitFor();
+    await page.getByRole('dialog', { name: /^Plugin sign-in/ }).waitFor();
     await page.getByLabel('Sign-in URL', { exact: true }).waitFor();
     assert.deepEqual((await calls('start_oauth_login'))[0].args, { provider: 'zcode', browser: 'none', pluginProvider: true });
     await page.getByRole('button', { name: 'Open in browser', exact: true }).click();
@@ -78,7 +70,7 @@ const path = require('node:path');
     // Reloading provider metadata must expose newly installed plugins and remove disabled ones.
     await open('empty');
     await page.waitForFunction(() => window.pluginOAuthProvidersFixture.listCalls === 1);
-    assert.equal(await page.locator('.oauth-card').count(), 7);
+    assert.equal(await cards().count(), 0);
     await page.evaluate(() => {
       const fixture = window.pluginOAuthProvidersFixture;
       fixture.plugins = structuredClone(fixture.installedPlugins);
@@ -97,8 +89,8 @@ const path = require('node:path');
     await page.evaluate(() => {
       const fixture = window.pluginOAuthProvidersFixture;
       fixture.plugins = structuredClone(fixture.installedPlugins);
+      fixture.refresh();
     });
-    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
     await card('ZCode OAuth').waitFor();
 
     // A previous in-flight list response cannot restore an already disabled provider.
@@ -116,7 +108,7 @@ const path = require('node:path');
     await card('CodeBuddy OAuth').waitFor({ state: 'detached' });
     await page.evaluate(() => window.pluginOAuthProvidersFixture.releaseList());
     await settle();
-    assert.equal(await page.locator('.oauth-card').count(), 7, 'stale provider response must be ignored');
+    assert.equal(await cards().count(), 0, 'stale provider response must be ignored');
 
     // Refocusing the window discovers changes made outside this page.
     await page.evaluate(() => {
@@ -139,17 +131,21 @@ const path = require('node:path');
     });
     await card('ZCode OAuth').waitFor();
     assert.ok(await page.evaluate(() => window.pluginOAuthProvidersFixture.listCalls > 1), 'registration must be refreshed automatically');
-    assert.equal(await page.locator('.oauth-card').count(), 8);
+    assert.equal(await cards().count(), 1);
 
     await open('unsupported');
     await settle();
-    assert.equal(await page.locator('.oauth-card').count(), 7);
+    assert.equal(await cards().count(), 0);
     assert.equal(await page.evaluate(() => window.pluginOAuthProvidersFixture.listCalls), 0, 'unsupported kernel must not request plugins');
     await open('listError');
     await page.waitForFunction(() => window.pluginOAuthProvidersFixture.listCalls > 0);
-    await settle();
-    assert.equal(await page.locator('.oauth-card').count(), 7, 'plugin failure must leave built-in login available');
-    assert.equal(await card('Codex OAuth').getByRole('button', { name: 'Start Sign-In', exact: true }).isEnabled(), true);
+    await page.getByRole('alert').filter({ hasText: /./ }).waitFor();
+    assert.equal(await cards().count(), 0, 'a plugin list failure shows no plugin cards and an error banner');
+    await page.evaluate(() => { window.pluginOAuthProvidersFixture.listError = false; });
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await card('ZCode OAuth').waitFor();
+    await card('CodeBuddy OAuth').waitFor();
+    assert.equal(await page.getByRole('alert').count(), 0, 'a successful reload clears the error banner');
 
     await page.setViewportSize({ width: 390, height: 844 });
     await open('theme=dark&locale=zh-CN');
@@ -159,16 +155,13 @@ const path = require('node:path');
     await screenshot('plugin-oauth-providers-dark-mobile.png');
     await card('CodeBuddy OAuth').getByRole('button', { name: '开始登录', exact: true }).click();
     await page.getByText('BUDDY-CODE', { exact: true }).waitFor();
+    await page.waitForTimeout(400);
     const box = await page.getByRole('dialog').boundingBox();
     assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 390 && box.y + box.height <= 844);
     await screenshot('plugin-oauth-providers-dark-mobile-dialog.png', false);
     assert.deepEqual(errors, []);
     console.log('Plugin OAuth provider UI passed: dynamic visibility, eligibility/deduplication, refresh/install/disable, stale responses, native plugin login, focus trap/cancellation, unsupported kernels and responsive layout.');
-  } catch (error) {
-    console.error(error);
-    process.exitCode = 1;
   } finally {
     await browser?.close();
-    await server.close();
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
