@@ -2,6 +2,7 @@ import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type Templat
 import type { CoreConnection } from '../services/coreConnection';
 import { createPluginMock } from './pluginMock';
 import { createQuotaMock, createQuotaMockFiles } from './quotaMock';
+import { createLightingMock } from './lightingMock';
 
 export type BrowserMockScenario = 'running' | 'stopped' | 'empty' | 'error';
 export type BrowserMockMode = BrowserMockScenario | 'off';
@@ -1006,6 +1007,7 @@ export function createBrowserMockRuntime(
   }
   const pluginMock = createPluginMock(state);
   const emit = (event: string, payload: unknown) => emitEvent(event, clone(payload));
+  const lightingMock = createLightingMock(scenario, emit, () => connectionRevision);
 
   const invoke = async (command: string, rawPayload?: unknown): Promise<unknown> => {
     const startedRevision = connectionRevision;
@@ -1019,6 +1021,8 @@ export function createBrowserMockRuntime(
 
     const pluginResponse = pluginMock.handle(command, payload);
     if (pluginResponse.handled) return pluginResponse.value;
+    const lightingResponse = await lightingMock.handle(command, payload);
+    if (lightingResponse.handled) return lightingResponse.value;
 
     switch (command) {
       case 'plugin:app|version': return '0.2.97-mock';
