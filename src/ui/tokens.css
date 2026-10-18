@@ -1,0 +1,163 @@
+/*
+ * Design tokens — Ember Dark (default) and Ember Light.
+ * Source of truth for every colour, radius, spacing and type size in the new shell, kit and sections.
+ * Sections must use these variables only (no raw hex) so theme + density switch everything at once.
+ * Theme is selected by :root[data-theme='dark'|'light'] (set by src/themes/applyTheme.ts and the
+ * first-paint script in index.html). Density by :root[data-density='comfortable'|'compact'].
+ */
+:root {
+  color-scheme: dark;
+
+  /* surfaces */
+  --ec-bg: #291e1a;
+  --ec-surface: #33261f;
+  --ec-raised: #433835;
+  --ec-popover: #4f4543;
+  --ec-sidebar: #39281f;
+  --ec-sidebar-hover: #4f3528;
+  --ec-sidebar-selected: #654330;
+  --ec-hover: #644330;
+  --ec-muted-bg: #432e23;
+  --ec-field: #5a423a;
+  --ec-code: #231a17;
+  --ec-scrim: rgb(0 0 0 / 42%);
+
+  /* text */
+  --ec-fg: #fffaff;
+  --ec-fg-2: #ddd3d0;
+  --ec-fg-muted: #a59996;
+  --ec-fg-subtle: #8b7f7c;
+
+  /* lines */
+  --ec-border: #664c3f;
+  --ec-border-soft: #4a362c;
+  --ec-input-border: #7a5d4d;
+  --ec-ring: #f09a64;
+  --ec-edge: rgb(255 255 255 / 8%);
+  --ec-sidebar-border: #5a463d;
+
+  /* accent */
+  --ec-accent: #f78a7a;
+  --ec-accent-fg: #241523;
+  --ec-accent-soft: color-mix(in srgb, #f78a7a 16%, transparent);
+
+  /* status vocabulary: Available · Limited · Cooldown · Exhausted · Disabled · Expired · Error · Not fetched
+     each has a solid colour (bars, dots) and a text-safe foreground (-fg) */
+  --ec-st-available: #10b981;  --ec-st-available-fg: #34d399;
+  --ec-st-limited: #fe9a00;    --ec-st-limited-fg: #ffb900;
+  --ec-st-cooldown: #3b82f6;   --ec-st-cooldown-fg: #60a5fa;
+  --ec-st-exhausted: #ef4444;  --ec-st-exhausted-fg: #ff7373;
+  --ec-st-disabled: #8b7f7c;   --ec-st-disabled-fg: #a59996;
+  --ec-st-expired: #a78bfa;    --ec-st-expired-fg: #c4b5fd;
+  --ec-st-error: #fb414a;      --ec-st-error-fg: #ff6467;
+  --ec-st-notfetched: #8b7f7c; --ec-st-notfetched-fg: #a59996;
+  --ec-tint: 16%;
+
+  /* generic semantic aliases (buttons, toasts, banners) */
+  --ec-ok: var(--ec-st-available);   --ec-ok-fg: var(--ec-st-available-fg);
+  --ec-warn: var(--ec-st-limited);   --ec-warn-fg: var(--ec-st-limited-fg);
+  --ec-danger: var(--ec-st-error);   --ec-danger-fg: var(--ec-st-error-fg);
+  --ec-info: var(--ec-st-cooldown);  --ec-info-fg: var(--ec-st-cooldown-fg);
+
+  /* chart series */
+  --ec-s1: #f09a64; --ec-s2: #f78a7a; --ec-s3: #e8c458; --ec-s4: #5fb8c4; --ec-s5: #a98be0; --ec-s6: #9a8a84;
+
+  /* provider colours — one map used app-wide (see src/ui/providers.ts) */
+  --ec-p-claude: #e08a64;      --ec-p-codex: #7c8cff;     --ec-p-antigravity: #5b9cf6;
+  --ec-p-xai: #b4b4bd;         --ec-p-kimi: #4cc2c9;      --ec-p-devin: #4fd08a;
+  --ec-p-deepseek: #6b86ff;    --ec-p-openrouter: #b58cf0; --ec-p-openai: #3fbf9b;
+  --ec-p-gemini: #6fa8ff;      --ec-p-vertex: #4f8cf5;    --ec-p-copilot: #9aa4b2;
+  --ec-p-other: #a59996;
+
+  /* shadows */
+  --ec-shadow-card: 0 1px 2px rgb(0 0 0 / 8%);
+  --ec-shadow-pop: inset 0 1px rgb(255 255 255 / 4%), 0 18px 44px -18px rgb(0 0 0 / 80%);
+  --ec-shadow-drawer: -18px 0 44px -18px rgb(0 0 0 / 70%);
+
+  /* radii */
+  --ec-r-xs: 4px; --ec-r-sm: 6px; --ec-r-md: 8px; --ec-r-lg: 12px; --ec-r-pill: 9999px;
+
+  /* spacing scale */
+  --ec-sp-1: 4px; --ec-sp-2: 8px; --ec-sp-3: 12px; --ec-sp-4: 16px; --ec-sp-5: 24px; --ec-sp-6: 32px;
+
+  /* type */
+  --ec-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Hiragino Sans", "Microsoft YaHei", sans-serif;
+  --ec-mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --ec-fs-2xs: 10px; --ec-fs-xs: 11px; --ec-fs-sm: 12px; --ec-fs-md: 13px; --ec-fs-base: 14px;
+  --ec-fs-lg: 16px; --ec-fs-xl: 20px; --ec-fs-stat: 28px;
+
+  /* density: Comfortable (default) */
+  --ec-ctrl-h: 32px;      /* buttons, inputs */
+  --ec-ctrl-h-sm: 28px;
+  --ec-row-h: 36px;       /* table rows, list rows */
+  --ec-pad: 16px;         /* panel / page padding */
+  --ec-gap: 16px;         /* gap between panels */
+  --ec-page-pad-x: 24px;
+  --ec-sidebar-w: 204px;
+  --ec-header-h: 52px;
+}
+
+:root[data-density='compact'] {
+  --ec-ctrl-h: 28px;
+  --ec-ctrl-h-sm: 24px;
+  --ec-row-h: 28px;
+  --ec-pad: 10px;
+  --ec-gap: 10px;
+  --ec-page-pad-x: 16px;
+  --ec-header-h: 46px;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --ec-bg: #fbf8f5;
+  --ec-surface: #ffffff;
+  --ec-raised: #f6f1ec;
+  --ec-popover: #ffffff;
+  --ec-sidebar: #f3ece6;
+  --ec-sidebar-hover: #ebe2da;
+  --ec-sidebar-selected: #e6d9ce;
+  --ec-hover: #f0e7df;
+  --ec-muted-bg: #efe8e1;
+  --ec-field: #ffffff;
+  --ec-code: #f4eee8;
+  --ec-scrim: rgb(43 33 28 / 32%);
+
+  --ec-fg: #2b211c;
+  --ec-fg-2: #4a3d36;
+  --ec-fg-muted: #6f5f57;
+  --ec-fg-subtle: #8a7a71;
+
+  --ec-border: #e3d8cf;
+  --ec-border-soft: #eee6df;
+  --ec-input-border: #d3c4b8;
+  --ec-ring: #d9733f;
+  --ec-edge: rgb(43 33 28 / 12%);
+  --ec-sidebar-border: #e3d8cf;
+
+  --ec-accent: #c94a34;
+  --ec-accent-fg: #ffffff;
+  --ec-accent-soft: color-mix(in srgb, #c94a34 12%, transparent);
+
+  --ec-st-available: #16a34a;  --ec-st-available-fg: #15803d;
+  --ec-st-limited: #d97706;    --ec-st-limited-fg: #a35a00;
+  --ec-st-cooldown: #2563eb;   --ec-st-cooldown-fg: #1d4ed8;
+  --ec-st-exhausted: #dc2626;  --ec-st-exhausted-fg: #b91c1c;
+  --ec-st-disabled: #8a7a71;   --ec-st-disabled-fg: #6f5f57;
+  --ec-st-expired: #7c3aed;    --ec-st-expired-fg: #6d28d9;
+  --ec-st-error: #e11d48;      --ec-st-error-fg: #be123c;
+  --ec-st-notfetched: #8a7a71; --ec-st-notfetched-fg: #6f5f57;
+  --ec-tint: 12%;
+
+  --ec-s1: #d9733f; --ec-s2: #c94a34; --ec-s3: #c79a1f; --ec-s4: #2f8f9d; --ec-s5: #7c5bc2; --ec-s6: #8a7a71;
+
+  --ec-p-claude: #c2673d;      --ec-p-codex: #4f5fe0;     --ec-p-antigravity: #2f75d8;
+  --ec-p-xai: #6b6b75;         --ec-p-kimi: #1f9aa3;      --ec-p-devin: #1f9d5f;
+  --ec-p-deepseek: #3f5ad8;    --ec-p-openrouter: #8b5fd0; --ec-p-openai: #178f72;
+  --ec-p-gemini: #3f7fe0;      --ec-p-vertex: #2f6fe0;    --ec-p-copilot: #6b7685;
+  --ec-p-other: #6f5f57;
+
+  --ec-shadow-card: 0 1px 2px rgb(43 33 28 / 6%);
+  --ec-shadow-pop: 0 18px 44px -18px rgb(43 33 28 / 35%), 0 0 0 1px rgb(43 33 28 / 4%);
+  --ec-shadow-drawer: -18px 0 44px -18px rgb(43 33 28 / 28%);
+}

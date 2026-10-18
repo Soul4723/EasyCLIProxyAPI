@@ -86,3 +86,9 @@ export function isThemeSelection(value: unknown): value is ThemeSelection {
     && ['lastLightId', 'lastDarkId'].every((key) =>
       record[key] === undefined || (isThemeId(record[key]) && record[key] !== 'system'));
 }
+
+const retiredThemeIds: Readonly<Record<string, 'light' | 'dark'>> = {
+  'warm-sand-light': 'light', 'sakura-light': 'light', 'graphite-dark': 'dark', 'midnight-dark': 'dark',
+};
+/** Saved selections of retired theme variants map to the Ember theme of the same appearance. */
+export const migrateRetiredThemeId = (id: string): string => retiredThemeIds[id] ?? id;

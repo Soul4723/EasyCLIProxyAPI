@@ -7,7 +7,9 @@ import { I18nProvider } from './i18n';
 import { initializeTheme, initializeThemePreferences } from './theme';
 import { initializeUsagePreferences } from './services/usagePreferences';
 import { initializePrivacyMode } from './privacy';
+import { initializeDensity } from './density';
 import './styles/index.css';
+import './ui/index.css';
 
 async function bootstrap() {
   await Promise.all([initializeUsagePreferences(), initializeThemePreferences().then(() => initializeTheme()), initializePrivacyMode()]);
@@ -17,6 +19,7 @@ async function bootstrap() {
   }
 
   initializeTheme();
+  initializeDensity();
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

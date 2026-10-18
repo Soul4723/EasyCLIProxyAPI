@@ -1,0 +1,4 @@
+/* Entry for the new design system. Imported once from src/main.tsx after the legacy stylesheets. */
+@import './tokens.css';
+@import './legacy-compat.css';
+@import './base.css';

@@ -1,10 +1,6 @@
 import { isThemeId, themeTokenProperties, type SystemThemes, type ThemeAppearance, type ThemeDefinition, type ThemePreview } from './types';
-import { warmSand } from './warmSand';
-import { graphite } from './graphite';
-import { midnight } from './midnight';
 import { light } from './light';
 import { dark } from './dark';
-import { sakura } from './sakura';
 import { backdropImage, normalizeBackdrop } from './backdrop';
 
 export function createThemeRegistry(definitions: readonly ThemeDefinition[]) {
@@ -44,7 +40,10 @@ export function createThemeRegistry(definitions: readonly ThemeDefinition[]) {
   };
 }
 
-export const themeRegistry = createThemeRegistry([light, dark, warmSand, graphite, midnight, sakura]);
+// Ember Dark (`dark`, default) and Ember Light (`light`) are the only selectable themes.
+// The older variants (warmSand, graphite, midnight, sakura) stay in this folder but are retired from
+// the selectable list together with the old UI; saved selections migrate via migrateRetiredThemeId.
+export const themeRegistry = createThemeRegistry([dark, light]);
 export type ThemeRegistry = ReturnType<typeof createThemeRegistry>;
 
 export function themePreview(theme: ThemeDefinition): ThemePreview {
