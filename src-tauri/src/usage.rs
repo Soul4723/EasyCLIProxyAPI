@@ -1994,6 +1994,41 @@ pub(crate) fn stop_usage_collector(app: &tauri::AppHandle) {
     app.state::<UsageCollectorState>().stop();
 }
 
+// A successful HTTP pop cannot be repeated. Keep both the raw records and
+// their normalization/storage identity until local persistence succeeds.
+struct PendingRemoteUsageBatch {
+    root: PathBuf,
+    source: String,
+    config: GuiConfigFile,
+    messages: Vec<String>,
+}
+
+impl PendingRemoteUsageBatch {
+    fn persist_with(
+        pending: &mut Option<Self>,
+        persist: impl FnOnce(&Path, &str, Vec<String>, &GuiConfigFile) -> Result<UsagePersistOutcome, String>,
+    ) -> Result<UsagePersistOutcome, String> {
+        let batch = pending.as_ref().expect("remote batch must be pending");
+        let outcome = persist(&batch.root, &batch.source, batch.messages.clone(), &batch.config)?;
+        *pending = None;
+        Ok(outcome)
+    }
+}
+
+async fn fetch_remote_usage_when_durable<F, Fut>(
+    pending: &Option<PendingRemoteUsageBatch>,
+    fetch: F,
+) -> Option<Result<Vec<String>, RemotePopError>>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<String>, RemotePopError>>,
+{
+    if pending.is_some() {
+        return None;
+    }
+    Some(fetch().await)
+}
+
 async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut retry_seconds = 1_u64;
     let mut subscription: Option<UsageSubscription> = None;
@@ -2005,9 +2040,32 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut core_ready = false;
     let mut remote_ready_error: Option<String> = None;
     let mut active_connection: Option<String> = None;
+    let mut pending_remote_batch: Option<PendingRemoteUsageBatch> = None;
     loop {
         if token.is_cancelled() {
             return;
+        }
+        // Drain the captured batch before resolving another target or doing any
+        // further destructive read, even when the user switched to Local mode.
+        if let Some(batch) = pending_remote_batch.as_ref() {
+            let config = batch.config.clone();
+            match PendingRemoteUsageBatch::persist_with(
+                &mut pending_remote_batch,
+                persist_raw_usage_messages_from_source,
+            ) {
+                Ok(outcome) => {
+                    if app.state::<GuiConfigState>().ensure_target(&config).is_ok() {
+                        publish_collected_records(&app, outcome, "Saved retained remote usage batch");
+                    }
+                    retry_seconds = 1;
+                }
+                Err(error) => {
+                    set_collector_error(&app, error);
+                    retry_seconds = (retry_seconds * 2).min(10);
+                }
+            }
+            wait_or_cancel(&token, retry_seconds).await;
+            continue;
         }
         let config = match app.state::<GuiConfigState>().snapshot() {
             Ok(config) => config,
@@ -2143,7 +2201,10 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 wait_or_cancel(&token, 2).await;
                 continue;
             }
-            match fetch_remote_usage_queue(&config).await {
+            let Some(result) = fetch_remote_usage_when_durable(
+                &pending_remote_batch, || fetch_remote_usage_queue(&config),
+            ).await else { continue; };
+            match result {
                 Ok(messages) if messages.is_empty() => {
                     set_collector_status(
                         &app,
@@ -2155,34 +2216,12 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                     wait_or_cancel(&token, 2).await;
                 }
                 Ok(messages) => {
-                    let source = remote_usage_queue_source(&config);
-                    match persist_raw_usage_messages_from_source(&root, &source, messages, &config) {
-                        Ok(outcome) => {
-                            // Records were already popped from the core, so they
-                            // are persisted to the namespace of the target that
-                            // produced them even if the target has since changed.
-                            // Counters are only moved when the view still matches.
-                            if app.state::<GuiConfigState>().ensure_target(&config).is_ok() {
-                                publish_collected_records(
-                                    &app,
-                                    outcome,
-                                    &format!(
-                                        "Remote HTTP compatibility mode saved {} records",
-                                        outcome.inserted
-                                    ),
-                                );
-                            }
-                            retry_seconds = 1;
-                        }
-                        Err(error) => {
-                            // The batch is already popped and cannot be replayed.
-                            // Persisting it also includes buffering into the
-                            // inbox, so the failure is definitive for this batch.
-                            set_collector_error(&app, error);
-                            wait_or_cancel(&token, retry_seconds).await;
-                            retry_seconds = (retry_seconds * 2).min(10);
-                        }
-                    }
+                    pending_remote_batch = Some(PendingRemoteUsageBatch {
+                        root,
+                        source: remote_usage_queue_source(&config),
+                        config,
+                        messages,
+                    });
                 }
                 Err(RemotePopError::Definite(error)) => {
                     // The core rejected the request before popping, so a
@@ -5703,6 +5742,69 @@ mod tests {
 
         state.apply_record_changes(0, 100);
         assert_eq!(state.status().unwrap().total_records, 0);
+    }
+
+    #[tokio::test]
+    async fn retained_remote_batch_retries_database_failure_in_original_store() {
+        let root = test_root("retained-remote");
+        let other_root = test_root("retained-remote-other");
+        let blocked_root = root.join("blocked");
+        fs::write(&blocked_root, b"not a directory").unwrap();
+        let mut config = GuiConfigFile::default();
+        config.connection_mode = CoreConnectionMode::Remote;
+        config.remote_management_origin = "https://original.invalid".into();
+        let source = remote_usage_queue_source(&config);
+        let messages = vec![serde_json::json!({
+            "request_id": "retained-remote-request",
+            "model": "gpt-test",
+            "tokens": { "input_tokens": 10, "output_tokens": 20 }
+        }).to_string()];
+        let mut pending = Some(PendingRemoteUsageBatch {
+            root: blocked_root.clone(), source: source.clone(),
+            config: config.clone(), messages: messages.clone(),
+        });
+        // Repeated failures retain the entire batch rather than permitting a
+        // new pop. A different selected target must not replace its identity.
+        let mut selected = config.clone();
+        selected.remote_management_origin = "https://new.invalid".into();
+        selected.target_revision += 1;
+        let fetches = std::cell::Cell::new(0);
+        for _ in 0..2 {
+            assert!(fetch_remote_usage_when_durable(&pending, || {
+                fetches.set(fetches.get() + 1);
+                std::future::ready(Ok(Vec::new()))
+            }).await.is_none());
+            assert!(PendingRemoteUsageBatch::persist_with(
+                &mut pending, persist_raw_usage_messages_from_source,
+            ).is_err());
+            let batch = pending.as_ref().unwrap();
+            assert_eq!(batch.messages, messages);
+            assert_eq!(batch.config.remote_management_origin, config.remote_management_origin);
+            assert_ne!(batch.config.target_revision, selected.target_revision);
+        }
+        fs::remove_file(&blocked_root).unwrap();
+        initialize_usage_storage_at(&blocked_root).unwrap();
+        initialize_usage_storage_at(&other_root).unwrap();
+        let outcome = PendingRemoteUsageBatch::persist_with(
+            &mut pending, |stored_root, stored_source, messages, stored_config| {
+                assert_eq!(stored_root, blocked_root);
+                assert_eq!(stored_source, source);
+                assert_eq!(stored_config.remote_management_origin, config.remote_management_origin);
+                persist_raw_usage_messages_from_source(stored_root, stored_source, messages, stored_config)
+            },
+        ).unwrap();
+        assert!(pending.is_none());
+        assert_eq!(fetches.get(), 0);
+        assert!(fetch_remote_usage_when_durable(&pending, || {
+            fetches.set(fetches.get() + 1);
+            std::future::ready(Ok(Vec::new()))
+        }).await.unwrap().is_ok());
+        assert_eq!(fetches.get(), 1);
+        assert_eq!(outcome.inserted, 1);
+        assert_eq!(total_usage_records_at(&blocked_root).unwrap(), 1);
+        assert_eq!(total_usage_records_at(&other_root).unwrap(), 0);
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(other_root).unwrap();
     }
 
     fn test_root(name: &str) -> PathBuf {
