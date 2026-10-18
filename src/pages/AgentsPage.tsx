@@ -611,11 +611,16 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
     currentTarget.current = true;
     return () => { currentTarget.current = false; };
   }, []);
-  // A completed command must not start follow-up work on a newly selected target.
+  // Page-owned operations must stop follow-up work after unmount.
   const invoke = useCallback(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
-    // Native operations can outlive this page (for example, a daemon restart
-    // observed by the remounted page). Fence them by core target revision rather
-    // than component lifetime, while still rejecting completion after a target switch.
+    if (!currentTarget.current) throw new Error('The core connection changed; agent operation cancelled');
+    const result = await invokeNative<T>(command, args);
+    if (!currentTarget.current) throw new Error('The core connection changed; agent operation cancelled');
+    return result;
+  }, []);
+  // The shared daemon restart deliberately survives page visits, but never a
+  // target change. Its completion is observed by the page that is mounted then.
+  const invokeForTarget = useCallback(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (agentCacheRevision !== targetRevision) throw new Error('The core connection changed; agent operation cancelled');
     const result = await invokeNative<T>(command, args);
     if (agentCacheRevision !== targetRevision) throw new Error('The core connection changed; agent operation cancelled');
@@ -1724,7 +1729,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
         variant: 'danger',
       });
       if (!confirmed) return;
-      const restart = invoke<void>('restart_codex_cli_daemon', { executablePath })
+      const restart = invokeForTarget<void>('restart_codex_cli_daemon', { executablePath })
         .finally(() => { codexCliServiceRestart = null; });
       codexCliServiceRestart = restart;
       await restart;
