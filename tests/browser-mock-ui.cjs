@@ -28,7 +28,7 @@ const h = require('./helpers/shell.cjs');
     await page.locator('.ec-app').waitFor();
     await h.gotoPage(page, '/providers/all');
     await h.setPrivacy(page, false);
-    // Credentials live in Providers → All credentials: a paginated table with a switch and a row menu per file.
+    // Credentials live in Providers → All credentials: a paginated table with a status and a row menu per file.
     const rows = page.locator('table tbody tr');
     await rows.first().waitFor();
     assert.equal(await rows.count(), 10);
@@ -38,10 +38,10 @@ const h = require('./helpers/shell.cjs');
     for (const name of ['codex-personal', 'claude-team', 'kimi-personal', 'devin-team', 'xai-subscription', 'antigravity-team-with-a-long-account-name']) {
       await card(name).first().waitFor();
     }
-    const toggle = card('codex-disabled').getByRole('switch');
-    assert.equal(await toggle.getAttribute('aria-checked'), 'false');
-    await toggle.click();
-    await page.waitForFunction(() => [...document.querySelectorAll('table tbody tr')].find(row => row.textContent.includes('codex-disabled'))?.querySelector('[role="switch"]')?.getAttribute('aria-checked') === 'true');
+    // Enable/disable has one home (Quota): Providers shows the status and links there (quota-ui covers the switch).
+    const disabled = card('codex-disabled');
+    await disabled.getByText('Disabled', { exact: true }).waitFor();
+    assert.equal(await disabled.getByRole('switch').count(), 0, 'no enable switch in Providers');
     await card('codex-exhausted').getByRole('button', { name: /^Actions/ }).click();
     await page.getByRole('dialog', { name: 'Actions' }).getByRole('button', { name: 'Clear cooldown', exact: true }).click();
     // Cooldown reset is a plain confirmation (only deletes are danger alertdialogs).

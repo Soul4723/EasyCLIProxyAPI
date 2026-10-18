@@ -22,6 +22,7 @@ const { startFixtureServer, launchBrowser, newOfflinePage } = require('./helpers
 
     // Sign in: start args, callback validation (state must match), accepted callback, success + default priority.
     await open();
+    await page.locator('[data-provider]').nth(7).waitFor();
     assert.equal(await page.locator('[data-provider]').count(), 8, 'seven OAuth providers plus Vertex');
     await page.evaluate(() => { window.devinFixture.completeOnSubmit = false; });
     await start();
