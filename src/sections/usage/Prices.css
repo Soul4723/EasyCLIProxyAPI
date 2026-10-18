@@ -1,0 +1,57 @@
+/* Usage → Prices. Page rules are scoped under .ec-sec-usage; dialog content is portaled to body, so those rules use .ec-dialog-layer. */
+.ec-sec-usage .prices-tab { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; }
+.ec-sec-usage .prices-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--ec-gap); }
+.ec-sec-usage .prices-of { color: var(--ec-fg-muted); font-size: var(--ec-fs-md); font-weight: 400; }
+.ec-sec-usage .prices-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ec-sp-2); }
+.ec-sec-usage .prices-search { flex: 1 1 200px; max-width: 320px; min-width: 160px; }
+.ec-sec-usage .prices-spacer, .ec-dialog-layer .prices-spacer { flex: 1 1 auto; }
+.ec-sec-usage .prices-unpriced { background: none; border: 0; padding: 0; cursor: pointer; border-radius: var(--ec-r-pill); font: inherit; }
+.ec-sec-usage .prices-unpriced[aria-pressed='true'] { outline: 2px solid var(--ec-warn); outline-offset: 1px; }
+.ec-sec-usage .prices-unpriced:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 1px; }
+.ec-sec-usage .prices-model, .ec-dialog-layer .prices-model { display: flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-usage .prices-logo-gap { width: 18px; height: 18px; flex: none; }
+.ec-sec-usage .prices-actions { display: inline-flex; gap: var(--ec-sp-1); justify-content: flex-end; }
+.ec-sec-usage .prices-table { min-width: 0; }
+.ec-sec-usage .prices-table td { vertical-align: middle; }
+.ec-sec-usage .prices-table table { min-width: 860px; }
+.ec-sec-usage .prices-sr, .ec-dialog-layer .prices-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ec-sec-usage .prices-notice {
+  display: flex; align-items: center; gap: var(--ec-sp-2); padding: var(--ec-sp-1) var(--ec-sp-3);
+  border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface); font-size: var(--ec-fs-sm);
+}
+.ec-sec-usage .prices-notice--ok { border-color: var(--ec-ok); color: var(--ec-ok-fg); }
+.ec-sec-usage .prices-notice--error { border-color: var(--ec-danger); color: var(--ec-danger-fg); }
+.ec-sec-usage .prices-notice span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+.ec-dialog-layer .prices-form { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ec-gap); }
+.ec-dialog-layer .prices-field { display: flex; flex-direction: column; gap: var(--ec-sp-1); font-size: var(--ec-fs-sm); color: var(--ec-fg-2); min-width: 0; }
+.ec-dialog-layer .prices-field--wide { grid-column: 1 / -1; }
+.ec-dialog-layer .prices-field small { color: var(--ec-fg-subtle); font-size: var(--ec-fs-2xs); }
+.ec-dialog-layer .prices-input {
+  height: var(--ec-ctrl-h); padding: 0 var(--ec-sp-2); width: 100%; min-width: 0; box-sizing: border-box;
+  background: var(--ec-field); color: var(--ec-fg); border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm); font: inherit; font-size: var(--ec-fs-sm);
+}
+.ec-dialog-layer .prices-input:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 1px; }
+.ec-dialog-layer .prices-input[readonly] { background: var(--ec-muted-bg); color: var(--ec-fg-muted); }
+.ec-dialog-layer .prices-input--cell { height: var(--ec-ctrl-h-sm, var(--ec-ctrl-h)); min-width: 78px; text-align: right; }
+.ec-dialog-layer .prices-error { grid-column: 1 / -1; margin: 0; color: var(--ec-danger-fg); font-size: var(--ec-fs-sm); overflow-wrap: anywhere; }
+.ec-dialog-layer .prices-sync { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; }
+.ec-dialog-layer .prices-sync-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ec-sp-2); }
+.ec-dialog-layer .prices-sync-source { color: var(--ec-accent); font-size: var(--ec-fs-sm); }
+.ec-dialog-layer .prices-sync-counts { font-size: var(--ec-fs-sm); }
+.ec-dialog-layer .prices-sync-empty { margin: 0; text-align: center; padding: var(--ec-pad); }
+.ec-dialog-layer .prices-scroll { overflow: auto; border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); }
+.ec-dialog-layer .prices-sync-scroll { max-height: 52vh; }
+.ec-dialog-layer .prices-sync-table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: var(--ec-fs-sm); }
+.ec-dialog-layer .prices-sync-table th {
+  position: sticky; top: 0; background: var(--ec-raised); text-align: left; font-weight: 500; color: var(--ec-fg-muted);
+  padding: var(--ec-sp-1) var(--ec-sp-2); border-bottom: 1px solid var(--ec-border); white-space: nowrap;
+}
+.ec-dialog-layer .prices-sync-table td { padding: var(--ec-sp-1) var(--ec-sp-2); border-bottom: 1px solid var(--ec-border-soft); vertical-align: middle; }
+.ec-dialog-layer .prices-sync-table tr[data-selected='false'] td:nth-child(n+2) { opacity: 0.6; }
+.ec-dialog-layer .prices-sync-table td:nth-child(2) { max-width: 220px; }
+.ec-dialog-layer .prices-sub { display: block; font-size: var(--ec-fs-2xs); }
+.ec-dialog-layer .prices-check { width: 15px; height: 15px; accent-color: var(--ec-accent); cursor: pointer; }
+.ec-dialog-layer .prices-sync-unmatched summary { cursor: pointer; font-size: var(--ec-fs-sm); color: var(--ec-fg-2); }
+.ec-dialog-layer .prices-sync-unmatched p { margin: var(--ec-sp-2) 0 0; font-size: var(--ec-fs-xs); overflow-wrap: anywhere; }
+@media (max-width: 520px) { .ec-dialog-layer .prices-form { grid-template-columns: 1fr; } }
