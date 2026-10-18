@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { AuthFileManagementPage } from '../../src/pages/AuthFileManagementPage';
-import { QuotaPage } from '../../src/pages/QuotaPage';
+import { QuotaSection } from '../../src/sections/quota';
 import { updateQuotaCache } from '../../src/services/quotaCache';
 import '../../src/styles/index.css';
 
@@ -136,7 +136,7 @@ createRoot(document.getElementById('root')!).render(
     <div className="app-shell">
       <aside className="sidebar" aria-hidden="true" />
       <div className="workspace">
-        <main className="content">{params.has('quotaPage') ? <QuotaPage /> : <AuthFileManagementPage />}{params.has('cards') ? <><pre id="fixture-writes" aria-label="Fixture saved payload" /><output id="fixture-reset-count" aria-label="Fixture reset calls">0</output></> : null}</main>
+        <main className="content">{params.has('quotaPage') ? <QuotaSection sub={null} params={new URLSearchParams()} /> : <AuthFileManagementPage />}{params.has('cards') ? <><pre id="fixture-writes" aria-label="Fixture saved payload" /><output id="fixture-reset-count" aria-label="Fixture reset calls">0</output></> : null}</main>
       </div>
     </div>
   </I18nProvider>,

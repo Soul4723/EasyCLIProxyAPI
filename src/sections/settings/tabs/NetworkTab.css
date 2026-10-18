@@ -1,0 +1,6 @@
+/* Settings → Network & TLS tab. Scoped under .ec-sec-settings; kit tokens only. */
+.ec-sec-settings .ec-net { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-settings .ec-net-path { display: flex; align-items: center; gap: var(--ec-sp-2); width: 100%; min-width: 0; }
+.ec-sec-settings .ec-net-note { margin: 0; padding: var(--ec-sp-2) var(--ec-pad); color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); border-bottom: 1px solid var(--ec-border-soft); }
+.ec-sec-settings .ec-net-note.is-error { color: var(--ec-danger-fg); }
+.ec-sec-settings .ec-net-notice { margin: 0; color: var(--ec-ok-fg); font-size: var(--ec-fs-sm); }

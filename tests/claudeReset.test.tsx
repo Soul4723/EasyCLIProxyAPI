@@ -10,7 +10,7 @@ import { canResetQuota, resetQuotaWithConfirmation } from '../src/services/quota
 import { getQuotaCacheSnapshot, pruneQuotaCache, updateQuotaCache } from '../src/services/quotaCache';
 import { AuthFileQuotaPanel } from '../src/components/AuthFileQuotaPanel';
 import { I18nProvider } from '../src/i18n';
-import { QuotaCard } from '../src/pages/QuotaPage';
+import { renderCard } from './helpers/quotaAccount';
 
 const organization = '11111111-2222-3333-4444-555555555555';
 const block = { eligible: true, at_limit: true, grants: [{ id: 'test', resets_total: 2, resets_left: 2, usable_now: true }] };
@@ -52,13 +52,13 @@ test('loads grant counts and renders a working reset action on both surfaces', a
   const quota = await loadQuota(file);
   expect(quota).toMatchObject({ status: 'success', resetCredits: 2 });
   expect(canResetQuota(file, quota)).toBe(true);
-  for (const html of [
-    renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={file} quota={quota} disabled={false} compact dense onRefresh={() => {}} onReset={() => {}} /></I18nProvider>),
-    renderToStaticMarkup(<I18nProvider><QuotaCard file={file} quota={quota} onRefresh={() => {}} onReset={() => {}} /></I18nProvider>),
-  ]) {
-    expect(html).toContain('Reset Quota');
-    expect(html).not.toContain('disabled=""');
-  }
+  const panel = renderToStaticMarkup(<I18nProvider><AuthFileQuotaPanel file={file} quota={quota} disabled={false} compact dense onRefresh={() => {}} onReset={() => {}} /></I18nProvider>);
+  expect(panel).toContain('Reset Quota');
+  expect(panel).not.toContain('disabled=""');
+  const card = renderCard(file, quota);
+  expect(card).toMatch(/<button[^>]*qt-banked[^>]*>/);
+  expect(card.match(/<button[^>]*qt-banked[^>]*>/)?.[0]).not.toContain('disabled=""');
+  expect(card).not.toContain('disabled=""');
   updateQuotaCache({ [quotaKey(file)]: quota });
   expect(await resetQuotaWithConfirmation(file, async () => false)).toBe('cancelled');
   expect(requests.filter(r => r.method === 'POST')).toHaveLength(0);
