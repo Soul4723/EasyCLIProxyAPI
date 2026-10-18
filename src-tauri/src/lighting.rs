@@ -270,37 +270,60 @@ pub(crate) async fn lighting_run_now(app: tauri::AppHandle, id: String) -> Resul
 async fn run<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: &str, manual: bool) -> Result<RunResult, String> {
     let state = app.state::<Lighting>();
     let config = app.state::<GuiConfigState>();
-    // Same fence used by target changes; pinned config stays valid through send.
-    let _fence = config.target_operation.lock().await;
-    let cfg = config.snapshot()?;
-    let current = target(&cfg)?;
-    if !manual {
-        state.update(|g| {
+    let (result, saved) = run_with(&state, &config, id, manual, |cfg, schedule| async move { ping(&cfg, &schedule).await }).await?;
+    // Even a persistence failure is observable; status exposes that the runner paused.
+    let _ = app.emit("lighting-run-result", &result);
+    saved?;
+    Ok(result)
+}
+
+async fn run_with<P, F>(state: &Lighting, config: &GuiConfigState, id: &str, manual: bool, ping: P) -> Result<(RunResult, Result<(), String>), String>
+where P: FnOnce(GuiConfigFile, Schedule) -> F, F: std::future::Future<Output = Result<(u16, bool), String>> {
+    // The target fence only covers claiming the schedule against the current target. The provider call takes up to
+    // ~90 s (two 45 s requests) and must not stall management traffic, connection saves or crash recovery behind it.
+    let (cfg, schedule) = {
+        let _fence = config.target_operation.lock().await;
+        let cfg = config.snapshot()?;
+        let current = target(&cfg)?;
+        if !manual {
+            state.update(|g| {
+                let s = g.store.schedules.iter_mut().find(|s| s.id == id).ok_or("Schedule not found")?;
+                if s.target != current { return Err("Schedule belongs to another core connection".into()); }
+                if let Some(due) = s.next_run {
+                    let at = now();
+                    if !allowed(s, at) { s.next_run = if s.mode == "schedule" && s.attempt == 0 { next_run(s, at) } else { bound(s, at) }; }
+                    if s.mode == "schedule" && s.attempt == 0 && due < at - 60_000 { s.next_run = next_run(s, at); }
+                    if s.mode == "after_reset" && s.attempt == 0 && s.observed_reset.is_some_and(|v| at > v + 86_400_000) { s.next_run = None; }
+                }
+                Ok(())
+            })?;
+        }
+        let schedule = state.update(|g| {
+            if g.running.contains(id) { return Err("Lighting already running for this credential".into()); }
             let s = g.store.schedules.iter_mut().find(|s| s.id == id).ok_or("Schedule not found")?;
             if s.target != current { return Err("Schedule belongs to another core connection".into()); }
-            if let Some(due) = s.next_run {
-                let at = now();
-                if !allowed(s, at) { s.next_run = if s.mode == "schedule" && s.attempt == 0 { next_run(s, at) } else { bound(s, at) }; }
-                if s.mode == "schedule" && s.attempt == 0 && due < at - 60_000 { s.next_run = next_run(s, at); }
-                if s.mode == "after_reset" && s.attempt == 0 && s.observed_reset.is_some_and(|v| at > v + 86_400_000) { s.next_run = None; }
-            }
+            if !capability(&s.credential.provider).supported { return Err("Unsupported provider".into()); }
+            if !manual && (!s.enabled || !s.next_run.is_some_and(|v| v <= now()) || s.circuit_until.is_some_and(|v| v > now())) { return Err("Schedule is not due".into()); }
+            if manual { s.attempt = 0; s.circuit_until = None; }
+            s.attempt += 1;
+            // Keep an observed reset available while transient failures retry; successful
+            // completion consumes it in finish().
+            s.next_run = None;
+            g.running.insert(id.to_owned()); Ok(s.clone())
+        })?;
+        (cfg, schedule)
+    };
+    let outcome = ping(cfg.clone(), schedule.clone()).await;
+    // The request used the pinned config. If the target moved meanwhile its result belongs to another connection:
+    // drop it and re-arm the schedule for when its own target is active again, instead of blocking the switch.
+    if config.ensure_target(&cfg).is_err() {
+        state.update(|g| {
+            g.running.remove(id);
+            if let Some(s) = g.store.schedules.iter_mut().find(|s| s.id == id) { s.attempt = 0; s.next_run = next_run(s, now()); }
             Ok(())
         })?;
+        return Err("Core connection changed; lighting result discarded".into());
     }
-    let schedule = state.update(|g| {
-        if g.running.contains(id) { return Err("Lighting already running for this credential".into()); }
-        let s = g.store.schedules.iter_mut().find(|s| s.id == id).ok_or("Schedule not found")?;
-        if s.target != current { return Err("Schedule belongs to another core connection".into()); }
-        if !capability(&s.credential.provider).supported { return Err("Unsupported provider".into()); }
-        if !manual && (!s.enabled || !s.next_run.is_some_and(|v| v <= now()) || s.circuit_until.is_some_and(|v| v > now())) { return Err("Schedule is not due".into()); }
-        if manual { s.attempt = 0; s.circuit_until = None; }
-        s.attempt += 1;
-        // Keep an observed reset available while transient failures retry; successful
-        // completion consumes it in finish().
-        s.next_run = None;
-        g.running.insert(id.to_owned()); Ok(s.clone())
-    })?;
-    let outcome = ping(&cfg, &schedule).await;
     let result = match outcome {
         Ok((status, ok)) => RunResult { schedule_id: id.into(), at: now(), ok, http_status: Some(status), message: if ok { "Tiny request accepted; refresh quota to confirm window start" } else { "Provider rejected or did not complete the tiny request" }.into(), attempt: schedule.attempt },
         Err(_) => RunResult { schedule_id: id.into(), at: now(), ok: false, http_status: None, message: "Lighting request failed; check core connection and credential".into(), attempt: schedule.attempt },
@@ -313,10 +336,7 @@ async fn run<R: tauri::Runtime>(app: &tauri::AppHandle<R>, id: &str, manual: boo
         if g.store.history.len() > HISTORY_LIMIT { g.store.history.remove(0); }
         Ok(())
     });
-    // Even a persistence failure is observable; status exposes that the runner paused.
-    let _ = app.emit("lighting-run-result", &result);
-    saved?;
-    Ok(result)
+    Ok((result, saved))
 }
 
 async fn management(config: &GuiConfigFile, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, String> {
@@ -381,4 +401,60 @@ mod tests {
     #[test] fn schedule_identity_is_stable() { let s=rule("schedule"); assert_eq!(schedule_id(&s),schedule_id(&s)); }
     #[test] fn persistence_round_trip_is_lossless() { let mut store=Store::default(); store.schedules.push(rule("schedule")); let bytes=serde_json::to_vec(&store).unwrap(); let restored:Store=serde_json::from_slice(&bytes).unwrap(); assert_eq!(restored.schedules[0].credential,store.schedules[0].credential); assert_eq!(restored.schedules[0].timezone,"Australia/Melbourne"); }
     #[test] fn target_fencing_changes_identity() { let s=rule("schedule"); let mut moved=s.clone(); moved.target="different-target".into(); assert_ne!(schedule_id(&s),schedule_id(&moved)); }
+
+    fn lighting_fixture(name: &str) -> (Lighting, crate::GuiConfigState, String, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("easycli-lighting-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = crate::GuiConfigState::new(GuiConfigFile::default());
+        let mut s = rule("schedule");
+        s.target = target(&config.snapshot().unwrap()).unwrap();
+        s.id = schedule_id(&s);
+        let id = s.id.clone();
+        let path = dir.join("lighting.json");
+        let mut store = Store::default(); store.schedules.push(s);
+        (Lighting { path: path.clone(), inner: Mutex::new(Inner { store, running: HashSet::new(), error: None }) }, config, id, dir)
+    }
+    #[tokio::test]
+    async fn provider_call_does_not_hold_the_target_fence() {
+        let (state, config, id, dir) = lighting_fixture("fence");
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let fence = config.target_operation.clone();
+        let run = run_with(&state, &config, &id, true, move |_, _| async move {
+            started_tx.send(()).unwrap();
+            release_rx.await.unwrap();
+            Ok((200, true))
+        });
+        let observe = async {
+            started_rx.await.unwrap();
+            // A management call, a connection save or the supervisor must be able to take the fence mid-request.
+            let guard = tokio::time::timeout(std::time::Duration::from_secs(1), fence.lock()).await;
+            assert!(guard.is_ok(), "target fence is held across the provider call");
+            drop(guard);
+            assert!(state.inner.lock().unwrap().running.contains(&id), "schedule is marked running during the call");
+            release_tx.send(()).unwrap();
+        };
+        let (outcome, ()) = tokio::join!(run, observe);
+        let (result, saved) = outcome.unwrap();
+        assert!(result.ok); saved.unwrap();
+        assert!(state.inner.lock().unwrap().running.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    #[tokio::test]
+    async fn result_from_a_replaced_target_is_discarded() {
+        let (state, config, id, dir) = lighting_fixture("switch");
+        let moved = &config;
+        // The target changes while the provider call is in flight.
+        let switched = run_with(&state, &config, &id, true, |_, _| async move {
+            moved.inner.lock().unwrap().target_revision += 1;
+            Ok((200, true))
+        });
+        let error = switched.await.unwrap_err();
+        assert!(error.contains("discarded"), "{error}");
+        let inner = state.inner.lock().unwrap();
+        assert!(inner.running.is_empty(), "discarded run must not leave the schedule stuck");
+        assert!(inner.store.history.is_empty(), "no result recorded for the other target");
+        assert!(inner.store.schedules[0].last_run.is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

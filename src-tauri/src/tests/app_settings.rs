@@ -262,3 +262,25 @@ fn physical_window_size_uses_display_scale_and_ignores_minimized_sizes() {
     assert!(logical_window_size_from_physical(&tauri::PhysicalSize::new(0, 0), 1.0).is_none());
     assert!(logical_window_size_from_physical(&physical_size, 0.0).is_none());
 }
+
+#[cfg(unix)]
+#[test]
+fn gui_config_holding_keys_is_private_on_unix() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = agent_test_home("gui-config-private");
+    let path = home.join("config.toml");
+    let mut config = GuiConfigFile::default();
+    config.remote_management_key = "remote-management-secret".into();
+    write_gui_config_to_path(&config, &path).unwrap();
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&path), 0o600, "a new GUI config is created owner-only");
+    // A file left world-readable by an earlier build is tightened on the next save, changed or not.
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    config.remote_client_key = "remote-client-secret".into();
+    write_gui_config_to_path(&config, &path).unwrap();
+    assert_eq!(mode(&path), 0o600);
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    write_gui_config_to_path(&config, &path).unwrap();
+    assert_eq!(mode(&path), 0o600, "an unchanged save still restricts the file");
+    fs::remove_dir_all(home).unwrap();
+}
