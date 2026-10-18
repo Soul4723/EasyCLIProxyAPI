@@ -120,7 +120,7 @@ export function useCredentials(): CredentialsController {
         observedAt: readString(payload, 'observed_at') || undefined,
       });
     } catch (requestError) {
-      if (mountedRef.current && requestId === requestRef.current) setError(String(requestError));
+      if (mountedRef.current && requestId === requestRef.current) setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
       if (mountedRef.current && requestId === requestRef.current) setLoading(false);
     }

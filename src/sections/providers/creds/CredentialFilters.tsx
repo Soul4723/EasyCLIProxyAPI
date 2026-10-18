@@ -55,6 +55,9 @@ export function CredentialFilters({ controller, value, onChange, hideProvider = 
     ];
   }, [controller.rows, value.query, value.provider, value.status, t]);
 
+  // Nothing to filter yet (first load, empty list, load error): the list shows its own state.
+  if (controller.rows.length === 0 && !value.query) return null;
+
   return (
     <div className="ec-cred-filters">
       <div className="ec-cred-filters__search">

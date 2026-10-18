@@ -176,10 +176,13 @@ export function ModelExclusions({ controller }: { controller: Pick<CredentialsCo
       >
         <div className="ec-cred-excl__dialog">
           {target ? (
-            <p className="ec-cred-excl__lead">
-              <ProviderLogo provider={target} size={20} /> <ProviderName provider={target} />
-              <span className="ec-muted"> · {t('authFiles.models.globalDescription', { provider: providerInfo(target).name })}</span>
-            </p>
+            <div className="ec-cred-excl__lead">
+              <ProviderLogo provider={target} size={24} />
+              <div>
+                <strong><ProviderName provider={target} /></strong>
+                <p className="ec-muted">{t('authFiles.models.globalDescription', { provider: providerInfo(target).name })}</p>
+              </div>
+            </div>
           ) : null}
           {editError ? <p className="ec-cred-note ec-cred-note--error" role="alert">{mask.text(editError)}</p> : null}
           <ModelRules

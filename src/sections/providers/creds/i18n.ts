@@ -49,7 +49,7 @@ export const credsEn: Record<keyof typeof credsZhCN, string> = {
   'sec.providers.creds.cooldown.none': 'No cooldown records',
   'sec.providers.creds.subscription': 'Subscription',
   'sec.providers.creds.exclusions.empty': 'No OAuth credentials yet. Sign in or import one to exclude models per provider',
-  'sec.providers.creds.exclusions.accounts': '{count} accounts',
+  'sec.providers.creds.exclusions.accounts': 'Accounts: {count}',
   'sec.providers.creds.exclusions.edit': 'Edit',
   'sec.providers.creds.exclusions.none': 'No models excluded',
 };

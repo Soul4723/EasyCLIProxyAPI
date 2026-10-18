@@ -6,8 +6,8 @@ type Rec = Record<string, unknown>;
  * Browser-mock handlers for the creds part of Providers; chained from ../mock.ts.
  *
  * The shared mock already serves /credentials, settings, models, cooldown reset and deletion from `host.authFiles`.
- * This module only reseeds that list for rendered checks: `?creds=one|states|forty` (any scenario except `empty`/`error`
- * keep their own data when the parameter is absent).
+ * This module only reseeds that list for rendered checks: `?creds=one|states|forty|none` (without the parameter the shared
+ * data stays), and `?creds=fail` makes the list request fail to show the error state.
  */
 const BRANDS = ['codex', 'claude', 'antigravity', 'kimi', 'xai', 'devin', 'codex', 'claude'] as const;
 const PLANS = ['Pro 20x', 'Team', 'Plus', 'Free', '', 'Max'];
@@ -24,7 +24,7 @@ function requests(seed: number): Rec[] {
 
 function credential(brand: string, label: string, index: number, extra: Rec = {}): Rec {
   return {
-    name: `${brand}-${label}.json`, provider: brand, type: brand, source: 'file', auth_index: `mock-${brand}-${label}`,
+    name: `${brand}-${label}_example_test.json`, provider: brand, type: brand, source: 'file', auth_index: `mock-${brand}-${label}`,
     email: `${label}@example.test`, account_id: `mock-account-${index}`, plan_type: PLANS[index % PLANS.length],
     disabled: false, status: 'active', priority: index % 4 === 0 ? 5 : 0, size: 1500 + index * 37,
     modtime: Date.now() - index * 90_000, success: 120 + index * 31, failed: index % 6, recent_requests: requests(index),
@@ -76,8 +76,21 @@ export function forty(): Rec[] {
 export const credsMock: SectionMockFactory = (host) => {
   const fixture = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('creds');
   if (fixture && Array.isArray(host.authFiles) && host.scenario !== 'empty') {
-    const next = fixture === 'one' ? statesFixture().slice(0, 1) : fixture === 'forty' ? forty() : statesFixture();
+    const next = fixture === 'one' ? statesFixture().slice(0, 1)
+      : fixture === 'forty' ? forty()
+        : fixture === 'none' ? []
+          : statesFixture();
     host.authFiles.splice(0, host.authFiles.length, ...next);
   }
-  return { handle: () => ({ handled: false }) };
+  return {
+    handle(command, payload) {
+      if (fixture === 'fail' && command === 'management_request') {
+        const request = (payload.request ?? payload) as { method?: string; path?: string };
+        if (String(request.method).toUpperCase() === 'GET' && request.path === '/credentials') {
+          throw new Error('Browser Mock credentials unavailable');
+        }
+      }
+      return { handled: false };
+    },
+  };
 };

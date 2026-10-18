@@ -242,7 +242,7 @@ function PanelBody({ controller, row, suspended }: PanelProps & { row: Credentia
             </Section>
           ) : null}
 
-          <Section id="models" title={t('authFiles.settings.excluded_models')}
+          <Section id="models" title={t(editable ? 'authFiles.settings.excluded_models' : 'authFiles.models.viewTitle')}
             aside={editable && rulesCount > 0 ? <Chip size="sm" tone="danger">{t('authFiles.models.save', { count: rulesCount })}</Chip> : undefined}>
             <fieldset className="ec-cred-fieldset" disabled={saving}>
               <ModelRules
