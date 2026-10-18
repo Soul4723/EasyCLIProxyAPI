@@ -45,6 +45,7 @@ type DialogFocusOptions = {
   active?: boolean;
   onEscape?: () => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   preventEscape?: boolean;
 };
 
@@ -52,6 +53,7 @@ export function useDialogFocusTrap<T extends HTMLElement>({
   active = true,
   onEscape,
   initialFocusRef,
+  returnFocusRef,
   preventEscape = false,
 }: DialogFocusOptions = {}) {
   const dialogRef = useRef<T>(null);
@@ -122,7 +124,8 @@ export function useDialogFocusTrap<T extends HTMLElement>({
       window.cancelAnimationFrame(frame);
       document.removeEventListener('keydown', handleKeyDown, true);
       unlockBodyScroll();
-      if (previousFocus?.isConnected) previousFocus.focus();
+      const restoreFocus = returnFocusRef?.current ?? previousFocus;
+      if (restoreFocus?.isConnected) restoreFocus.focus();
       previousFocusRef.current = null;
     };
   }, [active]);

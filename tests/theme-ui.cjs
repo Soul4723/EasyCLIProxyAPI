@@ -1,8 +1,9 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-(async () => {
-  const browser = await chromium.launch({ channel: process.env.THEME_BROWSER || 'msedge', headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
     const errors = [];
@@ -13,7 +14,7 @@ const assert = require('node:assert/strict');
       if (route.request().method() === 'POST') selection = JSON.parse(route.request().postData());
       await route.fulfill({ json: selection });
     });
-    const open = query => page.goto(`http://127.0.0.1:1422/tests/fixtures/theme.html?${query}`);
+    const open = query => page.goto(`${base}/tests/fixtures/theme.html?${query}`);
     const theme = expected => page.waitForFunction(expected => document.documentElement.dataset.theme === expected, expected);
     const trigger = () => page.locator('.theme-selector-trigger:visible');
     const menu = () => page.locator('.theme-selector-menu');
@@ -174,9 +175,9 @@ const assert = require('node:assert/strict');
       await trigger().click(); await page.locator('.sidebar-privacy-toggle').focus();
       assert.equal(await trigger().getAttribute('aria-expanded'), 'false', 'focus leaving the picker closes it');
       const controls = await page.locator('.sidebar-language-trigger, .sidebar-privacy-toggle, .theme-selector').evaluateAll(elements => elements.map(element => {
-        const { x, right, width } = element.getBoundingClientRect(); return { x, right, width };
+        const { x, right, width } = element.getBoundingClientRect(); return { x, right, width, fits: element.scrollWidth <= element.clientWidth };
       }));
-      assert.ok(controls[0].width >= 48 && controls[1].width >= 28 && controls[2].width >= 80 && controls[2].width <= 140);
+      assert.ok(controls[0].width >= 48 && controls[1].width >= 28 && controls[2].width <= 140 && controls.every(control => control.width > 0 && control.fits), 'sidebar controls remain compact and content is unclipped');
       assert.ok(controls[0].right < controls[1].x && controls[1].right < controls[2].x, `${locale} at ${width}: controls overlap`);
       selection = null;
     }
@@ -190,7 +191,7 @@ const assert = require('node:assert/strict');
     const color = selector => page.locator(selector).evaluate(element => {
       const style = getComputedStyle(element); return { background: style.backgroundColor, color: style.color, border: style.borderTopColor };
     });
-    const base = await color('.config-dialog');
+    const defaultDialog = await color('.config-dialog');
     const legacySurfaces = ['.version-metric-tile', '.app-release-notes-footer', '.agent-core-setting-section', '.model-config-card'];
     const defaultSurfaces = await Promise.all(legacySurfaces.map(color));
     await chooseId('graphite-dark'); await saved('graphite-dark');
@@ -211,7 +212,7 @@ const assert = require('node:assert/strict');
     assert.equal((await color('.panel-heading h2')).color, 'rgb(18, 37, 68)');
     assert.equal((await color('.panel-heading p')).color, 'rgb(35, 54, 85)');
     await page.waitForFunction(() => getComputedStyle(document.querySelector('.panel')).borderTopColor === 'rgb(69, 103, 137)');
-    assert.equal(await trigger().innerText(), '', 'localized names must not widen the icon control');
+    assert.equal(await trigger().innerText(), '外观', 'the trigger retains its localized action label rather than a long theme name');
     await chooseId('test-dark'); await saved('test-dark');
     assert.equal((await color('.config-dialog')).background, 'rgb(32, 48, 64)');
     assert.equal((await color('.usage-analysis-card')).background, 'rgb(32, 48, 64)');
@@ -222,7 +223,7 @@ const assert = require('node:assert/strict');
     await page.reload(); await nativeReady();
     assert.equal(await page.locator('html').getAttribute('data-theme-id'), 'test-dark-2');
     await chooseId('light'); await saved('light');
-    assert.deepEqual(await color('.config-dialog'), base);
+    assert.deepEqual(await color('.config-dialog'), defaultDialog);
     assert.equal(await page.locator('html').evaluate(element => element.style.getPropertyValue('--theme-surface')), '');
     await chooseId('midnight-dark'); await saved('midnight-dark');
     await page.setViewportSize({ width: 1280, height: 320 });
@@ -259,4 +260,4 @@ const assert = require('node:assert/strict');
     assert.deepEqual(errors, []);
     console.log('Theme UI passed: desktop IPC, persistence, errors, mode and theme picker, focus, 4 locales at 4 widths.');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+});

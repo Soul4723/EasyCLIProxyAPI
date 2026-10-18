@@ -1,5 +1,17 @@
 use super::*;
 
+// Discovery only accepts executable files; without the mode bit it would fall through to the
+// real user's PATH and home, so the fixture must be runnable to keep the test hermetic.
+fn write_agy_fixture(binary: &Path) {
+    fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    fs::write(binary, []).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(binary, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 struct Home(PathBuf);
 impl Home {
     fn new() -> Self {
@@ -185,10 +197,7 @@ fn antigravity_cli_helper_uses_managed_credentials_and_model() {
     } else {
         home.0.join(".local/bin/agy")
     };
-    fs::create_dir_all(binary.parent().unwrap()).unwrap();
-    fs::write(&binary, []).unwrap();
-    #[cfg(unix)]
-    fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    write_agy_fixture(&binary);
     let args = [
         "cpa".into(),
         "--cpa-antigravity-cli".into(),
@@ -272,8 +281,7 @@ fn remote_antigravity_launch_environment_uses_client_credentials_only() {
             claude_code_model_mappings: None, claude_desktop_model_mappings: None,
         }).unwrap();
     let binary = if cfg!(windows) { home.join("AppData/Local/agy/bin/agy.exe") } else { home.join(".local/bin/agy") };
-    fs::create_dir_all(binary.parent().unwrap()).unwrap();
-    fs::write(&binary, []).unwrap();
+    write_agy_fixture(&binary);
     let args = ["cpa".into(), "--cpa-antigravity-cli".into(), home.clone().into_os_string(), "--print=fixture".into()];
     let command = antigravity_helper_command(&args).unwrap();
     let envs = command.get_envs().collect::<std::collections::HashMap<_, _>>();

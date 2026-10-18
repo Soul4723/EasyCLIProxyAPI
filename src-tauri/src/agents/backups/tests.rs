@@ -1160,10 +1160,14 @@ fn link_directory(target: &Path, link: &Path) {
     }
 }
 
-#[cfg(unix)]
-fn unlink_directory(link: &Path) { fs::remove_file(link).unwrap(); }
-#[cfg(windows)]
-fn unlink_directory(link: &Path) { fs::remove_dir(link).unwrap(); }
+// Removes the link itself. Unix symlinks are files to `remove_dir`, while Windows junctions
+// are directories; neither removal may touch the link target.
+fn unlink_directory(link: &Path) {
+    #[cfg(unix)]
+    fs::remove_file(link).unwrap();
+    #[cfg(windows)]
+    fs::remove_dir(link).unwrap();
+}
 
 #[test]
 fn linked_configuration_and_backup_directories_are_rejected() {
@@ -1180,6 +1184,7 @@ fn linked_configuration_and_backup_directories_are_rejected() {
         "custom='outside'"
     );
     unlink_directory(link);
+    assert!(outside.0.join("config.toml").is_file());
     let data = agent_data_directory(&paths).unwrap();
     fs::create_dir_all(&data).unwrap();
     link_directory(&outside.0, &data.join("backups"));
@@ -1187,6 +1192,7 @@ fn linked_configuration_and_backup_directories_are_rejected() {
     assert!(list_backups("codex", &home.0).is_err());
     assert!(delete_backup("codex", &home.0, "1").is_err());
     unlink_directory(&data.join("backups"));
+    assert!(outside.0.join("config.toml").is_file());
 }
 
 #[tokio::test]
