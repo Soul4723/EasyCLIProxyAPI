@@ -71,7 +71,7 @@ export function AppMenu() {
     <>
       <IconButton ref={anchor} label={t('shell.appearance')} icon={<SlidersHorizontal size={15} />}
         active={open} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)} />
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchor} side="top" align="start" width={260} label={t('shell.appearance')}>
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchor} side="bottom" align="start" width={260} label={t('shell.appearance')}>
         <AppearanceControls />
         <PopoverSeparator />
         <PopoverItem icon={<MessageCircle size={15} />} onClick={() => void openContact()}>

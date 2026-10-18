@@ -23,7 +23,9 @@ export function Shell() {
   const coreReady = Boolean(status?.ready);
   const remote = status?.connectionMode === 'remote';
   const current = findRoute(route.page);
-  const blocked = Boolean(current) && ((current!.id === 'easy' && remote) || !canOpenAppPage(current!.id, coreReady));
+  // Until the first core status arrives nothing is known, so deep links to gated pages wait instead of redirecting.
+  const statusKnown = status !== null;
+  const blocked = statusKnown && Boolean(current) && ((current!.id === 'easy' && remote) || !canOpenAppPage(current!.id, coreReady));
 
   useEffect(() => {
     if (!route.page) replaceRoute(`/${defaultRouteId}`);
@@ -55,6 +57,8 @@ export function Shell() {
   let body;
   if (!current) {
     body = <NotFound title={t('shell.notFound')} action={t('shell.notFound.action')} />;
+  } else if (!statusKnown && !isAlwaysAvailablePage(current.id)) {
+    body = <PageHeader title={t(current.labelKey)} />;
   } else if (blocked || !(isAlwaysAvailablePage(current.id) || coreReady)) {
     body = <CoreLocked title={t(current.labelKey)} />;
   } else {

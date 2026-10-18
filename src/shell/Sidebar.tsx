@@ -73,6 +73,7 @@ export function Sidebar({ activeId, drawerOpen, onNavigate }: { activeId: string
         <img src={appLogo} alt="" className="ec-brand-mark" />
         <strong className="ec-brand-name">EasyCLIProxyAPI</strong>
       </a>
+      <span className="ec-brand-menu"><AppMenu /></span>
       <nav className="ec-nav" aria-label={t('app.navigation')}>
         {main.map(item)}
         <div className="ec-nav-sep" role="separator" />
@@ -84,9 +85,8 @@ export function Sidebar({ activeId, drawerOpen, onNavigate }: { activeId: string
           <i className={`ec-core-dot ec-core-dot--${line.tone}`} aria-hidden="true" />
           <span className="ec-core-text">{statusText}</span>
         </a>
+        <span className="ec-foot-menu"><AppMenu /></span>
         <span className="ec-mode-chip"><Chip size="sm" tone={remote ? 'info' : 'neutral'}>{t(remote ? 'shell.mode.remote' : 'shell.mode.local')}</Chip></span>
-        <span className="ec-sidebar-foot-spacer" />
-        <AppMenu />
       </div>
     </aside>
   );
