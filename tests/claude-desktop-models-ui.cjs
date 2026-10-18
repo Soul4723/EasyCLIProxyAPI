@@ -2,6 +2,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const os = require('node:os');
 runUi(async ({ base }) => {
   const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
@@ -43,7 +44,7 @@ runUi(async ({ base }) => {
       assert.ok(await addButton.evaluate(button => button.classList.contains('primary-button')));
       assert.ok((await rows().first().boundingBox()).height < 100);
       assert.doesNotMatch(await page.locator('.agent-desktop-models').innerText(), /先拒绝|左侧选择或输入/);
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-defaults-${mode || 'full'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-defaults-${mode || 'full'}.png`), fullPage: true });
       const help = page.getByRole('button', { name: '使用说明', exact: true });
       await help.click();
       const dialog = page.getByRole('dialog', { name: '使用说明', exact: true });
@@ -53,7 +54,7 @@ runUi(async ({ base }) => {
       assert.match(await dialog.innerText(), /只允许使用 Claude.*无需映射/s);
       assert.match(await dialog.innerText(), /轮询调度.*期望的模型/s);
       assert.match(await dialog.innerText(), /claude-opus-\*.*claude-sonnet-\*.*claude-haiku-\*.*不能包含.*gpt.*grok.*gemini.*deepseek/s);
-      await page.screenshot({ path: path.join(process.env.TEMP, 'claude-desktop-help.png'), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), 'claude-desktop-help.png'), fullPage: true });
       await page.keyboard.press('Escape');
       await dialog.waitFor({ state: 'detached' });
       assert.ok(await help.evaluate(button => button === document.activeElement));
@@ -98,13 +99,13 @@ runUi(async ({ base }) => {
       const originals = await page.locator('.agent-model-option strong').allTextContents();
       assert.deepEqual(originals, ['gpt-one', 'gpt-two']);
       assert.equal(await page.getByRole('option', { selected: true }).locator('strong').innerText(), 'gpt-two');
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-original-dropdown-${mode || 'full'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-original-dropdown-${mode || 'full'}.png`), fullPage: true });
       await rows().nth(0).locator('.agent-model-search input').press('Escape');
       await idInput(0).click();
       const suggestions = await page.locator('.agent-model-option strong').allTextContents();
       assert.ok(suggestions.includes('claude-sonnet-4-6'));
       assert.ok(suggestions.every(id => !id.includes('cpa')));
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-alias-dropdown-${mode || 'full'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-alias-dropdown-${mode || 'full'}.png`), fullPage: true });
       await page.getByRole('option').filter({ has: page.getByText('claude-sonnet-4-6', { exact: true }) }).click();
       assert.equal(await idInput(0).inputValue(), 'claude-sonnet-4-6');
       assert.ok(await save().isEnabled());
@@ -136,7 +137,7 @@ runUi(async ({ base }) => {
       await rows().nth(1).waitFor();
       assert.equal(await idInput(0).inputValue(), '');
       assert.equal(await originalName(0), 'gpt-two');
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-models-${mode || 'full'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-models-${mode || 'full'}.png`), fullPage: true });
       for (let i = 0; i < 3; i++) await add(`claude-custom-${i}`, '');
       assert.equal(await rows().count(), 5);
       assert.ok(await save().isEnabled());
@@ -157,7 +158,7 @@ runUi(async ({ base }) => {
       await chooseOriginal(0, 'gpt-one');
       await opusWarning.waitFor();
       assert.ok(await save().isDisabled());
-      await page.screenshot({ path: path.join(process.env.TEMP, `claude-desktop-default-conflict-${query}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), `claude-desktop-default-conflict-${query}.png`), fullPage: true });
       await fillAlias(0, 'claude-opus-personal');
       assert.equal(await opusWarning.count(), 0);
       assert.ok(await save().isEnabled());
@@ -180,7 +181,7 @@ runUi(async ({ base }) => {
     await fillAlias(0, ' CLAUDE-OPUS-5 ');
     await rows().first().getByText('别名与原模型相同，无需重复设置，将直接使用原模型 ID。', { exact: true }).waitFor();
     assert.ok(await save().isEnabled());
-    await page.screenshot({ path: path.join(process.env.TEMP, 'claude-desktop-same-model-notice.png'), fullPage: true });
+    await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), 'claude-desktop-same-model-notice.png'), fullPage: true });
     await fillAlias(0, 'claude-sonnet-5');
     await rows().first().getByText('默认别名「claude-sonnet-5」已存在于模型列表中，请切换其他别名，避免调用到其他模型。', { exact: true }).waitFor();
     assert.ok(await save().isDisabled());
@@ -215,7 +216,7 @@ runUi(async ({ base }) => {
         assert.ok(button.x >= section.x && button.x + button.width <= section.x + section.width);
       }
     }
-    await page.screenshot({ path: path.join(process.env.TEMP, 'claude-desktop-models-narrow.png'), fullPage: true });
+    await page.screenshot({ path: path.join(process.env.TEMP || os.tmpdir(), 'claude-desktop-models-narrow.png'), fullPage: true });
     await open('no-models');
     for (let i = 0; i < 3; i++) await rows().last().getByRole('button', { name: '移除模型' }).click();
     await add('claude-sonnet-custom-7', '');
