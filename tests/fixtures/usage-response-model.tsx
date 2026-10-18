@@ -66,7 +66,19 @@ const records: UsageRecord[] = [
   record('formula', 'formula-model', 'formula-alias', '=SUM(A1)'),
 ];
 
-mockIPC(async () => null);
+const exportFixture = { csv: '' };
+Object.assign(window, { usageResponseModelFixture: exportFixture });
+mockIPC(async (cmd, args) => {
+  if (cmd === 'plugin:dialog|save') return '/tmp/usage-response-model.csv';
+  if (cmd === 'save_usage_events_export') {
+    exportFixture.csv = String(args?.contents ?? '');
+    return null;
+  }
+  if (cmd === 'get_usage_events') {
+    return { items: records, total: records.length, page: 1, pageSize: 5000, totalPages: 1 };
+  }
+  return null;
+});
 
 createRoot(document.getElementById('root')!).render(
   <I18nProvider>
