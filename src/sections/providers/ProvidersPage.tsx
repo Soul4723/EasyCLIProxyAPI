@@ -72,6 +72,8 @@ export function ProvidersPage({ sub, params }: SectionPageProps) {
   const signInDisabled = (target: Brand) => signIn.providers.find((p) => p.id === target.signInId)?.disabledReason;
 
   const loading = creds.loading || api.loading;
+  // Skeleton cards only on the first load: a reload after an edit keeps the cards (and keyboard focus) in place.
+  const initialLoad = (creds.loading && creds.rows.length === 0) || (api.loading && api.rows.length === 0);
   const count = creds.rows.length + api.rows.length;
   const reloadAll = () => { void creds.reload(); void api.reload(); };
 
@@ -107,8 +109,8 @@ export function ProvidersPage({ sub, params }: SectionPageProps) {
   } else {
     body = (
       <>
-        <BrandGroup title={t('sec.providers.group.subscriptions')} brands={subscriptions} loading={loading} creds={creds} api={api} signIn={signIn} onAddKey={addKey} signInDisabled={signInDisabled} />
-        <BrandGroup title={t('sec.providers.group.apiOnly')} brands={apiOnly} loading={loading} creds={creds} api={api} signIn={signIn} onAddKey={addKey} signInDisabled={signInDisabled} />
+        <BrandGroup title={t('sec.providers.group.subscriptions')} brands={subscriptions} loading={initialLoad} creds={creds} api={api} signIn={signIn} onAddKey={addKey} signInDisabled={signInDisabled} />
+        <BrandGroup title={t('sec.providers.group.apiOnly')} brands={apiOnly} loading={initialLoad} creds={creds} api={api} signIn={signIn} onAddKey={addKey} signInDisabled={signInDisabled} />
       </>
     );
   }
@@ -117,7 +119,7 @@ export function ProvidersPage({ sub, params }: SectionPageProps) {
     <div className="ec-sec-providers">
       <PageHeader
         title={t('sec.providers.title')}
-        count={loading ? undefined : count}
+        count={initialLoad ? undefined : count}
         actions={actions}
         tabs={<RouteTabs page="providers" subs={providersSubs} active={active} ariaLabel={t('sec.providers.title')} />}
       />
