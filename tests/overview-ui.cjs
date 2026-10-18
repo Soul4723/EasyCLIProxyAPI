@@ -1,9 +1,10 @@
-// Overview UI test: node tests/overview-ui.cjs (needs PLAYWRIGHT_MODULE and a vite server at OVERVIEW_TEST_BASE_URL).
+// Overview UI test: node tests/overview-ui.cjs (needs PLAYWRIGHT_MODULE; starts its own vite unless OVERVIEW_TEST_BASE_URL is set).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
-const { openApp, setPrivacy } = require('./helpers/shell.cjs');
-const base = process.env.OVERVIEW_TEST_BASE_URL || 'http://127.0.0.1:18731/';
+const { openApp, setPrivacy, startServer } = require('./helpers/shell.cjs');
 (async () => {
+  const server = process.env.OVERVIEW_TEST_BASE_URL ? null : await startServer();
+  const base = server ? server.base : process.env.OVERVIEW_TEST_BASE_URL;
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   const errors = []; page.on('pageerror', (e) => errors.push(String(e)));
@@ -47,7 +48,12 @@ const base = process.env.OVERVIEW_TEST_BASE_URL || 'http://127.0.0.1:18731/';
   await page.locator('.ov-runtime[data-runtime-state="running"]').waitFor();
   await openApp(page, base, { mock: 'empty' });
   await page.getByTestId('ov-onboarding').waitFor();
+  // Guided setup (Easy mode) is reachable from Get started and opens inside the shell.
+  await page.getByTestId('ov-onboarding').getByRole('button', { name: 'Guided setup' }).click();
+  await page.waitForFunction(() => location.hash === '#/easy');
+  await page.locator('.simple-mode-page').waitFor();
   assert.equal(errors.length, 0, errors.join('\n'));
   await browser.close();
+  await server?.close();
   console.log('overview-ui ok');
 })().catch((e) => { console.error(e); process.exit(1); });

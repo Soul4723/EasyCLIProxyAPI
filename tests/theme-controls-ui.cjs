@@ -1,138 +1,102 @@
+// Appearance controls in Settings → App (the same AppearanceControls the sidebar menu embeds): Ember Dark / Light / System,
+// "More themes", Comfortable / Compact density, instant apply without the save bar, state shared with the app menu,
+// legible controls in both appearances and a usable layout at 1280 and 680 wide.
+// node tests/theme-controls-ui.cjs (needs PLAYWRIGHT_MODULE; starts its own vite).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
+const {
+  EMBER, openApp, openAppMenu, closeAppMenu, themeState, colorsOf, contrastRatio, horizontalOverflow, settle, waitForCoreStatus,
+} = require('./helpers/shell.cjs');
 
-const luminance = color => {
-  const match = /^rgb\((\d+), (\d+), (\d+)\)$/.exec(color);
-  assert.ok(match, `Expected opaque computed color, received ${color}`);
-  return match.slice(1).map(Number).map(channel => {
-    const value = channel / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
-};
-const contrast = (foreground, background) => {
-  const values = [luminance(foreground), luminance(background)].sort((a, b) => a - b);
-  return (values[1] + 0.05) / (values[0] + 0.05);
-};
-const settlePaint = locator => locator.evaluate(async element => {
-  await Promise.all(element.getAnimations().map(animation => animation.finished));
-});
+const IGNORED = [/favicon/i, /Failed to load resource: the server responded with a status of 404/];
 
 runUi(async ({ base }) => {
-  const browser = await launchBrowser(chromium);
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
-    const errors = [];
-    page.on('pageerror', error => errors.push(String(error)));
-    page.setDefaultTimeout(10000);
-    await page.route('**/*', route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
-    await page.addInitScript(() => localStorage.setItem('easy-cli-proxy-api.locale', 'zh-CN'));
-    await page.goto(`${base}/?mock=running`, { waitUntil: 'domcontentloaded' });
-    await page.locator('.theme-selector-trigger').click();
-    await page.locator('.theme-selector-card[data-theme-id="sakura-light"]').click();
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(() => document.documentElement.dataset.themeId === 'sakura-light');
-
-    const assertButtonContrast = async (button, label) => {
-      await button.waitFor();
-      await page.mouse.move(0, 0);
-      for (const state of ['normal', 'hover']) {
-        if (state === 'hover') await button.hover();
-        await settlePaint(button);
-        const paint = await button.evaluate(element => {
-          const style = getComputedStyle(element);
-          return { foreground: style.color, background: style.backgroundColor };
-        });
-        assert.ok(contrast(paint.foreground, paint.background) >= 4.5, `${label} ${state}: ${JSON.stringify(paint)}`);
-      }
-      await page.mouse.move(0, 0);
-    };
-    await page.getByRole('button', { name: '额度查询', exact: true }).click();
-    await assertButtonContrast(page.locator('.oauth-page-toolbar-actions > .primary-button:not(:disabled)'), 'quota refresh');
-    await page.getByRole('button', { name: '首页', exact: true }).click();
-    await page.getByRole('button', { name: '模型健康监测', exact: true }).click();
-    await assertButtonContrast(page.locator('.core-health-actions .primary-button:not(:disabled)'), 'model health');
-    await page.keyboard.press('Escape');
-
-    await page.getByRole('button', { name: '使用记录', exact: true }).click();
-    await page.evaluate(async () => {
-      const { initializeTheme } = await import('/src/theme.ts');
-      const controller = initializeTheme();
-      controller.setSystemTheme('warm-sand-light');
-      controller.setSystemTheme('graphite-dark');
-      controller.setPreference('system');
-    });
-    await page.waitForFunction(() => document.documentElement.dataset.themeId === 'warm-sand-light');
-    await page.getByRole('button', { name: '时间范围', exact: true }).click();
-    const menu = page.locator('.select-menu-dropdown');
-    const assertMenuTheme = async (scheme, id) => {
-      await page.emulateMedia({ colorScheme: scheme });
-      await page.waitForFunction(id => document.documentElement.dataset.themeId === id, id);
-      await page.waitForFunction(() => {
-        const option = document.querySelector('.select-menu-option');
-        const trigger = document.querySelector('.select-menu-trigger');
-        return option && trigger && getComputedStyle(option).color === getComputedStyle(trigger).color;
+    const open = async (viewport) => {
+      const context = await browser.newContext({ viewport, colorScheme: 'dark', reducedMotion: 'reduce' });
+      const page = await context.newPage();
+      page.setDefaultTimeout(10000);
+      page.errors = [];
+      page.on('pageerror', (error) => page.errors.push(String(error)));
+      page.on('console', (message) => {
+        if (message.type() === 'error' && !IGNORED.some((pattern) => pattern.test(message.text()))) page.errors.push(message.text());
       });
-      assert.equal(await menu.count(), 1, 'system changes keep the menu open');
-      const paint = await menu.evaluate(element => ({
-        foreground: getComputedStyle(element.querySelector('.select-menu-option')).color,
-        background: getComputedStyle(element).backgroundColor,
-      }));
-      assert.ok(contrast(paint.foreground, paint.background) >= 4.5, `${id} open menu: ${JSON.stringify(paint)}`);
+      await page.addInitScript(() => { try { localStorage.setItem('easy-cli-proxy-api.locale', 'en'); } catch { /* ignore */ } });
+      await openApp(page, base, { path: '/settings/app' });
+      await waitForCoreStatus(page);
+      return page;
     };
-    await assertMenuTheme('dark', 'graphite-dark');
-    await page.evaluate(async () => (await import('/src/theme.ts')).setSystemTheme('sakura-light'));
-    await assertMenuTheme('light', 'sakura-light');
-    await page.waitForFunction(() => document.querySelector('.select-menu-theme-scope').style.getPropertyValue('--theme-primary-button-text') !== '');
-    await assertMenuTheme('dark', 'graphite-dark');
-    await page.waitForFunction(() => document.querySelector('.select-menu-theme-scope').style.getPropertyValue('--theme-primary-button-text') === '');
-    await page.keyboard.press('Escape');
 
-    await page.getByRole('button', { name: '高级功能', exact: true }).click();
-    const remote = page.getByRole('checkbox', { name: '允许远程管理', exact: true });
-    await remote.waitFor();
-    for (const activeThumb of [null, '#6A3554']) {
-      await remote.uncheck();
-      await page.evaluate(async activeThumb => {
-        const { createThemeRegistry, themeRegistry } = await import('/src/themes/registry.ts');
-        const { createThemeApplicator } = await import('/src/themes/applyTheme.ts');
-        const baseTheme = themeRegistry.get('sakura-light');
-        const custom = { ...baseTheme, id: 'test-control-light', tokens: {
-          ...baseTheme.tokens, controlThumb: '#843E64', controlActiveBackground: '#F6E3ED',
-          ...(activeThumb ? { controlActiveThumb: activeThumb } : {}),
-        } };
-        const registry = createThemeRegistry([...themeRegistry.themes, custom]);
-        createThemeApplicator(document)(registry.get(custom.id));
-      }, activeThumb);
-      assert.equal(await remote.evaluate(input => getComputedStyle(input.nextElementSibling, '::after').backgroundColor), 'rgb(132, 62, 100)');
-      await remote.check();
-      await remote.evaluate(async input => { await Promise.all(input.nextElementSibling.getAnimations().map(animation => animation.finished)); });
-      const paint = await remote.evaluate(input => ({
-        thumb: getComputedStyle(input.nextElementSibling, '::after').backgroundColor,
-        background: getComputedStyle(input.nextElementSibling).backgroundColor,
-      }));
-      assert.equal(paint.thumb, activeThumb ? 'rgb(106, 53, 84)' : 'rgb(132, 62, 100)', 'active state honors theme thumb roles');
-      assert.ok(contrast(paint.thumb, paint.background) >= 3, `custom control: ${JSON.stringify(paint)}`);
+    for (const width of [1280, 680]) {
+      const page = await open({ width, height: 900 });
+      const content = page.locator('.ec-set-content');
+      const appearance = content.locator('.ec-appearance');
+      await appearance.waitFor();
+      const savebar = page.getByRole('region', { name: 'Unsaved changes' });
+      const radio = (name) => appearance.getByRole('radio', { name });
+
+      // Initial state: Ember Dark + Comfortable, both pressed.
+      assert.equal(await radio('Ember Dark').getAttribute('aria-checked'), 'true');
+      assert.equal(await radio('Comfortable').getAttribute('aria-checked'), 'true');
+      assert.equal((await themeState(page)).appBg, EMBER.dark.bg);
+
+      // Light applies to the whole shell at once.
+      await radio('Ember Light').click();
+      await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+      assert.equal(await radio('Ember Light').getAttribute('aria-checked'), 'true');
+      assert.equal((await themeState(page)).appBg, EMBER.light.bg);
+      assert.equal(await page.locator('.ec-sidebar').evaluate((element) => getComputedStyle(element).backgroundColor), EMBER.light.sidebar);
+      assert.equal(await savebar.count(), 0, 'appearance never opens the save bar');
+
+      // System follows the OS appearance.
+      await radio('System').click();
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+      await page.emulateMedia({ colorScheme: 'light' });
+      await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+      assert.equal(await radio('System').getAttribute('aria-checked'), 'true');
+
+      // More themes: four restored themes, one pressed at a time, shared with the app menu.
+      const cards = appearance.locator('.ec-theme-card');
+      assert.equal(await cards.count(), 4);
+      await cards.filter({ hasText: 'Graphite' }).click();
+      await page.waitForFunction(() => document.documentElement.dataset.themeId === 'graphite-dark');
+      assert.equal(await appearance.locator('.ec-theme-card[aria-pressed="true"]').count(), 1);
+      assert.equal(await radio('Ember Dark').getAttribute('aria-checked'), 'false', 'a restored theme unchecks the Ember radios');
+      const popover = await openAppMenu(page);
+      assert.equal(await popover.locator('.ec-theme-card[data-theme-id="graphite-dark"]').getAttribute('aria-pressed'), 'true', 'app menu shows the same selection');
+      await closeAppMenu(page);
+      await radio('Ember Dark').click();
+      await page.waitForFunction(() => document.documentElement.dataset.themeId === 'dark');
+      assert.equal(await appearance.locator('.ec-theme-card[aria-pressed="true"]').count(), 0);
+      assert.equal((await themeState(page)).appBg, EMBER.dark.bg);
+
+      // Density: compact shrinks the row/control tokens; comfortable restores them.
+      const token = (name) => page.evaluate((property) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(property)), name);
+      const comfortable = await token('--ec-row-h');
+      await radio('Compact').click();
+      await page.waitForFunction(() => document.documentElement.dataset.density === 'compact');
+      assert.ok(await token('--ec-row-h') < comfortable, 'compact rows are shorter');
+      await radio('Comfortable').click();
+      await page.waitForFunction(() => document.documentElement.dataset.density === 'comfortable');
+      assert.equal(await token('--ec-row-h'), comfortable);
+
+      // Legibility of the controls themselves in both appearances.
+      for (const which of ['Ember Dark', 'Ember Light']) {
+        await radio(which).click();
+        await settle(page);
+        for (const locator of [radio(which), radio(which === 'Ember Dark' ? 'Ember Light' : 'Ember Dark'), cards.first().locator('.ec-theme-name'), appearance.locator('.ec-popover-heading, h3, [class*=heading]').first()]) {
+          const { fg, bg } = await colorsOf(locator);
+          assert.ok(contrastRatio(fg, bg) >= 3, `${which}@${width}: control text contrast ${contrastRatio(fg, bg).toFixed(2)} (${fg} on ${bg})`);
+        }
+      }
+      assert.deepEqual(await horizontalOverflow(page), [], `${width}: no page-level horizontal overflow`);
+      assert.deepEqual(page.errors, [], `${width}: no console errors`);
+      await page.context().close();
     }
-    for (const [id, expectedThumb] of [['light', 'rgb(255, 255, 255)'], ['dark', 'rgb(11, 13, 17)']]) {
-      await page.evaluate(async id => {
-        const { themeRegistry } = await import('/src/themes/registry.ts');
-        const { createThemeApplicator } = await import('/src/themes/applyTheme.ts');
-        createThemeApplicator(document)(themeRegistry.get(id));
-      }, id);
-      await remote.evaluate(async input => { await Promise.all(input.nextElementSibling.getAnimations().map(animation => animation.finished)); });
-      const paint = await remote.evaluate(input => ({
-        thumb: getComputedStyle(input.nextElementSibling, '::after').backgroundColor,
-        background: getComputedStyle(input.nextElementSibling).backgroundColor,
-        activeOverride: document.documentElement.style.getPropertyValue('--theme-control-active-thumb'),
-      }));
-      assert.equal(paint.activeOverride, '', 'default themes clear configured and derived active thumbs');
-      assert.equal(paint.thumb, expectedThumb);
-      assert.ok(contrast(paint.thumb, paint.background) >= 3, `${id} control: ${JSON.stringify(paint)}`);
-    }
-    await remote.uncheck();
-    assert.deepEqual(errors, []);
-    console.log('PASS: real quota/health button contrast, open menus across system theme changes and token cleanup, configured/active switch thumbs and default fallbacks.');
+    console.log('Theme controls UI passed: Settings → App Dark/Light/System, More themes, density, app-menu parity at 1280 and 680.');
   } finally {
     await browser.close();
   }

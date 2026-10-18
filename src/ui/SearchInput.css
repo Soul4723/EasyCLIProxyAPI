@@ -47,7 +47,7 @@
 }
 
 .ec-search__input::placeholder {
-  color: var(--ec-fg-subtle);
+  color: var(--ec-placeholder);
   opacity: 1;
 }
 

@@ -81,7 +81,12 @@ export function AccountPanel({
           <section aria-label={t('sec.quota.panel.windows')}>
             {view.windows.length ? (
               <div className="qt-bigs">{view.windows.map((window) => <BigWindow key={window.id} window={window} now={ctx.now} stale={view.stale} />)}</div>
-            ) : <div className="qt-panel__none ec-muted">{view.status === 'notFetched' ? t('sec.quota.notFetched') : t('sec.quota.noWindows')}</div>}
+            ) : view.status === 'notFetched' ? (
+              // The status pill already says "Not fetched"; the body only offers the action.
+              <div className="qt-panel__none">
+                <Button size="xs" variant="outline" disabled={!view.canFetch || view.loading} onClick={() => ctx.actions.refresh(view)}>{t('sec.quota.fetch')}</Button>
+              </div>
+            ) : <div className="qt-panel__none ec-muted">{t('sec.quota.noWindows')}</div>}
             {view.creditBalance !== undefined || view.creditsUnlimited ? (
               <div className="qt-credit"><span>{t('sec.quota.credits')}</span><span className="ec-mono">{view.creditsUnlimited ? t('sec.quota.unlimited') : view.creditBalance}</span></div>
             ) : null}

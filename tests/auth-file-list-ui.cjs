@@ -25,7 +25,10 @@ const chip = (page, group, label) => page.getByRole('group', { name: group }).ge
     assert.equal(await statusOf(page, 'primary-account'), 'Available');
     assert.match(await rowOf(page, 'cooling@').locator('.ec-cred-status__time').innerText(), /^\d+m( \d+s)?$/, 'cooldown shows a live countdown');
     assert.equal(await rowOf(page, 'gemini-runtime').getByText('Runtime', { exact: true }).count(), 1);
-    assert.equal(await rowOf(page, 'gemini-runtime').getByRole('switch').isDisabled(), true, 'runtime credentials cannot be toggled');
+    assert.equal(await rowOf(page, 'gemini-runtime').getByRole('switch').count(), 0, 'no account switch in the list; Quota owns enable/disable');
+    await rowOf(page, 'gemini-runtime').getByRole('button', { name: /^Actions:/ }).click();
+    assert.equal(await page.getByRole('button', { name: 'Disable', exact: true }).isDisabled(), true, 'runtime credentials cannot be toggled');
+    await page.keyboard.press('Escape');
     assert.equal(await rowOf(page, 'gemini-runtime').locator('.ec-cred-link').count(), 0, 'no Quota link where quota is unsupported');
     assert.equal(await rowOf(page, 'cooling@').locator('.ec-cred-link').getAttribute('href'), '#/quota?cred=codex-cooling_example_test.json');
     assert.equal(await rowOf(page, 'primary-account').locator('.ec-cred-req__fail').innerText(), '12');
@@ -120,14 +123,19 @@ const chip = (page, group, label) => page.getByRole('group', { name: group }).ge
     assert.equal(await panel(page).getByRole('checkbox').count(), 0, 'supported models are listed but not editable');
     await page.keyboard.press('Escape');
 
-    // ---- enable toggle: background refresh, no success toast --------------------------------------------------------------
+    // ---- enable/disable lives in Quota: the list and panel only link there ---------------------------------------------------
     await page.locator('.ec-cred-toast').getByRole('button', { name: 'Close' }).click();
-    await rowOf(page, 'personal@').getByRole('switch').click();
-    await page.waitForFunction(() => [...document.querySelectorAll('tr.ec-table__row')].some((row) => row.textContent.includes('personal@') && row.textContent.includes('Disabled')));
-    const statusPatches = await requestsOf(page, 'PATCH', '/credentials/status');
-    assert.deepEqual(statusPatches.map((item) => item.body), [{ name: 'kimi-personal_example_test.json', disabled: true }]);
-    assert.equal(await page.locator('.ec-cred-toast').count(), 0, 'successful toggles stay quiet');
-    assert.equal(await page.locator('.ec-table-wrap[aria-busy=true]').count(), 0, 'list stays mounted during the refresh');
+    assert.equal(await page.getByRole('switch').count(), 0, 'no account switches in the credential list');
+    await rowOf(page, 'personal@').getByRole('button', { name: /^Actions:/ }).click();
+    assert.equal(await page.getByRole('button', { name: 'Disable', exact: true }).count(), 0, 'quota-managed rows have no enable action');
+    await page.keyboard.press('Escape');
+    await rowOf(page, 'personal@').click();
+    const manage = panel(page).locator('.ec-cred-manage');
+    assert.match(await manage.innerText(), /^Enabled\s*·\s*Manage in Quota/);
+    assert.equal(await manage.locator('a').getAttribute('href'), '#/quota?cred=kimi-personal_example_test.json');
+    assert.equal(await panel(page).getByRole('switch').count(), 0, 'no enable switch in the panel');
+    await page.keyboard.press('Escape');
+    assert.equal((await requestsOf(page, 'PATCH', '/credentials/status')).length, 0);
 
     // ---- delete: confirmation, request, runtime guard ---------------------------------------------------------------------
     await page.locator('button[aria-label*="xai-api-paid"]').click();

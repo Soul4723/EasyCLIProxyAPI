@@ -20,7 +20,13 @@ function CandidateRow({ item, served, max, onCooldownDone }: { item: Candidate; 
     <li className="rt-cand" data-status={item.status}>
       <span className="rt-cand__rank ec-mono" title={t('sec.usage.routing.candidates.rank', { n: item.rank })}>{item.rank}</span>
       <span className="rt-cand__who">
-        <Masked value={item.label} kind={item.labelIsFile ? 'identifier' : 'text'} identities={item.identities} />
+        {item.authIndex ? (
+          // Stretched link: the whole row opens this account's requests; the Quota link sits above it.
+          <a className="rt-cand__open" href={routeHref('usage', 'requests', { account: item.authIndex })}
+            title={t('sec.usage.routing.candidates.requests')}>
+            <Masked value={item.label} kind={item.labelIsFile ? 'identifier' : 'text'} identities={item.identities} />
+          </a>
+        ) : <Masked value={item.label} kind={item.labelIsFile ? 'identifier' : 'text'} identities={item.identities} />}
         <span className="rt-cand__prio ec-muted ec-num">{t('sec.usage.routing.candidates.priority', { n: item.priority })}</span>
       </span>
       <span className="rt-cand__status">
@@ -36,14 +42,9 @@ function CandidateRow({ item, served, max, onCooldownDone }: { item: Candidate; 
         <span className="ec-num ec-muted">{served}</span>
       </span>
       {item.authIndex ? (
-        <span className="rt-cand__links">
-          <a className="rt-link" href={routeHref('usage', 'requests', { account: item.authIndex })}>
-            {t('sec.usage.routing.candidates.requests')}<ArrowUpRight size={12} aria-hidden="true" />
-          </a>
-          <a className="rt-link" href={routeHref('quota', null, { cred: item.authIndex })}>
-            {t('sec.usage.routing.candidates.credential')}<ArrowUpRight size={12} aria-hidden="true" />
-          </a>
-        </span>
+        <a className="rt-link rt-cand__quota" href={routeHref('quota', null, { cred: item.authIndex })}>
+          {t('sec.usage.routing.candidates.credential')}<ArrowUpRight size={12} aria-hidden="true" />
+        </a>
       ) : null}
     </li>
   );

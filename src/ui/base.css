@@ -19,3 +19,6 @@ html[data-theme-backdrop] .ec-app { background: var(--theme-sticky-background, v
 html[data-window-material], html[data-window-material] body, html[data-window-material] #root { background: transparent !important; }
 html[data-window-material] :is(.ec-app, .ec-main, .ec-sidebar, .ec-page-header) { background: transparent; }
 html[data-window-material] .ec-sidebar { border-right-color: transparent; }
+
+/* Placeholders keep AA contrast on the (lighter) field fill; never faded further by the UA. */
+.ec-app :is(input, textarea)::placeholder { color: var(--ec-placeholder); opacity: 1; }

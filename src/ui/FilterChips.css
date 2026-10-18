@@ -71,11 +71,11 @@
   font-size: var(--ec-fs-2xs);
   font-style: normal;
   font-variant-numeric: tabular-nums;
-  color: var(--ec-fg-subtle);
+  color: var(--ec-fg-muted);
 }
 
 .ec-filters__chip--on .ec-filters__count {
-  color: var(--ec-fg-muted);
+  color: var(--ec-fg-2);
 }
 
 @media (prefers-reduced-motion: reduce) {

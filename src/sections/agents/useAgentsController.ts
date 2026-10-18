@@ -116,17 +116,18 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
   }, []);
   const [viewStateByClient, setViewStateByClient] = useState(() => agentViewStateCache);
   const viewState = viewStateByClient[selected] ?? DEFAULT_AGENT_VIEW_STATE;
-  const updateViewState = (patch: Partial<AgentViewState>) => {
+  const updateViewStateForClient = (client: AgentClientId, patch: Partial<AgentViewState>) => {
     if (!currentTarget.current) return;
     setViewStateByClient((current) => {
       const next = {
         ...current,
-        [selected]: { ...(current[selected] ?? DEFAULT_AGENT_VIEW_STATE), ...patch },
+        [client]: { ...(current[client] ?? DEFAULT_AGENT_VIEW_STATE), ...patch },
       };
       agentViewStateCache = next;
       return next;
     });
   };
+  const updateViewState = (patch: Partial<AgentViewState>) => updateViewStateForClient(selected, patch);
   const { connectionHelpOpen, configurationError, configurationNotice, clearNotice, launchError } = viewState;
   const setConfigurationError = (configurationError: string) => updateViewState({ configurationError });
   const setConfigurationNotice = (configurationNotice: string) => updateViewState({ configurationNotice });
@@ -1145,8 +1146,9 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
     if (!pending) return;
     let active = true;
     pending.then(
-      () => { if (active) setConfigurationNotice(t('agents.launch.cliServiceRestarted')); },
-      (requestError) => { if (active) setLaunchError(String(requestError)); },
+      // The restart belongs to Codex whichever client is selected after a remount.
+      () => { if (active) updateViewStateForClient('codex', { configurationNotice: t('agents.launch.cliServiceRestarted') }); },
+      (requestError) => { if (active) updateViewStateForClient('codex', { launchError: String(requestError) }); },
     ).finally(() => { if (active) setCliServiceRestarting(false); });
     return () => { active = false; };
   }, []);

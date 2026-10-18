@@ -1,4 +1,4 @@
-import { Check, KeyRound, LogIn, Plug, Play } from 'lucide-react';
+import { Check, KeyRound, LogIn, Plug, Play, Sprout } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n';
 import type { HomeUsageSummary } from '../../services/homeOverview';
@@ -100,7 +100,10 @@ export function Onboarding({ remote, coreReady, coreInstalled, starting, hasCred
   ];
   return (
     <Card as="section" className="ov-onboarding" aria-labelledby="ov-onboarding-title" data-testid="ov-onboarding">
-      <CardHeader title={<span id="ov-onboarding-title">{t('sec.overview.getStarted')}</span>} />
+      <CardHeader
+        title={<span id="ov-onboarding-title">{t('sec.overview.getStarted')}</span>}
+        actions={remote ? undefined : <Button size="xs" variant="outline" icon={<Sprout size={13} />} onClick={() => navigate('/easy')}>{t('shell.easyMode')}</Button>}
+      />
       <ol className="ov-steps">
         {steps.map((step, index) => (
           <li key={step.id} className={`ov-step${step.done ? ' is-done' : ''}`} data-step={step.id} title={step.locked}>

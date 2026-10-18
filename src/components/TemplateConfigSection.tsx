@@ -4,6 +4,7 @@ import { listen } from '../services/platform';
 import { open } from '../services/platform';
 import { ExternalLink, Eye, EyeOff, RotateCcw, Save } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { usePrivacyMode } from '../privacy';
 import { templateMessages, templateText } from '../i18n/templateConfig';
 import { useCoreRuntime, type CoreStatus } from '../coreRuntime';
 import { SettingsHelp } from './SettingsHelp';
@@ -22,6 +23,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
 }) {
   const { locale, t } = useI18n();
   const { status, publishStatus, refreshStatus } = useCoreRuntime();
+  const [privacyOn] = usePrivacyMode();
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [drafts, setDrafts] = useState<Record<string, TemplateConfigDraft>>({});
   const [loadError, setLoadError] = useState('');
@@ -164,7 +166,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
       placeholder={field.placeholder}
       onChange={(event) => onChange(field.type === 'string-list' ? event.currentTarget.value.split('\n') : event.currentTarget.value)}
       onBlur={() => { if (field.type === 'string-list' && Array.isArray(value)) { const clean = value.map(String).map((item) => item.trim()).filter(Boolean); if (JSON.stringify(clean) !== JSON.stringify(value)) onChange(clean); } }} />;
-    const input = <input {...common} className="config-network-input" type={field.type === 'number' ? 'number' : field.sensitive && !revealed[id] ? 'password' : 'text'} autoComplete={field.sensitive ? 'new-password' : undefined}
+    const input = <input {...common} className="config-network-input" type={field.type === 'number' ? 'number' : (field.sensitive && !revealed[id]) || (privacyOn && field.directory) ? 'password' : 'text'} autoComplete={field.sensitive ? 'new-password' : undefined}
       min={field.min} max={field.max} step={field.step ?? 1} placeholder={field.placeholder} value={typeof value === 'string' || typeof value === 'number' ? value : ''}
       onChange={(event) => onChange(field.type === 'number' && event.currentTarget.value !== '' ? Number(event.currentTarget.value) : event.currentTarget.value)} />;
     const secret = field.sensitive ? <div className="config-secret-input template-config-secret">{input}<button type="button" className="icon-button quiet" disabled={disabled} onClick={() => setRevealed((previous) => ({ ...previous, [id]: !previous[id] }))}

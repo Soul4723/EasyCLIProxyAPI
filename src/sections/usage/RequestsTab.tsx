@@ -70,9 +70,9 @@ export function RequestsTab() {
   }, [query, t]);
 
   const columns = useMemo<DataTableColumn<UsageRecord>[]>(() => [
-    { id: 'time', header: t('sec.usage.requests.col.time'), width: 88, cell: (r) => <RelativeTime value={r.timestamp} className="ec-num" /> },
+    { id: 'time', header: t('sec.usage.requests.col.time'), width: 104, cell: (r) => <RelativeTime value={r.timestamp} className="ec-num" /> },
     { id: 'outcome', header: t('sec.usage.requests.col.outcome'), width: 108, cell: (r) => <OutcomePill record={r} /> },
-    { id: 'model', header: t('sec.usage.requests.col.model'), cell: (r) => <ModelCell record={r} /> },
+    { id: 'model', header: t('sec.usage.requests.col.model'), width: 230, cell: (r) => <ModelCell record={r} /> },
     { id: 'account', header: t('sec.usage.requests.col.account'), cell: (r) => <AccountCell record={r} /> },
     { id: 'agent', header: t('sec.usage.requests.col.agent'), width: 96, cell: (r) => <span className="ec-trunc">{agentLabel(r.agent)}</span> },
     { id: 'tokens', header: t('sec.usage.requests.col.tokens'), width: 124, cell: (r) => <TokensCell record={r} /> },
