@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import { documentTarget, invoke } from './documentTarget';
+import { invoke as nativeInvoke } from '@tauri-apps/api/core';
 import { getCurrentLocale, translate } from '../i18n';
 
 export type ManagementJson = Record<string, unknown> | unknown[] | string | number | boolean | null;
@@ -84,7 +85,9 @@ export const managementApi = {
     path: string,
     options: ManagementRequestOptions = {},
   ) => request<T>('DELETE', path, options),
-  getTargetRevision: () => invoke<number>('get_management_target_revision'),
+  getTargetRevision: documentTarget.getRevision,
+  // Existing quota completion validation checks current identity without rebinding the document.
+  checkTargetRevision: () => nativeInvoke<number>('get_management_target_revision'),
   uploadAuthFile: async (file: File, isCurrentTarget: () => boolean = () => true, expectedRevision?: number) => {
     const assertCurrentTarget = () => {
       if (!isCurrentTarget()) throw new Error('The core connection changed; upload cancelled');

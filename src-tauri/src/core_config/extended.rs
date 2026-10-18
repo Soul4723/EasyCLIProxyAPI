@@ -1088,10 +1088,12 @@ fn prepare_patch(
 #[tauri::command]
 pub(crate) async fn get_extended_core_config(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
 ) -> Result<Json, String> {
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     if config.connection_mode == CoreConnectionMode::Remote {
         let content = crate::core_connection::read_remote_yaml(&config).await?;
         gui_config_state.ensure_target(&config)?;
@@ -1110,11 +1112,13 @@ pub(crate) async fn get_extended_core_config(
 #[tauri::command]
 pub(crate) async fn save_extended_core_config(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     changes: Vec<ExtendedConfigChange>,
 ) -> Result<ExtendedConfigResult, String> {
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
     if config.connection_mode == CoreConnectionMode::Remote {
         let content = crate::core_connection::read_remote_yaml(&config).await?;
         let (updated, result) = prepare_patch(&content, &changes)?;

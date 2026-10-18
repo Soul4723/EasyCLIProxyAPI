@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/documentTarget';
 import { usableModelAlias } from '../services/modelService';
 import {
   ArrowRight,
