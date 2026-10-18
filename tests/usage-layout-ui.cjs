@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const base = 'http://127.0.0.1:1421';
 
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] });
+  const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true, args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1213, height: 600 } });
     await page.route('**/*', (route) => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
