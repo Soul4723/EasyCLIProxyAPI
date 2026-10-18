@@ -32,7 +32,7 @@ const locales = ['zh-CN', 'en'];
       await page.route('**/*', route => route.request().url().startsWith(`${base}/`) ? route.continue() : route.abort());
       await page.goto(`${base}/tests/fixtures/provider-groups.html?layout=dense&locale=${locale}`, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(() => document.querySelectorAll('.real-provider-row').length === 8
-        && document.querySelectorAll('.provider-row-title > span:not(.state-pill)').length === 8);
+        && document.querySelectorAll('.provider-row-title > strong').length === 8);
       await page.evaluate(async () => {
         await document.fonts.ready;
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -92,7 +92,7 @@ const locales = ['zh-CN', 'en'];
         assert.equal(await row.getByRole('checkbox').isChecked(), !effective['excluded-models']?.includes('*'), `${label}: each key shows its own effective enabled state`);
         assert.ok(!metaText.includes(locale === 'en' ? 'keys total' : '个密钥'), `${label}: individual rows do not show group key counts`);
         assert.equal(await row.locator('.provider-row-url').getAttribute('title'), group['base-url'], `${label}: full URL remains available`);
-        const remark = row.locator('.provider-row-title > span:not(.state-pill)');
+        const remark = row.locator('.provider-row-title > strong');
         assert.equal(await remark.getAttribute('title'), await remark.textContent(), `${label}: the full remark remains available when shortened`);
 
         const layout = await row.evaluate(element => {

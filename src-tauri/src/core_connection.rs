@@ -410,6 +410,7 @@ pub(crate) fn remote_status(connection: &CoreConnection, result: CoreConnectionT
         connection_mode: Some("remote".to_string()),
         remote_origin: Some(connection.management_origin.clone()),
         message: result.message,
+        recovery: None,
     }
 }
 
