@@ -108,16 +108,18 @@ function VertexImportForm({ onClose, onImported }: Omit<VertexImportDialogProps,
         onSubmit={(event) => { event.preventDefault(); void importCredential(); }}
       >
         <p className="ec-signin-step__hint">{t('sec.providers.signin.vertex.description')}</p>
-        <SegmentedControl
-          value={mode}
-          onChange={(next) => { setMode(next); clearOutcome(); }}
-          ariaLabel={t('sec.providers.signin.vertex.title')}
-          size="sm"
-          options={[
-            { value: 'file', label: t('sec.providers.signin.vertex.modeFile') },
-            { value: 'paste', label: t('sec.providers.signin.vertex.modePaste') },
-          ]}
-        />
+        <div className="ec-signin-mode">
+          <SegmentedControl
+            value={mode}
+            onChange={(next) => { setMode(next); clearOutcome(); }}
+            ariaLabel={t('sec.providers.signin.vertex.title')}
+            size="sm"
+            options={[
+              { value: 'file', label: t('sec.providers.signin.vertex.modeFile') },
+              { value: 'paste', label: t('sec.providers.signin.vertex.modePaste') },
+            ]}
+          />
+        </div>
         {mode === 'file' ? (
           <div className="ec-signin-field">
             <span className="ec-signin-field__label">{t('sec.providers.signin.vertex.file')}</span>
@@ -170,7 +172,7 @@ function VertexImportForm({ onClose, onImported }: Omit<VertexImportDialogProps,
           <p className="ec-signin-feedback ec-signin-feedback--error" role="alert">{privacy.text(error)}</p>
         ) : null}
         {result ? (
-          <div role="status">
+          <div role="status" className="ec-signin-outcome">
             <p className="ec-signin-feedback ec-signin-feedback--ok">
               <CircleCheck size={14} aria-hidden="true" /> {t('sec.providers.signin.vertex.success')}
             </p>

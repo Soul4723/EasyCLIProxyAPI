@@ -483,6 +483,26 @@ a.ec-btn {
   }
 }
 
+.ec-signin-mode {
+  display: flex;
+}
+
+.ec-signin-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ec-sp-2);
+  padding: var(--ec-sp-3);
+  border: 1px solid var(--ec-border);
+  border-radius: var(--ec-r-md);
+  background: var(--ec-code);
+}
+
+.ec-signin-outcome .ec-signin-feedback {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+}
+
 /* dev harness only (Preview.tsx) */
 .ec-signin-harness__row {
   display: flex;
