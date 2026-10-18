@@ -19,11 +19,11 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
   console.log('deep links');
   const multipleH1 = new Set();
   const deepLinks = [
-    ['/overview', 'overview', null], ['/providers', 'providers', 'api'], ['/providers/api', 'providers', 'api'],
-    ['/providers/oauth', 'providers', 'oauth'], ['/quota', 'quota', null], ['/usage', 'usage', null], ['/agents', 'agents', null],
+    ['/overview', 'overview', null], ['/providers', 'providers', 'overview'], ['/providers/all', 'providers', 'all'],
+    ['/providers/exclusions', 'providers', 'exclusions'], ['/quota', 'quota', null], ['/usage', 'usage', null], ['/agents', 'agents', null],
     ['/plugins', 'plugins', null], ['/settings', 'settings', 'general'], ['/settings/updates', 'settings', 'updates'],
     // unknown sub-pages fall back to the section's default sub-page and keep the URL as typed
-    ['/providers/nonsense', 'providers', 'api'], ['/usage/unknown-tab', 'usage', null],
+    ['/providers/nonsense', 'providers', 'overview'], ['/usage/unknown-tab', 'usage', null],
   ];
   for (const [route, id, sub] of deepLinks) {
     const page = await open({ path: route });
@@ -38,7 +38,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     if (sub) {
       const selected = await page.getByRole('tab', { selected: true }).count() ? page.getByRole('tab', { selected: true }).first() : null;
       assert.ok(selected, `${route}: sub-page tab is selected`);
-      const expectedIndex = { api: 0, oauth: 1, general: 0, updates: 1 }[sub];
+      const expectedIndex = { overview: 0, all: 1, exclusions: 2, general: 0, updates: 1 }[sub];
       assert.equal(await page.locator('.ec-page-header').getByRole('tab').evaluateAll((tabs) => tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true')), expectedIndex, `${route}: active sub-page tab`);
     }
     noErrors(page, route);
@@ -101,7 +101,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     // Sub tabs keep the section current and write the sub into the hash.
     await h.gotoPage(page, '/providers');
     await page.getByRole('tab').nth(1).click();
-    await page.waitForFunction(() => location.hash === '#/providers/oauth');
+    await page.waitForFunction(() => location.hash === '#/providers/all');
     assert.deepEqual(await activeNav(page), ['providers']);
     await page.getByRole('tab').nth(0).click();
     await page.waitForFunction(() => location.hash === '#/providers', null, { timeout: 5000 });
@@ -140,7 +140,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     const page = await open();
     const send = (detail) => page.evaluate((value) => window.dispatchEvent(new CustomEvent('app:navigate', { detail: value })), detail);
     const expectations = [
-      ['api', '/providers/api'], ['oauth', '/providers/oauth'], ['quota', '/quota'], ['agents', '/agents'],
+      ['api', '/providers'], ['oauth', '/providers'], ['quota', '/quota'], ['agents', '/agents'],
       ['usage-records', '/usage'], ['plugins', '/plugins'], ['config', '/settings'], ['versions', '/settings/updates'],
       ['home', '/overview'], ['/providers/api?q=1', '/providers/api?q=1'],
       ['usage', '/usage'], ['settings', '/settings'], // new route ids work too

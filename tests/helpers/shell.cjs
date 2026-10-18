@@ -16,7 +16,7 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const LEGACY_PATHS = {
-  home: '/overview', easy: '/easy', api: '/providers/api', oauth: '/providers/oauth', quota: '/quota',
+  home: '/overview', easy: '/easy', api: '/providers', oauth: '/providers', quota: '/quota',
   agents: '/agents', 'usage-records': '/usage', plugins: '/plugins', config: '/settings', versions: '/settings/updates',
 };
 const LANGUAGE_LABELS = { 'zh-CN': '简体中文', 'zh-TW': '繁體中文', ja: '日本語', en: 'English' };
