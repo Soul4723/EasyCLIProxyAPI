@@ -1,17 +1,17 @@
-// Agents in Remote mode: node tests/agent-remote-ui.cjs (needs PLAYWRIGHT_MODULE and a vite server at AGENT_TEST_URL, default :1421).
+// Agents in Remote mode: node tests/agent-remote-ui.cjs (needs PLAYWRIGHT_MODULE; AGENT_TEST_URL, when set, reuses an existing dev server).
 // Replaces the remote agent-flow part of the deleted remote-core-ui test: with a remote core, agent inspection, model
 // listing, configuration repair/update and launch go through the CLIENT origin + client key (never the management origin or key),
 // the UI sends no credential overrides, and switching back to Local returns to the local endpoint.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const { openApp, setRemote, setLocal, clickNav, invoke, waitForCoreStatus } = require('./helpers/shell.cjs');
 
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 const CLIENT_ORIGIN = 'http://client.example.test:8317';
 const COMMANDS = ['get_agent_config_statuses', 'refresh_agent_config_statuses', 'get_agent_models', 'update_agent_config', 'launch_agent'];
 
-(async () => {
-  const browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultTimeout(10000);
@@ -89,4 +89,4 @@ const COMMANDS = ['get_agent_config_statuses', 'refresh_agent_config_statuses', 
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

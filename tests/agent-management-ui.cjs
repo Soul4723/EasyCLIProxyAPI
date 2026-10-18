@@ -1,14 +1,13 @@
-// Run a Vite dev server for the worktree, then:
 // AGENT_TEST_URL=http://127.0.0.1:5391 node tests/agent-management-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   const screenshots = path.join(os.tmpdir(), 'cpa-agent-ui-review');
   fs.mkdirSync(screenshots, { recursive: true });
   try {
@@ -190,4 +189,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     console.log('PASS: tab navigation, preserved drafts, shared runtime actions, all desktop restarts, Pi, Harness, disabled states, keyboard, responsive themes');
     console.log('Screenshots: ' + screenshots);
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });

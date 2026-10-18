@@ -1,12 +1,11 @@
-// Run a Vite dev server for the worktree, then:
 // AGENT_TEST_URL=http://127.0.0.1:5391 node tests/agent-backups-ui.cjs
 // PLAYWRIGHT_MODULE may point to an existing Playwright installation.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const os = require('node:os');
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultTimeout(10000);
@@ -115,4 +114,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
     assert.deepEqual(errors, []);
     console.log('PASS: apply/close, manual backup, no Pi backup/template controls, disk-only payload, template preview, restore/delete confirmations, corrupt backups, conflict invalidation, narrow layout, missing Desktop mapping');
   } finally { await browser.close(); }
-})().catch(e => { console.error(e); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });

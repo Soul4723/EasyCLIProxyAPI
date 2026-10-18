@@ -1,9 +1,9 @@
 // Agents section: layout robustness + the apply/update feedback flow.
-// Run against a Vite dev server: AGENT_TEST_URL=http://127.0.0.1:5391 node tests/agent-configuration-layout-ui.cjs
+// AGENT_TEST_URL, when set, reuses an existing dev server: AGENT_TEST_URL=http://127.0.0.1:5391 node tests/agent-configuration-layout-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 const clients = ['codex', 'claude-desktop', 'deepseek-harness', 'zcode'];
 const tabs = [['setup', '配置'], ['backups', '备份'], ['manage', '管理']];
 const viewports = [
@@ -13,8 +13,8 @@ const viewports = [
   { width: 360, height: 941 },
 ];
 
-(async () => {
-  const browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(10000);
@@ -184,4 +184,4 @@ const viewports = [
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

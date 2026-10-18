@@ -1,14 +1,14 @@
-// Run a Vite dev server for the worktree, then:
+// AGENT_TEST_URL, when set, reuses an existing dev server:
 // AGENT_TEST_URL=http://127.0.0.1:5391 node tests/codex-cli-daemon-ui.cjs
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
+runUi(async ({ base }) => {
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser(chromium);
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
@@ -80,4 +80,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
   } finally {
     await browser?.close();
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}, { url: process.env.AGENT_TEST_URL });

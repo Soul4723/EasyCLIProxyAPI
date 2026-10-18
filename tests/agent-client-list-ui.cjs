@@ -1,4 +1,4 @@
-// Agents client grid. Run Vite, then: AGENT_TEST_URL=http://127.0.0.1:1421 node tests/agent-client-list-ui.cjs
+// Agents client grid. AGENT_TEST_URL, when set, reuses an existing dev server.
 // PLAYWRIGHT_MODULE can target an existing local Playwright install.
 //
 // Dropped with the old Agents page (no equivalent in the AgentsSection): the "Manage clients" dialog (visibility
@@ -6,12 +6,12 @@
 // `cpa-gui.agent-visible-clients.v1` list, and the client pagination (previous/next page). Every client is now on the
 // grid and "Not installed" is a filter instead.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 const screenshots = path.join(os.tmpdir(), 'easycliproxy-agent-clients');
 // Catalogue order (agentDefinitions in src/sections/agents/model.ts).
 const allClients = {
@@ -22,8 +22,8 @@ const allClients = {
 };
 const allIds = Object.keys(allClients);
 
-(async () => {
-  const browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium, { args: ['--no-proxy-server'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultTimeout(10000);
@@ -202,4 +202,4 @@ const allIds = Object.keys(allClients);
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });

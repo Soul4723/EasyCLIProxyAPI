@@ -1,15 +1,15 @@
-// Agents "changes to apply" state. Run Vite, then: AGENT_TEST_URL=http://127.0.0.1:1421 node tests/agent-pending-ui.cjs
+// Agents "changes to apply" state. AGENT_TEST_URL, when set, reuses an existing dev server: AGENT_TEST_URL=http://127.0.0.1:5391 node tests/agent-pending-ui.cjs
 //
 // Differences vs. the old page: the pending marker lives in the Setup tab's save bar, so it is asserted after returning to
 // Setup (it is not rendered on Backups/Manage); there is no compact `embedded` mode and no client list/switcher
 // (other clients are opened from the grid).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     page.setDefaultTimeout(10000);
@@ -156,4 +156,4 @@ const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
   } finally {
     await browser.close();
   }
-})().catch(error => { console.error(error); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });
