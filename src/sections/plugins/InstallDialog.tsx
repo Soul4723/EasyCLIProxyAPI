@@ -3,7 +3,7 @@ import { ExternalLink, ShieldAlert } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { pluginText } from '../../i18n/plugins';
 import { pluginStoreApi, type PluginStoreEntry, type PluginStoreInstallResult } from '../../services/plugins';
-import { buildRepositoryURL, getPluginConfirmToken, isOfficialPlugin } from '../../services/pluginResources';
+import { buildRepositoryURL, getPluginConfirmToken, isDefaultPluginStoreSource, isOfficialPlugin, isOfficialRepository } from '../../services/pluginResources';
 import { buildGitHubReleasesPageURL, isValidManualReleaseTag, supportsPluginVersionSelection } from '../../services/pluginReleaseVersions';
 import { Button, Chip, Dialog, IconButton, Masked } from '../../ui';
 import { Banner, GitHubTokenHint, PluginTile, Scope, isGitHubRateLimit } from './parts';
@@ -33,6 +33,8 @@ export function InstallDialog({ entry, onClose, onInstalled, onOpenExternal }: {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const thirdParty = !isOfficialPlugin(entry);
+  // Listed by the official store but hosted outside the official organisation: the store does not vouch for the author.
+  const externalRepository = isDefaultPluginStoreSource(entry) && !isOfficialRepository(entry.repository);
   const token = getPluginConfirmToken(entry);
   const confirmed = !thirdParty || (reviewed && typed.trim() === token);
   const canSelectVersion = supportsPluginVersionSelection(entry.installType);
@@ -87,14 +89,14 @@ export function InstallDialog({ entry, onClose, onInstalled, onOpenExternal }: {
         ) : null}
 
         {thirdParty ? (
-          <Banner tone="warn">{pt('trustWarning')}</Banner>
+          <Banner tone="warn">{externalRepository ? t('sec.plugins.officialStoreThirdParty') : pt('trustWarning')}</Banner>
         ) : (
           <Banner tone="info">{pt('installHint')}</Banner>
         )}
 
         {thirdParty && reviewed ? (
           <label className="pl-field">
-            <span className="pl-field-label">{t('sec.plugins.confirmFor', { token })}</span>
+            <span className="pl-field-label">{entry.installed ? t('sec.plugins.trustTypeUpdate') : pt('trustType')}<code className="pl-token">{token}</code></span>
             <input className="pl-input pl-input--mono" value={typed} onChange={event => setTyped(event.target.value)} disabled={busy}
               placeholder={token} spellCheck={false} autoComplete="off" />
           </label>

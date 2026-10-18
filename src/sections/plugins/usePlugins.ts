@@ -10,8 +10,10 @@ import {
 import {
   collectPluginResourceEntries, getPluginTitle, notifyPluginResourcesChanged, type PluginResourceEntry,
 } from '../../services/pluginResources';
+import { chooseLocalPluginFile, installLocalPlugin, PLUGIN_DEVELOPMENT_GUIDE_URL } from '../../services/pluginLocalInstall';
 import { getPluginStatus, isPluginInstalled } from '../../services/pluginStatus';
 import { getPluginStoreSources, pluginStoreSourceKey } from '../../services/pluginStoreSources';
+import { navigate, routePath } from '../../shell/router';
 import type { PluginTab } from './subs';
 
 export type InstalledFilter = 'all' | 'updates' | 'local' | 'configOnly';
@@ -54,6 +56,7 @@ export function usePlugins(tab: PluginTab) {
   const [oauthPlugin, setOAuthPlugin] = useState<PluginListEntry | null>(null);
   const [removeTarget, setRemoveTarget] = useState<PluginListEntry | null>(null);
   const [restartOpen, setRestartOpen] = useState(false);
+  const [localInstallFile, setLocalInstallFile] = useState<string | null>(null);
   const [restartRequired, setRestartRequired] = useState(false);
   const [resource, setResource] = useState<{ entry: PluginResourceEntry; url: string } | null>(null);
   const requests = useRef(0);
@@ -185,6 +188,36 @@ export function usePlugins(tab: PluginTab) {
   const openExternal = (url: string) => void invoke('open_external_url', { url }).catch(reason => { if (mounted.current) setError(errorMessage(reason)); });
   const openLogs = () => void invoke('open_core_logs_directory').catch(reason => { if (mounted.current) setError(errorMessage(reason)); });
 
+  const openDevelopmentGuide = () => openExternal(PLUGIN_DEVELOPMENT_GUIDE_URL);
+
+  /** Local install: pick a plugin library, confirm (trust warning), copy it into the plugin directory. Not available for a remote core. */
+  const chooseLocalInstall = async () => {
+    if (remote || pending.current) return;
+    pending.current = true; setBusy(true); setError('');
+    try {
+      const selected = await chooseLocalPluginFile(t('sec.plugins.localInstall'), t('sec.plugins.localBinary'));
+      if (selected && mounted.current) setLocalInstallFile(selected);
+    } catch (reason) { if (mounted.current) setError(errorMessage(reason)); }
+    finally { pending.current = false; if (mounted.current) setBusy(false); }
+  };
+  const confirmLocalInstall = async () => {
+    const source = localInstallFile;
+    setLocalInstallFile(null);
+    if (!source || remote || pending.current) return;
+    pending.current = true; setBusy(true); setError('');
+    ++requests.current;
+    try {
+      const path = await installLocalPlugin(source);
+      if (!mounted.current) return;
+      setRestartRequired(true);
+      notify(`${t('sec.plugins.localInstalled')} ${path}`);
+      notifyPluginResourcesChanged();
+      navigate(routePath('plugins'));
+      await load('installed');
+    } catch (reason) { if (mounted.current) setError(errorMessage(reason)); }
+    finally { pending.current = false; if (mounted.current) setBusy(false); }
+  };
+
   const onInstalled = (result: { restartRequired: boolean }) => {
     setInstallEntry(null);
     setRestartRequired(previous => previous || result.restartRequired);
@@ -228,7 +261,7 @@ export function usePlugins(tab: PluginTab) {
   const findInStore = (plugin: PluginListEntry) => {
     setStoreSearch(plugin.id); setStoreFilter('all'); setSourceFilter('');
   };
-  const locked = busy || loading || Boolean(configPlugin || installEntry || oauthPlugin || removeTarget);
+  const locked = busy || loading || Boolean(configPlugin || installEntry || oauthPlugin || removeTarget || localInstallFile);
 
   return {
     t, pt, locale, remote,
@@ -243,6 +276,7 @@ export function usePlugins(tab: PluginTab) {
     removeTarget, setRemoveTarget, restartOpen, setRestartOpen, restartRequired,
     resource, setResource,
     load, setGlobalEnabled, setPluginEnabled, confirmRemove, confirmRestart, openResource, openExternal, openLogs,
+    localInstallFile, setLocalInstallFile, chooseLocalInstall, confirmLocalInstall, openDevelopmentGuide,
     onInstalled, findInStore, getPluginTitle, getPluginStatus, isPluginInstalled,
   };
 }
