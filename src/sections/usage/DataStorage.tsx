@@ -223,6 +223,7 @@ export function DataStorage({ onNotice }: { onNotice: (notice: DataNotice) => vo
                     className="data-input"
                     inputMode="numeric"
                     value={shrinkDraft}
+                    placeholder={String(Math.max(1, Math.floor(storage.databaseSizeBytes / 1048576 / 2)))}
                     onChange={(event) => setShrinkDraft(event.target.value)}
                   />
                 </label>

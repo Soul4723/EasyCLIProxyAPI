@@ -49,3 +49,5 @@
   .ec-sec-usage .data-input { width: 100%; }
   .ec-sec-usage .data-limit > .data-field, .ec-sec-usage .data-action-row > .data-field { flex: 1 1 100%; }
 }
+.ec-sec-usage .data-rows a { color: var(--ec-accent); text-decoration: none; }
+.ec-sec-usage .data-rows a:hover { text-decoration: underline; }

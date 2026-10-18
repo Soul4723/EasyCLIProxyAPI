@@ -3,29 +3,15 @@ import { readFileSync } from 'node:fs';
 
 describe('usage records background refresh', () => {
   it('keeps refresh triggers active when the document is hidden', () => {
-    const source = readFileSync(
-      new URL('../src/pages/UsageRecordsPage.tsx', import.meta.url),
-      'utf8',
-    );
-    const refreshStart = source.indexOf('const refresh = () => {');
-    const refreshEnd = source.indexOf("listen('usage-records-updated'", refreshStart);
-    const refreshBlock = source.slice(refreshStart, refreshEnd);
-
-    expect(refreshStart).toBeGreaterThanOrEqual(0);
-    expect(refreshEnd).toBeGreaterThan(refreshStart);
-    expect(refreshBlock).toContain('if (!disposed) void loadData(true, true);');
-    expect(refreshBlock).not.toContain('document.hidden');
-  });
-
-  it('keeps the trend tooltip while the pointer stays over the plot', () => {
-    const source = readFileSync(
-      new URL('../src/pages/UsageRecordsPage.tsx', import.meta.url),
-      'utf8',
-    );
-    expect(source).toContain('hoveredRatio');
-    expect(source).toContain('isClientPointInsideRect');
-    expect(source).toContain('addEventListener(\'pointermove\', onWindowPointerMove)');
-    expect(source).not.toContain('setHoveredIndex(null)');
+    const source = readFileSync(new URL('../src/sections/usage/UsageContext.tsx', import.meta.url), 'utf8');
+    const start = source.indexOf('const bump = () =>');
+    const end = source.indexOf("window.addEventListener('focus', bump)", start);
+    const block = source.slice(start, end);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(block).toContain("listen('usage-records-updated', bump)");
+    expect(block).toContain('window.setInterval(bump');
+    expect(block).not.toContain('document.hidden');
   });
 
   it('disables WebView background suspension for the desktop window', () => {

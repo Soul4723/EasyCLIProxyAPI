@@ -3,7 +3,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { CalendarRange } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { Chip, IconButton, SegmentedControl } from '../../ui';
-import { RelativeTime } from '../../ui/RelativeTime';
 import { compactNumber, RANGES } from './format';
 import type { CollectorStatus, UsageRange } from './types';
 import { useUsage } from './UsageContext';
@@ -30,9 +29,6 @@ export function CollectorChip() {
   return (
     <span className="usage-collector" data-state={status.state} title={status.message}>
       <Chip tone={tone} size="sm">{label}</Chip>
-      {status.state === 'collecting' && status.lastCollectedAt ? (
-        <span className="usage-collector-last ec-muted"><RelativeTime value={status.lastCollectedAt} /></span>
-      ) : null}
       {resumable ? <button type="button" className="usage-collector-resume" disabled={busy} onClick={resume}>{t('sec.usage.collector.resume')}</button> : null}
       {failed ? <span role="alert" className="usage-collector-error">{t('sec.usage.collector.resumeFailed')}</span> : null}
     </span>

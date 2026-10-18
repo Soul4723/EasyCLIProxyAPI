@@ -1,8 +1,67 @@
 import type { UsageTimelinePoint } from '../../services/usageTrend';
 
 export type { UsageTimelinePoint };
-export type { UsageRecord, UsageEventPage } from '../../pages/UsageEventsView';
-export type { UsageAnalysis, UsageCategory } from '../../pages/UsageAnalysisView';
+/** One collected request (get_usage_events item). */
+export type UsageRecord = {
+  id: string;
+  row_id: string;
+  timestamp: string;
+  latency_ms: number;
+  ttft_ms: number | null;
+  source: string;
+  source_display: string;
+  failed: boolean;
+  canceled: boolean;
+  failure_status: number;
+  failure_body: string;
+  provider: string;
+  agent?: string;
+  auth_type?: string;
+  model: string;
+  /** Model name reported by the upstream response, when available. */
+  response_model?: string;
+  cost?: { total: number; pricing_model: string } | null;
+  alias: string;
+  reasoning_effort: string;
+  service_tier?: string;
+  response_service_tier?: string;
+  endpoint: string;
+  api_key_hash: string;
+  api_key_display: string;
+  api_key_remark: string;
+  tokens: {
+    input_tokens: number;
+    output_tokens: number;
+    reasoning_tokens: number;
+    cache_read_tokens: number;
+    cache_creation_tokens: number;
+    total_tokens: number;
+  };
+};
+
+export type UsageEventPage = {
+  items: UsageRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+export type UsageCategory = {
+  key: string;
+  label: string;
+  requests: number;
+  failures: number;
+  tokens: number;
+};
+
+export type UsageAnalysis = {
+  models: UsageCategory[];
+  providers: UsageCategory[];
+  sources: UsageCategory[];
+  apiKeys: UsageCategory[];
+  upstreams?: (UsageCategory & { provider: string })[];
+};
 
 export type UsageRange = '4h' | '24h' | 'today' | '7d' | '30d' | 'all' | 'custom';
 

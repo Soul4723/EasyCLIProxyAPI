@@ -71,7 +71,7 @@ export function ModelCell({ record }: { record: UsageRecord }) {
 export function AccountCell({ record }: { record: UsageRecord }) {
   const provider = usageProviderDetails(record.provider, record.auth_type);
   return (
-    <div className="req-stack">
+    <div className="req-stack req-account">
       <Masked className="ec-trunc" value={record.source_display || record.provider || '—'} />
       <small className="ec-muted ec-trunc">{provider.name}{provider.access ? ` · ${provider.access}` : ''}</small>
     </div>

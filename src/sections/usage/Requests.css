@@ -6,7 +6,7 @@
 .ec-sec-usage .req-notice.is-ok { background: var(--ec-muted-bg); color: var(--ec-ok-fg); }
 .ec-sec-usage .req-notice.is-danger { background: var(--ec-muted-bg); color: var(--ec-danger-fg); }
 
-.ec-sec-usage .req-table { min-width: 0; border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface); overflow: hidden; transition: opacity 0.15s; }
+.ec-sec-usage .req-table { min-width: 0; border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface); overflow-x: auto; transition: opacity 0.15s; }
 .ec-sec-usage .req-table.is-fetching { opacity: 0.8; }
 .ec-sec-usage .req-table .ec-table-wrap { border: 0; border-radius: 0; }
 .ec-sec-usage .req-table .ec-table { min-width: 880px; }
@@ -61,3 +61,4 @@
   .ec-sec-usage .req-toolbar { flex-wrap: wrap; }
   .ec-sec-usage .req-notice { max-width: 100%; order: 3; }
 }
+.ec-sec-usage .req-account { max-width: 230px; }
