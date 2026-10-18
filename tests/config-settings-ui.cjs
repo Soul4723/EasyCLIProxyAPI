@@ -239,7 +239,7 @@ const viewports = [{ width: 640, height: 600 }, { width: 964, height: 700 }, { w
         const nativePort = page.locator('#config-native-network .config-network-port-field input');
         assert.ok((await nativePort.boundingBox()).width <= 160, `${label}: port input stays compact`);
         if (viewport.width >= 964) {
-          const secret = await page.locator('.config-secret-input').boundingBox();
+          const secret = await page.locator('#config-native-management .config-management-form .config-secret-input').boundingBox();
           assert.ok(secret.width <= 420, `${label}: secret input must not stretch across the page`);
         }
         assert.equal(await page.getByLabel(locale === 'en' ? 'Port' : '端口', { exact: true }).count(), 1,

@@ -613,11 +613,14 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
   }, []);
   // A completed command must not start follow-up work on a newly selected target.
   const invoke = useCallback(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
-    if (!currentTarget.current) throw new Error('The core connection changed; agent operation cancelled');
+    // Native operations can outlive this page (for example, a daemon restart
+    // observed by the remounted page). Fence them by core target revision rather
+    // than component lifetime, while still rejecting completion after a target switch.
+    if (agentCacheRevision !== targetRevision) throw new Error('The core connection changed; agent operation cancelled');
     const result = await invokeNative<T>(command, args);
-    if (!currentTarget.current) throw new Error('The core connection changed; agent operation cancelled');
+    if (agentCacheRevision !== targetRevision) throw new Error('The core connection changed; agent operation cancelled');
     return result;
-  }, []);
+  }, [targetRevision]);
   const [selected, setSelected] = useState<AgentClientId>(readSelectedAgentClient);
   const [viewStateByClient, setViewStateByClient] = useState(() => agentViewStateCache);
   const viewMode = embedded ? 'embedded' : 'full';

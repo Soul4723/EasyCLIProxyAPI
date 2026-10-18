@@ -68,8 +68,9 @@ Object.assign(window, {
     },
   },
 });
-await initializeThemePreferences();
-initializeTheme(params.has('extensions') ? extensionRegistry : undefined);
-createRoot(document.getElementById('root')!).render(
-  <StrictMode><I18nProvider>{params.has('extensions') ? <ThemeExtensionFixture /> : <App />}</I18nProvider></StrictMode>,
-);
+void initializeThemePreferences().then(() => {
+  initializeTheme(params.has('extensions') ? extensionRegistry : undefined);
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode><I18nProvider>{params.has('extensions') ? <ThemeExtensionFixture /> : <App />}</I18nProvider></StrictMode>,
+  );
+});

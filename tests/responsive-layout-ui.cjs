@@ -110,9 +110,9 @@ const viewports = [
       assert.equal(scrolled.scrolled, true, `${label}: request columns remain reachable by horizontal scrolling`);
     };
     const assertExpandedPricing = async () => {
-      await page.getByRole('combobox', { name: '时间范围', exact: true }).selectOption('custom');
-      await page.locator('.usage-custom-range').waitFor();
-      await page.getByRole('button', { name: '手动添加', exact: true }).click();
+      const editButton = page.locator('.usage-price-row-actions button').first();
+      await editButton.waitFor();
+      await editButton.click();
       const editor = page.locator('.usage-price-editor');
       await editor.waitFor();
       await settle();
@@ -193,7 +193,7 @@ const viewports = [
       await assertNoPageOverflow(`${label} OAuth credentials`);
       await open('额度查询', '.quota-page .real-quota-card');
       assert.equal(await page.locator('.nav-section button.active').innerText(), '额度查询', `${label}: quota activates its sidebar entry`);
-      assert.equal(await page.locator('.quota-page h1').innerText(), '额度查询', `${label}: standalone quota page has its own heading`);
+      assert.equal(await page.locator('.quota-page').getAttribute('aria-label'), '额度查询', `${label}: standalone quota page exposes its accessible heading`);
       assert.equal(await page.locator('.oauth-subpage-tabs').count(), 0, `${label}: standalone quota page does not contain OAuth navigation`);
       await assertNoPageOverflow(`${label} quota`);
 

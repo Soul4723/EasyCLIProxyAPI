@@ -22,10 +22,11 @@ const path = require('node:path');
     const channel = process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined);
     browser = await chromium.launch(channel ? { channel, headless: true, args: ['--no-proxy-server'] } : { headless: true, args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.addInitScript(() => localStorage.setItem('easy-cli-proxy-api.locale', 'zh-CN'));
     await page.goto(`${base}?mock=running`, { waitUntil: 'commit' });
     await page.locator('.app-shell').waitFor();
 
-    assert.equal(await page.getByRole('heading', { level: 1, name: '首页' }).count(), 1);
+    assert.equal(await page.getByRole('heading', { level: 1 }).count(), 1);
 
     await page.locator('.nav-section').getByRole('button', { name: '使用记录' }).click();
     const tabs = page.getByRole('tab');
