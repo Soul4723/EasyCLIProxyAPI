@@ -73,6 +73,9 @@
   --ec-z-header: 20; --ec-z-sidebar: 30; --ec-z-scrim: 60; --ec-z-drawer: 62; --ec-z-panel: 65; --ec-z-dialog: 70; --ec-z-popover: 80; --ec-z-toast: 90;
 
   /* shadows */
+  --ec-shade-1: rgb(0 0 0 / 20%); --ec-shade-2: rgb(0 0 0 / 25%); --ec-shade-3: rgb(0 0 0 / 30%);
+  --ec-knob: #ffffff;
+  --ec-shadow-xs: 0 1px 2px rgb(0 0 0 / 18%);
   --ec-shadow-card: 0 1px 2px rgb(0 0 0 / 8%);
   --ec-shadow-pop: inset 0 1px rgb(255 255 255 / 4%), 0 18px 44px -18px rgb(0 0 0 / 80%);
   --ec-shadow-drawer: -18px 0 44px -18px rgb(0 0 0 / 70%);

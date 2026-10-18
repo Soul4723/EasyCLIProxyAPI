@@ -3,10 +3,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { Check, ExternalLink, MessageCircle, SlidersHorizontal } from 'lucide-react';
 import { languageOptions, useI18n } from '../i18n';
 import { useThemePreference } from '../theme';
+import { themePreview, themeRegistry } from '../themes/registry';
 import { useDensity, type Density } from '../density';
 import { IconButton } from '../ui/IconButton';
 import { Popover, PopoverHeading, PopoverItem, PopoverSeparator } from '../ui/Popover';
 import { SegmentedControl } from '../ui/SegmentedControl';
+import './Appearance.css';
 
 const QQ_CONTACT_URL = 'https://qm.qq.com/q/3queDaIG';
 const DISCORD_SERVER_URL = 'https://discord.gg/PxvX4D9kgs';
@@ -24,7 +26,7 @@ export function AppearanceControls() {
       <PopoverHeading>{t('shell.theme')}</PopoverHeading>
       <SegmentedControl
         ariaLabel={t('shell.theme')}
-        value={theme === 'light' || theme === 'system' ? theme : 'dark'}
+        value={theme}
         onChange={(value) => setTheme(value)}
         options={[
           { value: 'dark', label: t('shell.theme.dark') },
@@ -32,6 +34,29 @@ export function AppearanceControls() {
           { value: 'system', label: t('shell.theme.system') },
         ]}
       />
+      <PopoverHeading>{t('shell.theme.more')}</PopoverHeading>
+      <div className="ec-theme-list" role="group" aria-label={t('shell.theme.more')}>
+        {themeRegistry.themes.filter((candidate) => candidate.id !== 'dark' && candidate.id !== 'light').map((candidate) => {
+          const preview = themePreview(candidate);
+          return (
+            <button
+              key={candidate.id}
+              type="button"
+              className="ec-theme-card"
+              data-theme-id={candidate.id}
+              aria-pressed={theme === candidate.id}
+              onClick={() => setTheme(candidate.id)}
+            >
+              <span className="ec-theme-swatch" aria-hidden="true" style={{ background: preview.background }}>
+                <i style={{ background: preview.sidebar }} />
+                <i style={{ background: preview.surface }} />
+                <i style={{ background: preview.accent }} />
+              </span>
+              <span className="ec-theme-name">{t(candidate.nameKey)}</span>
+            </button>
+          );
+        })}
+      </div>
       <PopoverHeading>{t('shell.density')}</PopoverHeading>
       <SegmentedControl<Density>
         ariaLabel={t('shell.density')}

@@ -6,6 +6,7 @@ export * from './Tabs';
 export * from './StatusPill';
 export * from './Chip';
 export * from './Toggle';
+export * from './Checkbox';
 export * from './SearchInput';
 export * from './FilterChips';
 export * from './Pagination';

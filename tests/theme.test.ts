@@ -4,13 +4,8 @@ import { createThemeRegistry, themeRegistry, type ThemeRegistry } from '../src/t
 import { FIRST_PAINT_KEY, firstPaint } from '../src/themes/firstPaint';
 import type { SystemThemes, ThemeDefinition } from '../src/themes/types';
 import { createThemeController, type AppTheme, type NativeThemeSource, type ThemePreference } from '../src/themeController';
-import { warmSand } from '../src/themes/warmSand';
-import { graphite } from '../src/themes/graphite';
-import { midnight } from '../src/themes/midnight';
-import { sakura } from '../src/themes/sakura';
 
-// Retired theme IDs are not shipped, so these tests resolve them through a local registry.
-const registryWithRetiredThemes = createThemeRegistry([...themeRegistry.themes, warmSand, graphite, midnight, sakura]);
+const registryWithRetiredThemes = themeRegistry;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

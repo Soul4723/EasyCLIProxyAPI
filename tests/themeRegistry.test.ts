@@ -32,6 +32,12 @@ const rgbContrast = (foreground: number[], background: number[]) => {
 const contrast = (foreground: string, background: string) => rgbContrast(rgb(foreground), rgb(background));
 
 describe('theme registry and application', () => {
+  test('ships Ember dark/light first and keeps the upstream themes selectable', () => {
+    const ids = themeRegistry.themes.map((theme) => theme.id);
+    expect(ids.slice(0, 2)).toEqual(['dark', 'light']);
+    expect(ids.slice(2).sort()).toEqual(additionalThemes.map((theme) => theme.id).sort());
+    for (const theme of additionalThemes) expect(themeRegistry.get(theme.id)).toBeDefined();
+  });
   test('configured thumbs apply to both states and permit an independent active override', () => {
     for (const theme of [customControl, { ...sakura, tokens: { ...sakura.tokens, ...customControl.tokens } }]) {
       expect(themeMaterialTokens(theme).controlThumb).toBe('#843E64');
@@ -60,8 +66,7 @@ describe('theme registry and application', () => {
     expect(themeOverlaySurface({ ...sakura, tokens: { surface: '#00000080' }, windowBackground: '#ffffff' })).toBe('#7f7f7f');
   });
   test('defaults system selection to light/dark and derives preview colors', () => {
-    // Retired theme IDs stay resolvable only through a local registry; the shipped registry is dark/light.
-    const registry = createThemeRegistry([...themeRegistry.themes, ...additionalThemes, custom]);
+    const registry = createThemeRegistry([...themeRegistry.themes, custom]);
     expect(registry.resolve('system', 'dark').id).toBe('dark');
     expect(registry.resolve('system', 'light').id).toBe('light');
     for (const theme of additionalThemes) {
@@ -81,7 +86,7 @@ describe('theme registry and application', () => {
     } })).toEqual({ surface: '#7f7f7f', workspaceBackground: '#7f7f7f', softSurface: '#bfbfbf', hoverBackground: '#3f3f3f' });
   });
   test('system selection uses the remembered theme only when it matches the appearance', () => {
-    const localRegistry = createThemeRegistry([...themeRegistry.themes, ...additionalThemes]);
+    const localRegistry = themeRegistry;
     const remembered = { light: 'sakura-light', dark: 'midnight-dark' };
     expect(localRegistry.resolve('system', 'light', remembered).id).toBe('sakura-light');
     expect(localRegistry.resolve('system', 'dark', remembered).id).toBe('midnight-dark');

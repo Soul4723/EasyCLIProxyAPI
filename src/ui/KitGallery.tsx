@@ -3,7 +3,7 @@ import { Copy, Download, Plus, RefreshCw, Trash2, Zap } from 'lucide-react';
 import { AppearanceControls } from '../shell/AppMenu';
 import { PageHeader } from '../shell/PageHeader';
 import {
-  AreaChart, Badge, Button, Card, CardHeader, ChartLegend, Chip, ConfirmDialog, CopyButton, Countdown, DataTable, Dialog,
+  AreaChart, Badge, Button, Card, CardHeader, ChartLegend, Checkbox, Chip, ConfirmDialog, CopyButton, Countdown, DataTable, Dialog,
   EmptyState, ErrorState, FilterChips, HBar, IconButton, Masked, Pagination, Popover, PopoverHeading, PopoverItem, PopoverSeparator,
   ProgressBar, ProviderLogo, ProviderName, QuotaBar, RelativeTime, SearchInput, SegmentedControl, SidePanel, Skeleton, Sparkline,
   StatTile, StatusPill, STATUS_ORDER, Tabs, Toggle, tabPanelProps, providerInfo, type SortState,
@@ -48,6 +48,7 @@ export default function KitGallery() {
   const [panel, setPanel] = useState(false);
   const [dialog, setDialog] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [checks, setChecks] = useState({ a: true, b: false });
   const [sort, setSort] = useState<SortState | undefined>(undefined);
   const anchor = useRef<HTMLButtonElement>(null);
   const series = [
@@ -117,6 +118,13 @@ export default function KitGallery() {
               options={[{ value: 'today', label: 'Today' }, { value: '24h', label: '24h' }, { value: '7d', label: '7D' }]} />
             <Toggle checked={on} onChange={setOn} label="toggle" />
             <Toggle checked={!on} onChange={(v) => setOn(!v)} label="toggle small" size="sm" />
+          </div>
+          <div className="ec-kit-row" data-testid="kit-checkboxes">
+            <Checkbox checked={checks.a} onChange={(e) => setChecks({ ...checks, a: e.target.checked })} label="Checked" />
+            <Checkbox checked={false} indeterminate onChange={() => {}} label="Indeterminate" />
+            <Checkbox checked={checks.b} invalid onChange={(e) => setChecks({ ...checks, b: e.target.checked })} label="Invalid" />
+            <Checkbox checked disabled onChange={() => {}} label="Disabled" />
+            <Checkbox checked={checks.a} size="sm" onChange={(e) => setChecks({ ...checks, a: e.target.checked })} label="Small" />
           </div>
           <Tabs ariaLabel="tabs" idBase="kit" active={tab} onChange={setTab}
             tabs={[{ id: 'one', label: 'Overview' }, { id: 'two', label: 'Requests', count: 24 }, { id: 'three', label: 'Prices' }, { id: 'four', label: 'Off', disabled: true }]} />
