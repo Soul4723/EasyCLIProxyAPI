@@ -1,13 +1,13 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { launchBrowser, runUi } = require('./ui-harness.cjs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { mkdirSync } = require('node:fs');
-const base = process.env.AGENT_TEST_URL || 'http://127.0.0.1:1421';
 const screenshots = path.resolve(__dirname, '..', 'output', 'playwright');
 mkdirSync(screenshots, { recursive: true });
 
-(async () => {
-  const browser = await chromium.launch({ headless: true });
+runUi(async ({ base }) => {
+  const browser = await launchBrowser(chromium);
   try {
     for (const pluginInstalled of [false, true]) {
       const page = await browser.newPage();
@@ -58,4 +58,4 @@ mkdirSync(screenshots, { recursive: true });
     }
     console.log('PASS: VS Code status, startup directory, remembered history and cancellation');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+}, { url: process.env.AGENT_TEST_URL });

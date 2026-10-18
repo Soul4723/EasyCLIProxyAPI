@@ -87,7 +87,7 @@ const { openApp, setPrivacy, invoke } = require('./helpers/shell.cjs');
 
     // Unsaved guard: leaving the page asks first; cancel keeps the draft, discard leaves.
     await page.locator('[data-settings-tab=routing]').click();
-    const guard = page.getByRole('dialog', { name: 'Discard unsaved changes?' });
+    const guard = page.getByRole('alertdialog', { name: 'Discard unsaved changes?' });
     await guard.waitFor();
     await guard.getByRole('button', { name: 'Cancel' }).click();
     assert.equal(await page.locator('#con-mgmt-origin').inputValue(), 'https://core.example.test');
