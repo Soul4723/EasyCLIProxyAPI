@@ -38,10 +38,10 @@ export const healthOptionsFor = (row: ProviderRow): ProviderHealthCheckOptions =
   timeoutMs: PROVIDER_HEALTH_TIMEOUT_MS,
 });
 
-/** Model list used by the health dialog: configured models, merged with the upstream list when it can be fetched. */
-export async function discoverHealthModels(row: ProviderRow): Promise<ModelOption[]> {
+/** The models the upstream lists for this config's connection (raw, nothing merged). */
+export function fetchUpstreamModels(row: ProviderRow): Promise<ModelOption[]> {
   const options = healthOptionsFor(row);
-  const discovered = await fetchModels(
+  return fetchModels(
     options.provider,
     options.baseUrl,
     row.apiKeys.find((key) => key.trim()) ?? '',
@@ -50,7 +50,11 @@ export async function discoverHealthModels(row: ProviderRow): Promise<ModelOptio
     options.timeoutMs,
     options.proxyUrl,
   );
-  return mergeProviderHealthModels(discovered, row.models);
+}
+
+/** Model list used by the health dialog: the configured models, enriched with the upstream list when it can be fetched. */
+export async function discoverHealthModels(row: ProviderRow): Promise<ModelOption[]> {
+  return mergeProviderHealthModels(await fetchUpstreamModels(row), row.models);
 }
 
 export type QuickCheck =
@@ -67,7 +71,7 @@ export async function quickCheckRow(row: ProviderRow): Promise<QuickCheck> {
   let model = effective.models.find((item) => item.name.trim())?.name;
   if (!model) {
     try {
-      model = (await discoverHealthModels(effective))[0]?.name;
+      model = (await fetchUpstreamModels(effective))[0]?.name;
     } catch (error) {
       return { status: 'skipped', error: String(error).replace(/^Error:\s*/i, '') };
     }
