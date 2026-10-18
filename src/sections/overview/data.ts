@@ -1,3 +1,4 @@
+import { coreConfigSource, useSharedCoreConfig } from '../../services/coreConfig';
 import { credentialsSource } from '../../services/credentials';
 import { createDataSource, useDataSource } from '../../services/dataSource';
 // Data hooks for the Overview. Everything comes from the real services; the Overview owns no state of its own
@@ -13,7 +14,6 @@ import { lightingSource, type LightingSchedule } from '../../services/lighting';
 import { managementApi } from '../../services/managementApi';
 
 type GuiSettings = { host: string; port: number };
-type CoreConfigSummary = { apiKeys: Array<{ apiKey: string }> };
 type CoreTlsSettings = { enabled: boolean };
 
 export type RuntimeDetails = {
@@ -36,6 +36,7 @@ const INITIAL_DETAILS: RuntimeDetails = {
 /** Connection mode, listen host/port, TLS and the first client key (local mode only). */
 export function useRuntimeDetails(): RuntimeDetails & { reload: () => void } {
   const [details, setDetails] = useState<RuntimeDetails>(INITIAL_DETAILS);
+  const config = useSharedCoreConfig(undefined, details.connection?.mode === 'local');
   const request = useRef(0);
 
   const load = useCallback(async () => {
@@ -50,21 +51,18 @@ export function useRuntimeDetails(): RuntimeDetails & { reload: () => void } {
       setDetails((current) => ({ ...current, connection, clientKey: connection.clientKey || null, clientKeyError: false, error: '' }));
       return;
     }
-    const [gui, tls, config] = await Promise.allSettled([
+    const [gui, tls] = await Promise.allSettled([
       invoke<GuiSettings>('get_gui_settings'),
       invoke<CoreTlsSettings>('get_core_tls_settings'),
-      invoke<CoreConfigSummary>('get_core_config_settings'),
     ]);
     if (id !== request.current) return;
     setDetails((current) => ({
       ...current,
-      error: [gui, tls, config].filter(result => result.status === 'rejected').map(result => errorText((result as PromiseRejectedResult).reason)).join('; '),
+      error: [gui, tls].filter(result => result.status === 'rejected').map(result => errorText((result as PromiseRejectedResult).reason)).join('; '),
       connection,
       host: gui.status === 'fulfilled' ? gui.value.host : current.host,
       port: gui.status === 'fulfilled' ? gui.value.port : current.port,
       tls: tls.status === 'fulfilled' ? tls.value.enabled : current.tls,
-      clientKey: config.status === 'fulfilled' ? config.value.apiKeys[0]?.apiKey ?? null : current.clientKey,
-      clientKeyError: config.status === 'rejected',
     }));
   }, []);
 
@@ -80,7 +78,12 @@ export function useRuntimeDetails(): RuntimeDetails & { reload: () => void } {
     return () => { disposed = true; request.current++; unlisten?.(); };
   }, [load]);
 
-  return { ...details, reload: () => void load() };
+  return { ...details,
+    clientKey: details.connection?.mode === 'local' ? config.data ? config.data.apiKeys[0]?.apiKey ?? null : undefined : details.clientKey,
+    clientKeyError: details.connection?.mode === 'local' && !!config.error,
+    error: [details.error, details.connection?.mode === 'local' ? config.error : null].filter(Boolean).join('; '),
+    reload: () => { if (details.connection?.mode === 'local') coreConfigSource.invalidate(); void load(); },
+  };
 }
 
 export type OverviewSnapshot = {
