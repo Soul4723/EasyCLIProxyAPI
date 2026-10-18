@@ -50,7 +50,7 @@ const h = require('./helpers/shell.cjs');
     await confirm.waitFor({ state: 'detached' });
 
     // Each public mock scenario boots through the shell without live requests.
-    for (const [mock, status] of [['running', 'running'], ['stopped', 'stopped'], ['empty', 'notInstalled'], ['error', 'stopped']]) {
+    for (const [mock, status] of [['running', 'running'], ['stopped', 'stopped'], ['empty', 'notInstalled'], ['error', 'error']]) {
       await h.openApp(page, base, { mock });
       if (mock === 'error') {
         await assert.rejects(() => h.invoke(page, 'get_core_status'), /Browser Mock error scenario/);

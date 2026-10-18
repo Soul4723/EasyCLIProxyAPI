@@ -4,7 +4,7 @@ import { useCoreRuntime } from '../coreRuntime';
 import { useI18n } from '../i18n';
 import { canOpenAppPage, isAlwaysAvailablePage } from '../navigation';
 import { Button } from '../ui/Button';
-import { EmptyState } from '../ui/EmptyState';
+import { EmptyState, ErrorState } from '../ui/EmptyState';
 import { AppUpdateDialog } from '../appUpdate';
 import { closePluginWebview } from '../services/pluginWebview';
 import { PageHeader } from './PageHeader';
@@ -20,14 +20,14 @@ import './shell.css';
 export function Shell() {
   const { t } = useI18n();
   const route = useRoute();
-  const { status, connectionRevision } = useCoreRuntime();
+  const { status, statusError, refreshStatus, connection, connectionRevision } = useCoreRuntime();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const coreReady = Boolean(status?.ready);
+  const coreReady = Boolean(status?.ready) && !statusError;
   const remote = status?.connectionMode === 'remote';
   const current = findRoute(route.page);
   // Until the first core status arrives nothing is known, so deep links to gated pages wait instead of redirecting.
   const statusKnown = status !== null;
-  const blocked = statusKnown && Boolean(current) && ((current!.id === 'easy' && remote) || !canOpenAppPage(current!.id, coreReady));
+  const blocked = !statusError && statusKnown && Boolean(current) && ((current!.id === 'easy' && remote) || !canOpenAppPage(current!.id, coreReady));
 
   useEffect(() => {
     if (!route.page) replaceRoute(`/${defaultRouteId}`);
@@ -70,6 +70,13 @@ export function Shell() {
   let body;
   if (!current) {
     body = <NotFound title={t('shell.notFound')} action={t('shell.notFound.action')} />;
+  } else if (statusError && !isAlwaysAvailablePage(current.id)) {
+    body = <><PageHeader title={t(current.labelKey)} /><div className="ec-page-body" role="alert">
+      <ErrorState title={connection?.mode === 'remote'
+        ? t('shell.core.unreachable', { origin: connection.managementOrigin }) : t('sec.overview.offlineError')}
+        message={statusError}
+        onRetry={() => void refreshStatus()} />
+    </div></>;
   } else if (!statusKnown && !isAlwaysAvailablePage(current.id)) {
     body = <PageHeader title={t(current.labelKey)} />;
   } else if (blocked || !(isAlwaysAvailablePage(current.id) || coreReady)) {

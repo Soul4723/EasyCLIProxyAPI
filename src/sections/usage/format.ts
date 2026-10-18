@@ -21,8 +21,7 @@ export const formatUsd = (amount: number) => {
   return `$${new Intl.NumberFormat(getCurrentLocale(), { minimumFractionDigits: 2, maximumFractionDigits }).format(amount)}`;
 };
 
-export const rangeQuery = (range: UsageRange, customStart: string, customEnd: string): Pick<UsageQuery, 'start' | 'end'> => {
-  const now = new Date();
+export const rangeQuery = (range: UsageRange, customStart: string, customEnd: string, now = new Date()): Pick<UsageQuery, 'start' | 'end'> => {
   if (range === 'all') return {};
   if (range === 'custom') {
     const start = customStart ? new Date(customStart) : null;

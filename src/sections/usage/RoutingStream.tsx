@@ -29,7 +29,7 @@ export function RoutingStream({ block, groups }: Props) {
   }, [frozen, latest]);
   const mode: Mode = frozen ? 'paused' : 'live';
   const setMode = (next: Mode) => setFrozen(next === 'paused' ? latest : null);
-  const showError = block.error && block.data === null;
+  const showError = block.error;
   const topShare = share.slice(0, 6);
 
   return (

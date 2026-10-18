@@ -1,3 +1,5 @@
+import { pluginListSource } from '../../services/pluginList';
+import { useDataSource } from '../../services/dataSource';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../../services/platform';
 import { useCoreRuntime } from '../../coreRuntime';
@@ -5,7 +7,7 @@ import { useI18n } from '../../i18n';
 import { pluginText } from '../../i18n/plugins';
 import {
   pluginsApi, pluginStoreApi,
-  type PluginListEntry, type PluginListResponse, type PluginStoreEntry, type PluginStoreInstallResult, type PluginStoreResponse,
+  type PluginListEntry, type PluginStoreEntry, type PluginStoreInstallResult, type PluginStoreResponse,
 } from '../../services/plugins';
 import {
   collectPluginResourceEntries, getPluginTitle, notifyPluginResourcesChanged, type PluginResourceEntry,
@@ -49,12 +51,13 @@ export function usePlugins(tab: PluginTab) {
   const remote = coreStatus?.connectionMode === 'remote';
   const pt = useCallback((key: Parameters<typeof pluginText>[0]) => pluginText(key, locale), [locale]);
 
-  const [supported, setSupported] = useState<boolean | null>(null);
-  const [data, setData] = useState<PluginListResponse | null>(null);
+  const pluginSource = useDataSource(pluginListSource);
+  const supported = pluginSource.data?.supported ?? null;
+  const data = pluginSource.data?.list ?? null;
   const [store, setStore] = useState<PluginStoreResponse | null>(null);
   const [storeLoading, setStoreLoading] = useState(false);
   const [storeError, setStoreError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const loading = pluginSource.loading;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<PluginNotice | null>(null);
@@ -92,18 +95,16 @@ export function usePlugins(tab: PluginTab) {
     setSourceFilter(known); setInstalledSource(known);
   }, []);
 
-  const load = useCallback(async (target: PluginTab = tabRef.current, refreshVersions = false) => {
+  const load = useCallback(async (target: PluginTab = tabRef.current, refreshVersions = false, initial = false) => {
     const revision = ++requests.current;
-    setLoading(true); setError('');
+    setError('');
     try {
-      const support = await invoke<boolean>('get_plugin_support');
+      await (initial ? pluginListSource.load() : pluginListSource.refresh());
       if (!mounted.current || revision !== requests.current) return;
-      setSupported(support);
-      if (!support) { setData(null); setStore(null); return; }
-      const next = await pluginsApi.list();
-      if (!mounted.current || revision !== requests.current) return;
-      setData(next);
-      notifyPluginResourcesChanged();
+      const state = pluginListSource.getSnapshot();
+      if (state.error) throw new Error(state.error);
+      if (!state.data?.supported) { setStore(null); return; }
+      const next = state.data.list!;
       if (target === 'store') {
         const nextStore = await pluginStoreApi.list();
         if (mounted.current && revision === requests.current) applyStore(nextStore);
@@ -117,9 +118,8 @@ export function usePlugins(tab: PluginTab) {
         } catch (reason) { if (mounted.current && revision === requests.current) setStoreError(errorMessage(reason)); }
       }
     } catch (reason) { if (mounted.current && revision === requests.current) setError(errorMessage(reason)); }
-    finally { if (mounted.current && revision === requests.current) setLoading(false); }
   }, [applyStore]);
-  useEffect(() => { void load(tab); }, [tab, load]);
+  useEffect(() => { void load(tab, false, true); }, [tab, load]);
 
   /** Read the store listing on demand (the Updates filter needs it; the Store tab loads it through load()). */
   const ensureStore = useCallback(async () => {
@@ -131,30 +131,6 @@ export function usePlugins(tab: PluginTab) {
     } catch (reason) { if (mounted.current) setStoreError(errorMessage(reason)); }
     finally { storeBusy.current = false; if (mounted.current) setStoreLoading(false); }
   }, [applyStore]);
-
-  // Follow existing files for a bounded period after config writes. Missing
-  // binaries cannot load by waiting, and the API does not report loading progress.
-  const pendingPlugins = data?.pluginsEnabled
-    ? data.plugins.filter(plugin => plugin.path && plugin.enabled && !plugin.effectiveEnabled).map(plugin => plugin.id).sort().join('|')
-    : '';
-  useEffect(() => {
-    if (!pendingPlugins || busy || loading || restartRequired || installEntry) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let attempts = 0;
-    const revision = requests.current;
-    const poll = async () => {
-      try {
-        const next = await pluginsApi.list();
-        if (cancelled || requests.current !== revision) return;
-        setData(next);
-        notifyPluginResourcesChanged();
-      } catch { /* The manual refresh exposes errors without replacing action feedback. */ }
-      if (!cancelled && ++attempts < 8) timer = setTimeout(() => void poll(), 1500);
-    };
-    timer = setTimeout(() => void poll(), 1500);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [pendingPlugins, busy, loading, restartRequired, installEntry]);
 
   const mutate = useCallback(async (operation: () => Promise<unknown>, success: string) => {
     if (pending.current) return;
@@ -297,7 +273,7 @@ export function usePlugins(tab: PluginTab) {
 
   return {
     t, pt, locale, remote,
-    supported, data, store, loading, busy, locked, error, setError, notice, dismissNotice, notify,
+    supported, data, store, loading, busy, locked, error: error || pluginSource.error || '', setError, notice, dismissNotice, notify,
     storeLoading, storeError, ensureStore,
     installedSearch, setInstalledSearch, storeSearch, setStoreSearch,
     installedFilter, setInstalledFilter, storeFilter, setStoreFilter, sourceFilter, setSourceFilter,

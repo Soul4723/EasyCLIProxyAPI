@@ -3,6 +3,8 @@ import { invoke } from '../services/platform';
 import { useCoreRuntime } from '../coreRuntime';
 
 export type CoreStatusLine =
+  | { kind: 'unknown'; tone: 'muted' }
+  | { kind: 'error'; tone: 'danger' }
   | { kind: 'running'; tone: 'ok'; port: number | null }
   | { kind: 'starting' | 'stopped' | 'notInstalled'; tone: 'warn' | 'muted' }
   | { kind: 'recovering'; tone: 'warn'; attempt: number; limit: number | null }
@@ -16,7 +18,7 @@ function hostOf(origin: string | null | undefined) {
 
 /** One-line core state for the sidebar footer (local port from GUI settings, remote host from the connection). */
 export function useCoreStatusLine(): CoreStatusLine {
-  const { status } = useCoreRuntime();
+  const { status, statusError } = useCoreRuntime();
   const [port, setPort] = useState<number | null>(null);
   const running = Boolean(status?.ready);
   useEffect(() => {
@@ -27,6 +29,8 @@ export function useCoreStatusLine(): CoreStatusLine {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [running, status?.connectionMode]);
+  if (statusError) return { kind: 'error', tone: 'danger' };
+  if (!status) return { kind: 'unknown', tone: 'muted' };
   if (status?.connectionMode === 'remote') {
     const host = hostOf(status.remoteOrigin);
     return running ? { kind: 'remote', tone: 'ok', host } : { kind: 'remoteDown', tone: 'warn', host };

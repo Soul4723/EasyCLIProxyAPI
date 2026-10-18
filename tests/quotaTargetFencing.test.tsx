@@ -201,3 +201,33 @@ test('revision validation failure is fail-closed: no fetched result is accepted'
   await expect(enrichXaiQuotaPlan(fileFor('xai'), { status: 'success', rows: [] })).rejects.toThrow('revision unavailable');
   expect(attempted.every(request => request.expectedRevision === 41)).toBe(true);
 });
+
+test('shared UI batch validates the target once for all accounts and shares first-visit work', async () => {
+  const { refreshQuotaBatch } = await import('../src/services/quotaBatch');
+  const files = [fileFor('claude'), { ...fileFor('codex'), name: 'codex.json' }];
+  const first = refreshQuotaBatch(files, true);
+  expect(refreshQuotaBatch(files, true)).toBe(first);
+  await first;
+  expect(reads).toBe(1);
+  for (const file of files) expect(getQuotaCacheSnapshot()[quotaKey(file)]?.status).toBe('success');
+  accepted = []; reads = 0;
+  await refreshQuotaBatch(files, true);
+  expect(accepted).toHaveLength(0);
+  expect(reads).toBe(0);
+});
+
+test('same-key pruning publishes loading resets and fences late quota commits', async () => {
+  const { pruneQuotaCache, updateQuotaCache } = await import('../src/services/quotaCache');
+  const file = fileFor('codex');
+  const key = quotaKey(file);
+  const rows = [{ label: 'last good', remainingPercent: 90 }];
+  updateQuotaCache({ [key]: { status: 'loading', rows } });
+  const generation = captureQuotaCacheGeneration();
+  const previous = getQuotaCacheSnapshot();
+  pruneQuotaCache(new Set([key]));
+  expect(getQuotaCacheSnapshot()).not.toBe(previous);
+  expect(captureQuotaCacheGeneration()).toBe(generation + 1);
+  expect(getQuotaCacheSnapshot()[key]).toEqual({ status: 'idle', rows });
+  await commitFetchedQuota(generation, file, { status: 'success', rows: [] });
+  expect(getQuotaCacheSnapshot()[key].rows).toBe(rows);
+});
