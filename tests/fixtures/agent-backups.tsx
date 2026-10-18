@@ -1,14 +1,18 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { AgentsPage } from '../../src/pages/AgentsPage';
+import { AgentsSection } from '../../src/sections/agents';
+import { resetRouterForTests, useRoute } from '../../src/shell/router';
 import { I18nProvider } from '../../src/i18n';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
 const params = new URLSearchParams(location.search);
 if(params.has('reset-selections'))localStorage.removeItem('cpa-gui.agent-model-selections.v1');
 localStorage.setItem('easy-cli-proxy-api.locale',params.get('locale') || 'zh-CN');
 document.documentElement.dataset.theme = params.get('theme') || 'light';
-localStorage.setItem('cpa-gui.agent-selected-client.v1', params.get('client') || 'codex');
+if(!location.hash)location.hash=params.has('grid')?'/agents':params.has('sessions')?'/agents/sessions':`/agents?client=${params.get('client')||'codex'}${params.get('tab')?`&tab=${params.get('tab')}`:''}`;
+resetRouterForTests(location.hash);
+document.documentElement.dataset.density=params.get('density')||'comfortable';
 const ids = ['claude-code','claude-desktop','codex','opencode','openclaw','hermes','deepseek-harness','antigravity-cli','copilot-cli','vscode-copilot','workbuddy','zcode','kimi-code','grok-build','omp','pi'];
 let count=0; let backupCount=0; const backups:any[]=[]; let currentModel=params.has('fresh')?null:'gpt-one';
 let nativeOauth=params.has('native-oauth'); let nativeSwitchCount=0; let codexClosed=false; let closeCount=0;
@@ -36,7 +40,6 @@ let appliedCount=0;
 let detectionCount=0;
 (window as any).fixtureOauthLoggedIn=!params.has('no-oauth-login');
 const calls:any[]=[];(window as any).fixtureCalls=calls;
-let embedded=params.has('embedded');
 (window as any).fixtureSessionIds=Array.from({length:61},(_,index)=>`session-${index+1}`);
 mockIPC(async (cmd,args:any) => {
  calls.push({cmd,args});
@@ -149,14 +152,10 @@ mockIPC(async (cmd,args:any) => {
  throw new Error('Unhandled fixture command: '+cmd);
 });
 let root=createRoot(document.getElementById('root')!);
-const render=()=>{
- const agents=<AgentsPage embedded={embedded} onConfigurationApplied={()=>{document.documentElement.dataset.fixtureApplied=String(++appliedCount);}}/>;
- root.render(<I18nProvider>{params.has('shell')?(
-  <div className="app-shell">
-   <aside className="sidebar" aria-hidden="true" />
-   <div className="workspace"><main className="content">{agents}</main></div>
-  </div>
- ):agents}</I18nProvider>);
-};
-(window as any).fixtureRemount=(nextEmbedded=embedded)=>{embedded=nextEmbedded;root.unmount();root=createRoot(document.getElementById('root')!);render();};
+function Host(){
+ const route=useRoute();
+ return <AgentsSection sub={route.sub} params={route.params}/>;
+}
+const render=()=>{ root.render(<I18nProvider><Host/></I18nProvider>); };
+(window as any).fixtureRemount=()=>{root.unmount();root=createRoot(document.getElementById('root')!);render();};
 render();
