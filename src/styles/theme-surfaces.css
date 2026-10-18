@@ -1,8 +1,6 @@
 :root {
   --theme-overlay-surface: var(--bg-card);
   --theme-scrim: #2d2a266b;
-  --theme-scrollbar-thumb: color-mix(in srgb, var(--text-tertiary) 26%, transparent);
-  --theme-scrollbar-hover: color-mix(in srgb, var(--text-tertiary) 42%, transparent);
   --theme-control-thumb: #ffffff;
 }
 

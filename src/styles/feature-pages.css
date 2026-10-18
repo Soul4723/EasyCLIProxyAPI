@@ -1433,26 +1433,6 @@
   font-size: var(--font-size-meta) !important;
 }
 
-@keyframes guideGlow {
-  0% {
-    box-shadow: 0 0 0 9999px rgba(10, 14, 26, 0.72), 0 0 18px color-mix(in srgb, var(--ui-accent) 42%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 9999px rgba(10, 14, 26, 0.72), 0 0 32px color-mix(in srgb, var(--ui-accent) 72%, transparent);
-  }
-}
-
-@keyframes pulseDot {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.4);
-    opacity: 0.6;
-  }
-}
-
 @keyframes popoverIn {
   0% {
     opacity: 0;

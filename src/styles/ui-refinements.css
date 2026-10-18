@@ -20,10 +20,7 @@
   --text-quaternary: #475569;
   --theme-faf9f5: #f6f7f5;
   --theme-faf8f4: #ffffff;
-  --theme-faf8f2: #ffffff;
   --theme-fffdf8: #ffffff;
-  --theme-f8f5ee: #f8fafc;
-  --theme-f6f2ec: #f8fafc;
   --theme-f4f1ea: #f8fafc;
   --theme-eeeae2: #e2e8f0;
   --theme-eeece6: #f1f5f9;
@@ -31,13 +28,9 @@
   --theme-e8e4dc: #f1f5f9;
   --theme-e3e1db: #e2e8f0;
   --theme-d5d2cb: #cbd5e1;
-  --theme-c7c2b8: #94a3b8;
   --theme-7a746c: var(--text-tertiary);
   --theme-5f5a53: var(--text-secondary);
-  --theme-4f4a43: var(--text-secondary);
   --theme-433f39: #334155;
-  --theme-39352f: #334155;
-  --theme-342f2a: #1e293b;
   --theme-2d2a26: #0f172a;
   --ui-accent: #222222;
   --ui-accent-strong: #000000;
@@ -73,44 +66,6 @@ body, html, #root {
 /* 5. Home Page Layout & Quick Navigation */
 
 /* Home Page Runtime Control & Detail Grid */
-.control-panel .panel-detail-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin: 8px 0;
-}
-
-.control-panel .panel-detail-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border-secondary);
-}
-
-.control-panel .panel-detail-row:last-child {
-  border-bottom: none;
-}
-
-.control-panel .panel-detail-row dt {
-  color: var(--text-secondary);
-  font-size: var(--font-size-label);
-}
-
-.control-panel .panel-detail-row dd {
-  color: var(--text-primary);
-  font-weight: 500;
-  font-size: var(--font-size-label);
-}
-
-.control-panel .panel-detail-row dd code {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-meta);
-}
 
 /* Home Page API Access Panel */
 

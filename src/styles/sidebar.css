@@ -21,19 +21,11 @@
   --sidebar-text-subtle: #55657a;
   --sidebar-icon: #64748b;
   --sidebar-hover-bg: rgba(15, 23, 42, 0.045);
-  --sidebar-press-bg: rgba(15, 23, 42, 0.075);
-  --sidebar-selected-bg: #ffffff;
-  --sidebar-selected-shadow: 0 0 0 1px var(--sidebar-selected-border-color, rgba(15, 23, 42, 0.06)),
-    0 1px 2px var(--sidebar-selected-shadow-color, rgba(15, 23, 42, 0.06)),
-    0 2px 6px -2px var(--sidebar-selected-shadow-color, rgba(15, 23, 42, 0.06));
-  --sidebar-track-bg: rgba(15, 23, 42, 0.05);
-  --sidebar-thumb-bg: #ffffff;
   --sidebar-logo-ring: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.08);
   --sidebar-popover-bg: #ffffff;
   --sidebar-popover-edge: rgba(15, 23, 42, 0.08);
   --sidebar-popover-shadow: 0 12px 32px -8px rgba(15, 23, 42, 0.2), 0 2px 6px rgba(15, 23, 42, 0.06);
   --sidebar-focus: color-mix(in srgb, var(--ui-accent) 70%, transparent);
-  --sidebar-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 :root[data-theme='dark'] {
@@ -44,12 +36,6 @@
   --sidebar-text-subtle: #8593a8;
   --sidebar-icon: #8593a8;
   --sidebar-hover-bg: rgba(255, 255, 255, 0.045);
-  --sidebar-press-bg: rgba(255, 255, 255, 0.08);
-  --sidebar-selected-bg: rgba(255, 255, 255, 0.075);
-  --sidebar-selected-shadow: inset 0 0 0 1px var(--sidebar-selected-border-color, rgba(255, 255, 255, 0.05)),
-    0 1px 2px var(--sidebar-selected-shadow-color, rgba(0, 0, 0, 0.3));
-  --sidebar-track-bg: rgba(255, 255, 255, 0.05);
-  --sidebar-thumb-bg: rgba(255, 255, 255, 0.13);
   --sidebar-logo-ring: 0 0 0 1px rgba(255, 255, 255, 0.08);
   --sidebar-popover-bg: #1a1e27;
   --sidebar-popover-edge: rgba(255, 255, 255, 0.08);
@@ -97,35 +83,9 @@
 
 /* Press feedback lands on pointer-down, with no easing in the way. */
 
-@keyframes sidebar-indicator-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
 /* ---------- Footer ---------- */
 
 /* Language: a borderless popup button, menu grows from its corner. */
-
-@keyframes sidebar-popover-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(4px) scale(0.97);
-  }
-}
-
-@keyframes sidebar-popover-in-down {
-  from {
-    opacity: 0;
-    transform: translateY(-4px) scale(0.97);
-  }
-}
-
-@keyframes sidebar-fade-in {
-  from {
-    opacity: 0;
-  }
-}
 
 /* Privacy: a single toggle beside the theme control; accent while masking. */
 
