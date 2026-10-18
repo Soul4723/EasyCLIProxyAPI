@@ -167,7 +167,7 @@ describe('quota action confirmation with fully mocked IPC', () => {
 
   it('keeps application confirmations out of native and browser dialog APIs', async () => {
     for (const path of ['sections/quota/index.tsx', 'sections/quota/useQuotaData.ts', 'sections/quota/useConfirmAsk.tsx',
-      'pages/AuthFileManagementPage.tsx', 'pages/ApiAccessPage.tsx', 'pages/ThinkingAliasesPage.tsx', 'pages/UsageRecordsPage.tsx']) {
+      'pages/AuthFileManagementPage.tsx', 'pages/ApiAccessPage.tsx', 'sections/settings/models/AliasesPanel.tsx', 'pages/UsageRecordsPage.tsx']) {
       const source = await Bun.file(new URL('../src/' + path, import.meta.url)).text();
       expect(source).not.toContain('window.confirm');
       expect(source).not.toContain('@tauri-apps/plugin-dialog');

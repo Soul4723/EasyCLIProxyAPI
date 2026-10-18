@@ -1,0 +1,4 @@
+.ec-sec-settings .ec-routing { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-settings .ec-routing-anchor { display: contents; }
+.ec-sec-settings .ec-routing-more { min-width: 0; }
+.ec-sec-settings .ec-routing-more:empty { display: none; }

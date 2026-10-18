@@ -1,0 +1,137 @@
+/* Settings → Models. Page rules are scoped under .ec-sec-settings; the editor/confirm dialogs are portaled to <body>, so
+   their rules hang off the unique .ec-models-editor / .ec-models-confirm classes instead. */
+.ec-sec-settings .ec-models-tab { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-settings .ec-models-views { display: flex; }
+.ec-sec-settings .ec-models-view { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-settings .ec-models-view[hidden] { display: none; }
+.ec-sec-settings .ec-models-panel { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-settings .ec-models-dirty-dot {
+  display: inline-block; width: 6px; height: 6px; margin-left: var(--ec-sp-2); vertical-align: middle;
+  border-radius: var(--ec-r-pill); background: var(--ec-st-limited);
+}
+.ec-sec-settings .ec-set-group-status { display: inline-flex; align-items: center; gap: var(--ec-sp-1); }
+.ec-sec-settings .ec-models-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* banners */
+.ec-sec-settings .ec-models-banner {
+  display: flex; align-items: center; gap: var(--ec-sp-2);
+  margin: var(--ec-sp-2) var(--ec-pad) 0; padding: var(--ec-sp-2) var(--ec-sp-3);
+  border-radius: var(--ec-r-sm); font-size: var(--ec-fs-sm);
+}
+.ec-sec-settings .ec-models-banner span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ec-sec-settings .ec-models-banner.is-ok { background: var(--ec-ok-soft, var(--ec-tint)); color: var(--ec-ok-fg); }
+.ec-sec-settings .ec-models-banner.is-error { background: var(--ec-danger-soft, var(--ec-tint)); color: var(--ec-danger-fg); }
+.ec-sec-settings .ec-models-search { padding: var(--ec-sp-3) var(--ec-pad) 0; max-width: 360px; }
+
+/* alias table */
+.ec-sec-settings .ec-models-table { padding: var(--ec-sp-2) var(--ec-sp-2) var(--ec-sp-2); }
+.ec-sec-settings .ec-models-source-cell { display: flex; align-items: center; gap: var(--ec-sp-3); min-width: 0; }
+.ec-sec-settings .ec-models-source-copy { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.ec-sec-settings .ec-models-source-copy small { font-size: var(--ec-fs-xs); }
+.ec-sec-settings .ec-models-alias { display: block; max-width: 280px; color: var(--ec-fg); }
+.ec-sec-settings .ec-models-arrow { color: var(--ec-fg-subtle); }
+.ec-sec-settings .ec-models-badges { display: inline-flex; gap: var(--ec-sp-1); flex-wrap: wrap; }
+.ec-sec-settings .ec-models-actions { display: inline-flex; gap: 2px; }
+
+/* sensitive words */
+.ec-sec-settings .ec-models-words { display: flex; flex-direction: column; gap: var(--ec-sp-3); padding: var(--ec-sp-3) var(--ec-pad) var(--ec-pad); }
+.ec-sec-settings .ec-models-composer { display: flex; align-items: center; gap: var(--ec-sp-2); color: var(--ec-fg-muted); }
+.ec-sec-settings .ec-models-composer svg:first-child { flex: none; }
+.ec-sec-settings .ec-models-empty { margin: 0; color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
+.ec-sec-settings .ec-models-word-grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--ec-sp-2);
+}
+.ec-sec-settings .ec-models-word { display: flex; align-items: center; gap: var(--ec-sp-1); min-width: 0; }
+.ec-sec-settings .ec-models-word .ec-set-input { flex: 1; width: auto; }
+
+/* collapsible template blocks */
+.ec-sec-settings .ec-models-collapsible { overflow: hidden; }
+.ec-sec-settings .ec-models-collapsible-head {
+  display: flex; align-items: center; gap: var(--ec-sp-2); width: 100%;
+  padding: var(--ec-sp-3) var(--ec-pad); background: transparent; border: 0; color: var(--ec-fg);
+  font: inherit; text-align: start; cursor: pointer;
+}
+.ec-sec-settings .ec-models-collapsible-head:hover { background: var(--ec-hover); }
+.ec-sec-settings .ec-models-collapsible-head:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: -2px; }
+.ec-sec-settings .ec-models-collapsible-head h3 { margin: 0; font-size: var(--ec-fs-md); font-weight: 600; }
+.ec-sec-settings .ec-models-collapsible[data-open='true'] .ec-models-collapsible-head { border-bottom: 1px solid var(--ec-border-soft); }
+.ec-sec-settings .ec-models-collapsible-body { padding: var(--ec-sp-3) var(--ec-pad) var(--ec-pad); }
+.ec-sec-settings .ec-models-collapsible-body[hidden] { display: none; }
+
+/* TemplateConfigSection (shared legacy component) restyled to sit flat inside the collapsible */
+.ec-sec-settings .ec-models-collapsible-body .template-config-section { display: flex; flex-direction: column; gap: var(--ec-sp-3); }
+.ec-sec-settings .ec-models-collapsible-body .template-config-card {
+  background: var(--ec-raised); border: 1px solid var(--ec-border-soft); border-radius: var(--ec-r-md);
+  padding: var(--ec-sp-3) var(--ec-pad); color: var(--ec-fg);
+}
+.ec-sec-settings .ec-models-collapsible-body .template-config-card h3 { font-size: var(--ec-fs-sm); }
+.ec-sec-settings .ec-models-collapsible-body .template-config-fields { display: flex; flex-direction: column; align-items: stretch; gap: var(--ec-sp-3); }
+.ec-sec-settings .ec-models-collapsible-body .template-config-field { min-width: 0; }
+.ec-sec-settings .ec-models-collapsible-body .config-network-input {
+  box-sizing: border-box; min-width: 0; max-width: 100%; padding: 0 var(--ec-sp-3);
+  background: var(--ec-field); color: var(--ec-fg); border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm);
+  font: inherit; font-size: var(--ec-fs-sm);
+}
+.ec-sec-settings .ec-models-collapsible-body input.config-network-input,
+.ec-sec-settings .ec-models-collapsible-body select.config-network-input { height: var(--ec-ctrl-h); }
+.ec-sec-settings .ec-models-collapsible-body input.config-network-input,
+.ec-sec-settings .ec-models-collapsible-body select.config-network-input { width: 100%; max-width: 360px; }
+.ec-sec-settings .ec-models-collapsible-body textarea.config-network-input { box-sizing: border-box; width: 100%; padding: var(--ec-sp-2) var(--ec-sp-3); }
+.ec-sec-settings .ec-models-collapsible-body .template-config-secret,
+.ec-sec-settings .ec-models-collapsible-body .template-config-directory { display: flex; align-items: center; gap: var(--ec-sp-2); }
+
+/* alias editor dialog (portaled) */
+.ec-models-editor { display: flex; flex-direction: column; gap: var(--ec-sp-4); padding: var(--ec-sp-3) 0 var(--ec-sp-2); }
+.ec-models-editor .ec-models-field { display: flex; flex-direction: column; gap: var(--ec-sp-2); min-width: 0; }
+.ec-models-editor .ec-models-field-inline { flex-direction: row; align-items: center; justify-content: space-between; }
+.ec-models-editor .ec-models-field label,
+.ec-models-editor .ec-models-field-label {
+  display: inline-flex; align-items: center; gap: var(--ec-sp-1); color: var(--ec-fg-2); font-size: var(--ec-fs-sm); font-weight: 600;
+}
+.ec-models-editor .ec-set-input {
+  box-sizing: border-box; height: var(--ec-ctrl-h); min-width: 0; padding: 0 var(--ec-sp-3);
+  background: var(--ec-field); color: var(--ec-fg); border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm);
+  font: inherit; font-size: var(--ec-fs-sm);
+}
+.ec-models-editor .ec-set-input.is-wide { width: 100%; }
+.ec-models-editor .ec-set-input.is-mono { font-family: var(--ec-mono); }
+.ec-models-editor .ec-set-input:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 0; }
+.ec-models-editor .ec-set-input:disabled { opacity: 0.55; cursor: not-allowed; }
+.ec-models-editor .ec-set-row-error { margin: 0; color: var(--ec-danger-fg); font-size: var(--ec-fs-xs); }
+.ec-models-editor .ec-models-hint { margin: 0; color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-models-editor .ec-models-picker { position: relative; }
+.ec-models-editor .ec-models-picker-input { position: relative; display: flex; align-items: center; color: var(--ec-fg-muted); }
+.ec-models-editor .ec-models-picker-input > svg { position: absolute; left: var(--ec-sp-3); pointer-events: none; }
+.ec-models-editor .ec-models-picker-input .ec-set-input { padding-left: calc(var(--ec-sp-3) + 22px); }
+.ec-models-editor .ec-models-picker-list {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 2; margin-top: var(--ec-sp-1); max-height: 220px;
+  box-shadow: 0 8px 24px var(--ec-scrim); overflow-y: auto; padding: var(--ec-sp-1);
+  background: var(--ec-popover); border: 1px solid var(--ec-border); border-radius: var(--ec-r-md);
+}
+.ec-models-editor .ec-models-picker-list button {
+  display: flex; align-items: center; gap: var(--ec-sp-2); width: 100%; min-height: var(--ec-row-h); padding: var(--ec-sp-1) var(--ec-sp-2);
+  background: transparent; border: 0; border-radius: var(--ec-r-sm); color: var(--ec-fg); font: inherit; font-size: var(--ec-fs-sm); text-align: start; cursor: pointer;
+}
+.ec-models-editor .ec-models-picker-list button:hover,
+.ec-models-editor .ec-models-picker-list button.is-active { background: var(--ec-hover); }
+.ec-models-editor .ec-models-picker-copy { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.25; }
+.ec-models-editor .ec-models-picker-copy strong { font-family: var(--ec-mono); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-models-editor .ec-models-picker-copy small { color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-models-editor .ec-models-picker-kind { flex: none; color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-models-editor .ec-models-picker-empty { padding: var(--ec-sp-3); color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
+.ec-models-editor .ec-models-source { display: flex; align-items: center; gap: var(--ec-sp-2); margin: 0; min-width: 0; font-size: var(--ec-fs-xs); color: var(--ec-fg-2); }
+.ec-models-editor .ec-models-preview {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--ec-sp-2); padding: var(--ec-sp-3);
+  background: var(--ec-muted-bg); border-radius: var(--ec-r-md); color: var(--ec-fg-2); font-size: var(--ec-fs-sm);
+}
+.ec-models-editor .ec-models-preview strong { color: var(--ec-fg); overflow-wrap: anywhere; }
+.ec-models-confirm { white-space: pre-line; }
+
+@container workspace (max-width: 760px) {
+  .ec-sec-settings .ec-models-views { overflow-x: auto; scrollbar-width: none; }
+  .ec-sec-settings .ec-models-alias { max-width: 160px; }
+  .ec-sec-settings .ec-models-word-grid { grid-template-columns: minmax(0, 1fr); }
+}

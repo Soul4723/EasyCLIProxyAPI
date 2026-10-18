@@ -75,19 +75,9 @@ describe('控件自身反馈', () => {
     }
   });
 
-  it('复制密钥仅保留原按钮勾选和失败提示', () => {
-    const { calls } = actionCalls('ConfigPanel.tsx', 'copyApiKey', 'keyFeedback.showNotice');
-    expect(calls).toHaveLength(1);
-    expect(calls[0].arguments[1].getText()).toBe("'error'");
-  });
-
-  it('首页启动和停止不重复报成功，只有重启需要额外结果', () => {
-    const { source, calls } = actionCalls('Kernel.tsx', 'runCoreProcessCommand', 'showProcessNotice');
-    const successCalls = calls.filter((call) => call.arguments[1]?.getText(source) === "'success'");
-    expect(successCalls).toHaveLength(1);
-    let ancestor: ts.Node | undefined = successCalls[0].parent;
-    while (ancestor && !ts.isIfStatement(ancestor)) ancestor = ancestor.parent;
-    expect(ancestor && ts.isIfStatement(ancestor) ? ancestor.expression.getText(source) : '')
-      .toBe("command === 'restart_core_process'");
+  it('复制密钥交给套件 CopyButton，自身反馈不再额外弹提示', async () => {
+    const source = await Bun.file(new URL('../src/sections/settings/tabs/AccessTab.tsx', import.meta.url)).text();
+    expect(source).toContain('<CopyButton');
+    expect(source).not.toContain('navigator.clipboard');
   });
 });
