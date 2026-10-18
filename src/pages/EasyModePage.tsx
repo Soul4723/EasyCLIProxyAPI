@@ -31,7 +31,7 @@ import {
   responseList,
 } from "../services/managementApi";
 import { appendNativeProviderGroup } from '../services/providerGroups';
-import { providerRowsFromGroups, type ProviderSection } from './ApiAccessPage';
+import { providerRowsFromGroups, type ProviderSection } from '../sections/providers/api/logic';
 import {
   DEEPSEEK_BASE_URL,
   fetchModels,

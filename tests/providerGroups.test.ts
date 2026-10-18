@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildProviderGroupRecord, providerDraftFromRecord, reorderProviderRecords, resolveProviderRecordIndex } from '../src/pages/ApiAccessPage';
+import { buildProviderGroupRecord, providerDraftFromRecord, reorderProviderRecords, resolveProviderRecordIndex } from '../src/sections/providers/api/logic';
 import { cleanProviderGroup, effectiveProviderKey, providerGroupStatus, providerKeyDraft, serializeProviderKey } from '../src/services/providerGroups';
 
 const group = () => ({

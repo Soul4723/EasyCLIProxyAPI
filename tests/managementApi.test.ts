@@ -12,7 +12,7 @@ import {
   createProviderDraft,
   providerCategoryMatchesRecord,
   providerRecordWithDisabledState,
-} from '../src/pages/ApiAccessPage';
+} from '../src/sections/providers/api/logic';
 
 describe('v8 Management API requests', () => {
   let originalWindow: PropertyDescriptor | undefined;

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildProviderKeyRecord, providerDraftFromRecord, type ProviderDraft, type ProviderSection,
-} from '../src/pages/ApiAccessPage';
+} from '../src/sections/providers/api/logic';
 import { providerEntries, updateProviderEntry } from '../src/services/providerEntries';
 import { cleanProviderGroup } from '../src/services/providerGroups';
 

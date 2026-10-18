@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { buildProviderGroupRecord, providerDraftFromRecord, type ProviderSection } from '../src/pages/ApiAccessPage';
+import { buildProviderGroupRecord, providerDraftFromRecord, type ProviderSection } from '../src/sections/providers/api/logic';
 import { appendNativeProviderGroup, validateProviderTemplateRecord, validateProviderGroupKeys, providerKeyDraft } from '../src/services/providerGroups';
 import { modelEndpointCandidates, modelsFromRecord } from '../src/services/modelService';
 import { buildProviderHealthProbe } from '../src/services/providerHealthCheck';
