@@ -41,7 +41,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     } else if (sub) {
       const selected = await page.getByRole('tab', { selected: true }).count() ? page.getByRole('tab', { selected: true }).first() : null;
       assert.ok(selected, `${route}: sub-page tab is selected`);
-      const expectedIndex = { api: 0, oauth: 1 }[sub];
+      const expectedIndex = { overview: 0, all: 1, exclusions: 2 }[sub];
       assert.equal(await page.locator('.ec-page-header').getByRole('tab').evaluateAll((tabs) => tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true')), expectedIndex, `${route}: active sub-page tab`);
     }
     noErrors(page, route);
@@ -50,7 +50,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
 
   h.knownGap(gaps, `pages with a second <h1> inside the body (legacy bodies): ${[...multipleH1].join(', ')}`, multipleH1.size === 0);
 
-  // Dev-only reference gallery and bare Easy mode are routable but not in the nav.
+  // Dev-only reference gallery and Guided setup (Easy mode) are routable but not in the nav.
   {
     const page = await open({ path: '/kit' });
     assert.equal(await page.locator('.ec-app').getAttribute('data-page'), 'kit');
@@ -58,8 +58,11 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     assert.equal(await page.locator('.ec-nav-item[data-nav="kit"]').count(), 0);
     const easy = await open({ path: '/easy' });
     assert.equal(await easy.locator('.ec-app').getAttribute('data-page'), 'easy');
-    assert.equal(await easy.locator('.ec-app--bare').count(), 1, 'Easy mode is a bare full-screen page');
-    assert.equal(await easy.locator('.ec-sidebar').count(), 0, 'Easy mode has no sidebar');
+    assert.equal(await easy.locator('.ec-app--bare').count(), 0, 'Guided setup lives inside the shell');
+    assert.equal(await easy.locator('.ec-sidebar').count(), 1, 'Guided setup keeps the sidebar');
+    assert.equal(await h.pageTitle(easy), 'Guided setup');
+    assert.equal(await easy.locator('.simple-mode-page').count(), 1, 'the guided wizard renders in the page body');
+    assert.equal(await easy.locator('.simple-mode-topbar').count(), 0, 'the old brand/theme/language bar is replaced by the shell');
     assert.equal(await easy.locator('.ec-nav-item[data-nav="easy"]').count(), 0);
     noErrors(easy, '/easy');
   }
@@ -153,10 +156,11 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
       await page.waitForFunction((value) => location.hash === `#${value}`, expected);
       assert.equal(await h.currentRoute(page), expected, `app:navigate "${detail}"`);
     }
-    // 'easy' (legacy id) opens the bare Easy mode page in local mode
+    // 'easy' (legacy id) opens Guided setup (inside the shell) in local mode
     await send('easy');
     await page.waitForFunction(() => location.hash === '#/easy');
-    assert.equal(await page.locator('.ec-app--bare').count(), 1);
+    assert.equal(await page.locator('.ec-app--bare').count(), 0);
+    assert.equal(await page.locator('.ec-sidebar').count(), 1);
     await send('home');
     await page.waitForFunction(() => location.hash === '#/overview');
     // Unknown ids and malformed details are ignored (no hash change, no error)

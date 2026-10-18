@@ -47,6 +47,10 @@ const base = process.env.OVERVIEW_TEST_BASE_URL || 'http://127.0.0.1:18731/';
   await page.locator('.ov-runtime[data-runtime-state="running"]').waitFor();
   await openApp(page, base, { mock: 'empty' });
   await page.getByTestId('ov-onboarding').waitFor();
+  // Guided setup (Easy mode) is reachable from Get started and opens inside the shell.
+  await page.getByTestId('ov-onboarding').getByRole('button', { name: 'Guided setup' }).click();
+  await page.waitForFunction(() => location.hash === '#/easy');
+  await page.locator('.simple-mode-page').waitFor();
   assert.equal(errors.length, 0, errors.join('\n'));
   await browser.close();
   console.log('overview-ui ok');
