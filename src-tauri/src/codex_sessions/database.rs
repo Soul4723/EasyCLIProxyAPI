@@ -37,7 +37,7 @@ pub(super) fn open_read_write(path: &Path) -> Result<Connection, String> {
     Ok(connection)
 }
 
-fn sqlite_candidate(path: &Path) -> bool {
+pub(super) fn sqlite_candidate(path: &Path) -> bool {
     path.extension()
         .and_then(OsStr::to_str)
         .is_some_and(|extension| {

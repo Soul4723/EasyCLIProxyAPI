@@ -264,11 +264,11 @@ fn filter_session_index(text: &str, selected: &HashSet<String>) -> (String, usiz
     (next, removed)
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(super) fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn is_locked_io_error(error: &std::io::Error) -> bool {
+pub(super) fn is_locked_io_error(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::PermissionDenied
         || matches!(error.raw_os_error(), Some(32 | 33))
 }

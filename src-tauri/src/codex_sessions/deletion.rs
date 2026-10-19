@@ -224,7 +224,7 @@ fn build_database_delete_plan(
     }))
 }
 
-fn select_rows_if_supported(
+pub(super) fn select_rows_if_supported(
     connection: &Connection,
     table: &str,
     required_columns: &[&str],
@@ -420,7 +420,7 @@ fn rollout_candidate(codex_home: &Path, path: &Path) -> PathBuf {
     }
 }
 
-fn validated_rollout_path(codex_home: &Path, path: &Path) -> Result<Option<PathBuf>, String> {
+pub(super) fn validated_rollout_path(codex_home: &Path, path: &Path) -> Result<Option<PathBuf>, String> {
     let candidate = rollout_candidate(codex_home, path);
     if !candidate.is_file() {
         return Ok(None);

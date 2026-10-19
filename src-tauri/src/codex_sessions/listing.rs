@@ -128,7 +128,7 @@ fn list_sessions_from_rollouts(
     (sessions, warnings)
 }
 
-fn read_session_index_metadata(
+pub(super) fn read_session_index_metadata(
     codex_home: &Path,
 ) -> Result<HashMap<String, SessionIndexMetadata>, String> {
     let path = codex_home.join("session_index.jsonl");
