@@ -133,12 +133,9 @@ node tests/run-ui.cjs               # the whole headless UI suite
 (cd src-tauri && cargo test --bin cpa-gui)
 ```
 
-- `tests/*.test.ts(x)` run under Bun. `tests/*-ui.cjs` are headless Playwright tests against the
-  browser mock; each starts its own Vite server. Run the **whole** suite with `node tests/run-ui.cjs`
-  rather than a subset, because a subset can miss regressions elsewhere.
-- The UI tests need Playwright. Point `PLAYWRIGHT_MODULE` at an existing Playwright installation and
-  use `PLAYWRIGHT_CHANNEL` (for example `chrome` or `msedge`) to use an installed browser instead of the
-  bundled Chromium. `tests/run-ui.cjs` documents both.
+- Bun tests live in `tests/unit/<area>/`; Playwright scripts live in `tests/ui/<section>/`.
+  Run the **whole UI suite before merging frontend PRs**. See [tests/README.md](tests/README.md)
+  for layout, filters, Playwright setup, mock contracts and manual probes.
 - A green mock suite does not prove the packaged app works. To observe the real debug app headlessly,
   see [Observe the real debug app](docs/dev-observe.md).
 
