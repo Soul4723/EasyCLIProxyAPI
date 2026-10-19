@@ -100,15 +100,6 @@ export function validateProviderTemplateRecord(value: Record<string, unknown>, p
   return null;
 }
 
-export function appendNativeProviderGroup(groups: Record<string, unknown>[], group: Record<string, unknown>): Record<string, unknown>[] {
-  const base = readString(group, 'name').trim() || 'provider';
-  let name = base;
-  let suffix = 2;
-  const names = new Set(groups.map((item) => readString(item, 'name')));
-  while (names.has(name)) name = `${base} (${suffix++})`;
-  return [...groups.map(cleanProviderGroup), cleanProviderGroup({ ...group, name })];
-}
-
 export function serializeProviderKey(draft: ProviderKeyDraft): Record<string, unknown> {
   const value = cleanProviderGroup(draft.value);
   for (const [field, text] of Object.entries(draft.text ?? {})) {

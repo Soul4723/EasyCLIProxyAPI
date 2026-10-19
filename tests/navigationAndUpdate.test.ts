@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { appUpdateIndicatorState } from '../src/appUpdateModel';
 import { canOpenAppPage, isAlwaysAvailablePage } from '../src/navigation';
 
-describe('简易模式、首页、配置与版本管理导航', () => {
-  test('内核停止时简易模式、概览、设置、用量、代理与套件始终可进入', () => {
-    for (const page of ['easy', 'overview', 'settings', 'usage', 'agents', 'kit']) {
+describe('首页、配置与版本管理导航', () => {
+  test('内核停止时概览、设置、用量、代理与套件始终可进入', () => {
+    for (const page of ['overview', 'settings', 'usage', 'agents', 'kit']) {
       expect(isAlwaysAvailablePage(page)).toBe(true);
       expect(canOpenAppPage(page, false)).toBe(true);
     }

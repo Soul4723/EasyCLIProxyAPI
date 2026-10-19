@@ -16,21 +16,20 @@ import { defaultRouteId, findRoute, resolveNavigationTarget } from './routes';
 import { navigate, replaceRoute, routeHref, useRoute } from './router';
 import './shell.css';
 
-/** App shell: sidebar + routed page. Owns gating (core-not-ready, remote Easy mode), `app:navigate` and the mobile drawer. */
+/** App shell: sidebar + routed page. Owns gating (core-not-ready), `app:navigate` and the mobile drawer. */
 export function Shell() {
   const { t } = useI18n();
   const route = useRoute();
   const { status, statusError, refreshStatus, connection, connectionRevision } = useCoreRuntime();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const coreReady = Boolean(status?.ready) && !statusError;
-  const remote = status?.connectionMode === 'remote';
   const current = findRoute(route.page);
   // Until the first core status arrives nothing is known, so deep links to gated pages wait instead of redirecting.
   const statusKnown = status !== null;
-  const blocked = !statusError && statusKnown && Boolean(current) && ((current!.id === 'easy' && remote) || !canOpenAppPage(current!.id, coreReady));
+  const blocked = !statusError && statusKnown && Boolean(current) && !canOpenAppPage(current!.id, coreReady);
 
   useEffect(() => {
-    if (!route.page) replaceRoute(`/${defaultRouteId}`);
+    if (!route.page || route.page === 'easy') replaceRoute(`/${defaultRouteId}`);
     else if (blocked) replaceRoute(`/${defaultRouteId}`);
   }, [route.page, blocked]);
 

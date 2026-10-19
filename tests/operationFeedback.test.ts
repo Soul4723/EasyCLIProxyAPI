@@ -5,7 +5,7 @@ import ts from 'typescript';
 function actionCalls(file: string, action: string, callback: string) {
   const source = ts.createSourceFile(
     file,
-    readFileSync(new URL(`../src/${file.includes('/') ? file : `pages/${file}`}`, import.meta.url), 'utf8'),
+    readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8'),
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TSX,

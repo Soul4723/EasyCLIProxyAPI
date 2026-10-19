@@ -50,21 +50,16 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
 
   h.knownGap(gaps, `pages with a second <h1> inside the body (legacy bodies): ${[...multipleH1].join(', ')}`, multipleH1.size === 0);
 
-  // Dev-only reference gallery and Guided setup (Easy mode) are routable but not in the nav.
+  // Dev-only gallery survives; saved Easy mode links redirect to Overview.
   {
     const page = await open({ path: '/kit' });
     assert.equal(await page.locator('.ec-app').getAttribute('data-page'), 'kit');
     assert.deepEqual(await activeNav(page), [], '/kit is not in the nav');
     assert.equal(await page.locator('.ec-nav-item[data-nav="kit"]').count(), 0);
     const easy = await open({ path: '/easy' });
-    assert.equal(await easy.locator('.ec-app').getAttribute('data-page'), 'easy');
-    assert.equal(await easy.locator('.ec-app--bare').count(), 0, 'Guided setup lives inside the shell');
-    assert.equal(await easy.locator('.ec-sidebar').count(), 1, 'Guided setup keeps the sidebar');
-    assert.equal(await h.pageTitle(easy), 'Guided setup');
-    assert.equal(await easy.locator('.simple-mode-page').count(), 1, 'the guided wizard renders in the page body');
-    assert.equal(await easy.locator('.simple-mode-topbar').count(), 0, 'the old brand/theme/language bar is replaced by the shell');
-    assert.equal(await easy.locator('.ec-nav-item[data-nav="easy"]').count(), 0);
-    noErrors(easy, '/easy');
+    await easy.waitForFunction(() => location.hash === '#/overview');
+    assert.equal(await h.pageTitle(easy), 'Overview');
+    noErrors(easy, '/easy redirect');
   }
 
   // Empty / root hash lands on the default page without adding a history entry for the empty one.
@@ -156,9 +151,9 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
       await page.waitForFunction((value) => location.hash === `#${value}`, expected);
       assert.equal(await h.currentRoute(page), expected, `app:navigate "${detail}"`);
     }
-    // 'easy' (legacy id) opens Guided setup (inside the shell) in local mode
+    // 'easy' (legacy id) opens Overview in local mode
     await send('easy');
-    await page.waitForFunction(() => location.hash === '#/easy');
+    await page.waitForFunction(() => location.hash === '#/overview');
     assert.equal(await page.locator('.ec-app--bare').count(), 0);
     assert.equal(await page.locator('.ec-sidebar').count(), 1);
     await send('home');
@@ -372,7 +367,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     assert.equal(await page.locator('.ec-nav button.is-locked[data-nav]').count(), LOCKED.length);
     noErrors(page, 'live gating');
   }
-  // Remote mode: Easy mode is local-only, the reason is exposed to assistive tech.
+  // Remote mode: legacy Easy links redirect; the remote reason is accessible.
   {
     const page = await open();
     assert.equal(await page.locator('#remote-navigation-reason').count(), 0, 'no remote reason in local mode');

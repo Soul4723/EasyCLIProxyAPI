@@ -81,8 +81,8 @@ describe('UI localization boundaries', () => {
   });
 
   it('does not add a redundant hardcoded caption above localized page titles', () => {
-    for (const file of ['AgentsPage']) {
-      const source = readFileSync(join(sourceRoot, 'pages', `${file}.tsx`), 'utf8');
+    for (const file of ['index']) {
+      const source = readFileSync(join(sourceRoot, 'sections', 'agents', `${file}.tsx`), 'utf8');
       expect(source).not.toMatch(/<span>(?:Providers|OAuth|Auth Files|Agent Clients|Quota)<\/span>/);
     }
   });

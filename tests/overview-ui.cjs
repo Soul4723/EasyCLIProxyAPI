@@ -48,10 +48,9 @@ const { openApp, setPrivacy, startServer } = require('./helpers/shell.cjs');
   await page.locator('.ov-runtime[data-runtime-state="running"]').waitFor();
   await openApp(page, base, { mock: 'empty' });
   await page.getByTestId('ov-onboarding').waitFor();
-  // Guided setup (Easy mode) is reachable from Get started and opens inside the shell.
-  await page.getByTestId('ov-onboarding').getByRole('button', { name: 'Guided setup' }).click();
-  await page.waitForFunction(() => location.hash === '#/easy');
-  await page.locator('.simple-mode-page').waitFor();
+  // Onboarding links directly to the surviving agent workspace.
+  await page.getByTestId('ov-onboarding').locator('[data-step=agent]').getByRole('button').click();
+  await page.waitForFunction(() => location.hash === '#/agents');
   assert.equal(errors.length, 0, errors.join('\n'));
   await browser.close();
   await server?.close();
