@@ -1100,8 +1100,6 @@ export function createBrowserMockRuntime(
       case 'open_auth_files_directory':
       case 'open_core_logs_directory':
       case 'restart_agent_app':
-      case 'restart_codex_app':
-      case 'restart_opencode_app':
       case 'restart_codex_cli_daemon':
       case 'check_codex_oauth_login':
       case 'restore_codex_official_config':
@@ -1303,7 +1301,6 @@ export function createBrowserMockRuntime(
         if (state.versionSource.source === `custom:${payload.url}`) state.versionSource.source = 'github';
         return clone(state.versionSource);
       }
-      case 'set_prefer_gitcode_downloads': return clone(state.versionSource);
 
       case 'management_request': {
         const revision = asObject(payload.request).expectedRevision;
@@ -1730,7 +1727,6 @@ export function createBrowserMockRuntime(
       case 'apply_codex_session_index_cleanup': return { prunedEntries: asArray(asObject(payload.request).threadIds).length, backupPath: 'C:\\Users\\Mock\\.codex\\backups\\index.json' };
 
       case 'get_codex_cli_daemon_running': return true;
-      case 'get_lan_ipv4': return ['192.168.100.100'];
       default:
         if (command.startsWith('plugin:window|') || command.startsWith('plugin:webview|')) return null;
         console.warn(`[Browser Mock] Command not implemented: ${command}`, rawPayload);

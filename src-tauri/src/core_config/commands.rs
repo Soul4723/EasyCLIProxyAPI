@@ -1,11 +1,6 @@
 use super::*;
 
 #[tauri::command]
-pub(crate) fn get_lan_ipv4() -> Option<String> {
-    detect_lan_ipv4().map(|address| address.to_string())
-}
-
-#[tauri::command]
 pub(crate) async fn get_core_tls_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     expected_revision: u64,
@@ -85,27 +80,6 @@ pub(crate) async fn save_core_sensitive_words_settings(
     let normalized = normalize_core_sensitive_words_settings(settings);
     patch_core_sensitive_words_settings(&normalized)?;
     Ok(normalized)
-}
-
-pub(crate) fn detect_lan_ipv4() -> Option<Ipv4Addr> {
-    for target in ["192.0.2.1:80", "8.8.8.8:80"] {
-        let Ok(socket) = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)) else {
-            continue;
-        };
-        if socket.connect(target).is_err() {
-            continue;
-        }
-        let Ok(local_address) = socket.local_addr() else {
-            continue;
-        };
-        let IpAddr::V4(address) = local_address.ip() else {
-            continue;
-        };
-        if !address.is_unspecified() && !address.is_loopback() {
-            return Some(address);
-        }
-    }
-    None
 }
 
 #[tauri::command]

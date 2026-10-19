@@ -78,7 +78,7 @@ use std::{
     env, fs,
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
-    net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket},
+    net::{IpAddr, SocketAddr, TcpStream},
     path::{Component, Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{LazyLock, Mutex},
@@ -2421,13 +2421,6 @@ impl GuiConfigState {
         })
     }
 
-    fn set_download_source(
-        &self,
-        download_source: VersionDownloadSource,
-    ) -> Result<GuiConfigFile, String> {
-        self.set_download_candidate(VersionDownloadCandidate::builtin(download_source))
-    }
-
     fn set_download_candidate(
         &self,
         candidate: VersionDownloadCandidate,
@@ -3066,11 +3059,8 @@ fn main() {
                 stop_deepseek_harness_process,
                 restart_deepseek_harness_process,
                 restart_agent_app,
-                restart_codex_app,
-                restart_opencode_app,
                 get_codex_cli_daemon_running,
                 restart_codex_cli_daemon,
-                get_lan_ipv4,
                 save_gui_settings,
                 save_network_routing_settings,
                 save_network_endpoint_settings,
@@ -3121,7 +3111,6 @@ fn main() {
                 set_download_source,
                 add_custom_download_mirror,
                 remove_custom_download_mirror,
-                set_prefer_gitcode_downloads,
                 check_app_update,
                 get_app_update_task,
                 start_app_update,
