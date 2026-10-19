@@ -262,7 +262,7 @@ changes made outside this window.
   `POST`s) and uploads keep the lock across the request, so a connection switch waits for them
   and they reach the core in submission order.
 - The frontend routes fenced calls through `services/documentTarget`, which binds
-  `expectedRevision`. `tests/platformBoundary.test.ts` fails when any `src/` code calls a
+  `expectedRevision`. `tests/unit/platform/platformBoundary.test.ts` fails when any `src/` code calls a
   fenced command through an unfenced `invoke`, and checks the browser mock's list of fenced
   commands against the Rust signatures.
 

@@ -1,4 +1,4 @@
-// Runs the browser UI tests (tests/*-ui.cjs) one after another. Each script starts its own
+// Runs the browser UI tests (tests/ui/**/*-ui.cjs) one after another. Each script starts its own
 // Vite server on a free port, so no dev server needs to be running.
 //
 //   node tests/run-ui.cjs                 run every UI test
@@ -12,9 +12,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const filters = process.argv.slice(2);
-const scripts = fs.readdirSync(__dirname)
-  .filter(name => name.endsWith('-ui.cjs') && name !== 'run-ui.cjs')
-  .filter(name => !filters.length || filters.some(filter => name.includes(filter)))
+const uiRoot = path.join(__dirname, 'ui');
+function discover(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const file = path.join(directory, entry.name);
+    return entry.isDirectory() ? discover(file) : entry.name.endsWith('-ui.cjs') ? [path.relative(uiRoot, file)] : [];
+  });
+}
+const scripts = discover(uiRoot)
+  .filter(name => !filters.length || filters.some(filter => path.basename(name).includes(filter)))
   .sort();
 if (!scripts.length) {
   console.error('No UI tests match', filters.join(' '));
@@ -24,7 +30,7 @@ if (!scripts.length) {
 const failed = [];
 for (const name of scripts) {
   console.log(`\n=== ${name}`);
-  const result = spawnSync(process.execPath, [path.join(__dirname, name)], { stdio: 'inherit' });
+  const result = spawnSync(process.execPath, [path.join(uiRoot, name)], { stdio: 'inherit' });
   if (result.status !== 0) failed.push(name);
 }
 console.log(`\n${scripts.length - failed.length}/${scripts.length} UI tests passed`);
