@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useResource } from '../../services/useResource';
 import { invoke } from '../../services/usageApi';
 import { CheckCircle2, CircleAlert, CloudDownload, Pencil, Plus, Trash2, TriangleAlert, X } from 'lucide-react';
 import { getCurrentLocale, useI18n } from '../../i18n';
@@ -30,8 +31,9 @@ const formatUnit = (value: number) => {
 export function PricesTab() {
   const { t } = useI18n();
   const { query, refreshVersion, refresh } = useUsage();
-  const [pricing, setPricing] = useState<UsagePricing | null>(null);
-  const [loadError, setLoadError] = useState('');
+  const snapshot = useResource(() => invoke<UsagePricing>('get_usage_pricing', { query }), [query, refreshVersion]);
+  const pricing = snapshot.data ?? null;
+  const loadError = snapshot.error ?? '';
   const [search, setSearch] = useState('');
   const [unpricedOnly, setUnpricedOnly] = useState(false);
   const [draft, setDraft] = useState<PriceDraft | null>(null);
@@ -41,17 +43,8 @@ export function PricesTab() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
 
-  const requestId = useRef(0);
   const noticeTimer = useRef<number | undefined>(undefined);
 
-  // Quiet refresh: keep previous rows and show refresh errors alongside them.
-  useEffect(() => {
-    const id = ++requestId.current;
-    invoke<UsagePricing>('get_usage_pricing', { query })
-      .then((next) => { if (id === requestId.current) { setPricing(next); setLoadError(''); } })
-      .catch((cause) => { if (id === requestId.current) setLoadError(String(cause)); });
-    return () => { requestId.current += 1; };
-  }, [query, refreshVersion]);
   useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
 
   const showNotice = useCallback((next: Notice) => {
