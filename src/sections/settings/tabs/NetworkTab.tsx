@@ -1,6 +1,6 @@
-import { createSettingsRead } from '../../../services/settingsData';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '../../../services/documentTarget';
+import { createSettingsRead } from '../../../services/settingsData';
 import { listen, open } from '../../../services/platform';
 import { FolderOpen, Globe, Link2, LockKeyhole, Network, Wifi } from 'lucide-react';
 import { useI18n } from '../../../i18n';

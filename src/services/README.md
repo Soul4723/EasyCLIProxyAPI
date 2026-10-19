@@ -9,8 +9,17 @@
   Dependencies must include every request input and target identity. It isolates old
   requests while retaining the displayed value during reload/error. The owner
   invalidates queries on events/focus; there is no implicit focus refresh or polling.
-  Unmount removes its subscription. Use `eventDelayMs` on an event owner for a fixed
-  coalescing window that cannot be postponed by a continuous event stream.
+  Unmount removes its subscription. `loading` is initial loading; `refreshing` reports
+  a background read with retained data (for example the Requests refresh indicator).
+- Timing is not data: `refreshTiming` provides `subscribeFixedWindowEvent` (a fixed
+  trailing window that continuous events cannot postpone), `startStaleFocusRefresh`
+  (one freshness owner, explicitly marked fresh on query/manual changes), and
+  `useVisibleInterval` (no initial/catch-up tick, paused while hidden or disabled).
+  Usage records use a 2 s window and 30 s focus freshness; the relative-range clock
+  ticks every 60 s only while the core is ready. Collector status remains a data
+  source with 30 s polling, 120 s error backoff, and `eventDelayMs: 2000` for its
+  event reads; keeping that option lets its refresh consume pending invalidations.
+  Analyses share a per-snapshot promise map, evicting failed requests for retry.
 - Settings draft loaders use `createSettingsRead`: explicit reads share one in-flight
   request without a subscription. Existing mount/event/action triggers apply data;
   focus must not overwrite unsaved drafts. Event/action reads use `fresh: true`

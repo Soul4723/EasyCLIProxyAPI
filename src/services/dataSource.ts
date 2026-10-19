@@ -5,6 +5,8 @@ import { listen } from './platform';
 export type SourceSnapshot<T> = { data: T | undefined; error: string | null; updatedAt: number; loading: boolean };
 export type DataSourceOptions<T> = {
   load: () => Promise<T>;
+  /** Component-owned queries may expose background refresh progress; shared sources stay quiet. */
+  trackRefresh?: boolean;
   events?: string[];
   subscribeEvents?: (invalidate: () => void) => (() => void);
   pollMs?: number | (() => number);
@@ -68,7 +70,7 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
     startedAt = Date.now();
     const current = generation;
     dirty = false;
-    publish({ ...snapshot, loading: snapshot.data === undefined });
+    publish({ ...snapshot, loading: options.trackRefresh === true || snapshot.data === undefined });
     request = (async () => {
       try {
         const data = await options.load();

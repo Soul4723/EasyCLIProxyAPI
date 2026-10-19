@@ -1,8 +1,8 @@
-import { createSettingsRead } from '../../../services/settingsData';
 // Core install task state for the Updates tab: install (release / bundled), live progress events, cancel, bundled-core detection.
 // Same commands, events and result handling as the old Version page.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../../../services/platform';
+import { createSettingsRead } from '../../../services/settingsData';
 import { listen } from '../../../services/platform';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime } from '../../../coreRuntime';

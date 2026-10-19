@@ -1,7 +1,7 @@
-import { coreConfigSource, useSharedCoreConfig } from '../../services/coreConfig';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '../../services/usageApi';
 import { credentialsSource } from '../../services/credentials';
+import { coreConfigSource, useSharedCoreConfig } from '../../services/coreConfig';
 import { useResource } from '../../services/useResource';
 import { useDataSource } from '../../services/dataSource';
 import { normalizeAuthIndex, readString } from '../../services/managementApi';

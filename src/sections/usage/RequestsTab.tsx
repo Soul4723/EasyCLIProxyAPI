@@ -31,7 +31,7 @@ export function RequestsTab() {
   }), [query, page, pageSize, refreshVersion, retry]);
   const data = snapshot.data ?? null;
   const error = snapshot.error;
-  const fetching = snapshot.loading;
+  const fetching = snapshot.refreshing;
 
   // The log shrank under the current page (filters, retention): fall back to the last page.
   useEffect(() => {

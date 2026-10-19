@@ -1,7 +1,6 @@
-import { createSettingsRead } from '../../../services/settingsData';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../../../services/documentTarget';
-import { appVersionRead } from '../versionData';
+import { createSettingsRead } from '../../../services/settingsData';
 import { Info, Palette, PanelTop, ShieldCheck } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { usePrivacyMode } from '../../../privacy';
@@ -10,6 +9,7 @@ import { routeHref } from '../../../shell/router';
 import { Chip, ErrorState, Skeleton, Toggle } from '../../../ui';
 import { SaveBar, SettingRow, SettingsGroup, useDraft, useReportDirty } from '../ui';
 import { useRequestGuard } from '../useRequestGuard';
+import { appVersionRead } from '../versionData';
 import './AppTab.css';
 
 type CloseBehavior = 'ask' | 'exit' | 'minimize-to-tray';

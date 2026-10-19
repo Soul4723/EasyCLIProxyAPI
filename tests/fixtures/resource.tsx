@@ -19,8 +19,10 @@ function Query() {
   }, [key]);
   return <>
     <button onClick={() => setKey(n => n + 1)}>Next query</button>
+    <button onClick={() => void snapshot.source.refresh()}>Refresh query</button>
     <output data-testid="data">{snapshot.data ?? 'none'}</output>
     <output data-testid="error">{snapshot.error ?? 'none'}</output>
+    <output data-testid="refreshing">{String(snapshot.refreshing)}</output>
     <output data-testid="loading">{String(snapshot.loading)}</output>
   </>;
 }

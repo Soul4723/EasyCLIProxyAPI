@@ -1,8 +1,8 @@
-import { createSettingsRead } from '../../../services/settingsData';
 // Download-source state for the Updates tab: selected source, built-in channels and custom HTTPS mirrors.
 // Same commands/events as the old Version page (get_version_source_settings, set_download_source, add/remove_custom_download_mirror).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke, listen } from '../../../services/platform';
+import { createSettingsRead } from '../../../services/settingsData';
 import { useI18n } from '../../../i18n';
 import type { NoticeMessage, NoticeTone } from '../../../appNotice';
 import { useRequestGuard } from '../useRequestGuard';

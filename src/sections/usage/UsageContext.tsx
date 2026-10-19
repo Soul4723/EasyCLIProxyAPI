@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '../../services/usageApi';
 import { useCoreRuntime } from '../../coreRuntime';
-import { createDataSource, useDataSource, type DataSource } from '../../services/dataSource';
+import { createDataSource, useDataSource } from '../../services/dataSource';
 import { useResource } from '../../services/useResource';
+import { subscribeFixedWindowEvent, startStaleFocusRefresh, useVisibleInterval } from '../../services/refreshTiming';
 import { managementApi } from '../../services/managementApi';
 import { usagePreferences } from '../../services/usagePreferences';
 import type { CollectorStatus, UsageAnalysis, UsageQuery, UsageRange } from './types';
@@ -196,20 +197,18 @@ export function UsageProvider({ params, needsOptions, children }: { params: URLS
 
   // The page owns analysis reads. Identical option/breakdown queries share one promise,
   // including StrictMode and the no-filter Overview case. A signal starts a new snapshot.
-  const analyses = useMemo(() => ({ refreshVersion, connectionRevision, timeQuery, requests: new Map<string, DataSource<UsageAnalysis>>() }), [refreshVersion, connectionRevision, timeQuery]);
+  const analyses = useMemo(() => new Map<string, Promise<UsageAnalysis>>(), [refreshVersion, connectionRevision, timeQuery]);
   const loadAnalysis = useCallback((analysisQuery: UsageQuery) => {
     const key = JSON.stringify(analysisQuery);
-    let request = analyses.requests.get(key);
+    let request = analyses.get(key);
     if (!request) {
-      request = createDataSource({ load: () => invoke<UsageAnalysis>('get_usage_analysis', { query: analysisQuery }) });
-      analyses.requests.set(key, request);
+      request = invoke<UsageAnalysis>('get_usage_analysis', { query: analysisQuery }).catch(error => {
+        analyses.delete(key);
+        throw error;
+      });
+      analyses.set(key, request);
     }
-    const source = request;
-    return source.load().then(() => {
-      const snapshot = source.getSnapshot();
-      if (snapshot.error) { analyses.requests.delete(key); throw new Error(snapshot.error); }
-      return snapshot.data!;
-    });
+    return request;
   }, [analyses]);
 
   const optionSnapshot = useResource(async () => needsOptions ? loadAnalysis(timeQuery) : emptyAnalysis,
@@ -218,47 +217,25 @@ export function UsageProvider({ params, needsOptions, children }: { params: URLS
   const optionsError = optionSnapshot.error ?? '';
 
   const relative = filters.range !== 'custom' && filters.range !== 'all';
-  // Separate the relative-range clock from event invalidation: records events
-  // refresh the current query, but must not move its time window before 60s.
-  const recordsSource = useMemo(() => createDataSource({
-    load: async () => Date.now(),
-    events: ['usage-records-updated'], eventDelayMs: 2_000, minIntervalMs: 2_000, focusMs: 30_000,
-  }), [connectionRevision]);
-  const clockSource = useMemo(() => createDataSource({
-    load: async () => Date.now(),
-    pollMs: relative && coreReady ? 60_000 : undefined, focusMs: Infinity,
-  }), [relative, coreReady, connectionRevision]);
-  const clockSnapshot = useDataSource(clockSource);
-  const firstClock = useRef<{ source: typeof clockSource; value: number | undefined }>({ source: clockSource, value: undefined });
+  // Records refresh the current query; only the visible relative clock moves its window.
+  useVisibleInterval(() => setClock(Date.now()), 60_000, relative && coreReady);
+  const [eventError, setEventError] = useState('');
+  const focusRefresh = useRef<ReturnType<typeof startStaleFocusRefresh> | null>(null);
   useEffect(() => {
-    if (firstClock.current.source !== clockSource || firstClock.current.value === undefined) {
-      firstClock.current = { source: clockSource, value: clockSnapshot.data };
-      return;
-    }
-    if (clockSnapshot.data !== undefined && clockSnapshot.data !== firstClock.current.value) {
-      firstClock.current.value = clockSnapshot.data;
-      setClock(clockSnapshot.data);
-    }
-  }, [clockSnapshot.data, clockSource]);
-  const records = useDataSource(recordsSource);
-  useEffect(() => {
-    // A query/manual refresh already refreshed its views. Mark the focus owner
-    // fresh without publishing a second records invalidation.
-    const current = recordsSource.getSnapshot().data;
-    if (current !== undefined) recordsSource.mutate(() => current);
-  }, [query, manualVersion, recordsSource]);
-  const firstRecord = useRef<{ source: typeof recordsSource; value: number | undefined }>({ source: recordsSource, value: undefined });
-  useEffect(() => {
-    if (firstRecord.current.source !== recordsSource || firstRecord.current.value === undefined) {
-      firstRecord.current = { source: recordsSource, value: records.data };
-      return;
-    }
-    if (records.data !== undefined && records.data !== firstRecord.current.value) {
-      firstRecord.current.value = records.data;
+    const refreshRecords = () => {
+      focusRefresh.current?.markFresh();
       invalidate();
-    }
-  }, [records.data, recordsSource, invalidate]);
-  const eventError = records.error ?? '';
+    };
+    const events = subscribeFixedWindowEvent('usage-records-updated', 2_000, refreshRecords,
+      error => setEventError(String(error)));
+    const focus = startStaleFocusRefresh(refreshRecords, 30_000, events.pending);
+    focusRefresh.current = focus;
+    setEventError('');
+    return () => { events.stop(); focus.stop(); focusRefresh.current = null; };
+  }, [connectionRevision, invalidate]);
+  useEffect(() => {
+    focusRefresh.current?.markFresh();
+  }, [query, manualVersion]);
   const statusRefresh = useRef(manualVersion);
   useEffect(() => {
     if (statusRefresh.current === manualVersion) return;

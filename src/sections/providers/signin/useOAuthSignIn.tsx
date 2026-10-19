@@ -1,5 +1,3 @@
-import { startSessionPolling } from '../../../services/sessionPolling';
-import { credentialsSource } from '../../../services/credentials';
 // Sign-in flow controller. Port of the OAuthLoginPage flow (ManagementPages.tsx) and of the plugin PluginOAuthDialog:
 // snapshot credentials -> start_oauth_login -> poll get_oauth_status every 3s -> default priority 0 on new credentials
 // -> success; refresh link, callback submit with the xAI/Devin validation, browser preference. One flow per provider;
@@ -15,6 +13,8 @@ import {
   type AuthFileSnapshot,
 } from '../../../services/authFiles';
 import { managementApi } from '../../../services/managementApi';
+import { startSessionPolling } from '../../../services/sessionPolling';
+import { credentialsSource } from '../../../services/credentials';
 import { createOAuthLoginSuccessCache } from '../../../services/oauthLoginState';
 import { getPluginTitle, notifyPluginResourcesChanged } from '../../../services/pluginResources';
 import {
