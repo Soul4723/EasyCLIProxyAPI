@@ -1,7 +1,7 @@
 /* Claude Code / Claude Desktop mapping panels. Scoped under .ec-sec-agents; the legacy AgentModelPicker is restyled here. */
 .ec-sec-agents .ag-claude { display: flex; flex-direction: column; gap: var(--ec-gap); }
 .ec-sec-agents .ag-claude > div { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; }
-.ec-sec-agents .ag-claude .ec-card__header, .ec-sec-agents .ag-claude [class*="ec-card-header"] { flex-wrap: wrap; }
+.ec-sec-agents .ag-claude .ec-card__header { flex-wrap: wrap; }
 .ec-sec-agents .ag-claude-switch { display: inline-flex; align-items: center; gap: var(--ec-sp-2); font-size: var(--ec-fs-sm); color: var(--ec-fg-2); cursor: pointer; }
 .ec-sec-agents .ag-claude-error { display: flex; align-items: center; gap: var(--ec-sp-2); padding: var(--ec-sp-2) var(--ec-sp-3); border: 1px solid var(--ec-danger); border-radius: var(--ec-r-sm); color: var(--ec-danger-fg); font-size: var(--ec-fs-sm); }
 .ec-sec-agents .ag-claude-error-text { flex: 1; min-width: 0; }

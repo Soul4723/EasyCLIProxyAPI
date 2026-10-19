@@ -34,7 +34,6 @@
 .ec-sec-overview .ov-providers__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--ec-sp-2); }
 .ec-sec-overview .ov-provider { display: flex; flex-direction: column; gap: var(--ec-sp-1); padding: var(--ec-sp-2) var(--ec-sp-3); background: var(--ec-surface); border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); color: var(--ec-fg); text-decoration: none; }
 .ec-sec-overview .ov-provider:hover { border-color: var(--ov-provider, var(--ec-accent)); background: var(--ec-hover); }
-.ec-sec-overview .ov-provider__id { display: flex; align-items: center; gap: var(--ec-sp-2); font-size: var(--ec-fs-xs); font-weight: 600; }
 .ec-sec-overview .ov-provider__pct { font-size: var(--ec-fs-stat); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .ec-sec-overview .ov-provider__pct--ok { color: var(--ec-st-available-fg); }
 .ec-sec-overview .ov-provider__pct--warn { color: var(--ec-st-limited-fg); }

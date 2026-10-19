@@ -270,11 +270,6 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
-/* Shared with the Windows titlebar in components/WindowFrame.css, which lives outside .app-shell. */
-:root {
-  --app-sidebar-width: 264px;
-}
-
 .app-release-notes {
   border: 1px solid var(--theme-e3e1db);
   border-radius: 12px;
