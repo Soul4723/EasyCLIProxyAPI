@@ -507,7 +507,7 @@ pub(crate) fn run_portable_update_helper(descriptor_path: &Path) -> Result<(), S
         let rollback_exe = descriptor
             .current_app
             .join(&descriptor.executable_relative_path);
-        let _ = Command::new(rollback_exe).spawn();
+        let _ = crate::process_spawn::spawn(&mut Command::new(rollback_exe));
         cleanup_macos_update_payload(descriptor_path, &descriptor);
         return Err(error);
     }
@@ -523,14 +523,14 @@ pub(crate) fn run_portable_update_helper(descriptor_path: &Path) -> Result<(), S
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let mut child = match command.spawn() {
+    let mut child = match crate::process_spawn::spawn(&mut command) {
         Ok(child) => child,
         Err(error) => {
             restore_macos_update_backup(&descriptor)?;
             let rollback_exe = descriptor
                 .current_app
                 .join(&descriptor.executable_relative_path);
-            let _ = Command::new(rollback_exe).spawn();
+            let _ = crate::process_spawn::spawn(&mut Command::new(rollback_exe));
             cleanup_macos_update_payload(descriptor_path, &descriptor);
             return Err(format!("Failed to start new macOS application: {error}"));
         }
@@ -557,7 +557,7 @@ pub(crate) fn run_portable_update_helper(descriptor_path: &Path) -> Result<(), S
     let rollback_exe = descriptor
         .current_app
         .join(&descriptor.executable_relative_path);
-    let _ = Command::new(rollback_exe).spawn();
+    let _ = crate::process_spawn::spawn(&mut Command::new(rollback_exe));
     cleanup_macos_update_payload(descriptor_path, &descriptor);
     Err(format!(
         "New application version {} did not confirm startup within 60 seconds; rolled back",

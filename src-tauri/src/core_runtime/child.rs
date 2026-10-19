@@ -53,7 +53,7 @@ pub(super) static CORE_PROCESS_SPAWNER: LazyLock<Result<std::sync::mpsc::Sender<
             .spawn(move || {
                 for mut request in receiver {
                     configure_child_lifetime(&mut request.command);
-                    let result = request.command.spawn();
+                    let result = crate::process_spawn::spawn(&mut request.command);
                     if let Err(std::sync::mpsc::SendError(Ok(mut child))) =
                         request.reply.send(result)
                     {
@@ -73,8 +73,7 @@ pub(crate) fn spawn_core_child(command: Command) -> Result<CoreChild, String> {
     #[cfg(not(target_os = "linux"))]
     let child = {
         let mut command = command;
-        command
-            .spawn()
+        crate::process_spawn::spawn(&mut command)
             .map_err(|error| format!("Failed to start CPA kernel: {error}"))?
     };
 

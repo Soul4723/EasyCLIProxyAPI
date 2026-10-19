@@ -477,22 +477,24 @@ fn running_core_process_discovery_ignores_the_same_binary_name_in_another_direct
         "tests::core_runtime::core_process_discovery_sleep_helper",
         "--nocapture",
     ];
-    let mut first = Command::new(&first_binary)
-        .args(arguments)
-        .env("EASYCLIPROXYAPI_PROCESS_DISCOVERY_TEST_HELPER", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut second = Command::new(&second_binary)
-        .args(arguments)
-        .env("EASYCLIPROXYAPI_PROCESS_DISCOVERY_TEST_HELPER", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut first = crate::process_spawn::spawn(
+        Command::new(&first_binary)
+            .args(arguments)
+            .env("EASYCLIPROXYAPI_PROCESS_DISCOVERY_TEST_HELPER", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .unwrap();
+    let mut second = crate::process_spawn::spawn(
+        Command::new(&second_binary)
+            .args(arguments)
+            .env("EASYCLIPROXYAPI_PROCESS_DISCOVERY_TEST_HELPER", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .unwrap();
     thread::sleep(Duration::from_millis(200));
 
     let first_running = first.try_wait().unwrap().is_none();

@@ -301,8 +301,7 @@ async fn launch_portable_update_helper<T: Serialize>(
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     configure_background_command(&mut command);
-    let mut child = command
-        .spawn()
+    let mut child = crate::process_spawn::spawn(&mut command)
         .map_err(|error| format!("Failed to start application update helper: {error}"))?;
     wait_for_portable_update_helper_start(
         &mut child,
