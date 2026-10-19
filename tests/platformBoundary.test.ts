@@ -19,12 +19,14 @@ const sources = walk(join(root, 'src')).filter((f) => /\.(ts|tsx)$/.test(f));
 const appSources = sources.filter((f) => !f.includes('/src/mocks/'));
 const INVOKE_CALL = /\binvoke(?:<(?:[^<>]|<[^<>]*>)*>)?\(\s*(['"])([a-z0-9_]+)\1/g;
 
+// Commands may carry further attributes or comments (e.g. `#[allow(clippy::…)]`) between
+// `#[tauri::command]` and the `fn`.
 function nativeFencedCommands(): string[] {
   const names = new Set<string>();
   const rustFiles = walk(join(root, 'src-tauri/src')).filter((f) => f.endsWith('.rs'));
   for (const f of rustFiles) {
     const text = readFileSync(f, 'utf8');
-    for (const m of text.matchAll(/#\[tauri::command[^\]]*\]\s*(?:pub(?:\([a-z]+\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\(/g)) {
+    for (const m of text.matchAll(/#\[tauri::command[^\]]*\]\s*(?:(?:#\[[^\]]*\]|\/\/[^\n]*)\s*)*(?:pub(?:\([a-z]+\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\(/g)) {
       let depth = 1;
       let i = m.index! + m[0].length;
       while (depth > 0) { depth += text[i] === '(' ? 1 : text[i] === ')' ? -1 : 0; i++; }
