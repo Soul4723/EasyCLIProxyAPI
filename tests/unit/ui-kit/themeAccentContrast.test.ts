@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { themeRegistry } from '../src/themes/registry';
+import { themeRegistry } from '../../../src/themes/registry';
 
-const source = fileURLToPath(new URL('../src/', import.meta.url));
+const source = fileURLToPath(new URL('../../../src/', import.meta.url));
 const accentFill = /background(?:-color)?:\s*var\(--(?:ui-accent|ui-accent-strong|primary-color|primary-hover|primary-active)[,)]/;
 
 const luminance = (hex: string) => {

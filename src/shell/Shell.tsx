@@ -88,8 +88,8 @@ export function Shell() {
   return (
     <ShellContext.Provider value={shell}>
       <PluginNavProvider>
-      <div className={`ec-app${current?.bare ? ' ec-app--bare' : ''}`} data-page={route.page}>
-        {current?.bare ? null : <Sidebar activeId={route.page} drawerOpen={drawerOpen} onNavigate={closeDrawer} />}
+      <div className="ec-app" data-page={route.page}>
+        <Sidebar activeId={route.page} drawerOpen={drawerOpen} onNavigate={closeDrawer} />
         {drawerOpen ? <div className="ec-drawer-scrim" onClick={closeDrawer} aria-hidden="true" /> : null}
         <main className="ec-main" id="main" key={connectionRevision}>{body}</main>
       </div>

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { createThemeApplicator } from '../src/themes/applyTheme';
-import { semanticTokenBridgeProperties, themeSemanticTokens } from '../src/themes/semanticTokenBridge';
-import { themeRegistry } from '../src/themes/registry';
+import { createThemeApplicator } from '../../../src/themes/applyTheme';
+import { semanticTokenBridgeProperties, themeSemanticTokens } from '../../../src/themes/semanticTokenBridge';
+import { themeRegistry } from '../../../src/themes/registry';
 
 const fakeDocument = () => {
   const properties = new Map<string, string>();
