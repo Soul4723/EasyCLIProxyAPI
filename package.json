@@ -10,6 +10,7 @@
     "test": "bun test --isolate",
     "preview": "vite preview",
     "test:ui:usage": "node tests/usage-ui.cjs",
+    "test:ui:usage-stopped": "node tests/usage-stopped-ui.cjs",
     "test:ui": "node tests/run-ui.cjs",
     "test:all": "node tests/run-all.cjs",
     "test:ui:accessibility": "node tests/app-shell-accessibility-ui.cjs",

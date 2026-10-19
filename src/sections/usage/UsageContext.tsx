@@ -5,6 +5,7 @@ import { managementApi } from '../../services/managementApi';
 import { usagePreferences } from '../../services/usagePreferences';
 import type { CollectorStatus, UsageAnalysis, UsageQuery, UsageRange } from './types';
 import { rangeQuery } from './format';
+import { deriveCollectionState, type CollectionState } from './collectionState';
 
 const RANGE_KEY = 'cpa-gui.usage-records-range.v1';
 const PAGE_SIZE_KEY = 'cpa-gui.usage-events-page-size.v1';
@@ -57,6 +58,8 @@ type UsageContextValue = {
   query: UsageQuery;
   status: CollectorStatus | null;
   setStatus: (status: CollectorStatus) => void;
+  /** Collector status combined with the shared core status: what the header may claim. */
+  collection: CollectionState;
   /** Filter option lists (models, upstream sources, keys) for the selected time window. */
   options: UsageAnalysis;
   /** One invalidation version for records events and explicit refreshes. */
@@ -268,11 +271,12 @@ export function UsageProvider({ params, needsOptions, children }: { params: URLS
     return () => { disposed = true; unlisten?.(); clearTimeout(timer); window.removeEventListener('focus', focus); };
   }, [invalidate]);
 
+  const collection = useMemo(() => deriveCollectionState(status, coreStatus), [status, coreStatus]);
   const activeFilterCount = [filters.model, filters.agent, filters.source, filters.apiKeyHash, filters.provider, filters.result !== 'all' ? 'x' : ''].filter(Boolean).length;
 
   const value = useMemo<UsageContextValue>(() => ({
     filters, setFilter, resetFilters, activeFilterCount, page, setPage, pageSize, setPageSize,
-    timeQuery, query, status, setStatus, options, refreshVersion, refresh, manualVersion, loadAnalysis, error: [statusError, optionsError, eventError].filter(Boolean).join(" · "),
-  }), [filters, setFilter, resetFilters, activeFilterCount, page, pageSize, setPageSize, timeQuery, query, status, setStatus, options, refreshVersion, refresh, manualVersion, loadAnalysis, statusError, optionsError, eventError]);
+    timeQuery, query, status, setStatus, collection, options, refreshVersion, refresh, manualVersion, loadAnalysis, error: [statusError, optionsError, eventError].filter(Boolean).join(" · "),
+  }), [filters, setFilter, resetFilters, activeFilterCount, page, pageSize, setPageSize, timeQuery, query, status, setStatus, collection, options, refreshVersion, refresh, manualVersion, loadAnalysis, statusError, optionsError, eventError]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

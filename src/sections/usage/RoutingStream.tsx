@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Activity, Pause, Play, Radio } from 'lucide-react';
+import { Activity, History, Pause, Play, Radio } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { routeHref } from '../../shell/router';
 import {
@@ -7,6 +7,7 @@ import {
   providerInfo,
 } from '../../ui';
 import { compactDuration } from './format';
+import { useUsage } from './UsageContext';
 import { eventAuthIndex, serveCounts, useCandidateIndex, type Block, type CandidateGroup } from './RoutingData';
 import type { UsageEventPage, UsageRecord } from './types';
 
@@ -17,6 +18,8 @@ type Mode = 'live' | 'paused';
 /** C: newest-first stream of recent requests with the account that served each, plus served-by share. */
 export function RoutingStream({ block, groups }: Props) {
   const { t } = useI18n();
+  // Only while records are really being collected may the stream call itself live; otherwise it follows stored records.
+  const { live } = useUsage().collection;
   const [frozen, setFrozen] = useState<UsageRecord[] | null>(null);
   const latest = block.data?.items ?? [];
   const shown = frozen ?? latest;
@@ -31,13 +34,14 @@ export function RoutingStream({ block, groups }: Props) {
   const setMode = (next: Mode) => setFrozen(next === 'paused' ? latest : null);
   const showError = block.error;
   const topShare = share.slice(0, 6);
+  const title = t(live ? 'sec.usage.routing.stream.title' : 'sec.usage.routing.stream.titleStored');
 
   return (
-    <Card as="section" className="rt-card rt-stream" aria-label={t('sec.usage.routing.stream.title')}>
+    <Card as="section" className="rt-card rt-stream" data-live={live} aria-label={title}>
       <CardHeader
-        title={t('sec.usage.routing.stream.title')}
+        title={title}
         count={shown.length}
-        icon={<Radio size={16} />}
+        icon={live ? <Radio size={16} /> : <History size={16} />}
         actions={(
           <SegmentedControl<Mode>
             size="sm"
@@ -45,7 +49,7 @@ export function RoutingStream({ block, groups }: Props) {
             value={mode}
             onChange={setMode}
             options={[
-              { value: 'live', label: t('sec.usage.routing.stream.live'), icon: <Play size={12} /> },
+              { value: 'live', label: t(live ? 'sec.usage.routing.stream.live' : 'sec.usage.routing.stream.latest'), icon: <Play size={12} /> },
               { value: 'paused', label: t('sec.usage.routing.stream.paused'), icon: <Pause size={12} /> },
             ]}
           />

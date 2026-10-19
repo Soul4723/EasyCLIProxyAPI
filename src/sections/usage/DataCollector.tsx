@@ -6,6 +6,7 @@ import { Button, Card, CardHeader, Chip, ErrorState, Masked, RelativeTime, Skele
 import { compactNumber } from './format';
 import type { DataNotice } from './DataStorage';
 import type { CollectorStatus } from './types';
+import { useCollectionLabel } from './HeaderActions';
 import { useUsage } from './UsageContext';
 import { routeHref } from '../../shell/router';
 
@@ -29,8 +30,9 @@ export function DataCollector({ onNotice }: { onNotice: (notice: DataNotice) => 
   const { status, setStatus, manualVersion, refresh } = useUsage();
   const [resuming, setResuming] = useState(false);
   const { seconds: redis, error } = useRedisRetention(manualVersion);
+  const collectionLabel = useCollectionLabel();
 
-  if (!status) {
+  if (!status || !collectionLabel) {
     return (
       <Card as="section" className="data-card" aria-label={t('sec.usage.data.collector.title')}>
         <CardHeader title={t('sec.usage.data.collector.title')} icon={<Radio size={14} />} />
@@ -42,11 +44,7 @@ export function DataCollector({ onNotice }: { onNotice: (notice: DataNotice) => 
   const remote = status.connectionMode === 'remote';
   const paused = status.state === 'paused';
   const resumeReason = status.targetRevision === undefined ? t('sec.usage.data.collector.resumeReason') : null;
-  const tone = status.state === 'collecting' ? 'ok' : status.state === 'paused' ? 'warn' : status.state === 'error' ? 'danger' : 'neutral';
-  const label = status.state === 'collecting'
-    ? t(remote ? 'sec.usage.collector.remote' : 'sec.usage.collector.local', { count: compactNumber(status.totalRecords) })
-    : status.state === 'waiting-core' ? t('sec.usage.collector.waiting')
-      : status.state === 'paused' ? t('sec.usage.collector.paused') : t('sec.usage.collector.error');
+  const { label, tone, icon } = collectionLabel;
 
   const resume = () => {
     if (resumeReason) return;
@@ -67,7 +65,7 @@ export function DataCollector({ onNotice }: { onNotice: (notice: DataNotice) => 
     <Card as="section" className="data-card" aria-label={t('sec.usage.data.collector.title')}>
       <CardHeader title={t('sec.usage.data.collector.title')} icon={<Radio size={14} />} />
       <div className="data-collector-head">
-        <Chip tone={tone} size="sm">{label}</Chip>
+        <Chip tone={tone} size="sm" icon={icon}>{label}</Chip>
         {paused ? (
           <span className="data-tip" title={resumeReason ?? undefined}>
             <Button variant="secondary" size="sm" loading={resuming} disabled={resumeReason !== null} onClick={resume}>
