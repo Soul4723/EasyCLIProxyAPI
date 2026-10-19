@@ -489,7 +489,7 @@ mod tests {
             assert_eq!(snapshot.models[0].configuration["supports_search_tool"], !enabled);
             std::fs::remove_file(path).unwrap();
         }
-        assert!(validate_configuration(&serde_json::json!({"supports_search_tool":"true"})
+        assert!(validate_configuration(serde_json::json!({"supports_search_tool":"true"})
             .as_object().unwrap()).is_err());
     }
 

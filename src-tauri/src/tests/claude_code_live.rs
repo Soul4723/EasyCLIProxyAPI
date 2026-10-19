@@ -141,7 +141,7 @@ fn claude_code_clears_old_windows_after_route_changes_and_custom_startup_on_clos
     assert!(value["modelSettings"].get("route-a").is_none());
     fs::write(&path, updated).unwrap();
     let cleared =
-        prepare_claude_code_managed_removal(&[path.clone()], "http://127.0.0.1:8317").unwrap();
+        prepare_claude_code_managed_removal(std::slice::from_ref(&path), "http://127.0.0.1:8317").unwrap();
     assert_eq!(cleared, vec![(path, None)]);
     fs::remove_dir_all(directory).unwrap();
 }

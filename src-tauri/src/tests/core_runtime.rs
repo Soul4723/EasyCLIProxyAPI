@@ -478,7 +478,7 @@ fn running_core_process_discovery_ignores_the_same_binary_name_in_another_direct
         "--nocapture",
     ];
     let mut first = Command::new(&first_binary)
-        .args(&arguments)
+        .args(arguments)
         .env("EASYCLIPROXYAPI_PROCESS_DISCOVERY_TEST_HELPER", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -486,7 +486,7 @@ fn running_core_process_discovery_ignores_the_same_binary_name_in_another_direct
         .spawn()
         .unwrap();
     let mut second = Command::new(&second_binary)
-        .args(&arguments)
+        .args(arguments)
         .env("EASYCLIPROXYAPI_PROCESS_DISCOVERY_TEST_HELPER", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -1797,8 +1797,10 @@ fn remote_transition_disarms_recovery_before_returning_to_local() {
     let generation = state.supervision_generation.load(Ordering::Acquire);
     crate::core_connection::prepare_remote_process_transition(&state).unwrap();
     assert_ne!(generation, state.supervision_generation.load(Ordering::Acquire));
-    let mut config = GuiConfigFile::default();
-    config.connection_mode = CoreConnectionMode::Remote;
+    let mut config = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        ..Default::default()
+    };
     assert!(!check_and_recover_crashed_core(&state, &config, |_| panic!("remote restart")).unwrap());
     config.connection_mode = CoreConnectionMode::Local;
     assert!(!check_and_recover_crashed_core(&state, &config, |_| panic!("stale restart")).unwrap());

@@ -127,7 +127,7 @@ async fn connection_test_distinguishes_auth_server_and_contract_failures_without
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0; 8192]; stream.read(&mut request).unwrap();
+            let mut request = [0; 8192]; let _request_bytes = stream.read(&mut request).unwrap();
             stream.write_all(format!("HTTP/1.1 {status} Fixture\r\nLocation: http://127.0.0.1:1/leak\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).unwrap();
         });
         let result = test_core_connection(CoreConnection {

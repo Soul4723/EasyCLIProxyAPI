@@ -108,7 +108,7 @@ fn copilot_vscode_preserves_provider_groups_and_secret_references() {
     assert_eq!(root[0], other);
     assert!(root[1].get("apiKey").is_none());
     assert!(
-        !inspect_copilot_config(client, &[path.clone()], 8317, "fixture-key")
+        !inspect_copilot_config(client, std::slice::from_ref(&path), 8317, "fixture-key")
             .unwrap()
             .0
     );
@@ -124,7 +124,7 @@ fn copilot_vscode_preserves_provider_groups_and_secret_references() {
         .unwrap()
         .contains("fixture-key"));
     assert!(
-        inspect_copilot_config(client, &[path.clone()], 8317, "fixture-key")
+        inspect_copilot_config(client, std::slice::from_ref(&path), 8317, "fixture-key")
             .unwrap()
             .0
     );
@@ -133,8 +133,8 @@ fn copilot_vscode_preserves_provider_groups_and_secret_references() {
         .unwrap()
         .push(json!({"name": "New provider", "vendor": "ollama"}));
     home.save(&path, &root);
-    let current = config_images(&[path.clone()]).unwrap();
-    let restored = prepare_recorded_integration_restore(client, &[path.clone()], &current)
+    let current = config_images(std::slice::from_ref(&path)).unwrap();
+    let restored = prepare_recorded_integration_restore(client, std::slice::from_ref(&path), &current)
         .unwrap()
         .unwrap();
     let value = read_groups(&path, text(restored[0].1.as_deref()).unwrap()).unwrap();
@@ -220,7 +220,8 @@ fn copilot_detection_requires_product_identity_and_actual_chat_extension() {
         vscode_copilot_version_output("github.copilot@1.400.0\nGitHub.copilot-chat@0.40.2"),
         Some("0.40.2".into())
     );
-    for client in [AgentClient::CopilotCli] {
+    {
+        let client = AgentClient::CopilotCli;
         assert!(!agent_installation_detected(client, None, true, true));
         assert!(!agent_installation_detected(
             client,
@@ -399,8 +400,8 @@ fn copilot_native_credential_rotation_and_template_preserve_user_models() {
     assert!(!content.contains("fixture-key"));
     let root = read_groups(&path, Some(&content)).unwrap();
     assert_eq!(root[1]["apiKey"], reference);
-    assert!(inspect_copilot_config(AgentClient::VscodeCopilot, &[path.clone()], 8317, "fixture-key").unwrap().0);
-    assert!(!inspect_copilot_config(AgentClient::VscodeCopilot, &[path.clone()], 8317, "rotated-key").unwrap().0);
+    assert!(inspect_copilot_config(AgentClient::VscodeCopilot, std::slice::from_ref(&path), 8317, "fixture-key").unwrap().0);
+    assert!(!inspect_copilot_config(AgentClient::VscodeCopilot, std::slice::from_ref(&path), 8317, "rotated-key").unwrap().0);
     assert!(setup::cached_vscode_secret(&path, "rotated-key").is_none());
     let updates = build_copilot_updates(AgentClient::VscodeCopilot, &home.0,
         "http://127.0.0.1:8317/v1", "fixture-key", "new-model", &[], true).unwrap();

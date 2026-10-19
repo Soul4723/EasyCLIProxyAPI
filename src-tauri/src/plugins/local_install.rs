@@ -214,8 +214,10 @@ mod tests {
     use super::*;
     #[test]
     fn target_guard_rejects_remote_and_stale_installs_before_reading_files() {
-        let mut config = GuiConfigFile::default();
-        config.connection_mode = crate::CoreConnectionMode::Remote;
+        let config = GuiConfigFile {
+            connection_mode: crate::CoreConnectionMode::Remote,
+            ..Default::default()
+        };
         let state = GuiConfigState::new(config);
         let remote = state.snapshot().unwrap();
         let result = install_for_target(&state, &remote, Path::new("missing-source.dll"), Path::new("unused-target"), "dll");

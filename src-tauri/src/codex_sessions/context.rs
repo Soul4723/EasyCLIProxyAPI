@@ -2261,13 +2261,12 @@ fn latest_session_index_entry(bytes: &[u8], session_id: &str) -> Result<Option<V
     Ok(text
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|record| {
+        .rfind(|record| {
             record
                 .get("id")
                 .and_then(Value::as_str)
                 .is_some_and(|id| normalize_thread_id(id) == target)
-        })
-        .last())
+        }))
 }
 
 fn build_session_index_title_update(
