@@ -11,6 +11,7 @@ type MetaFixture = {
   statusCalls: number;
   holdStatus: boolean;
   releaseStatus: null | (() => void);
+  releaseStart: null | (() => void);
   cancelledStates: string[];
   priorityPatches: Array<{ name: string; priority: number }>;
   files: Array<Record<string, unknown>>;
@@ -36,6 +37,7 @@ const fixture: MetaFixture = {
   statusCalls: 0,
   holdStatus: false,
   releaseStatus: null,
+  releaseStart: null,
   cancelledStates: [],
   priorityPatches: [],
   files: params.has('kimiAi') ? [{ name: 'kimi-ai-existing.json', provider: 'kimi-ai', status: 'active' }] : [],
@@ -65,7 +67,7 @@ mockIPC(async (cmd, args: any = {}) => {
     fixture.status = 'wait';
     fixture.statusCalls = 0;
     fixture.currentState = `meta-attempt-${fixture.attempts}`;
-    return {
+    const result = {
       url: `https://auth.meta.ai/device?state=${fixture.currentState}`,
       state: fixture.currentState,
       opened: !params.has('openError'),
@@ -74,6 +76,8 @@ mockIPC(async (cmd, args: any = {}) => {
       flow: 'device',
       expiresIn: 900,
     };
+    if (params.has('holdStart')) return new Promise(resolve => { fixture.releaseStart = () => resolve(result); });
+    return result;
   }
   if (cmd === 'get_oauth_status') {
     fixture.statusCalls += 1;
@@ -114,4 +118,6 @@ mockIPC(async (cmd, args: any = {}) => {
   throw new Error('Unexpected command: ' + cmd + ' ' + JSON.stringify(args));
 }, { shouldMockEvents: true });
 
-createRoot(document.getElementById('root')!).render(<SignInHarness />);
+const root = createRoot(document.getElementById('root')!);
+Object.assign(window, { metaUnmount: () => root.unmount() });
+root.render(<SignInHarness />);

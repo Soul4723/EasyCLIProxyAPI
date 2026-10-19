@@ -24,9 +24,9 @@ const { startFixtureServer, launchBrowser, newOfflinePage } = require('./helpers
       });
     });
     const waitForStatusCall = () => page.waitForFunction(() => window.metaFixture.statusCalls > 0);
-    const startMeta = async () => {
+    const startMeta = async (attempt = 1) => {
       await page.locator('[data-provider=meta]').click();
-      await dialog().getByText('META-CODE-1', { exact: true }).waitFor();
+      await dialog().getByText(`META-CODE-${attempt}`, { exact: true }).waitFor();
     };
 
     // Meta is the seventh OAuth provider next to Vertex: device code, no callback input.
@@ -91,15 +91,54 @@ const { startFixtureServer, launchBrowser, newOfflinePage } = require('./helpers
     await dialog().getByRole('button', { name: 'Open in browser', exact: true }).click();
     assert.ok((await calls()).some(call => call.cmd === 'open_oauth_url'));
 
-    // Closing the dialog keeps the sign-in running; finishing it later brings the result back.
+    // Cancelling stops polling immediately, deletes the session, and fences an in-flight success.
     await open('locale=en');
+    await page.evaluate(() => { window.metaFixture.holdStatus = true; });
     await startMeta();
+    await page.waitForFunction(() => window.metaFixture.releaseStatus !== null);
+    await dialog().getByRole('button', { name: 'Cancel', exact: true }).click();
+    await dialog().waitFor({ state: 'detached' });
+    await page.waitForFunction(() => window.metaFixture.cancelledStates.includes('meta-attempt-1'));
+    const stoppedCalls = (await fixture()).statusCalls;
+    await page.evaluate(() => window.metaFixture.releaseStatus());
+    await page.waitForTimeout(150);
+    assert.equal((await fixture()).statusCalls, stoppedCalls, 'Cancel must stop polling');
+    assert.equal(await page.locator('[data-provider=meta]').getAttribute('data-flow'), 'idle');
+    assert.equal(await dialog().count(), 0, 'a stale success must not reopen the dialog');
+    assert.deepEqual(await page.evaluate(() => window.signinSuccesses), []);
+
+    // Escape is cancellation too, and a later sign-in creates a fresh session.
+    await startMeta(2);
     await page.keyboard.press('Escape');
     await dialog().waitFor({ state: 'detached' });
-    assert.equal(await page.locator('[data-provider=meta]').getAttribute('data-flow'), 'waiting');
-    await page.evaluate(() => { window.metaFixture.status = 'ok'; });
-    await dialog().getByText('Muse (Meta) signed in', { exact: true }).waitFor();
-    assert.equal(await page.locator('[data-provider=meta]').getAttribute('data-flow'), 'success');
+    await page.waitForFunction(() => window.metaFixture.cancelledStates.includes('meta-attempt-2'));
+
+    // Unmount stops active polling and fences its in-flight response.
+    await open('locale=en');
+    await page.evaluate(() => { window.metaFixture.holdStatus = true; });
+    await startMeta();
+    await page.waitForFunction(() => window.metaFixture.releaseStatus !== null);
+    await page.evaluate(() => window.metaUnmount());
+    await page.waitForFunction(() => window.metaFixture.cancelledStates.includes('meta-attempt-1'));
+    const unmountedCalls = (await fixture()).statusCalls;
+    await page.evaluate(() => window.metaFixture.releaseStatus());
+    await page.waitForTimeout(150);
+    assert.equal((await fixture()).statusCalls, unmountedCalls);
+    assert.deepEqual(await page.evaluate(() => window.signinSuccesses), []);
+
+    // A start that returns after Cancel or unmount must be cancelled, never polled.
+    for (const unmount of [false, true]) {
+      await open('locale=en&holdStart=1');
+      await page.locator('[data-provider=meta]').click();
+      await page.waitForFunction(() => window.metaFixture.releaseStart !== null);
+      if (unmount) await page.evaluate(() => window.metaUnmount());
+      else await dialog().getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.evaluate(() => window.metaFixture.releaseStart());
+      await page.waitForFunction(() => window.metaFixture.cancelledStates.includes('meta-attempt-1'));
+      await page.waitForTimeout(150);
+      assert.equal((await fixture()).statusCalls, 0);
+      assert.equal(await dialog().count(), 0);
+    }
 
     // Chinese labels at desktop and phone widths in both themes, without horizontal overflow.
     fs.mkdirSync('misc', { recursive: true });
@@ -115,11 +154,11 @@ const { startFixtureServer, launchBrowser, newOfflinePage } = require('./helpers
       const box = await dialog().boundingBox();
       assert.ok(box.x >= 0 && box.x + box.width <= width, `${theme} dialog fits the width`);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${theme} viewport overflows horizontally`);
-      await page.screenshot({ path: `misc/meta-oauth-${theme}.png`, fullPage: true });
+      if (!process.env.NO_SCREENSHOTS) await page.screenshot({ path: `misc/meta-oauth-${theme}.png`, fullPage: true });
     }
 
     assert.deepEqual(errors, []);
-    console.log('Meta OAuth browser checks passed: device code copy/open, refresh cancellation, stale poll isolation, success priority, retry, open failure, background completion and responsive labels.');
+    console.log('Meta OAuth browser checks passed: device code copy/open, refresh cancellation, stale poll isolation, success priority, retry, open failure, close cancellation and responsive labels.');
   } finally {
     await browser.close();
     await server.close();

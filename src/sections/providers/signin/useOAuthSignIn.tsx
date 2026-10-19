@@ -282,15 +282,16 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
   }, [applyDefaultCredentialPriority, clearPolling, completeAuth, failFlow]);
 
   useEffect(() => () => {
-    // Leaving the page stops polling; plugin sessions are cancelled like the old plugin dialog did on close.
+    // Fence pending starts as well as polls: a response arriving after unmount
+    // must be cancelled, not allowed to create another polling interval.
+    Object.keys(attempts.current).forEach((id) => { attempts.current[id] += 1; });
+    const sessions = new Set([...Object.values(pollingSessions.current), ...Object.values(pluginSessions.current)]);
     Object.values(pollingTimers.current).forEach((timer) => window.clearInterval(timer));
     Object.values(expiryTimers.current).forEach((timer) => window.clearTimeout(timer));
-    Object.values(pluginSessions.current).forEach((state) => {
-      void managementApi.delete('/oauth/session', { query: { state } }).catch(() => {});
-    });
+    sessions.forEach(cancelSession);
     pollingSessions.current = {};
     pluginSessions.current = {};
-  }, []);
+  }, [cancelSession]);
 
   const startLogin = useCallback(async (provider: SignInProvider) => {
     const id = provider.id;
@@ -319,6 +320,7 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
 
     try {
       if (!plugin) await captureCredentialSnapshot(id);
+      if (!isAttempt()) return;
       // Remote cores never get an automatic local browser; plugin sessions are opened by the explicit button.
       const browser = plugin || remoteRef.current ? NO_AUTO_OPEN_BROWSER_ID : browserRef.current;
       const result = await invoke<OAuthStartResult>(
@@ -327,7 +329,7 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
       );
       const returnedState = result.state?.trim() ?? '';
       if (!isAttempt()) {
-        if (plugin) cancelSession(returnedState);
+        cancelSession(returnedState);
         return;
       }
       if (!returnedState) {
@@ -388,6 +390,8 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
   const refreshLink = useCallback(async (provider: SignInProvider) => {
     const id = provider.id;
     const currentState = statesRef.current[id]?.state;
+    const attempt = attempts.current[id];
+    const isCurrent = () => attempts.current[id] === attempt;
     clearPolling(id);
     updateState(id, { refreshing: true, notice: undefined });
     try {
@@ -395,6 +399,7 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
         await managementApi.delete('/oauth/session', { query: { state: currentState } });
       }
     } catch (error) {
+      if (!isCurrent()) return;
       if (id === 'devin') {
         updateState(id, { refreshing: false, notice: { tone: 'error', text: String(error) } });
         if (currentState) startPolling(id, currentState, false);
@@ -402,6 +407,7 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
       }
       console.warn('Failed to cancel the previous OAuth session before refreshing', error);
     }
+    if (!isCurrent()) return;
     try {
       await startLogin(provider);
     } finally {
@@ -459,8 +465,6 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
     const id = activeId;
     setActiveId(null);
     if (!id) return;
-    const provider = providersRef.current.find((item) => item.id === id);
-    if (provider?.kind !== 'plugin') return; // built-in flows keep polling in the background
     const flow = statesRef.current[id];
     if (flow?.status === 'success') return;
     attempts.current[id] = (attempts.current[id] ?? 0) + 1;
