@@ -1,3 +1,4 @@
+import { formatShortDateTime } from '../../services/format';
 // Account detail (C2): windows with big numbers, lighting status, banked resets, cooldowns, enable toggle and
 // links to the pages that own credential editing and request history. Nothing from those pages is repeated.
 import { ArrowRight, Clock, RefreshCw, RotateCcw, Zap } from 'lucide-react';
@@ -20,7 +21,7 @@ function BigWindow({ window, now, stale }: { window: WindowView; now: number; st
   const { t, formatNumber, locale } = useI18n();
   const label = windowLabel(window, t);
   const absolute = window.resetAtMs
-    ? new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(window.resetAtMs) : '';
+    ? formatShortDateTime(window.resetAtMs, locale) : '';
   return (
     <div className={`qt-big${stale ? ' qt-stale' : ''}`}>
       <div className="qt-big__label" title={window.rawLabel}>{label}</div>

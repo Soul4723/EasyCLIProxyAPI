@@ -1,3 +1,4 @@
+import { formatShortDateTime } from '../../services/format';
 // Lighting popover (C1 shape): Off · After reset · Schedule, window, start time presets, weekdays, model, retry,
 // status (next run / last result / paused / no reset known) and "Light now". Backed by src/services/lighting.ts.
 import { useEffect, useMemo, useState, type RefObject } from 'react';
@@ -129,7 +130,7 @@ export function LightningPopover({
     } finally { setBusy(false); }
   };
 
-  const fmt = (ms: number) => new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(ms);
+  const fmt = (ms: number) => formatShortDateTime(ms, locale);
   const defaultModel = capability?.defaultModel ?? '';
 
   return (

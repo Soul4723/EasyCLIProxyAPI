@@ -1,5 +1,5 @@
 import { getCurrentLocale } from '../../i18n';
-import { formatDuration, formatUsageNumber } from '../../services/usageNumber';
+import { formatLatency as formatDuration, formatUsageNumber } from '../../services/format';
 import type { UsageQuery, UsageRange } from './types';
 
 export const RANGES: readonly UsageRange[] = ['4h', '24h', 'today', '7d', '30d', 'all'];

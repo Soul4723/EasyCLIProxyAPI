@@ -18,7 +18,7 @@
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { useI18n } from '../i18n';
-import { clamp, formatCompactNumber } from './format';
+import { clamp, formatCompactNumber } from '../services/format';
 import { useUiText } from './uiText';
 import './Charts.css';
 
