@@ -52,8 +52,8 @@ launch real apps, write credentials to disk or make upstream API requests.
 ## Verification
 
 ```sh
-bun test tests/browserMockRuntime.test.ts tests/browserMockQuota.test.ts
-node tests/browser-mock-ui.cjs
+bun test tests/unit/mocks/browserMockRuntime.test.ts tests/unit/mocks/browserMockQuota.test.ts
+node tests/ui/mocks/browser-mock-ui.cjs
 ```
 
 The browser test uses Playwright (and Microsoft Edge on Windows), opens the real
@@ -80,7 +80,7 @@ reset or tab close.
 The MOCK badge remains visible. No real server is contacted, no process is started
 or stopped, and no host credential or client configuration files are written. These
 fixtures verify interaction, not native HTTP, TLS or provider OAuth completion.
-Run `bun run test:ui:remote-core` with Playwright available for the interaction
+Run `node tests/run-ui.cjs settings-connection` with Playwright available for the interaction
 regression check; it blocks all external HTTP requests.
 
 ## Source layout and contract tests
@@ -96,8 +96,8 @@ regression check; it blocks all external HTTP requests.
   their shared host/result contract. Keep shared runtime state in `src/mocks/`
   rather than copying it into a section.
 - Keep mock responses compatible with the real services and the UI consumers.
-  `tests/browserMockRuntime.test.ts`, `browserMockQuota.test.ts`,
-  `lightingMock.test.ts` and `pluginMock.test.ts` guard the browser-mock contract
+  `tests/unit/mocks/browserMockRuntime.test.ts`, `tests/unit/mocks/browserMockQuota.test.ts`,
+  `tests/unit/mocks/lightingMock.test.ts` and `tests/unit/mocks/pluginMock.test.ts` guard the browser-mock contract
   used by the UI suite: lifecycle and connection fencing, real quota parsing and
   credential edits, lighting commands/events, and plugin routes/webview ownership.
   They are not evidence of native backend correctness. All four are retained;
