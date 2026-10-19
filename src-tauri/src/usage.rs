@@ -2067,62 +2067,51 @@ const READINESS_RETRY_MAX_SECONDS: u64 = 28;
 
 // Readiness failures are not queue failures: keep their retry budget independent
 // of successful inbox processing and the healthy empty-queue polling schedule.
-struct ReadinessSchedule {
-    next_at: tokio::time::Instant,
+struct ReadinessBackoff {
     retry_seconds: u64,
 }
 
-impl ReadinessSchedule {
-    fn new(now: tokio::time::Instant) -> Self {
-        Self { next_at: now, retry_seconds: 2 }
+impl ReadinessBackoff {
+    fn new() -> Self {
+        Self { retry_seconds: 2 }
     }
 
-    fn reset(&mut self, now: tokio::time::Instant) {
-        *self = Self::new(now);
+    fn reset(&mut self) {
+        *self = Self::new();
     }
 
-    fn checked(&mut self, now: tokio::time::Instant, ready: bool) {
+    fn checked(&mut self, ready: bool) -> Duration {
         if ready {
             self.retry_seconds = 2;
         }
-        self.next_at = now + Duration::from_secs(self.retry_seconds);
+        let delay = Duration::from_secs(self.retry_seconds);
         if !ready {
             self.retry_seconds = (self.retry_seconds * 2).min(READINESS_RETRY_MAX_SECONDS);
         }
+        delay
     }
 }
 
 #[test]
 fn readiness_backoff_is_bounded_and_success_resets_it() {
-    let mut now = tokio::time::Instant::now();
-    let mut schedule = ReadinessSchedule::new(now);
+    let mut backoff = ReadinessBackoff::new();
     for seconds in [2, 4, 8, 16, 28, 28, 28] {
-        assert!(now >= schedule.next_at);
-        schedule.checked(now, false);
-        assert_eq!(schedule.next_at - now, Duration::from_secs(seconds));
-        now = schedule.next_at;
+        assert_eq!(backoff.checked(false), Duration::from_secs(seconds));
     }
-    schedule.checked(now, true);
-    assert_eq!(schedule.next_at - now, Duration::from_secs(2));
-    now = schedule.next_at;
-    schedule.checked(now, false);
-    assert_eq!(schedule.next_at - now, Duration::from_secs(2));
+    assert_eq!(backoff.checked(true), Duration::from_secs(2));
+    assert_eq!(backoff.checked(false), Duration::from_secs(2));
 }
 
 #[test]
-fn readiness_target_or_lifecycle_reset_is_immediately_due() {
-    let now = tokio::time::Instant::now();
-    let mut schedule = ReadinessSchedule::new(now);
-    for _ in 0..8 { schedule.checked(now, false); }
-    assert_eq!(schedule.next_at - now, Duration::from_secs(28));
+fn readiness_target_or_lifecycle_reset_restarts_retry_budget() {
+    let mut backoff = ReadinessBackoff::new();
+    for _ in 0..8 { backoff.checked(false); }
     let state = UsageCollectorState::default();
     state.request_readiness_check();
     assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
     assert!(!state.readiness_requested.swap(false, Ordering::AcqRel));
-    schedule.reset(now);
-    assert!(schedule.next_at <= now);
-    schedule.checked(now, false);
-    assert_eq!(schedule.next_at - now, Duration::from_secs(2));
+    backoff.reset();
+    assert_eq!(backoff.checked(false), Duration::from_secs(2));
 }
 
 async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
@@ -2134,7 +2123,8 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut subscribe_retry_at = tokio::time::Instant::now();
     let mut next_inbox_cleanup_at = tokio::time::Instant::now() + Duration::from_secs(60 * 60);
     let mut next_inbox_recovery_at = tokio::time::Instant::now();
-    let mut readiness = ReadinessSchedule::new(tokio::time::Instant::now());
+    let mut readiness = ReadinessBackoff::new();
+    let mut next_core_check_at = tokio::time::Instant::now();
     let mut core_ready = false;
     let mut remote_ready_error: Option<String> = None;
     let mut active_connection: Option<String> = None;
@@ -2189,7 +2179,8 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
             subscription = None;
             redis_queue = RedisUsageQueueSource::default();
             subscribe_retry_at = tokio::time::Instant::now();
-            readiness.reset(tokio::time::Instant::now());
+            readiness.reset();
+            next_core_check_at = tokio::time::Instant::now();
             core_ready = false;
             remote_ready_error = None;
             let state = app.state::<UsageCollectorState>();
@@ -2249,10 +2240,11 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
         // Lifecycle status is emitted by user actions, not by unchanged status
         // polls. While waiting we revisit this flag at least once per second.
         if app.state::<UsageCollectorState>().readiness_requested.swap(false, Ordering::AcqRel) {
-            readiness.reset(tokio::time::Instant::now());
+            readiness.reset();
+            next_core_check_at = tokio::time::Instant::now();
             empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
         }
-        if tokio::time::Instant::now() >= readiness.next_at {
+        if tokio::time::Instant::now() >= next_core_check_at {
             if remote {
                 // Remote readiness is authenticated management reachability,
                 // never a local process check or a local RESP connect.
@@ -2272,7 +2264,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                     .map(|status| status.ready)
                     .unwrap_or(false);
             }
-            readiness.checked(tokio::time::Instant::now(), core_ready);
+            next_core_check_at = tokio::time::Instant::now() + readiness.checked(core_ready);
         }
         if !core_ready {
             subscription = None;
