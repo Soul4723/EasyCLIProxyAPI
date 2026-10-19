@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../../../services/documentTarget';
-import { getVersion } from '../../../services/platform';
+import { createSettingsRead } from '../../../services/settingsData';
 import { Info, Palette, PanelTop, ShieldCheck } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { usePrivacyMode } from '../../../privacy';
@@ -9,6 +9,7 @@ import { routeHref } from '../../../shell/router';
 import { Chip, ErrorState, Skeleton, Toggle } from '../../../ui';
 import { SaveBar, SettingRow, SettingsGroup, useDraft, useReportDirty } from '../ui';
 import { useRequestGuard } from '../useRequestGuard';
+import { appVersionRead } from '../versionData';
 import './AppTab.css';
 
 type CloseBehavior = 'ask' | 'exit' | 'minimize-to-tray';
@@ -30,6 +31,8 @@ const toDraft = (settings: SoftwareSettings): SoftwareDraft => ({
   defaultTerminal: settings.defaultTerminal,
 });
 
+const softwareRead = createSettingsRead(() => invoke<SoftwareSettings>('get_software_settings'));
+
 export function AppTab() {
   const { t } = useI18n();
   const [privacy, setPrivacy] = usePrivacyMode();
@@ -43,15 +46,15 @@ export function AppTab() {
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const requests = useRequestGuard();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     const isCurrent = requests.begin();
     try {
-      const value = await invoke<SoftwareSettings>('get_software_settings');
+      const value = await softwareRead.read({ fresh });
       if (isCurrent()) { setSoftware(value); setLoadError(''); }
     } catch (cause) { if (isCurrent()) setLoadError(String(cause)); }
   }, [requests]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { void getVersion().then((value) => { if (alive.current) setVersion(value); }).catch(() => undefined); }, []);
+  useEffect(() => { void appVersionRead.read().then((value) => { if (alive.current) setVersion(value); }).catch(() => undefined); }, []);
 
   const saved = useMemo(() => (software ? toDraft(software) : null), [software]);
   const { draft, setDraft, reset } = useDraft<SoftwareDraft>(saved);
@@ -69,10 +72,11 @@ export function AppTab() {
     try {
       const result = await invoke<SoftwareSettings>('save_software_settings', { settings: draft });
       requests.invalidate();
+      softwareRead.publish(result);
       setSoftware(result); setJustSaved(true);
     } catch (cause) {
       setSaveError(t('config.error.saveFailed', { error: String(cause) }));
-      void load();
+      void load(true);
     } finally { setBusy(false); }
   };
 
@@ -83,7 +87,7 @@ export function AppTab() {
   ) : null;
 
   const startup = () => {
-    if (loadError && !software) return <ErrorState title={t('sec.settings.app.loadFailed')} message={loadError} onRetry={() => void load()} />;
+    if (loadError && !software) return <ErrorState title={t('sec.settings.app.loadFailed')} message={loadError} onRetry={() => void load(true)} />;
     if (!software || !draft) return <div className="ec-set-skel" aria-busy="true"><Skeleton lines={4} /></div>;
     const toggle = (key: 'autostartEnabled' | 'startCoreOnLaunch' | 'silentStartEnabled', label: string, hint: string) => (
       <SettingRow label={label} hint={hint}>
