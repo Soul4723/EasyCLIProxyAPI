@@ -1,4 +1,3 @@
-import { formatShortDateTime } from '../../services/format';
 // Lighting popover (C1 shape): Off · After reset · Schedule, window, start time presets, weekdays, model, retry,
 // status (next run / last result / paused / no reset known) and "Light now". Backed by src/services/lighting.ts.
 import { useEffect, useMemo, useState, type RefObject } from 'react';
@@ -7,6 +6,7 @@ import {
   Button, ConfirmDialog, Countdown, Masked, Popover, ProviderLogo, SegmentedControl,
 } from '../../ui';
 import { useI18n } from '../../i18n';
+import { formatShortDateTime } from '../../services/format';
 import type { LightingMode, LightingSchedule, LightingWindowKind } from '../../services/lighting';
 import type { QuotaAccount } from './model';
 import { lightingStateOf, type LightingApi } from './useLighting';

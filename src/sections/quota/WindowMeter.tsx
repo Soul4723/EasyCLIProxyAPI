@@ -1,8 +1,8 @@
-import { formatShortDateTime } from '../../services/format';
 // One quota window: label, % left bar (striped when the data is stale), % and reset countdown.
 // Reset is relative first with the absolute local time in the tooltip; unknown reset is "—", never invented.
 import { Countdown, QuotaBar } from '../../ui';
 import { useI18n } from '../../i18n';
+import { formatShortDateTime } from '../../services/format';
 import type { WindowView } from './model';
 
 type Translate = ReturnType<typeof useI18n>['t'];

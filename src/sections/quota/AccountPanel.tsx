@@ -1,4 +1,3 @@
-import { formatShortDateTime } from '../../services/format';
 // Account detail (C2): windows with big numbers, lighting status, banked resets, cooldowns, enable toggle and
 // links to the pages that own credential editing and request history. Nothing from those pages is repeated.
 import { ArrowRight, Clock, RefreshCw, RotateCcw, Zap } from 'lucide-react';
@@ -7,6 +6,7 @@ import {
   StatusPill, Toggle,
 } from '../../ui';
 import { useI18n } from '../../i18n';
+import { formatShortDateTime } from '../../services/format';
 import { routeHref } from '../../shell/router';
 import { authFileRequestStats } from '../../services/authFileRequests';
 import { canResetQuota } from '../../services/quotaActions';

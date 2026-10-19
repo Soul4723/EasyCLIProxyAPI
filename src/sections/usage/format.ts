@@ -1,11 +1,11 @@
 import { getCurrentLocale } from '../../i18n';
-import { formatLatency as formatDuration, formatUsageNumber } from '../../services/format';
+import { formatLatency, formatUsageNumber } from '../../services/format';
 import type { UsageQuery, UsageRange } from './types';
 
 export const RANGES: readonly UsageRange[] = ['4h', '24h', 'today', '7d', '30d', 'all'];
 
 export const compactNumber = (value: number) => formatUsageNumber(value, getCurrentLocale());
-export const compactDuration = (value: number) => formatDuration(value, getCurrentLocale());
+export const compactDuration = (value: number) => formatLatency(value, getCurrentLocale());
 
 export const formatStorageBytes = (value: number) => {
   const bytes = Number.isFinite(value) ? Math.max(0, value) : 0;
