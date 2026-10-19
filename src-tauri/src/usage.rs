@@ -2061,6 +2061,10 @@ fn next_empty_remote_poll_seconds(current: u64) -> u64 {
     (current * 2).min(REMOTE_EMPTY_POLL_MAX_SECONDS)
 }
 
+// Leave two seconds of headroom for scheduling/HTTP response time so recovery
+// remains within roughly 30 seconds even at the cap.
+const READINESS_RETRY_MAX_SECONDS: u64 = 28;
+
 // Readiness failures are not queue failures: keep their retry budget independent
 // of successful inbox processing and the healthy empty-queue polling schedule.
 struct ReadinessSchedule {
@@ -2083,7 +2087,7 @@ impl ReadinessSchedule {
         }
         self.next_at = now + Duration::from_secs(self.retry_seconds);
         if !ready {
-            self.retry_seconds = (self.retry_seconds * 2).min(30);
+            self.retry_seconds = (self.retry_seconds * 2).min(READINESS_RETRY_MAX_SECONDS);
         }
     }
 }
@@ -2092,7 +2096,7 @@ impl ReadinessSchedule {
 fn readiness_backoff_is_bounded_and_success_resets_it() {
     let mut now = tokio::time::Instant::now();
     let mut schedule = ReadinessSchedule::new(now);
-    for seconds in [2, 4, 8, 16, 30, 30, 30] {
+    for seconds in [2, 4, 8, 16, 28, 28, 28] {
         assert!(now >= schedule.next_at);
         schedule.checked(now, false);
         assert_eq!(schedule.next_at - now, Duration::from_secs(seconds));
@@ -2110,7 +2114,7 @@ fn readiness_target_or_lifecycle_reset_is_immediately_due() {
     let now = tokio::time::Instant::now();
     let mut schedule = ReadinessSchedule::new(now);
     for _ in 0..8 { schedule.checked(now, false); }
-    assert_eq!(schedule.next_at - now, Duration::from_secs(30));
+    assert_eq!(schedule.next_at - now, Duration::from_secs(28));
     let state = UsageCollectorState::default();
     state.request_readiness_check();
     assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
