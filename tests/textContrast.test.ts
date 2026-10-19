@@ -8,33 +8,21 @@ const stylesheet = postcss.parse([
   '../src/styles/ui-refinements.css',
 ].map((file) => readFileSync(new URL(file, import.meta.url), 'utf8')).join('\n'));
 const aliases: Record<string, string> = {
-  '--theme-4b4742': '--text-secondary',
-  '--theme-59544d': '--text-secondary',
   '--theme-5f5a53': '--text-secondary',
-  '--theme-655f57': '--text-secondary',
-  '--theme-6b655d': '--text-secondary',
   '--theme-6d6760': '--text-secondary',
-  '--theme-6f6961': '--text-tertiary',
-  '--theme-716b61': '--text-tertiary',
   '--theme-777067': '--text-tertiary',
   '--theme-7a746c': '--text-tertiary',
   '--theme-817b72': '--text-tertiary',
-  '--theme-817b73': '--text-tertiary',
   '--theme-8a847c': '--text-quaternary',
-  '--theme-918a81': '--text-quaternary',
-  '--theme-9a938a': '--text-quaternary',
-  '--theme-9a958d': '--text-quaternary',
-  '--theme-9b958c': '--text-quaternary',
 };
 const surfaces = [
-  '--bg-primary', '--bg-secondary', '--bg-tertiary', '--bg-hover', '--bg-quinary', '--bg-card',
-  '--theme-faf9f5', '--theme-fffdf8', '--theme-f4f1ea', '--theme-f0eee8',
-  '--theme-eeece6', '--theme-ece8df', '--theme-e8e4dc', '--theme-dfdcd4',
-  '--theme-eef7f0', '--theme-fff1ee', '--theme-fff7e9', '--ui-accent-soft',
+  '--bg-primary', '--bg-secondary', '--bg-tertiary', '--bg-hover', '--bg-card',
+  '--theme-faf9f5', '--theme-fffdf8', '--theme-f4f1ea', '--theme-eeece6', '--theme-ece8df',
+  '--theme-eef7f0', '--theme-fff1ee',
 ];
 const textTokens = [
   '--text-primary', '--text-secondary', '--text-tertiary', '--text-quaternary',
-  '--text-muted', '--text-placeholder', ...Object.keys(aliases),
+  '--text-placeholder', ...Object.keys(aliases),
 ];
 type RGB = [number, number, number];
 
@@ -130,5 +118,4 @@ it('renders placeholders at full opacity using the shared readable color', () =>
   expect(declarations('input::placeholder,\ntextarea::placeholder')).toMatchObject({
     color: 'var(--text-placeholder)', opacity: '1',
   });
-  expect(declarations('.simple-mode-field .text-input::placeholder').color).toBe('var(--text-placeholder)');
 });

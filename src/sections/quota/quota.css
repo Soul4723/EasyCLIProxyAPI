@@ -177,8 +177,6 @@
 .ec-sec-quota .qt-tl__fill--ok { --ec-bar-c: var(--ec-st-available); }
 .ec-sec-quota .qt-tl__fill--warn { --ec-bar-c: var(--ec-st-limited); }
 .ec-sec-quota .qt-tl__fill--danger { --ec-bar-c: var(--ec-st-exhausted); }
-.ec-sec-quota .qt-tl__label { position: absolute; right: 100%; margin-right: 6px; font-size: var(--ec-fs-xs); color: var(--ec-fg-2); white-space: nowrap; }
-.ec-sec-quota .qt-tl__fill { --qt-lab: 0; }
 .ec-sec-quota .qt-tl__none { font-size: var(--ec-fs-xs); line-height: 18px; display: inline-flex; align-items: center; height: 18px; }
 .ec-sec-quota .qt-tl__reset b { color: var(--ec-fg); margin-right: 6px; font-weight: 600; }
 .ec-sec-quota .qt-tl__mark { position: absolute; top: 1px; transform: translateX(-50%); display: inline-flex; padding: 2px; border-radius: var(--ec-r-pill); background: var(--ec-surface); }

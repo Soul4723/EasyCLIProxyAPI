@@ -3,11 +3,8 @@
 @import './ui-refinements.css';
 @import './responsive-shell-usage.css';
 @import './sidebar.css';
-@import './responsive-providers.css';
-@import './responsive-agents.css';
 @import './responsive-settings.css';
 @import './config-settings.css';
-@import './usage-subpages.css';
 @import './workspace-white.css';
 @import './theme-surfaces.css';
 @import './theme-backdrop.css';

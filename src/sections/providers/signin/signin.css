@@ -331,15 +331,6 @@ a.ec-btn {
   animation: ec-signin-pulse 1.6s ease-in-out infinite;
 }
 
-.ec-signin-status--error {
-  color: var(--ec-danger-fg);
-}
-
-.ec-signin-status--error .ec-signin-status__dot {
-  background: var(--ec-danger);
-  animation: none;
-}
-
 .ec-signin-spin {
   flex: none;
   width: 14px;

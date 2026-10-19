@@ -1,7 +1,6 @@
 /* Codex / Harness catalog dialogs. Rendered in a portal, so scoped under .cd-root (not .ec-sec-agents); --ec-* tokens only. */
 .ec-dialog__body:has(> .cd-root) { padding: 0; }
 .cd-root { display: flex; flex-direction: column; min-width: 0; }
-.cd-root > .ec-error-state { margin: var(--ec-sp-4); }
 
 .cd-root .cd-split { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); min-height: 380px; height: min(560px, calc(100vh - 220px)); }
 .cd-root .cd-list { display: flex; flex-direction: column; gap: var(--ec-sp-2); min-height: 0; min-width: 0; padding: var(--ec-sp-3); border-right: 1px solid var(--ec-border-soft); }

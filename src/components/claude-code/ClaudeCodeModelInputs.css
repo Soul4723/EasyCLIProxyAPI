@@ -104,10 +104,3 @@
   border-radius: 6px;
 }
 .claude-code-model-error p { margin: 4px 0 0; }
-
-@container agent-panel (max-width: 460px) {
-  .claude-code-model-field { grid-template-columns: minmax(0, 1fr); }
-  .claude-code-model-field > small { grid-column: 1; }
-  .claude-role-row { grid-template-columns: minmax(0, 1fr) 76px; gap: 6px 12px; }
-  .claude-role-row > strong { grid-column: 1 / -1; }
-}
