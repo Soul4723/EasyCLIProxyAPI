@@ -21,7 +21,7 @@ pub(crate) async fn get_codex_cli_daemon_running(
 
 static CODEX_CLI_DAEMON_RESTARTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-struct CodexCliDaemonRestartGuard;
+pub(super) struct CodexCliDaemonRestartGuard;
 
 impl Drop for CodexCliDaemonRestartGuard {
     fn drop(&mut self) {
