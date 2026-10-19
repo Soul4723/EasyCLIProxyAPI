@@ -43,7 +43,7 @@ export function SettingsHelp({ label, children }: { label: string; children: Rea
     const dismiss = (event: PointerEvent) => {
       if (!trigger.current?.contains(event.target as Node) && !popover.current?.contains(event.target as Node)) setOpen(false);
     };
-    const escape = (event: KeyboardEvent) => {
+    const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
@@ -52,10 +52,10 @@ export function SettingsHelp({ label, children }: { label: string; children: Rea
       }
     };
     document.addEventListener('pointerdown', dismiss);
-    window.addEventListener('keydown', escape, true);
+    window.addEventListener('keydown', closeOnEscape, true);
     return () => {
       document.removeEventListener('pointerdown', dismiss);
-      window.removeEventListener('keydown', escape, true);
+      window.removeEventListener('keydown', closeOnEscape, true);
     };
   }, [open]);
 

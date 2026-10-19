@@ -19,7 +19,7 @@ import {
   resetAuthFileCooldown,
   setOAuthCredentialFileDisabled,
 } from '../../../services/authFiles';
-import { managementApi, readString } from '../../../services/managementApi';
+import { managementApi } from '../../../services/managementApi';
 import { CredentialPanel } from './CredentialPanel';
 import {
   buildCredentialRows,

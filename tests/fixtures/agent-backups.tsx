@@ -1,4 +1,3 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { AgentsSection } from '../../src/sections/agents';
@@ -37,7 +36,6 @@ const harnessModels=[
 ];
 const harnessSnapshot=()=>({revision:String(harnessRevision),provider:harnessProvider,baseUrl:'http://127.0.0.1:8317/v1',defaultModel:currentModel,configured:!!currentModel,models:harnessModels.map(m=>({...m,configuration:harnessConfigurations[m.id]??{}}))});
 let harnessStatus={running:params.has('running'),pid:params.has('running')?100:null as number|null,mode:params.has('running')?params.get('harness-mode')||'web':null as string|null};
-let appliedCount=0;
 let detectionCount=0;
 (window as any).fixtureOauthLoggedIn=!params.has('no-oauth-login');
 const calls:any[]=[];(window as any).fixtureCalls=calls;

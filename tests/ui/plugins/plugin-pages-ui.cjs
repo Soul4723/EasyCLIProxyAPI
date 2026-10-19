@@ -2,7 +2,7 @@
 // `#/plugin/<id>` webview route (layout, overlays, reload, failure/retry, core stop). Run:
 //   PLAYWRIGHT_MODULE=<path> node tests/ui/plugins/plugin-pages-ui.cjs
 const assert = require('node:assert/strict');
-const { runUiTest, openApp, settle, invoke } = require('../../helpers/shell.cjs');
+const { runUiTest, openApp, invoke } = require('../../helpers/shell.cjs');
 
 const HINT = 'Please start the core service on Home first';
 const frames = (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));

@@ -50,7 +50,7 @@ function detectInitialLocale(): AppLocale {
 function interpolate(template: string, variables?: MessageVariables): string {
   if (!variables) return template;
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
-    Object.prototype.hasOwnProperty.call(variables, name) ? String(variables[name]) : match,
+    Object.hasOwn(variables, name) ? String(variables[name]) : match,
   );
 }
 

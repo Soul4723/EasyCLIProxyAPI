@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useResource } from '../../services/useResource';
 import { invoke } from '../../services/usageApi';
 import { BarChart3, Ban } from 'lucide-react';
@@ -42,7 +42,7 @@ export function OverviewTab() {
 
   const retry = useCallback(() => { setReload((n) => n + 1); }, []);
 
-  let body;
+  let body: ReactNode;
   if (!overview && failed) {
     body = <ErrorState title={t('sec.usage.error.load')} onRetry={retry} retryLabel={t('sec.usage.retry')} />;
   } else if (!overview) {

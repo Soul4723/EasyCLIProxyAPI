@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { BookOpen, FolderInput, Puzzle, RefreshCw, RotateCw } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { PageHeader } from '../../shell/PageHeader';
@@ -76,7 +76,7 @@ export function PluginsSection({ sub }: SectionPageProps) {
     </>
   );
 
-  let body;
+  let body: ReactNode;
   if (supported === false) {
     body = (
       <EmptyState icon={<Puzzle size={20} />} title={t('sec.plugins.unsupported')}

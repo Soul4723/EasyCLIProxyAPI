@@ -18,8 +18,8 @@ function Query() {
     return new Promise<number>((resolve, reject) => pending.set(key, { resolve, reject }));
   }, [key]);
   return <>
-    <button onClick={() => setKey(n => n + 1)}>Next query</button>
-    <button onClick={() => void snapshot.source.refresh()}>Refresh query</button>
+    <button type="button" onClick={() => setKey(n => n + 1)}>Next query</button>
+    <button type="button" onClick={() => void snapshot.source.refresh()}>Refresh query</button>
     <output data-testid="data">{snapshot.data ?? 'none'}</output>
     <output data-testid="error">{snapshot.error ?? 'none'}</output>
     <output data-testid="refreshing">{String(snapshot.refreshing)}</output>
@@ -28,6 +28,6 @@ function Query() {
 }
 function Harness() {
   const [mounted, setMounted] = useState(true);
-  return <><button onClick={() => setMounted(false)}>Unmount</button>{mounted && <Query />}</>;
+  return <><button type="button" onClick={() => setMounted(false)}>Unmount</button>{mounted && <Query />}</>;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><Harness /></StrictMode>);

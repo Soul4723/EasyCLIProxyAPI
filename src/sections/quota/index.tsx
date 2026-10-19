@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { GalleryVertical, Gauge, LayoutGrid, Rows3, RefreshCw, GanttChart, X } from 'lucide-react';
 import {
   Button, EmptyState, ErrorState, FilterChips, IconButton, ProviderLogo, SearchInput, SegmentedControl, Skeleton,
@@ -177,7 +177,7 @@ export function QuotaSection(_props: SectionPageProps) {
     </>
   );
 
-  let content;
+  let content: ReactNode;
   if (data.loading && accounts.length === 0) {
     content = <div className="qt-grid" aria-busy="true">{[0, 1, 2].map((index) => <div key={index} className="qt-card"><Skeleton lines={4} height={14} /></div>)}</div>;
   } else if (data.loadError && accounts.length === 0) {

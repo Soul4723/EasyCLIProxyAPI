@@ -16,6 +16,7 @@ function loadHelper(api = {}, disk) {
 const { storeCredential } = loadHelper();
 
 function fixture({ disabled = false, dirty = false, supported = true } = {}) {
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: a literal VS Code ${input:...} secret reference, not a template
   const other = { vendor: 'openai', name: 'User provider', apiKey: '${input:user-key}' };
   let text = JSON.stringify([other]);
   const uri = { fsPath: '/profile/chatLanguageModels.json', toString: () => 'vscode-userdata:/profile/chatLanguageModels.json' };
@@ -29,6 +30,7 @@ function fixture({ disabled = false, dirty = false, supported = true } = {}) {
         calls.push({ command, value });
         assert.equal(value.vendor, 'customendpoint');
         assert.equal(value.apiKey, 'fixture-key');
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: a literal VS Code ${input:...} secret reference, not a template
         text = JSON.stringify([...JSON.parse(text), { ...value, apiKey: '${input:chat.lm.secret.native-fixture}' }]);
       },
     },
@@ -76,6 +78,7 @@ for (const scenario of ['success', 'expired', 'wrong-profile', 'installed']) {
       assert.ok(!files.has(requestPath));
       const response = files.get(path.join(directory, 'response.json'));
       if (scenario === 'success') {
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: a literal VS Code ${input:...} secret reference, not a template
         assert.equal(JSON.parse(response).secretReference, '${input:chat.lm.secret.native-fixture}');
         assert.ok(!response.includes('fixture-key'));
       } else if (scenario === 'wrong-profile') {
@@ -90,6 +93,7 @@ for (const scenario of ['success', 'expired', 'wrong-profile', 'installed']) {
 test('native command receives the key; only the secret reference is returned and user groups survive', async () => {
   const f = fixture();
   const result = await storeCredential(f.api, f.uri, { id: 'fixture', apiKey: 'fixture-key' });
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: a literal VS Code ${input:...} secret reference, not a template
   assert.equal(result.secretReference, '${input:chat.lm.secret.native-fixture}');
   assert.equal(result.vendor, 'customendpoint');
   assert.deepEqual(f.result(), [f.other]);

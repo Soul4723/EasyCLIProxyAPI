@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const h = require('../../helpers/shell.cjs');
 
-h.runUiTest('quota-ui', async ({ base, newPage, gaps }) => {
+h.runUiTest('quota-ui', async ({ base, newPage }) => {
   const open = async (options = {}, pageOptions = {}) => {
     const page = await newPage(pageOptions);
     await h.openApp(page, base, { path: '/quota', ...options });

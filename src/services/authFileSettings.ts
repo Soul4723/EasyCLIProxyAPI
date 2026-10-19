@@ -80,7 +80,7 @@ export const authFileSettingsFromPayload = (payload: unknown): AuthFileSettingsD
     try { metadata = JSON.parse(metadata); } catch { return fail('metadata'); }
   }
   if (!isRecord(metadata)) return fail('metadata');
-  const read = (key: string, legacy?: string) => Object.prototype.hasOwnProperty.call(metadata, key)
+  const read = (key: string, legacy?: string) => Object.hasOwn(metadata, key)
     ? metadata[key] : legacy ? metadata[legacy] : undefined;
   const text = (value: unknown) => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
   const headers = metadata.headers == null ? {} : metadata.headers;

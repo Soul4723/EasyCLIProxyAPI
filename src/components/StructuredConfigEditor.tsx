@@ -98,7 +98,7 @@ export function StructuredConfigEditor({ shape, value, onChange, disabled = fals
         onChange={event => { setNewKey(event.currentTarget.value); setKeyError(''); }} />
         <button type="button" className="secondary-button" disabled={disabled || !newKey.trim()} onClick={() => {
           const key = newKey.trim();
-          if (Object.prototype.hasOwnProperty.call(record, key) || ['__proto__', 'prototype', 'constructor'].includes(key)) { setKeyError(tx({ zh: '名称已存在或不可使用', en: 'Name already exists or is not allowed', ja: 'この名前は使用できません' })); return; }
+          if (Object.hasOwn(record, key) || ['__proto__', 'prototype', 'constructor'].includes(key)) { setKeyError(tx({ zh: '名称已存在或不可使用', en: 'Name already exists or is not allowed', ja: 'この名前は使用できません' })); return; }
           onChange({ ...record, [key]: defaultStructuredValue(item) }); setNewKey('');
         }}><Plus size={14} />{addText}</button></div>
       {keyError && <p role="alert" className="structured-error">{keyError}</p>}

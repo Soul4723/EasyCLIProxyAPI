@@ -1,5 +1,3 @@
-import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 import { parseAnthropicResetGrantStatus } from '../../../src/services/claudeResetGrants';
@@ -8,7 +6,6 @@ import { selectResetGrant } from '../../../src/services/selectClaudeResetGrant';
 import { loadQuota, quotaKey } from '../../../src/services/quotaService';
 import { canResetQuota, resetQuotaWithConfirmation } from '../../../src/services/quotaActions';
 import { getQuotaCacheSnapshot, pruneQuotaCache, updateQuotaCache } from '../../../src/services/quotaCache';
-import { I18nProvider } from '../../../src/i18n';
 import { renderCard } from '../../helpers/quotaAccount';
 
 const organization = '11111111-2222-3333-4444-555555555555';

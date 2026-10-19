@@ -14,7 +14,7 @@ export type ProviderRowProps = {
 };
 
 /** Compact provider row: logo + one % per provider; each tile links to its Quota group. No bars, counts or windows here. */
-export function ProviderRow({ providers, loading, refreshing, onRefresh }: ProviderRowProps) {
+export function ProviderRow({ providers, loading }: ProviderRowProps) {
   const { t } = useI18n();
   return (
     <section className="ov-providers" aria-label={t('sec.overview.providers')} data-testid="ov-providers">

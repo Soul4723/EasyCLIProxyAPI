@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, ArrowLeft, FolderOpen, LogIn, RefreshCw } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { PageHeader } from '../../shell/PageHeader';
@@ -95,7 +95,7 @@ export function ProvidersPage({ sub, params }: SectionPageProps) {
     </>
   );
 
-  let body;
+  let body: ReactNode;
   if (active === 'exclusions') {
     body = <ModelExclusions controller={creds} />;
   } else if (active === 'all') {

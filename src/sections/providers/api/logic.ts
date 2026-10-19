@@ -558,7 +558,7 @@ export const draftFromRow = (row: ProviderRow): ProviderDraft => {
   return {
     weight: row.record.weight == null ? '' : String(row.record.weight),
     templateFields: Object.fromEntries(['request-retry', 'request-scoped-errors', 'support-prompt-cache-key', 'disable-codex-cloaking', 'alpha-search', 'rebuild-mid-system-message', 'fingerprint-profile', 'experimental-cch-signing']
-      .filter((field) => Object.prototype.hasOwnProperty.call(row.record, field)).map((field) => [field, structuredClone(row.record[field])])),
+      .filter((field) => Object.hasOwn(row.record, field)).map((field) => [field, structuredClone(row.record[field])])),
     ...(Array.isArray(row.record.keys) ? { groupKeys: providerGroupKeys(row.record).map(providerKeyDraft) } : {}),
     name: Array.isArray(row.record.keys) ? row.name : isDeepSeek ? 'DeepSeek' : row.name,
     apiKey: definition.openAi ? row.apiKeys.join('\n') : row.apiKey,
@@ -832,7 +832,7 @@ export const buildProviderKeyRecord = (
   section: ProviderSection, draft: ProviderDraft, current?: Record<string, unknown>,
 ): Record<string, unknown> => {
   const next = buildProviderRecord(section, draft, current);
-  if (current && Object.prototype.hasOwnProperty.call(current, 'name')) next.name = current.name;
+  if (current && Object.hasOwn(current, 'name')) next.name = current.name;
   else delete next.name;
   const baseline = current ? providerDraftFromRecord(section, current) : emptyProviderDraft();
   const fields: [keyof ProviderDraft, string][] = [
@@ -847,12 +847,12 @@ export const buildProviderKeyRecord = (
   for (const [field, configField] of fields) {
     if (field === 'excludedModelsText' && draft.modelSelectionCatalog) continue;
     if (JSON.stringify(draft[field]) !== JSON.stringify(baseline[field])) continue;
-    if (current && Object.prototype.hasOwnProperty.call(current, configField)) next[configField] = structuredClone(current[configField]);
+    if (current && Object.hasOwn(current, configField)) next[configField] = structuredClone(current[configField]);
     else delete next[configField];
   }
   if (['cloakMode', 'cloakStrictMode', 'cloakSensitiveWordsText', 'cloakCacheUserId'].every((field) =>
     JSON.stringify(draft[field as keyof ProviderDraft]) === JSON.stringify(baseline[field as keyof ProviderDraft]))) {
-    if (current && Object.prototype.hasOwnProperty.call(current, 'cloak')) next.cloak = structuredClone(current.cloak);
+    if (current && Object.hasOwn(current, 'cloak')) next.cloak = structuredClone(current.cloak);
     else delete next.cloak;
   } else if (isRecord(current?.cloak)) {
     const cloak = isRecord(next.cloak) ? { ...next.cloak } : {};
@@ -862,7 +862,7 @@ export const buildProviderKeyRecord = (
     ];
     for (const [field, configField] of cloakFields) {
       if (JSON.stringify(draft[field]) !== JSON.stringify(baseline[field])) continue;
-      if (Object.prototype.hasOwnProperty.call(current.cloak, configField)) cloak[configField] = structuredClone(current.cloak[configField]);
+      if (Object.hasOwn(current.cloak, configField)) cloak[configField] = structuredClone(current.cloak[configField]);
       else delete cloak[configField];
     }
     if (Object.keys(cloak).length) next.cloak = cloak; else delete next.cloak;
@@ -876,7 +876,7 @@ export const buildProviderKeyRecord = (
   }
   for (const field of new Set([...Object.keys(baseline.templateFields ?? {}), ...Object.keys(draft.templateFields ?? {})])) {
     if (JSON.stringify(baseline.templateFields?.[field]) === JSON.stringify(draft.templateFields?.[field])) continue;
-    if (Object.prototype.hasOwnProperty.call(draft.templateFields ?? {}, field)) next[field] = structuredClone(draft.templateFields![field]);
+    if (Object.hasOwn(draft.templateFields ?? {}, field)) next[field] = structuredClone(draft.templateFields![field]);
     else delete next[field];
   }
   const invalid = validateProviderTemplateRecord(next);
@@ -927,7 +927,7 @@ export const buildProviderGroupRecord = (
   next.keys = (draft.groupKeys ?? []).map(serializeProviderKey);
   if (draft.templateFields) {
     for (const field of ['request-retry', 'request-scoped-errors', 'support-prompt-cache-key']) {
-      if (Object.prototype.hasOwnProperty.call(draft.templateFields, field)) next[field] = structuredClone(draft.templateFields[field]);
+      if (Object.hasOwn(draft.templateFields, field)) next[field] = structuredClone(draft.templateFields[field]);
       else delete next[field];
     }
   }
@@ -944,7 +944,7 @@ export const buildProviderGroupRecord = (
       if (field === 'models' && draft.thinkingLevelsEdited) continue;
       if (field === 'excludedModelsText' && draft.modelSelectionCatalog) continue;
       if (JSON.stringify(draft[field]) !== JSON.stringify(baseline[field])) continue;
-      if (Object.prototype.hasOwnProperty.call(current, configField)) next[configField] = structuredClone(current[configField]);
+      if (Object.hasOwn(current, configField)) next[configField] = structuredClone(current[configField]);
       else delete next[configField];
     }
   }

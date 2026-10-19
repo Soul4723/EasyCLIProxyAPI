@@ -44,8 +44,37 @@
         "useOptionalChain": "off"
       },
       "suspicious": {
-        "useIterableCallbackReturn": "off"
+        "useIterableCallbackReturn": "off",
+        "noArrayIndexKey": "warn",
+        "noControlCharactersInRegex": "warn"
+      },
+      "correctness": {
+        "useExhaustiveDependencies": "warn"
+      },
+      "a11y": {
+        "useSemanticElements": "warn",
+        "useButtonType": "warn",
+        "noLabelWithoutControl": "warn",
+        "noStaticElementInteractions": "warn",
+        "useAriaPropsSupportedByRole": "warn",
+        "useValidAriaRole": "warn",
+        "useKeyWithClickEvents": "warn",
+        "noNoninteractiveTabindex": "warn",
+        "useAriaPropsForRole": "warn",
+        "noSvgWithoutTitle": "warn",
+        "noAutofocus": "warn",
+        "noAriaHiddenOnFocusable": "warn"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["tests/**"],
+      "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+    },
+    {
+      "includes": ["tests/fixtures/**"],
+      "linter": { "rules": { "suspicious": { "noAssignInExpressions": "off" } } }
+    }
+  ]
 }

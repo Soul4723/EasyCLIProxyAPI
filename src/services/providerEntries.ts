@@ -12,7 +12,7 @@ export type ProviderEntrySource = {
 
 export type ProviderEntry = { record: ProviderRecord; source: ProviderEntrySource };
 
-const own = (record: ProviderRecord, field: string) => Object.prototype.hasOwnProperty.call(record, field);
+const own = (record: ProviderRecord, field: string) => Object.hasOwn(record, field);
 const cleanGroups = (groups: ProviderRecord[]) => structuredClone(groups.map(cleanProviderGroup));
 const equal = (left: unknown, right: unknown): boolean => {
   if (Object.is(left, right)) return true;

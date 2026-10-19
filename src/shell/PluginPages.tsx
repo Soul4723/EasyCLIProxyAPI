@@ -7,7 +7,7 @@ import { useCoreRuntime } from '../coreRuntime';
 import { useI18n } from '../i18n';
 import { pluginText } from '../i18n/plugins';
 import {
-  findPluginEntryForPage, mergePluginNavOrder, orderPluginNavEntries, pluginNavLayout, pluginPagePath, readPluginNavOrder, resolvePluginNavLayout,
+  findPluginEntryForPage, mergePluginNavOrder, orderPluginNavEntries, pluginNavLayout, readPluginNavOrder, resolvePluginNavLayout,
   writePluginNavOrder, type PluginNavEntry, type PluginNavLayout, type PluginNavOverride,
 } from '../services/pluginNavigation';
 import { usePluginNav } from './PluginNav';

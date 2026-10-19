@@ -10,7 +10,7 @@ import {
   type PluginListEntry, type PluginStoreEntry, type PluginStoreInstallResult, type PluginStoreResponse,
 } from '../../services/plugins';
 import {
-  collectPluginResourceEntries, getPluginTitle, notifyPluginResourcesChanged, type PluginResourceEntry,
+  getPluginTitle, notifyPluginResourcesChanged, type PluginResourceEntry,
 } from '../../services/pluginResources';
 import { waitForPluginInstall, waitForPluginToggle, type PluginActionStatus } from '../../services/pluginPolling';
 import { refreshPluginReleaseVersions } from '../../services/pluginReleaseVersions';

@@ -294,12 +294,15 @@ describe('schema-driven plugin configuration', () => {
     const changes = JSON.parse('{"__proto__":{"next":true},"constructor":null}');
     const merged = mergePluginConfigPatch(current, changes);
     expect(Object.hasOwn(merged, '__proto__')).toBe(true);
+    // biome-ignore lint/suspicious/noProto: the test asserts a literal "__proto__" config key is plain data
     expect(merged.__proto__).toEqual({ next: true });
     expect(Object.hasOwn(merged, 'constructor')).toBe(false);
     expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
     const prototypeField = [{ name: '__proto__', type: 'string', enumValues: [], description: '' }];
     const draft = buildPluginConfigDraft({ enabled: false, configFields: prototypeField }, current);
+    // biome-ignore lint/suspicious/noProto: the test asserts a literal "__proto__" config key is plain data
     draft.values.__proto__ = 'literal';
+    // biome-ignore lint/suspicious/noProto: the test asserts a literal "__proto__" config key is plain data
     draft.touchedFields.__proto__ = true;
     expect(Object.hasOwn(buildPluginConfigPatch(draft, prototypeField, t).patch, '__proto__')).toBe(true);
     const inheritedField = [{ name: 'constructor', type: 'string', enumValues: [], description: '' }];

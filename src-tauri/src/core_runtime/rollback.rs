@@ -29,7 +29,7 @@ pub(crate) fn archive_previous_core_rollback(rollback_dir: &Path) -> Result<Opti
         "Failed to archive previous kernel rollback backup {}: {error}. The backup has been preserved; move it to a safe location before retrying the update",
         path_to_string(rollback_dir)
     );
-    fs::create_dir_all(&history).map_err(&archive_error)?;
+    fs::create_dir_all(&history).map_err(archive_error)?;
     // Reserve a unique directory exclusively, so even retries in the same second
     // cannot overwrite any earlier backup. Rename stays on the same filesystem.
     let timestamp = unix_now();
