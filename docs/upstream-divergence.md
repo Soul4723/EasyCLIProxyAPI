@@ -23,6 +23,7 @@ Intentional removals and replacements relative to router-for-me/EasyCLIProxyAPI:
 
   - `agents/configuration.rs`: configuration builders, managed removal, restoration, and client-specific formats now live in `agents/configuration/`; parent orchestration and shared format helpers remain in place.
   - `agents/discovery.rs`: paths, Pi lifecycle/packages, desktop detection, executable/version probing, model presentation, and client configuration inspection now live in `agents/discovery/`.
+  - `core_runtime.rs`: child spawning, install/staging, releases/downloads, process lifecycle/control, bundled assets/metadata, supervision, rollback, archives, and startup helpers now live in `core_runtime/`; command entry points and operation locking remain in the parent where applicable.
 
 ## When merging upstream
 
