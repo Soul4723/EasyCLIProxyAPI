@@ -102,15 +102,17 @@ const EFFECT_KEYS: Record<EffectKind, MessageKey> = {
   'remote-host': 'sec.settings.effect.remoteHost',
 };
 
-export function SettingRow({ label, hint, effect, icon, htmlFor, children, error, stacked }: {
+export function SettingRow({ label, hint, effect, icon, htmlFor, children, error, stacked, fieldPath }: {
   label: string; hint?: string; effect?: EffectKind; icon?: ReactNode; htmlFor?: string; children: ReactNode; error?: string; stacked?: boolean;
+  /** Dotted config path; lets `#/settings/<tab>?field=<path>` links land on this row (see settingsNativeFields). */
+  fieldPath?: string;
 }) {
   const { t } = useI18n();
   const remote = useCoreRuntime().status?.connectionMode === 'remote';
   // Restarts happen on the remote host in Remote mode, not on this computer.
   const shown: EffectKind | undefined = remote && (effect === 'restart' || effect === 'next-start') ? 'remote-host' : effect;
   return (
-    <div className={`ec-set-row${stacked ? ' is-stacked' : ''}${error ? ' has-error' : ''}`}>
+    <div className={`ec-set-row${stacked ? ' is-stacked' : ''}${error ? ' has-error' : ''}`} data-field-path={fieldPath}>
       <div className="ec-set-row-label">
         {icon ? <span className="ec-set-row-icon" aria-hidden="true">{icon}</span> : null}
         <label htmlFor={htmlFor}>{label}</label>

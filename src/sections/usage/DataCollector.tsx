@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useSharedCoreConfig } from '../../services/coreConfig';
+import { useState } from 'react';
 import { invoke } from '../../services/usageApi';
 import { Radio } from 'lucide-react';
 import { useI18n } from '../../i18n';
@@ -8,28 +9,16 @@ import type { DataNotice } from './DataStorage';
 import type { CollectorStatus } from './types';
 import { useCollectionLabel } from './HeaderActions';
 import { useUsage } from './UsageContext';
-import { routeHref } from '../../shell/router';
-
-/** Redis usage-queue retention (seconds), read-only; edited under Settings → Logs. null = field unavailable. */
-function useRedisRetention(refreshVersion: number) {
-  const [error, setError] = useState('');
-  const [seconds, setSeconds] = useState<number | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    invoke<{ redisUsageQueueRetentionSeconds?: number }>('get_core_config_settings')
-      .then((c) => { if (!cancelled && typeof c.redisUsageQueueRetentionSeconds === 'number') { setSeconds(c.redisUsageQueueRetentionSeconds); setError(''); } })
-      .catch((reason) => { if (!cancelled) setError(String(reason)); });
-    return () => { cancelled = true; };
-  }, [refreshVersion]);
-  return { seconds, error };
-}
+import { settingFieldRoute } from '../../services/settingsNavigation';
 
 /** Collector card: read-only state from the shared status, plus Resume when paused. Mirrors CollectorChip in HeaderActions.tsx. */
 export function DataCollector({ onNotice }: { onNotice: (notice: DataNotice) => void }) {
   const { t } = useI18n();
   const { status, setStatus, manualVersion, refresh } = useUsage();
   const [resuming, setResuming] = useState(false);
-  const { seconds: redis, error } = useRedisRetention(manualVersion);
+  const config = useSharedCoreConfig(manualVersion);
+  const redis = config.data?.redisUsageQueueRetentionSeconds ?? null;
+  const error = config.error;
   const collectionLabel = useCollectionLabel();
 
   if (!status || !collectionLabel) {
@@ -92,7 +81,7 @@ export function DataCollector({ onNotice }: { onNotice: (notice: DataNotice) => 
         {redis !== null ? (
           <>
             <dt>{t('sec.usage.data.redis.label')}</dt>
-            <dd>{t('sec.usage.data.redis.value', { seconds: redis })} · <a href={routeHref('settings', 'logs')}>{t('sec.usage.data.redis.edit')}</a></dd>
+            <dd>{t('sec.usage.data.redis.value', { seconds: redis })} · <a href={`#${settingFieldRoute('observability.usage.redis-usage-queue-retention-seconds')}`}>{t('sec.usage.data.redis.edit')}</a></dd>
           </>
         ) : null}
       </dl>

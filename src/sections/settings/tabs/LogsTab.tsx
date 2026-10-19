@@ -113,7 +113,7 @@ export function LogsTab() {
     </SettingRow>
   );
   const numberRow = (key: 'logsMaxTotalSizeMb' | 'errorLogsMaxFiles' | 'redisUsageQueueRetentionSeconds', label: string, hint: string, min: number, max?: number) => (
-    <SettingRow label={label} hint={hint} htmlFor={`logs-${key}`}>
+    <SettingRow label={label} hint={hint} htmlFor={`logs-${key}`} fieldPath={key === 'redisUsageQueueRetentionSeconds' ? 'observability.usage.redis-usage-queue-retention-seconds' : undefined}>
       <input
         id={`logs-${key}`}
         className="ec-set-input is-short"

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { extendedCoreConfigSource } from '../services/coreConfig';
+import { useDataSource } from '../services/dataSource';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '../services/documentTarget';
-import { listen } from '../services/platform';
 import { open } from '../services/platform';
 import { ExternalLink, Eye, EyeOff, RotateCcw, Save } from 'lucide-react';
 import { useI18n } from '../i18n';
@@ -24,16 +25,18 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
   const { locale, t } = useI18n();
   const { status, publishStatus, refreshStatus } = useCoreRuntime();
   const [privacyOn] = usePrivacyMode();
-  const [config, setConfig] = useState<Record<string, unknown> | null>(null);
+  const snapshot = useDataSource(extendedCoreConfigSource);
+  const config = snapshot.data ?? null;
   const [drafts, setDrafts] = useState<Record<string, TemplateConfigDraft>>({});
-  const [loadError, setLoadError] = useState('');
+  const [actionError, setLoadError] = useState('');
+  const loadError = actionError || snapshot.error || '';
+  const reload = async () => { setLoadError(''); await extendedCoreConfigSource.refresh(); };
   const [groupErrors, setGroupErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [restartNeeded, setRestartNeeded] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const mounted = useRef(true);
-  const revision = useRef(0);
   const reportedDirtyGroups = useRef<string | null>(null);
   const tr = (message: keyof typeof templateMessages) => templateText(templateMessages[message], locale);
 
@@ -46,27 +49,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
     onDirtyGroupsChange(dirtyGroups);
   }, [drafts, groups, onDirtyGroupsChange]);
 
-  const reload = useCallback(async () => {
-    const request = ++revision.current;
-    try {
-      const value = await invoke<Record<string, unknown>>('get_extended_core_config');
-      if (mounted.current && request === revision.current) { setConfig(value); setLoadError(''); }
-    } catch (error) {
-      if (mounted.current && request === revision.current) setLoadError(String(error));
-    }
-  }, []);
-
-  useEffect(() => {
-    mounted.current = true;
-    let disposed = false;
-    let stop: (() => void) | undefined;
-    void reload();
-    void listen('config-files-changed', () => { if (!disposed) void reload(); }).then((unlisten) => {
-      if (!disposed) stop = unlisten;
-      else unlisten();
-    }).catch((error) => { if (!disposed) setLoadError(String(error)); });
-    return () => { disposed = true; mounted.current = false; ++revision.current; stop?.(); };
-  }, [reload]);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const changeField = (group: TemplateConfigGroup, field: TemplateConfigField, value: unknown, remove = false) => {
     if (!config) return;
@@ -112,8 +95,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
     setGroupErrors((previous) => ({ ...previous, [group.id]: '' }));
     try {
       const result = await invoke<TemplateConfigSaveResult>('save_extended_core_config', { changes });
-      ++revision.current;
-      setConfig(result.config);
+      extendedCoreConfigSource.mutate(() => result.config);
       setLoadError('');
       setDrafts((previous) => {
         const next = { ...previous };
@@ -198,7 +180,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
           const id = `template-${group.id}-${index}`;
           const description = [templateText(field.description, locale), field.type === 'string-list' ? tr('list') : ''].filter(Boolean).join(' ');
           const resetLabel = `${tr('default')}: ${templateText(field.label, locale)}`;
-          return <div key={key} id={`template-field-${group.id}-${index}`} data-field-type={field.type} tabIndex={-1} className={`template-config-field${field.type === 'custom' || field.type === 'json' || field.type === 'string-list' ? ' template-config-field-wide' : ''}${field.type === 'boolean' ? ' template-config-toggle' : ''}${draft ? ' template-config-field-dirty' : ''}`}>
+          return <div key={key} id={`template-field-${group.id}-${index}`} data-field-path={field.path.join('.')} data-field-type={field.type} tabIndex={-1} className={`template-config-field${field.type === 'custom' || field.type === 'json' || field.type === 'string-list' ? ' template-config-field-wide' : ''}${field.type === 'boolean' ? ' template-config-toggle' : ''}${draft ? ' template-config-field-dirty' : ''}`}>
             <div className="template-config-label">{field.type === 'custom' ? <span id={`${id}-label`}>{templateText(field.label, locale)}</span> : <label htmlFor={id}>{templateText(field.label, locale)}</label>}<div className="template-config-label-tools">{description ? <SettingsHelp label={templateText(field.label, locale)}>{description}</SettingsHelp> : null}{exists ? <button type="button" className="template-config-reset" disabled={busy !== null || !config} title={resetLabel} aria-label={resetLabel} onClick={() => changeField(group, field, null, true)}><RotateCcw size={14} aria-hidden="true" /></button> : null}</div></div>
             {field.type === 'custom' ? <details className="template-config-custom"><summary aria-labelledby={`${id}-label ${id}-edit`} aria-describedby={validation ? `${id}-error` : undefined}><span id={`${id}-edit`}>{tr('editDetails')}</span></summary><div className="template-config-control" role="group" aria-labelledby={`${id}-label`}>{control(group, field, value, id, Boolean(validation))}</div></details> : <div className="template-config-control">{control(group, field, value, id, Boolean(validation))}</div>}
             {field.link?.hint ? <small className="template-config-link-hint">{templateText(field.link.hint, locale)}</small> : null}

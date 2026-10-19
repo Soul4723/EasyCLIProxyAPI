@@ -1,3 +1,4 @@
+import { coreConfigSource, extendedCoreConfigSource } from './services/coreConfig';
 import { getCoreConnection, type CoreConnection } from './services/coreConnection';
 import { createDataSource, useDataSource, type DataSource } from './services/dataSource';
 import { credentialsSource } from './services/credentials';
@@ -64,6 +65,16 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
     },
   }), []);
   const snapshot = useDataSource(source);
+  const previousRuntime = useRef<CoreStatus | undefined>(undefined);
+  useEffect(() => {
+    const next = snapshot.data;
+    const previous = previousRuntime.current;
+    previousRuntime.current = next;
+    if (next?.ready && previous && (!previous.ready || previous.processId !== next.processId)) {
+      coreConfigSource.invalidate(); extendedCoreConfigSource.invalidate();
+    }
+  }, [snapshot.data]);
+
   useEffect(() => {
     let active = true;
     void getCoreConnection().then(config => {
@@ -78,6 +89,7 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
       if (disposed) return;
       invalidateQuotaRequests(); invalidateQuotaCache();
       credentialsSource.reset(); lightingSource.reset(); pluginListSource.reset();
+      coreConfigSource.reset(); extendedCoreConfigSource.reset();
       source.reset();
       setConnectionRevision(value => value + 1);
     }).then(off => { if (disposed) off(); else stop = off; });
