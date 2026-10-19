@@ -224,7 +224,7 @@ function FlowBody({ controller, session }: { controller: SignInDialogController;
 
 function FlowFooter({ session }: { session: SignInSession }) {
   const { t } = useI18n();
-  const { provider, flow } = session;
+  const { flow } = session;
   const generating = !flow.url;
   return (
     <div className="ec-signin-foot">
@@ -234,16 +234,10 @@ function FlowFooter({ session }: { session: SignInSession }) {
           : <span className="ec-signin-status__dot" aria-hidden="true" />}
         <span className="ec-signin-status__text">
           {t(generating ? 'sec.providers.signin.generating' : 'sec.providers.signin.status.waiting')}
-          {!generating && provider.kind !== 'plugin' ? (
-            <>
-              <br />
-              <span className="ec-muted">{t('sec.providers.signin.status.background')}</span>
-            </>
-          ) : null}
         </span>
       </p>
       <div className="ec-signin-foot__actions">
-        <Button onClick={session.close}>{t(provider.kind === 'plugin' ? 'common.cancel' : 'common.close')}</Button>
+        <Button onClick={session.close}>{t('sec.providers.signin.cancel')}</Button>
       </div>
     </div>
   );

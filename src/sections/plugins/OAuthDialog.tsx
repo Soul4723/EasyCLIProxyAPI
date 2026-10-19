@@ -160,7 +160,7 @@ export function OAuthDialog({ plugin, browser = 'default', onClose, onCompleted 
     <Dialog open onClose={close} size="md"
       title={<Scope><span className="pl-dialog-title"><LogIn size={16} aria-hidden />{text('title')}<Masked value={plugin.metadata?.name || plugin.id} className="pl-muted" /></span></Scope>}
       footer={<>
-        <Button variant="secondary" onClick={close}>{t(phase === 'success' ? 'common.close' : 'common.cancel')}</Button>
+        <Button variant="secondary" onClick={close}>{t(phase === 'success' || phase === 'error' ? 'common.close' : 'common.cancel')}</Button>
         {phase === 'error' ? <Button variant="primary" onClick={() => setAttempt(value => value + 1)}>{text('retry')}</Button> : null}
       </>}>
       <Scope><div className="pl-form pl-oauth">
