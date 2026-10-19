@@ -165,10 +165,10 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
     {loadError ? <div className="template-config-notice template-config-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-button compact-button" disabled={busy !== null} onClick={() => void reload()}>{tr('reload')}</button></div> : null}
     {!config && !loadError ? <p role="status">{tr('loading')}</p> : null}
     {restartNeeded ? <div className="template-config-notice" role="status"><span>{status?.connectionMode === 'remote' ? t('connection.lifecycleHint') : tr('restart')}</span>{status?.running && status.connectionMode !== 'remote' ? <button type="button" className="secondary-button compact-button" disabled={busy !== null} onClick={() => void restart()}>{tr('restartNow')}</button> : null}</div> : null}
-    {groups.map((group) => {
+    {visible.map((group) => {
       const dirty = group.fields.some((field) => drafts[templateFieldKey(field.path)]);
       const needsRestart = group.fields.some((field) => field.restart);
-      return <section key={group.id} id={`config-group-${group.id}`} tabIndex={-1} className={`config-card template-config-card${group.fields.some(field => ['custom', 'json', 'string-list'].includes(field.type)) ? ' config-settings-wide' : ''}${dirty ? ' template-config-card-dirty' : ''}`} hidden={!visible.includes(group)} aria-labelledby={`template-group-${group.id}`}>
+      return <section key={group.id} id={`config-group-${group.id}`} tabIndex={-1} className={`config-card template-config-card${group.fields.some(field => ['custom', 'json', 'string-list'].includes(field.type)) ? ' config-settings-wide' : ''}${dirty ? ' template-config-card-dirty' : ''}`} aria-labelledby={`template-group-${group.id}`}>
         <div className="template-config-heading"><div className="template-config-heading-main"><h3 id={`template-group-${group.id}`}>{templateText(group.title, locale)}</h3>{group.description ? <SettingsHelp label={templateText(group.title, locale)}>{templateText(group.description, locale)}</SettingsHelp> : null}</div>{needsRestart ? <span className="template-config-restart-hint"><RotateCcw size={12} aria-hidden="true" />{templateText(restartHint, locale)}</span> : null}</div>
         <div className="template-config-fields">{group.fields.map((field, index) => {
           const key = templateFieldKey(field.path);

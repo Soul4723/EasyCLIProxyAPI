@@ -101,7 +101,7 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({
     status: snapshot.data ?? null, statusError: snapshot.error ?? '', connection, connectionRevision,
     refreshStatus: source.refresh, publishStatus,
-  }), [snapshot, connection, connectionRevision, source, publishStatus]);
+  }), [snapshot.data, snapshot.error, connection, connectionRevision, source, publishStatus]);
   return <CoreRuntimeContext.Provider value={value}>{children}</CoreRuntimeContext.Provider>;
 }
 

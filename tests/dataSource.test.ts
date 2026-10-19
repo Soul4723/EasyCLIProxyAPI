@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { createDataSource } from '../src/services/dataSource';
 
 const deferred = <T>() => {
@@ -67,4 +67,86 @@ describe('shared data source', () => {
     off(); const stopped = times.length;
     await pause(70); expect(times.length).toBe(stopped);
   });
+});
+
+describe('stable source snapshots', () => {
+  test('unchanged reloads and event mutations preserve snapshot and data identity', async () => {
+    const source = createDataSource({ load: async () => ({ nested: { value: 1 }, list: [1, null, 'x'] }) });
+    await source.refresh();
+    const previous = source.getSnapshot();
+    let publications = 0;
+    const off = source.subscribe(() => { publications++; });
+    try {
+      await source.refresh();
+      source.mutate(() => ({ list: [1, null, 'x'], nested: { value: 1 } }));
+      expect(publications).toBe(0);
+      expect(source.getSnapshot()).toBe(previous);
+      expect(source.getSnapshot().data).toBe(previous.data);
+    } finally { off(); }
+  });
+  test('changed data publishes once without a background loading flip', async () => {
+    let value = 1;
+    const source = createDataSource({ load: async () => ({ value }) });
+    await source.refresh();
+    let publications = 0;
+    const off = source.subscribe(() => { publications++; });
+    try {
+      value = 2;
+      await source.refresh();
+      expect(publications).toBe(1);
+      expect(source.getSnapshot().data).toEqual({ value: 2 });
+    } finally { off(); }
+  });
+  test('error after data publishes once and recovery reuses the last good data', async () => {
+    let fail = false;
+    const source = createDataSource({ load: async () => { if (fail) throw new Error('offline'); return { value: 1 }; } });
+    await source.refresh();
+    const previous = source.getSnapshot();
+    let publications = 0;
+    const off = source.subscribe(() => { publications++; });
+    try {
+      fail = true;
+      await source.refresh();
+      expect(publications).toBe(1);
+      expect(source.getSnapshot().data).toBe(previous.data);
+      expect(source.getSnapshot().updatedAt).toBe(previous.updatedAt);
+      await source.refresh();
+      expect(publications).toBe(1);
+      fail = false;
+      await source.refresh();
+      expect(publications).toBe(2);
+      expect(source.getSnapshot().error).toBeNull();
+      expect(source.getSnapshot().data).toBe(previous.data);
+    } finally { off(); }
+  });
+});
+
+test('focus staleness uses the last successful refresh, including silent reloads', async () => {
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const focusTarget = new EventTarget();
+  Object.defineProperty(globalThis, 'window', { value: focusTarget, configurable: true });
+  let now = 1_000;
+  const clock = spyOn(Date, 'now').mockImplementation(() => now);
+  let calls = 0;
+  const source = createDataSource({ focusMs: 1_000, load: async () => { calls++; return { value: 1 }; } });
+  const off = source.subscribe(() => {});
+  try {
+    await source.load();
+    const previous = source.getSnapshot();
+    now = 1_500;
+    await source.refresh();
+    expect(source.getSnapshot()).toBe(previous);
+    now = 2_001;
+    focusTarget.dispatchEvent(new Event('focus'));
+    await source.load();
+    expect(calls).toBe(2);
+    now = 2_501;
+    focusTarget.dispatchEvent(new Event('focus'));
+    await source.load();
+    expect(calls).toBe(3);
+  } finally {
+    off(); clock.mockRestore();
+    if (windowDescriptor) Object.defineProperty(globalThis, 'window', windowDescriptor);
+    else Reflect.deleteProperty(globalThis, 'window');
+  }
 });
