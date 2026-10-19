@@ -126,6 +126,7 @@ shared component gallery is at `#/kit`.
 ## Test
 
 ```bash
+bun run lint                        # Biome (existing findings are tracked separately)
 bun run check                       # tsc --noEmit
 bun run build                       # tsc + vite build
 bun test --isolate                  # unit tests
