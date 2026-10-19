@@ -62,7 +62,7 @@ describe('plugin OAuth provider discovery', () => {
 
   it('rejects invalid provider keys even if an entry reaches the helper without normalization', () => {
     const [plugin] = normalize([rawPlugin('active', 'zcode')]);
-    const invalidProviders = [undefined, '', ' ', '../../../config', 'a/b', 'a?b', 'https://provider.test'];
+    const invalidProviders = [undefined, '', ' ', '../config', 'a/b', 'a?b', 'https://provider.test'];
 
     expect(collectPluginOAuthProviders(invalidProviders.map(oauthProvider => ({
       ...plugin, oauthProvider,
