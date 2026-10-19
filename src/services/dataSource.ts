@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { listen } from './platform';
 
+// updatedAt records the last published successful value, not every successful poll.
 export type SourceSnapshot<T> = { data: T | undefined; error: string | null; updatedAt: number; loading: boolean };
 export type DataSourceOptions<T> = {
   load: () => Promise<T>;
@@ -12,11 +13,30 @@ export type DataSourceOptions<T> = {
   minIntervalMs?: number;
 };
 
+// Sources carry JSON-like IPC values. Treat other object types as changed rather than
+// comparing only their enumerable properties (e.g. two different Dates).
+function structurallyEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((value, index) => structurallyEqual(value, right[index]));
+  }
+  if (Object.getPrototypeOf(left) !== Object.prototype || Object.getPrototypeOf(right) !== Object.prototype) return false;
+  const a = left as Record<string, unknown>;
+  const b = right as Record<string, unknown>;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length
+    && keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && structurallyEqual(a[key], b[key]));
+}
+
 /** One owner per resource. Errors never discard data; reset fences every outstanding request. */
 export function createDataSource<T>(options: DataSourceOptions<T>) {
   const initial: SourceSnapshot<T> = { data: undefined, error: null, updatedAt: 0, loading: true };
   let snapshot = initial;
   let generation = 0;
+  // Freshness advances even when an unchanged success does not publish a snapshot.
+  let lastSuccessfulAt = 0;
   let failures = 0;
   let dirty = true;
   let queued = false;
@@ -27,7 +47,12 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
   let stopEvents: (() => void) | undefined;
   const listeners = new Set<() => void>();
   const visible = () => typeof document === 'undefined' || !document.hidden;
-  const publish = (next: SourceSnapshot<T>) => { snapshot = next; listeners.forEach(fn => fn()); };
+  const publish = (next: SourceSnapshot<T>) => {
+    const data = structurallyEqual(snapshot.data, next.data) ? snapshot.data : next.data;
+    if (Object.is(data, snapshot.data) && next.error === snapshot.error && next.loading === snapshot.loading) return;
+    snapshot = { ...next, data };
+    listeners.forEach(fn => fn());
+  };
   const poll = () => {
     clearTimeout(timer);
     const base = typeof options.pollMs === 'function' ? options.pollMs() : options.pollMs;
@@ -47,7 +72,8 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
         const data = await options.load();
         if (current !== generation) return;
         failures = 0;
-        publish({ data, error: null, updatedAt: Date.now(), loading: false });
+        lastSuccessfulAt = Date.now();
+        publish({ data, error: null, updatedAt: lastSuccessfulAt, loading: false });
       } catch (error) {
         if (current !== generation) return;
         failures++;
@@ -71,7 +97,7 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
   const onVisible = () => {
     if (!visible()) { clearTimeout(timer); return; }
     if (request || throttle) return;
-    if (Date.now() - snapshot.updatedAt > (options.focusMs ?? 30_000)) invalidate();
+    if (Date.now() - lastSuccessfulAt > (options.focusMs ?? 30_000)) invalidate();
     else poll();
   };
   const subscribe = (fn: () => void) => {
@@ -88,7 +114,7 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
       stopEvents = () => { disposed = true; stops.forEach(stop => stop()); customStop?.(); };
       if (typeof window !== 'undefined') window.addEventListener('focus', onVisible);
       if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
-      if (dirty || !snapshot.updatedAt) { if (!request) void refresh(); }
+      if (dirty || !lastSuccessfulAt) { if (!request) void refresh(); }
       else poll();
     }
     return () => {
@@ -102,14 +128,15 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
   };
   return {
     getSnapshot: () => snapshot, subscribe, refresh, invalidate,
-    load: () => request ?? (dirty || !snapshot.updatedAt ? refresh() : Promise.resolve()),
+    load: () => request ?? (dirty || !lastSuccessfulAt ? refresh() : Promise.resolve()),
     mutate(updater: (data: T | undefined) => T) {
       generation++;
-      publish({ data: updater(snapshot.data), error: null, updatedAt: Date.now(), loading: false });
+      lastSuccessfulAt = Date.now();
+      publish({ data: updater(snapshot.data), error: null, updatedAt: lastSuccessfulAt, loading: false });
       failures = 0;
     },
     reset() {
-      generation++; failures = 0; dirty = true; queued = !!request && listeners.size > 0;
+      generation++; failures = 0; lastSuccessfulAt = 0; dirty = true; queued = !!request && listeners.size > 0;
       clearTimeout(timer); clearTimeout(throttle); throttle = undefined;
       publish(initial);
       if (listeners.size && !request) void refresh();
