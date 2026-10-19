@@ -24,7 +24,7 @@ application must remain running for supervision to operate.
 - Recovery never stops a live process because a port check timed out. It uses the
   existing startup path and its readiness checks only when a restart is needed.
 
-The home page displays recovery progress and failure details. Waiting recovery
+The Overview page displays recovery progress and failure details. Waiting recovery
 can be canceled with Stop. Exit information and startup failures also go through
 the existing diagnostic logging. Persistent recovery metadata is not written to
 the usage database or configuration files.

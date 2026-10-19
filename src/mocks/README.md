@@ -62,12 +62,12 @@ external HTTP requests. Its screenshot is saved under `bin-work/`.
 
 ## Remote connection fixture
 
-Open Home → Runtime Control → Core connection settings. Select Remote and enter
+Open Settings → Connection. Select Remote core and enter
 management and client origins such as `http://core.example.test:8317` and
 `http://client.example.test:8317`. Use `fixture-management-key` for the fictional
 management key and a different fictional client key. Origins exclude `/v1` and
-`/v8/management`; the application adds protocol paths. Test Connection tests the
-draft without activating it. Save Connection activates it and saves the mock
+`/v8/management`; the application adds protocol paths. Test connection tests the
+draft without activating it. Save & connect activates it and saves the mock
 target/revision in per-tab session storage before the GUI reloads. A different
 management key simulates rejection; an origin containing `offline` simulates an
 unreachable core. Correct the values and save to recover, or select Local and save
