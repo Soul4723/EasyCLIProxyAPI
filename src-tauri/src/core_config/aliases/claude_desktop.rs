@@ -249,24 +249,6 @@ fn claude_desktop_alias_has_valid_syntax(alias: &str) -> bool {
         })
 }
 
-fn claude_desktop_has_other_model_family(name: &str) -> bool {
-    static OTHER_MODEL_FAMILY: LazyLock<regex::Regex> = LazyLock::new(|| {
-        let rules: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../src/services/claudeDesktopModelRules.json"
-        ))
-        .expect("valid bundled Claude Desktop model rules");
-        regex::RegexBuilder::new(
-            rules["otherModelFamilyPattern"]
-                .as_str()
-                .expect("Claude Desktop model-family pattern"),
-        )
-        .unicode(false)
-        .build()
-        .expect("valid Claude Desktop model-family pattern")
-    });
-    OTHER_MODEL_FAMILY.is_match(&name.to_ascii_lowercase())
-}
-
 fn claude_desktop_configured_models(root: &serde_norway::Mapping) -> Vec<&serde_norway::Value> {
     let mut models = Vec::new();
     for section in MODEL_ALIAS_CONFIG_SECTIONS {

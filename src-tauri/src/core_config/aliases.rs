@@ -51,6 +51,24 @@ pub(crate) fn validate_thinking_alias_effort(value: &str) -> Result<String, Stri
     Ok(effort)
 }
 
+fn claude_desktop_has_other_model_family(name: &str) -> bool {
+    static OTHER_MODEL_FAMILY: LazyLock<regex::Regex> = LazyLock::new(|| {
+        let rules: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../src/services/claudeDesktopModelRules.json"
+        ))
+        .expect("valid bundled Claude Desktop model rules");
+        regex::RegexBuilder::new(
+            rules["otherModelFamilyPattern"]
+                .as_str()
+                .expect("Claude Desktop model-family pattern"),
+        )
+        .unicode(false)
+        .build()
+        .expect("valid Claude Desktop model-family pattern")
+    });
+    OTHER_MODEL_FAMILY.is_match(&name.to_ascii_lowercase())
+}
+
 mod channels;
 mod management;
 mod claude_desktop;
