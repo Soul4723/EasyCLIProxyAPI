@@ -2,12 +2,13 @@ import type { ThemeDefinition, ThemeTokens } from './types';
 import { themeMaterialTokens, themeOverlaySurface } from './materials';
 
 /**
+ * Ember is the display name of the built-in dark/light palettes.
  * Theme contract for the new UI: the legacy theme tokens (src/themes/types.ts) drive the semantic --ec-* layer
  * (src/ui/tokens.css). Ember Dark/Light define no tokens, so they keep the stylesheet values; any other theme
  * (upstream's Warm Sand, Sakura, Graphite, Midnight, or a custom one) overrides the variables it supplies.
  * Status colours are not part of the theme contract and stay on the appearance's status vocabulary.
  */
-const emberProperties = [
+const semanticProperties = [
   '--ec-bg', '--ec-surface', '--ec-raised', '--ec-popover', '--ec-hover', '--ec-muted-bg', '--ec-field',
   '--ec-sidebar', '--ec-sidebar-hover', '--ec-sidebar-selected', '--ec-sidebar-border', '--ec-scrim',
   '--ec-fg', '--ec-fg-2', '--ec-fg-muted', '--ec-fg-subtle',
@@ -15,9 +16,9 @@ const emberProperties = [
   '--ec-accent', '--ec-accent-fg', '--ec-accent-soft',
 ] as const;
 
-export const emberBridgeProperties: readonly string[] = emberProperties;
+export const semanticTokenBridgeProperties: readonly string[] = semanticProperties;
 
-export function themeEmberTokens(theme: ThemeDefinition): Record<string, string> {
+export function themeSemanticTokens(theme: ThemeDefinition): Record<string, string> {
   if (Object.keys(theme.tokens).length === 0 && !theme.backdrop) return {};
   const raw: Readonly<ThemeTokens> = theme.tokens;
   const material = themeMaterialTokens(theme);

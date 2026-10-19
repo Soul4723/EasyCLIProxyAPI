@@ -102,23 +102,6 @@ pub(crate) fn remove_custom_download_mirror(
     Ok(version_source_settings(&config))
 }
 
-#[tauri::command]
-pub(crate) fn set_prefer_gitcode_downloads(
-    gui_config_state: tauri::State<'_, GuiConfigState>,
-    enabled: bool,
-) -> Result<VersionSourceSettings, String> {
-    let source = if enabled {
-        VersionDownloadSource::Gitcode
-    } else {
-        VersionDownloadSource::Github
-    };
-    if enabled && !gitcode_version_source_available() {
-        return Err("This build does not include complete GitCode application and kernel mirror sources".to_string());
-    }
-    let config = gui_config_state.set_download_source(source)?;
-    Ok(version_source_settings(&config))
-}
-
 pub(crate) fn gitcode_version_source_available() -> bool {
     configured_gitcode_gui_repository().is_some() && configured_gitcode_core_repository().is_some()
 }

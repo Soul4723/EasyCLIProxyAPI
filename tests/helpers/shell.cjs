@@ -1,4 +1,4 @@
-// Shared helpers for UI tests against the cohesive shell (src/shell). DOM contract:
+// Shared helpers for UI tests against the application shell (src/shell). DOM contract:
 //   root .ec-app[data-page=<routeId>] (bare/full-screen pages add .ec-app--bare and have no sidebar) · main#main.ec-main
 //   sidebar aside.ec-sidebar (.is-open while the <=720px drawer is open; .ec-drawer-scrim is the click-away layer)
 //   nav a.ec-nav-item[data-nav=<routeId>] (aria-current=page when active; locked pages are disabled
@@ -8,7 +8,6 @@
 //   + .ec-mode-chip (Local/Remote) · #remote-navigation-reason (sr-only, remote mode only)
 //   appearance menu: button labelled shell.appearance (aria-haspopup=dialog) opens a role=dialog popover with radiogroups
 //   Theme (Dark/Light/System, in that order), Density (Comfortable/Compact, in that order) and a Language listbox.
-//   Old page bodies render inside .ec-legacy[data-legacy-page=<routeId>] (LegacyHost) until a section is rebuilt.
 // Routes are hash routes; OLD page ids map to new paths below so old tests can keep their intent.
 // Test scaffolding: runUiTest() starts its own vite + chromium; ctx.newPage() returns a page that records
 // page.errors (pageerror + console.error), page.externalRequests (blocked) and defaults to locale en.

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createThemeApplicator } from '../src/themes/applyTheme';
-import { emberBridgeProperties, themeEmberTokens } from '../src/themes/emberBridge';
+import { semanticTokenBridgeProperties, themeSemanticTokens } from '../src/themes/semanticTokenBridge';
 import { themeRegistry } from '../src/themes/registry';
 
 const fakeDocument = () => {
@@ -19,13 +19,13 @@ const fakeDocument = () => {
 
 describe('--ec-* theme bridge', () => {
   test('Ember dark and light keep the stylesheet tokens', () => {
-    expect(themeEmberTokens(themeRegistry.get('dark')!)).toEqual({});
-    expect(themeEmberTokens(themeRegistry.get('light')!)).toEqual({});
+    expect(themeSemanticTokens(themeRegistry.get('dark')!)).toEqual({});
+    expect(themeSemanticTokens(themeRegistry.get('light')!)).toEqual({});
   });
 
   test.each(['warm-sand-light', 'graphite-dark', 'sakura-light', 'midnight-dark'])('%s drives the semantic layer', (id) => {
     const theme = themeRegistry.get(id)!;
-    const tokens = themeEmberTokens(theme);
+    const tokens = themeSemanticTokens(theme);
     for (const property of ['--ec-bg', '--ec-surface', '--ec-raised', '--ec-popover', '--ec-fg', '--ec-border', '--ec-accent', '--ec-accent-fg', '--ec-sidebar']) {
       expect(tokens[property]).toBeDefined();
     }
@@ -33,7 +33,7 @@ describe('--ec-* theme bridge', () => {
     expect(tokens['--ec-fg']).toBe(theme.tokens.textPrimary!);
     expect(tokens['--ec-bg']).toBe(theme.tokens.workspaceBackground ?? theme.windowBackground);
     expect(tokens['--ec-popover']).toMatch(/^#[\da-f]{6}$/i);
-    for (const property of Object.keys(tokens)) expect(emberBridgeProperties).toContain(property);
+    for (const property of Object.keys(tokens)) expect(semanticTokenBridgeProperties).toContain(property);
   });
 
   test('applying a theme sets the variables and switching to Ember clears them', () => {

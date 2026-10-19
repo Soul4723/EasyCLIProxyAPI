@@ -1,9 +1,10 @@
-// Single entry point for Tauri platform access outside services/mocks (upstream #481 contract).
+// Single entry point for Tauri platform access outside services/mocks (upstream PR #481 controls/theme refactor: UI code uses this bridge instead of direct Tauri imports).
 import { invoke as nativeInvoke } from '@tauri-apps/api/core';
 import { documentTarget } from './documentTarget';
 import { isFencedCommand } from './fencedCommands';
 
-/** Fenced commands always bind the document's target, including nested management requests. */
+/** Fencing binds calls to this document's core-target revision, rejecting stale calls/responses.
+ * See docs/remote-core.md, “Fencing and revision semantics”, including nested management requests. */
 export const invoke: typeof nativeInvoke = (command, args, options) =>
   isFencedCommand(command) ? documentTarget.invoke(command, args, options) : nativeInvoke(command, args, options);
 

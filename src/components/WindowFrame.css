@@ -78,7 +78,7 @@
   .immersive-window:has(.sidebar) .window-titlebar { background: var(--sidebar-bg); }
 }
 
-/* Cohesive shell: preserve the full-height sidebar and reserve titlebar space only in main. */
+/* Application shell: preserve the full-height sidebar and reserve titlebar space only in main. */
 .immersive-window:has(.ec-app) .window-titlebar {
   background: var(--ec-bg);
   color: var(--ec-fg-muted);

@@ -1,10 +1,10 @@
 import { themeTokenProperties, type ThemeDefinition } from './types';
 import { backdropImage } from './backdrop';
-import { emberBridgeProperties, themeEmberTokens } from './emberBridge';
+import { semanticTokenBridgeProperties, themeSemanticTokens } from './semanticTokenBridge';
 import { themeMaterialTokens, themeOverlayRules, themeOverlayPalette } from './materials';
 
 export function createThemeApplicator(document: Document) {
-  const ownedProperties = [...Object.values(themeTokenProperties).flat(), ...emberBridgeProperties,
+  const ownedProperties = [...Object.values(themeTokenProperties).flat(), ...semanticTokenBridgeProperties,
     '--theme-backdrop-image', '--theme-backdrop-color', '--theme-backdrop-sidebar',
     '--theme-backdrop-panel', '--theme-sticky-background', '--theme-sticky-hover-background'];
   let overlayStyle = document.querySelector<HTMLStyleElement>('style[data-theme-materials]') ?? undefined;
@@ -20,7 +20,7 @@ export function createThemeApplicator(document: Document) {
         root.style.setProperty(property, value);
       }
     }
-    for (const [property, value] of Object.entries(themeEmberTokens(theme))) root.style.setProperty(property, value);
+    for (const [property, value] of Object.entries(themeSemanticTokens(theme))) root.style.setProperty(property, value);
     const overlayRules = themeOverlayRules(theme);
     if (overlayRules) {
       const palette = themeOverlayPalette(theme);

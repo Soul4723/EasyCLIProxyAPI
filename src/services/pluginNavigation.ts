@@ -90,7 +90,7 @@ export function writeCachedPluginNavEntries(entries: PluginNavEntry[]) {
   }
 }
 
-/** Hash path of a plugin page in the cohesive shell: `/plugin/<pluginId>` (+ `?menu=<n>` for menus after the first). */
+/** Hash path of a plugin page in the application shell: `/plugin/<pluginId>` (+ `?menu=<n>` for menus after the first). */
 export function pluginPagePath(entry: Pick<PluginNavEntry, 'pluginID' | 'menuIndex'>): string {
   const base = `/plugin/${encodeURIComponent(entry.pluginID)}`;
   return entry.menuIndex > 0 ? `${base}?menu=${entry.menuIndex}` : base;

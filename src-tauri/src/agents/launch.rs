@@ -752,16 +752,6 @@ fn validate_deepseek_harness_argument(value: &str, label: &str) -> Result<String
 }
 
 #[tauri::command]
-pub(crate) async fn restart_codex_app(app: tauri::AppHandle) -> Result<(), String> {
-    restart_agent_app(app, "codex".to_string(), None).await
-}
-
-#[tauri::command]
-pub(crate) async fn restart_opencode_app(app: tauri::AppHandle) -> Result<(), String> {
-    restart_agent_app(app, "opencode".to_string(), None).await
-}
-
-#[tauri::command]
 pub(crate) async fn restart_agent_app(
     app: tauri::AppHandle,
     client: String,
