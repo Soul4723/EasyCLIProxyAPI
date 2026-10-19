@@ -202,7 +202,7 @@ Stored in the GUI `config.toml` (kebab-case keys):
   increases by one (wrapping) on every target change, and is never persisted. It identifies a
   target change within one process lifetime, not a configuration version.
 - **File permissions:** created 0600 on Unix, existing files tightened to 0600 on save. No
-  explicit ACL on Windows.
+  explicit ACL on Windows. Saves replace the file atomically (temporary file, fsync, rename).
 
 ## Portable format v1
 
@@ -340,5 +340,3 @@ Minimum core: CLIProxyAPI 8.0.29 (v8 management API under `/v8/management`, resp
   leaves the old schedules stored but inactive.
 - A Remote target with a blank client key can never restore a managed agent backup (its
   credentials cannot match); the message says the credentials do not match.
-- The GUI `config.toml` is rewritten in place rather than atomically, so a crash during a save
-  can leave a torn file; startup then stops with the dialog described above.
