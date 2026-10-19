@@ -126,6 +126,17 @@ export function CoreVersionCard({
   onCheck: () => void; onInstall: () => void; onUseBundled: () => void; onCancel: () => void; onDismiss: () => void;
 }) {
   const { t } = useI18n();
+  if (remote) return (
+    <CardShell icon={<Server size={16} />} title={t('sec.settings.updates.core.title')}
+      chips={<Chip size="sm" tone="info">{t('sec.settings.updates.core.remote')}</Chip>} actions={null}>
+      <dl className="ec-upd-flow"><div className="ec-upd-ver">
+        <dt>{t('sec.settings.updates.core.remote')}</dt>
+        <dd className="ec-mono" title={t('sec.settings.updates.core.remoteVersion')}>{status?.currentVersion || t('common.detecting')}</dd>
+      </div></dl>
+      {status?.remoteOrigin ? <Chip size="sm" tone="outline"><Masked value={status.remoteOrigin} mono /></Chip> : null}
+      <p className="ec-upd-note"><Info size={13} aria-hidden="true" />{t('sec.settings.updates.core.remoteReason')}</p>
+    </CardShell>
+  );
   const installed = Boolean(status?.installed);
   const current = status?.currentVersion || '';
   const latestVersion = latest?.version ?? '';
@@ -138,12 +149,12 @@ export function CoreVersionCard({
   if (working) chip = { tone: 'info', label: cancelling ? t('kernel.install.cancelling') : progress?.phase ? localizeInstallPhase(progress.phase, t) : t('kernel.install.inProgress') };
   else if (latestError) chip = { tone: 'danger', label: t('sec.settings.updates.checkFailed') };
   else if (checking) chip = { tone: 'info', label: t('sec.settings.updates.checking') };
-  else if (!remote && !installed) chip = { tone: 'warn', label: t('sec.settings.updates.notInstalled') };
+  else if (!installed) chip = { tone: 'warn', label: t('sec.settings.updates.notInstalled') };
   else if (hasUpdate) chip = { tone: 'accent', label: t('sec.settings.updates.available') };
-  else if (latestVersion && (current || !remote)) chip = { tone: 'ok', label: t('sec.settings.updates.upToDate') };
+  else if (latestVersion) chip = { tone: 'ok', label: t('sec.settings.updates.upToDate') };
   else chip = null;
 
-  const currentText = current || (remote ? t('common.detecting') : t('sec.settings.updates.notInstalled'));
+  const currentText = current || t('sec.settings.updates.notInstalled');
   const latestText = latestCheckText(checking, latestError, latestVersion, t);
   const percent = taskPercent(progress);
   const detail = progress
@@ -152,16 +163,14 @@ export function CoreVersionCard({
         : progress.downloaded > 0 ? formatBytes(progress.downloaded) : t('kernel.progress.waiting')
     : '';
 
-  const installReason = remote ? t('sec.settings.updates.core.remoteReason')
-    : processBusy || working ? t('sec.settings.updates.core.busyReason')
-      : !latestVersion ? t('sec.settings.updates.core.noLatestReason') : '';
-  const bundledReason = remote ? t('sec.settings.updates.core.remoteReason')
-    : !bundled ? (bundledError || t('kernel.versions.noBundled'))
-      : processBusy || working ? t('sec.settings.updates.core.busyReason') : '';
+  const installReason = processBusy || working ? t('sec.settings.updates.core.busyReason')
+    : !latestVersion ? t('sec.settings.updates.core.noLatestReason') : '';
+  const bundledReason = !bundled ? (bundledError || t('kernel.versions.noBundled'))
+    : processBusy || working ? t('sec.settings.updates.core.busyReason') : '';
   const installLabel = latestVersion
     ? (installed && hasUpdate ? t('sec.settings.updates.core.update', { version: latestVersion }) : t('sec.settings.updates.core.install', { version: latestVersion }))
     : t('kernel.versions.installLatestMissing');
-  const installDisabled = !status || remote || !latestVersion || busy;
+  const installDisabled = !status || !latestVersion || busy;
 
   return (
     <CardShell
@@ -169,8 +178,8 @@ export function CoreVersionCard({
       title={t('sec.settings.updates.core.title')}
       chips={(
         <>
-          <Chip size="sm" tone={remote ? 'info' : 'neutral'}>{remote ? t('sec.settings.updates.core.remote') : t('sec.settings.updates.core.local')}</Chip>
-          {!remote && installed ? <Chip size="sm" tone={status?.running ? 'ok' : 'outline'}>{status?.running ? t('sec.settings.updates.core.running') : t('sec.settings.updates.core.stopped')}</Chip> : null}
+          <Chip size="sm" tone="neutral">{t('sec.settings.updates.core.local')}</Chip>
+          {installed ? <Chip size="sm" tone={status?.running ? 'ok' : 'outline'}>{status?.running ? t('sec.settings.updates.core.running') : t('sec.settings.updates.core.stopped')}</Chip> : null}
           {chip ? <span title={latestError || chip.label}><Chip tone={chip.tone}>{chip.label}</Chip></span> : null}
         </>
       )}
@@ -193,25 +202,21 @@ export function CoreVersionCard({
       )}
     >
       <VersionFlow
-        currentLabel={remote ? t('sec.settings.updates.core.remote') : t('sec.settings.updates.current')}
+        currentLabel={t('sec.settings.updates.current')}
         current={currentText}
-        currentTitle={remote ? t('sec.settings.updates.core.remoteVersion') : currentText}
+        currentTitle={currentText}
         latestLabel={t('sec.settings.updates.latest')}
         latest={latestText}
         highlight={hasUpdate}
       />
       <div className="ec-upd-meta">
-        {remote && status?.remoteOrigin ? <Chip size="sm" tone="outline"><Masked value={status.remoteOrigin} mono /></Chip> : null}
-        {!remote ? (
-          <span className="ec-upd-bundled" title={bundledReason || undefined}>
-            <Package size={13} aria-hidden="true" />
-            <span>{t('sec.settings.updates.core.bundled')}</span>
-            <span className="ec-mono">{bundled ? bundled.version : t('kernel.versions.notIncluded')}</span>
-            <Button size="xs" variant="outline" disabled={Boolean(bundledReason)} onClick={onUseBundled}>{t('sec.settings.updates.core.useBundled')}</Button>
-          </span>
-        ) : null}
+        <span className="ec-upd-bundled" title={bundledReason || undefined}>
+          <Package size={13} aria-hidden="true" />
+          <span>{t('sec.settings.updates.core.bundled')}</span>
+          <span className="ec-mono">{bundled ? bundled.version : t('kernel.versions.notIncluded')}</span>
+          <Button size="xs" variant="outline" disabled={Boolean(bundledReason)} onClick={onUseBundled}>{t('sec.settings.updates.core.useBundled')}</Button>
+        </span>
       </div>
-      {remote ? <p className="ec-upd-note"><Info size={13} aria-hidden="true" />{t('sec.settings.updates.core.remoteReason')}</p> : null}
       {working && progress ? (
         <Progress percent={percent} label={cancelling ? t('kernel.install.cancelling') : localizeInstallPhase(progress.phase, t)} detail={detail} indeterminate />
       ) : null}
