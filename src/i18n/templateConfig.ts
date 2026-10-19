@@ -1,5 +1,5 @@
 import type { AppLocale } from './index';
-import { createTraditionalMessages } from './traditional';
+import { createTraditionalMessages } from './locales/traditional';
 import type { TemplateText } from '../services/templateConfig';
 
 export function templateText(value: TemplateText | undefined, locale: AppLocale): string {
