@@ -21,9 +21,9 @@ remote-mode designs.
    and reports its version. Testing does not save or switch the active connection,
    and does not verify client authentication, inference, or provider availability.
 5. **Save & connect** selects and persists the target, even when it is unavailable, and
-   then reloads the app window onto the new target. Correct the settings and test/save
-   again to recover, or select **This computer** and **Save & use this computer** to
-   return.
+   then reloads the app window onto the new target. Saving without changing the active
+   target is a no-op: the window is not reloaded. Correct the settings and test/save again
+   to recover, or select **This computer** and **Save & use this computer** to return.
 
 While the draft is invalid, the save bar says why **Save & connect** is disabled (for
 example "Enter a valid client API origin"). Field errors also appear after **Test
@@ -121,7 +121,9 @@ automatic redirection cannot reach the core. A provider redirect to `localhost` 
 computer does **not** reach a listener on the remote core host. Keep callback URLs private:
 they contain sensitive one-time authorization data. After submission, wait for the same
 core's terminal OAuth status; callback acceptance alone is not login completion. Switching
-targets invalidates pending sessions in this app; start authorization again.
+targets invalidates pending sessions in this app; start authorization again. Cancel, Close, or Escape in the sign-in dialog stops polling and
+cancels the pending session on the core, for built-in and plugin flows alike. Unmounting the
+sign-in view also cancels any pending sessions.
 
 Provider behavior follows the core's supported flows; no automatic cross-machine callback
 capture or successful live provider authorization is implied by a successful connection
@@ -134,6 +136,11 @@ Remote collection uses the authenticated HTTP usage queue, never a local RESP su
 Local and remote histories are stored separately; remote history is scoped by management
 origin, so a key rotation retains that origin's history. Changing the server behind an
 unchanged origin cannot be detected automatically.
+
+While the selected core is not ready, the collector re-checks readiness with backoff: it
+starts at 2 seconds, doubles after each not-ready result, and is capped at 28 seconds. Becoming
+ready, a target or lifecycle reset, or a core status emission restarts the backoff at 2 seconds
+and forces an immediate check.
 
 The queue removes records when read and is not a durable replay log. Use one queue consumer:
 another app or collector can consume events first, and the core's live subscriber behavior
@@ -221,7 +228,7 @@ Stored in the GUI `config.toml` (kebab-case keys):
 | Command | Behavior |
 | --- | --- |
 | `get_core_connection` | Returns the saved connection (Local values retained). |
-| `save_core_connection` | Validates (Remote), persists the target, bumps the revision, emits `core-connection-changed`. |
+| `save_core_connection` | Validates (Remote), persists the target, bumps the revision, emits `core-connection-changed`. A save that leaves the target unchanged does not bump the revision. |
 | `test_core_connection` | Remote drafts only. Never saves or switches. Result classes: connected (with version), unreachable (network and TLS failures are not distinguished), key rejected (401), forbidden (403), not a v8 management API (404 or no `config-version: 8`), other HTTP status. |
 | `export_core_connection(path, includeSecrets)` | Remote only. |
 | `import_core_connection(path)` | Returns a draft. |
@@ -238,9 +245,10 @@ changes made outside this window.
   `get_management_target_revision` and never refreshes it for later requests.
 - A save blocks the document (every later fenced call fails with "The core connection
   changed; reload before continuing") and then reloads it onto the new revision. A failed save
-  restores the document. The same happens on `core-connection-changed` from outside. A blocked
-  document that is about to reload is not subject to the unsaved-changes "Leave site?"
-  prompt.
+  restores the document. A save that leaves the target unchanged is a no-op: the revision does
+  not change and the document is restored, not reloaded. The same reload happens on
+  `core-connection-changed` from outside. A blocked document that is about to reload is not
+  subject to the unsaved-changes "Leave site?" prompt.
 - Every fenced native command takes the document revision and re-checks it under the
   `target_operation` lock; a mismatch fails before any request is sent. Responses that arrive
   after a target change are discarded.
