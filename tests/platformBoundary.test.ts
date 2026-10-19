@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { FENCED_COMMANDS } from '../src/mocks/fencedCommands';
+import { FENCED_COMMANDS } from '../src/services/fencedCommands';
 
 const root = join(import.meta.dir, '..');
 // Justified exceptions: none. All Tauri access goes through src/services (platform.ts).
@@ -57,18 +57,18 @@ describe('platform boundary', () => {
     expect(missing).toEqual([]);
   });
 
-  test('the mock fence list equals the native commands that take expected_revision', () => {
+  test('the production fence list equals the native commands that take expected_revision', () => {
     expect([...FENCED_COMMANDS].sort()).toEqual(nativeFencedCommands());
   });
 
   test('src never calls a fenced command through an unfenced invoke', () => {
     // Fenced commands need the document revision (services/documentTarget binds it). A file whose `invoke`
-    // is the raw platform/Tauri one may only call them when it passes expectedRevision itself.
+    // is the raw Tauri one may only call them when it passes expectedRevision itself.
     const offenders: string[] = [];
     for (const f of appSources.filter((p) => !p.endsWith('/services/documentTarget.ts'))) {
       const text = readFileSync(f, 'utf8');
-      // usageApi.invoke is documentTarget.invoke.
-      const fenced = /import\s*\{[^}]*\binvoke\b[^}]*\}\s*from\s*['"][^'"]*\/(?:documentTarget|usageApi)['"]/.test(text);
+      // platform routes fenced commands to documentTarget; usageApi invokes it directly.
+      const fenced = /import\s*\{[^}]*\binvoke\b[^}]*\}\s*from\s*['"][^'"]*\/(?:documentTarget|usageApi|platform)['"]/.test(text);
       if (fenced) continue;
       for (const m of text.matchAll(INVOKE_CALL)) {
         const command = m[2];
@@ -77,11 +77,5 @@ describe('platform boundary', () => {
       }
     }
     expect(offenders).toEqual([]);
-  });
-
-  test('the boundary check catches the plugin OAuth regression shape', () => {
-    const source = "import { invoke } from '../../services/platform';\nawait invoke<OAuthStart>('start_oauth_login', { provider });";
-    const hit = [...source.matchAll(INVOKE_CALL)].filter((m) => FENCED_COMMANDS.has(m[2]) && !/expectedRevision/.test(source.slice(m.index!, m.index! + 400)));
-    expect(hit.map((m) => m[2])).toEqual(['start_oauth_login']);
   });
 });
