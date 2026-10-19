@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { useCoreRuntime } from '../../coreRuntime';
+import { useCoreConnectionMode } from '../../coreRuntime';
 import { useI18n } from '../../i18n';
 import { PageHeader } from '../../shell/PageHeader';
 import { RouteTabs } from '../../shell/RouteTabs';
@@ -18,12 +18,12 @@ import './agents.css';
 /** Agents: client grid → per-client detail (`?client=<id>&tab=`), plus the Codex sessions sub-page. */
 export function AgentsSection({ sub, params }: SectionPageProps) {
   const { t } = useI18n();
-  const { status } = useCoreRuntime();
+  const mode = useCoreConnectionMode();
   // Codex sessions are read from the local disk, so Remote has no such tab; wait for the first status before mounting it.
-  const remote = status?.connectionMode === 'remote';
+  const remote = mode === 'remote';
   const subs = agentsSubsFor(remote);
   const active = sub ?? agentsSubs[0].id;
-  const sessionsBlocked = active === 'sessions' && (remote || status === null);
+  const sessionsBlocked = active === 'sessions' && (remote || mode === undefined);
   useEffect(() => {
     if (active === 'sessions' && remote) replaceRoute(routePath('agents'));
   }, [active, remote]);
