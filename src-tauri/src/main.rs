@@ -45,6 +45,7 @@ mod privacy_mode;
 mod progress;
 #[cfg(unix)]
 mod process_signal;
+mod process_spawn;
 mod provider_health;
 #[cfg(any(
     target_os = "linux",

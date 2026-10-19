@@ -407,7 +407,7 @@ pub(crate) fn run_portable_update_helper(descriptor_path: &Path) -> Result<(), S
     if let Err(error) = replace_portable_update_files(&descriptor) {
         let mut rollback = Command::new(&descriptor.current_exe);
         configure_background_command(&mut rollback);
-        let _ = rollback.spawn();
+        let _ = crate::process_spawn::spawn(&mut rollback);
         cleanup_portable_update_payload(descriptor_path, &descriptor);
         return Err(error);
     }
@@ -421,13 +421,13 @@ pub(crate) fn run_portable_update_helper(descriptor_path: &Path) -> Result<(), S
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     configure_background_command(&mut command);
-    let mut child = match command.spawn() {
+    let mut child = match crate::process_spawn::spawn(&mut command) {
         Ok(child) => child,
         Err(error) => {
             restore_portable_update_backup(&descriptor)?;
             let mut rollback = Command::new(&descriptor.current_exe);
             configure_background_command(&mut rollback);
-            let _ = rollback.spawn();
+            let _ = crate::process_spawn::spawn(&mut rollback);
             cleanup_portable_update_payload(descriptor_path, &descriptor);
             return Err(format!("Failed to start new application version: {error}"));
         }
@@ -464,7 +464,7 @@ pub(crate) fn run_portable_update_helper(descriptor_path: &Path) -> Result<(), S
     restore_portable_update_backup(&descriptor)?;
     let mut rollback = Command::new(&descriptor.current_exe);
     configure_background_command(&mut rollback);
-    let _ = rollback.spawn();
+    let _ = crate::process_spawn::spawn(&mut rollback);
     cleanup_portable_update_payload(descriptor_path, &descriptor);
     Err(format!(
         "New application version {} did not confirm startup within 60 seconds; rolled back",
