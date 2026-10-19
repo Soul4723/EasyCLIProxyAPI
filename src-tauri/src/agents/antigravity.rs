@@ -312,7 +312,7 @@ pub(crate) fn run_antigravity_helper(args: &[std::ffi::OsString]) -> Result<i32,
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        return Err(format!("Failed to start Antigravity: {}", command.exec()));
+        Err(format!("Failed to start Antigravity: {}", command.exec()))
     }
     #[cfg(not(unix))]
     {

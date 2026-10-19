@@ -670,12 +670,13 @@ mod native_target_tests {
     use super::*;
 
     fn remote_config() -> GuiConfigFile {
-        let mut config = GuiConfigFile::default();
-        config.connection_mode = CoreConnectionMode::Remote;
-        config.remote_management_origin = "https://remote.example".into();
-        config.remote_management_key = "management-secret".into();
-        config.remote_client_origin = "https://remote.example".into();
-        config
+        GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: "https://remote.example".into(),
+            remote_management_key: "management-secret".into(),
+            remote_client_origin: "https://remote.example".into(),
+            ..Default::default()
+        }
     }
 
     #[test]

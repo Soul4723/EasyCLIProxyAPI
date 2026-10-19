@@ -511,10 +511,12 @@ mod tests {
     async fn fetches_both_v8_metadata_endpoints_and_filters_deleted_identities() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let mut config = GuiConfigFile::default();
-        config.host = "127.0.0.1".into();
-        config.port = listener.local_addr().unwrap().port();
-        config.management_secret_key = "test-management-key".into();
+        let config = GuiConfigFile {
+            host: "127.0.0.1".into(),
+            port: listener.local_addr().unwrap().port(),
+            management_secret_key: "test-management-key".into(),
+            ..Default::default()
+        };
         let server = tokio::spawn(async move {
             for _ in 0..2 {
                 let (mut stream, _) = listener.accept().await.unwrap();

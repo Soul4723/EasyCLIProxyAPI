@@ -5613,9 +5613,11 @@ mod tests {
             }
         });
 
-        let mut config = GuiConfigFile::default();
-        config.port = port;
-        config.management_secret_key = "secret".to_string();
+        let config = GuiConfigFile {
+            port,
+            management_secret_key: "secret".to_string(),
+            ..Default::default()
+        };
         let mut source = RedisUsageQueueSource::default();
 
         let first = source.pull(&config).await.unwrap();
@@ -5832,9 +5834,11 @@ mod tests {
         let other_root = test_root("retained-remote-other");
         let blocked_root = root.join("blocked");
         fs::write(&blocked_root, b"not a directory").unwrap();
-        let mut config = GuiConfigFile::default();
-        config.connection_mode = CoreConnectionMode::Remote;
-        config.remote_management_origin = "https://original.invalid".into();
+        let config = GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: "https://original.invalid".into(),
+            ..Default::default()
+        };
         let source = remote_usage_queue_source(&config);
         let messages = vec![serde_json::json!({
             "request_id": "retained-remote-request",
@@ -5894,9 +5898,11 @@ mod tests {
     fn retained_batch_whose_processing_failed_is_not_enqueued_twice() {
         let root = test_root("retained-no-double-count");
         initialize_usage_storage_at(&root).unwrap();
-        let mut config = GuiConfigFile::default();
-        config.connection_mode = CoreConnectionMode::Remote;
-        config.remote_management_origin = "https://original.invalid".into();
+        let config = GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: "https://original.invalid".into(),
+            ..Default::default()
+        };
         let source = remote_usage_queue_source(&config);
         let messages = vec![serde_json::json!({
             "request_id": "retained-once",
@@ -6314,11 +6320,13 @@ mod tests {
         let mut connection = Connection::open_in_memory().unwrap();
         initialize_usage_schema(&connection).unwrap();
         let key = "test-client-key-for-usage-labels";
-        let mut config = GuiConfigFile::default();
-        config.api_keys = vec![crate::GuiApiKeyEntry {
-            key: key.to_string(),
-            remark: "Codex".to_string(),
-        }];
+        let mut config = GuiConfigFile {
+            api_keys: vec![crate::GuiApiKeyEntry {
+                key: key.to_string(),
+                remark: "Codex".to_string(),
+            }],
+            ..Default::default()
+        };
         let mut old = sample_record("old-label", "2026-10-10T00:00:00Z", "model");
         old.api_key_hash = hash_text(key);
         old.api_key_remark = "ZCODE".to_string();
@@ -6374,10 +6382,12 @@ mod tests {
     fn usage_source_notes_and_request_key_notes_stay_independent() {
         let mut connection = Connection::open_in_memory().unwrap();
         initialize_usage_schema(&connection).unwrap();
-        let mut config = GuiConfigFile::default();
-        config.api_keys = vec![crate::GuiApiKeyEntry {
-            key: "client-key".into(), remark: "Client note".into(),
-        }];
+        let mut config = GuiConfigFile {
+            api_keys: vec![crate::GuiApiKeyEntry {
+                key: "client-key".into(), remark: "Client note".into(),
+            }],
+            ..Default::default()
+        };
         for (section, remark) in [("xai-api-key", "Grok API note"), ("codex-api-key", "Other API note")] {
             config.api_access_remarks.push(crate::GuiApiAccessRemark {
                 provider_section: section.into(), api_key_hash: hash_text("sk-upstream-test"),

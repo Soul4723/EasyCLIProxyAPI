@@ -323,6 +323,7 @@ fn bracket_host(host: &str) -> String {
 }
 
 #[cfg(any(target_os = "linux", test))]
+#[allow(clippy::too_many_arguments)] // Preserve the existing command/helper interface in this behavior-neutral cleanup.
 fn gnome_manual_proxy(
     mode: &str,
     https_host: &str,
@@ -458,16 +459,10 @@ fn detect_system_proxy() -> Result<String, String> {
         }
     }
     if kde_desktop || !gnome_desktop {
-        match kde_system_proxy() {
-            Ok(Some(url)) => return Ok(url),
-            Ok(None) | Err(_) => {}
-        }
+        if let Ok(Some(url)) = kde_system_proxy() { return Ok(url) }
     }
     if !gnome_desktop {
-        match gnome_system_proxy() {
-            Ok(Some(url)) => return Ok(url),
-            Ok(None) | Err(_) => {}
-        }
+        if let Ok(Some(url)) = gnome_system_proxy() { return Ok(url) }
     }
     Ok(String::new())
 }

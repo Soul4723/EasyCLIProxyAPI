@@ -245,7 +245,7 @@ pub(crate) async fn save_network_endpoint_settings(
         // means following the system proxy.
         next.proxy_override = settings
             .proxy_override
-            .unwrap_or_else(|| !proxy_url.is_empty());
+            .unwrap_or(!proxy_url.is_empty());
         next.proxy_url = if next.proxy_override {
             proxy_url
         } else {

@@ -2844,7 +2844,7 @@ pub(crate) fn configured_model_alias_exists(root: &serde_norway::Mapping, alias:
         });
     oauth_exists
         || MODEL_ALIAS_CONFIG_SECTIONS
-            .into_iter()
+            .iter()
             .filter_map(|section| yaml_mapping_value(root, section))
             .filter_map(serde_norway::Value::as_sequence)
             .flatten()

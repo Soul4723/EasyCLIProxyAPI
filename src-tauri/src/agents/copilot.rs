@@ -275,7 +275,7 @@ pub(crate) fn build_copilot_config(
                 let vision = metadata
                     .and_then(|m| m.input_modalities.as_ref())
                     .filter(|modalities| !modalities.is_empty())
-                    .map_or(true, |modalities| {
+                    .is_none_or(|modalities| {
                         modalities.iter().any(|s| s.eq_ignore_ascii_case("image"))
                     });
                 json!({"id": id, "name": id,
