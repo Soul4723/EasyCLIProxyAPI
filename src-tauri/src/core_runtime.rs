@@ -13,6 +13,25 @@ pub(crate) fn lock_core_operation(
     Ok(guard)
 }
 
+// User lifecycle actions own the operation lock; background supervision simply
+// defers a pass when they are in progress, rather than recording recovery failure.
+fn try_supervisor_operation(lock: &Mutex<()>) -> Result<Option<std::sync::MutexGuard<'_, ()>>, String> {
+    match lock.try_lock() {
+        Ok(guard) => Ok(Some(guard)),
+        Err(std::sync::TryLockError::WouldBlock) => Ok(None),
+        Err(std::sync::TryLockError::Poisoned(_)) => Err("Kernel operation lock is poisoned".to_string()),
+    }
+}
+
+#[test]
+fn supervisor_defers_busy_operation_without_recovery_error() {
+    let lock = Mutex::new(());
+    let guard = lock.lock().unwrap();
+    assert!(try_supervisor_operation(&lock).unwrap().is_none());
+    drop(guard);
+    assert!(try_supervisor_operation(&lock).unwrap().is_some());
+}
+
 pub(crate) fn core_child_has_exited(status: io::Result<Option<std::process::ExitStatus>>) -> bool {
     matches!(status, Ok(Some(_)))
 }
@@ -2695,7 +2714,9 @@ pub(crate) fn start_core_crash_supervisor(app: tauri::AppHandle) {
             // Match target-transition lock ordering. Never sleep while holding either lock.
             let recovery = (|| -> Result<Option<(Duration, u64, u64)>, String> {
                 let _target = gui_config_state.target_operation.blocking_lock();
-                let _operation = lock_core_operation(process_state.inner())?;
+                let Some(_operation) = try_supervisor_operation(&CORE_OPERATION_LOCK)? else {
+                    return Ok(None);
+                };
                 let config = gui_config_state.snapshot()?;
                 if !core_supervision_allowed(&config) || process_state.is_starting()
                     || !process_state.poll_unexpected_child_exit(CORE_CRASH_STABLE_UPTIME) {
@@ -2714,7 +2735,9 @@ pub(crate) fn start_core_crash_supervisor(app: tauri::AppHandle) {
                     thread::sleep(backoff);
                     (|| -> Result<(), String> {
                         let _target = gui_config_state.target_operation.blocking_lock();
-                        let _operation = lock_core_operation(process_state.inner())?;
+                        let Some(_operation) = try_supervisor_operation(&CORE_OPERATION_LOCK)? else {
+                            return Ok(());
+                        };
                         let config = gui_config_state.snapshot()?;
                         if config.target_revision != revision || !core_supervision_allowed(&config)
                             || process_state.supervision_generation.load(Ordering::Acquire) != generation {
