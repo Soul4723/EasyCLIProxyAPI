@@ -1,3 +1,5 @@
+// First on purpose: the legacy globals sit below every component stylesheet that the imports after it pull in.
+import './styles/index.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { listen } from './services/platform';
@@ -10,7 +12,6 @@ import { initializeTheme, initializeThemePreferences } from './theme';
 import { initializeUsagePreferences } from './services/usagePreferences';
 import { initializePrivacyMode } from './privacy';
 import { initializeDensity } from './density';
-import './styles/index.css';
 import './ui/index.css';
 
 async function bootstrap() {
