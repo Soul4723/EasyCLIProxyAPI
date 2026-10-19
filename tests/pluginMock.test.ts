@@ -1,3 +1,5 @@
+// guards the browser-mock contract used by the UI suite
+// Plugin routes, install/config mutations and webview ownership/bounds support plugin-pages-ui.cjs and plugin section UI checks.
 import { describe, expect, test } from 'bun:test';
 import { createBrowserMockRuntime } from '../src/mocks/browserMockRuntime';
 import type { PluginWebviewMockState } from '../src/mocks/pluginMock';

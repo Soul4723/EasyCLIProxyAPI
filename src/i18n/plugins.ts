@@ -1,5 +1,5 @@
 import { getCurrentLocale, type AppLocale } from './index';
-import { createTraditionalMessages } from './traditional';
+import { createTraditionalMessages } from './locales/traditional';
 
 const messages = {
   localInstall: ['本地安装', 'Install local plugin', 'ローカルインストール'],

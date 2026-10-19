@@ -1,5 +1,5 @@
 /**
- * RelativeTime, Countdown, useNow, formatDuration: time display helpers.
+ * RelativeTime, Countdown, useNow, formatDurationParts: time display helpers.
  *
  * RelativeTime: "5m ago" / "in 2h 10m" / "now" / "Never" (for null). Props: value (Date | ms | ISO string | null),
  *   now? (ms, overrides the live clock), fallback? (text for null, default t('ui.time.never')), className.
@@ -7,15 +7,16 @@
  * Countdown: "1h 48m" / "3d 6h" / "22m" / "45s". Props: to (same input), compact? (largest unit only),
  *   onDone? (called once when the target passes), className. Ticks every second under 1h, every 30s above.
  * useNow(intervalMs = 30000): shared clock. One timer per interval, shared by every subscriber.
- * formatDuration(ms, t, maxParts = 2): pure, takes a translate function (see uiText.ts).
+ * formatDurationParts(ms, t, maxParts = 2): pure, takes a translate function (see uiText.ts).
  *
- * Self-check (not executed): formatDuration(6480000, t) -> "1h 48m"; (3*86400000 + 6*3600000) -> "3d 6h";
+ * Self-check (not executed): formatDurationParts(6480000, t) -> "1h 48m"; (3*86400000 + 6*3600000) -> "3d 6h";
  * (22*60000) -> "22m"; (45000) -> "45s"; (0) -> "0s".
  */
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { useI18n } from '../i18n';
+import { formatDurationParts } from '../services/format';
 import { cx } from './cx';
-import { useUiText, type UiKey, type UiTranslate } from './uiText';
+import { useUiText } from './uiText';
 import './RelativeTime.css';
 
 const MINUTE_MS = 60_000;
@@ -67,28 +68,6 @@ export function useNow(intervalMs = 30_000): number {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-const DURATION_UNITS: Array<{ key: UiKey; size: number }> = [
-  { key: 'ui.time.d', size: 86_400_000 },
-  { key: 'ui.time.h', size: HOUR_MS },
-  { key: 'ui.time.m', size: MINUTE_MS },
-  { key: 'ui.time.s', size: 1_000 },
-];
-
-/** Formats a duration with at most `maxParts` consecutive units, e.g. "1h 48m". Pure; no hooks. */
-export function formatDuration(ms: number, t: UiTranslate, maxParts = 2): string {
-  let rest = Math.max(0, Math.floor(ms / 1000)) * 1000;
-  const parts: string[] = [];
-  for (const unit of DURATION_UNITS) {
-    const n = Math.floor(rest / unit.size);
-    if (n > 0) {
-      parts.push(t(unit.key, { n }));
-      rest -= n * unit.size;
-      if (parts.length >= maxParts) break;
-    }
-  }
-  return parts.length > 0 ? parts.join(' ') : t('ui.time.s', { n: 0 });
-}
-
 export type RelativeTimeProps = {
   value: TimeInput;
   now?: number;
@@ -109,8 +88,8 @@ export function RelativeTime({ value, now, fallback, className }: RelativeTimePr
   const diff = target - (now ?? tick);
   let text: string;
   if (Math.abs(diff) < MINUTE_MS) text = tu('ui.time.now');
-  else if (diff < 0) text = tu('ui.time.ago', { value: formatDuration(-diff, tu) });
-  else text = tu('ui.time.in', { value: formatDuration(diff, tu) });
+  else if (diff < 0) text = tu('ui.time.ago', { value: formatDurationParts(-diff, tu) });
+  else text = tu('ui.time.in', { value: formatDurationParts(diff, tu) });
 
   return (
     <time
@@ -156,7 +135,7 @@ export function Countdown({ to, compact = false, onDone, className }: CountdownP
 
   return (
     <span className={cx('ec-countdown', className)}>
-      {formatDuration(Math.max(0, left), tu, compact ? 1 : 2)}
+      {formatDurationParts(Math.max(0, left), tu, compact ? 1 : 2)}
     </span>
   );
 }

@@ -1,15 +1,15 @@
-import { connectionJa } from "./coreConnection";
-import { uiJa } from '../ui/i18n';
-import { shellJa } from '../shell/i18n';
-import { overviewJa } from '../sections/overview/i18n';
-import { providersJa } from '../sections/providers/i18n';
-import { quotaJa } from '../sections/quota/i18n';
-import { usageJa } from '../sections/usage/i18n';
-import { agentsJa } from '../sections/agents/i18n';
-import { pluginsJa } from '../sections/plugins/i18n';
-import { settingsJa } from '../sections/settings/i18n';
-import type { MessageKey } from './locales/zh-CN';
-import { authFileListJa } from './authFileList';
+import { connectionJa } from "../coreConnection";
+import { uiJa } from '../../ui/i18n';
+import { shellJa } from '../../shell/i18n';
+import { overviewJa } from '../../sections/overview/i18n';
+import { providersJa } from '../../sections/providers/i18n';
+import { quotaJa } from '../../sections/quota/i18n';
+import { usageJa } from '../../sections/usage/i18n';
+import { agentsJa } from '../../sections/agents/i18n';
+import { pluginsJa } from '../../sections/plugins/i18n';
+import { settingsJa } from '../../sections/settings/i18n';
+import type { MessageKey } from './zh-CN';
+import { authFileListJa } from '../authFileList';
 
 export const jaOverrides = {
   ...uiJa,

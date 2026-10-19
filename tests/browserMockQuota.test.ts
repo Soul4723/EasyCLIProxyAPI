@@ -1,3 +1,5 @@
+// guards the browser-mock contract used by the UI suite
+// Real quota parsers and credential mutations support browser-mock-ui.cjs and the quota/credential UI checks.
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { createBrowserMockRuntime } from '../src/mocks/browserMockRuntime';
 import { managementApi } from '../src/services/managementApi';

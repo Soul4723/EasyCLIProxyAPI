@@ -6,6 +6,7 @@ import {
   StatusPill, Toggle,
 } from '../../ui';
 import { useI18n } from '../../i18n';
+import { formatShortDateTime } from '../../services/format';
 import { routeHref } from '../../shell/router';
 import { authFileRequestStats } from '../../services/authFileRequests';
 import { canResetQuota } from '../../services/quotaActions';
@@ -20,7 +21,7 @@ function BigWindow({ window, now, stale }: { window: WindowView; now: number; st
   const { t, formatNumber, locale } = useI18n();
   const label = windowLabel(window, t);
   const absolute = window.resetAtMs
-    ? new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(window.resetAtMs) : '';
+    ? formatShortDateTime(window.resetAtMs, locale) : '';
   return (
     <div className={`qt-big${stale ? ' qt-stale' : ''}`}>
       <div className="qt-big__label" title={window.rawLabel}>{label}</div>
