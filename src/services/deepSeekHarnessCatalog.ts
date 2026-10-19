@@ -64,7 +64,7 @@ export function parseHarnessDraft(draft: HarnessDraft, group: string, api: strin
       if (Object.keys(nested).length) profile[field.name] = nested;
       continue;
     }
-    if (!Object.prototype.hasOwnProperty.call(draft, key) || !draft[key].trim()) continue;
+    if (!Object.hasOwn(draft, key) || !draft[key].trim()) continue;
     let value: unknown;
     try {
       value = ['string', 'enum'].includes(field.kind) ? draft[key].trim() : JSON.parse(draft[key]);

@@ -51,14 +51,14 @@ function Fixture() {
   const dialog = useRef<HTMLDialogElement>(null);
   return <main style={{ padding: 24 }}>
     <div data-testid="toolbar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      <button onClick={() => first.showNotice('Saved', 'success')}>Success</button>
-      <button onClick={() => first.showNotice('Failure '.repeat(120), 'error')}>Error</button>
-      <button onClick={() => second.showNotice('Second result', 'info')}>Second</button>
-      <button onClick={() => { first.clearNotice(); second.clearNotice(); setAgent(false); }}>Clear</button>
-      <button onClick={() => setAgent(true)}>Agent result</button>
-      <button onClick={() => dialog.current?.showModal()}>Native dialog</button>
-      <button onClick={() => void askConfirmation({ title: "Confirm test", message: "Confirm the operation", confirmText: "Confirm" })}>Confirmation dialog</button>
-      <button onClick={() => setMounted(value => !value)}>Toggle source</button>
+      <button type="button" onClick={() => first.showNotice('Saved', 'success')}>Success</button>
+      <button type="button" onClick={() => first.showNotice('Failure '.repeat(120), 'error')}>Error</button>
+      <button type="button" onClick={() => second.showNotice('Second result', 'info')}>Second</button>
+      <button type="button" onClick={() => { first.clearNotice(); second.clearNotice(); setAgent(false); }}>Clear</button>
+      <button type="button" onClick={() => setAgent(true)}>Agent result</button>
+      <button type="button" onClick={() => dialog.current?.showModal()}>Native dialog</button>
+      <button type="button" onClick={() => void askConfirmation({ title: "Confirm test", message: "Confirm the operation", confirmText: "Confirm" })}>Confirmation dialog</button>
+      <button type="button" onClick={() => setMounted(value => !value)}>Toggle source</button>
     </div>
     <section data-testid="panel" style={{ transform: 'translateZ(0)', overflow: 'hidden', height: 210, marginTop: 16, border: '1px solid gray' }}>
       {mounted && <><FloatingNotice key={first.revision} notice={first.notice} onDismiss={first.clearNotice} />
@@ -67,7 +67,7 @@ function Fixture() {
       <div className="ec-sec-agents">
         <div className="ag-savebar" role="group" aria-label="Save bar">
           <div className="ag-save-feedback" aria-live="polite">{agent ? <span className="ag-save-state is-pending">Pending changes</span> : null}</div>
-          <div className="ag-save-actions"><button>Apply agent</button></div>
+          <div className="ag-save-actions"><button type="button">Apply agent</button></div>
         </div>
       </div>
       <MessageNotice tone="success" message={agent ? 'Agent saved' : ''} />
@@ -76,9 +76,9 @@ function Fixture() {
     {confirmationDialog}
     <dialog ref={dialog} style={{ width: 400, height: 'calc(100vh - 48px)' }}>
       <h2>Native backup dialog</h2>
-      <button onClick={() => setNativeError('Native modal error')}>Native error</button>
+      <button type="button" onClick={() => setNativeError('Native modal error')}>Native error</button>
       <MessageNotice message={nativeError} onDismiss={() => setNativeError('')} />
-      <button data-testid="native-footer" style={{ position: 'absolute', right: 20, bottom: 20 }} onClick={() => dialog.current?.close()}>Close dialog</button>
+      <button type="button" data-testid="native-footer" style={{ position: 'absolute', right: 20, bottom: 20 }} onClick={() => dialog.current?.close()}>Close dialog</button>
     </dialog>
   </main>;
 }

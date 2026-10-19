@@ -20,7 +20,7 @@ Run all of these from the repository root and record the results in the PR descr
 
 ```bash
 bun install --frozen-lockfile
-bun run lint                        # Biome (existing findings are tracked separately)
+bun run lint                        # Biome: must exit 0; open warnings are listed in docs/lint.md
 bun run check
 bun run build
 bun test --isolate

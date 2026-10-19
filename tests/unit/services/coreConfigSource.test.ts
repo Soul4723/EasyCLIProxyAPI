@@ -18,7 +18,12 @@ const settings = (port: number) => ({ port, apiKeys: [], redisUsageQueueRetentio
 
 test('concurrent readers and navigation reuse one cached settings value', async () => {
   let reads = 0;
-  mockIPC(command => command === 'get_management_target_revision' ? 7 : command === 'get_core_config_settings' ? (reads++, settings(8317)) : null);
+  mockIPC(command => {
+    if (command === 'get_management_target_revision') return 7;
+    if (command !== 'get_core_config_settings') return null;
+    reads++;
+    return settings(8317);
+  });
   stops.push(coreConfigSource.subscribe(() => {}), coreConfigSource.subscribe(() => {}));
   await coreConfigSource.load();
   expect(reads).toBe(1);
@@ -55,7 +60,12 @@ test('save results reach all readers and fence a stale background read; failures
 
 test('extended config sections share reads and publish save results', async () => {
   let reads = 0;
-  mockIPC(command => command === 'get_management_target_revision' ? 7 : command === 'get_extended_core_config' ? (reads++, { debug: false }) : null);
+  mockIPC(command => {
+    if (command === 'get_management_target_revision') return 7;
+    if (command !== 'get_extended_core_config') return null;
+    reads++;
+    return { debug: false };
+  });
   stops.push(extendedCoreConfigSource.subscribe(() => {}), extendedCoreConfigSource.subscribe(() => {}));
   await extendedCoreConfigSource.load();
   expect(reads).toBe(1);

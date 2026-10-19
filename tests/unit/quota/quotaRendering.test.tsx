@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { quotaRowsFor, formatQuotaTimestamp } from '../../../src/services/quotaService';
+import { quotaRowsFor } from '../../../src/services/quotaService';
 import type { QuotaState } from '../../../src/services/quotaService';
 import { renderCard } from '../../helpers/quotaAccount';
 

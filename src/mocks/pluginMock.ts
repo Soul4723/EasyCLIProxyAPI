@@ -53,7 +53,7 @@ function readBounds(value: unknown): PluginWebviewMockState['bounds'] {
 const object = (value: unknown): JsonObject =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
-const has = (value: JsonObject, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
+const has = (value: JsonObject, key: string): boolean => Object.hasOwn(value, key);
 const clone = <T,>(value: T): T => structuredClone(value);
 const COMMUNITY_SOURCE = 'https://plugins.example.invalid/community.json';
 const MAX_EXTRA_PAGES = 30;

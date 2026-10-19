@@ -31,7 +31,7 @@ function structurallyEqual(left: unknown, right: unknown): boolean {
   const b = right as Record<string, unknown>;
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length
-    && keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && structurallyEqual(a[key], b[key]));
+    && keys.every(key => Object.hasOwn(b, key) && structurallyEqual(a[key], b[key]));
 }
 
 /** One owner per resource. Errors never discard data; reset fences every outstanding request. */

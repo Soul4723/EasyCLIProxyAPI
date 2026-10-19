@@ -44,6 +44,6 @@ function Fixture() {
   const [open, setOpen] = useState(true);
   return <I18nProvider>{open
     ? <CodexCatalogDialog onClose={() => setOpen(false)} onSaved={() => {}} />
-    : <button onClick={() => setOpen(true)}>Reopen catalog</button>}</I18nProvider>;
+    : <button type="button" onClick={() => setOpen(true)}>Reopen catalog</button>}</I18nProvider>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);

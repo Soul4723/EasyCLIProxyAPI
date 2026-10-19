@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ServerCog } from 'lucide-react';
 import { useCoreRuntime } from '../coreRuntime';
 import { useI18n } from '../i18n';
@@ -66,7 +66,7 @@ export function Shell() {
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   const sub = current?.subs?.some((entry) => entry.id === route.sub) ? route.sub : null;
 
-  let body;
+  let body: ReactNode;
   if (!current) {
     body = <NotFound title={t('shell.notFound')} action={t('shell.notFound.action')} />;
   } else if (statusError && !isAlwaysAvailablePage(current.id)) {

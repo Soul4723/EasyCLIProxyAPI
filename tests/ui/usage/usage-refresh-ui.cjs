@@ -5,7 +5,8 @@ const { runUiTest, reopenApp, emitEvent } = require('../../helpers/shell.cjs');
 
 const installProbe = (page) => page.evaluate(() => {
   const original = window.__TAURI_INTERNALS__.invoke;
-  const probe = window.__usageProbe = { calls: [], fail: '', hold: '', pending: [] };
+  const probe = { calls: [], fail: '', hold: '', pending: [] };
+  window.__usageProbe = probe;
   window.__TAURI_INTERNALS__.invoke = async (command, args) => {
     if (command.startsWith('get_usage_')) probe.calls.push({ command, args });
     if (command === probe.fail) throw new Error('Refresh unavailable');

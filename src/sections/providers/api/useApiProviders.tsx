@@ -347,7 +347,6 @@ export function useApiProviders(): ApiProvidersController {
         });
       }
       const current = await providerGroupsApi.get(activeSection);
-      let nextList: Record<string, unknown>[];
       const location = editingRow?.source ? locateProviderEntry(current, editingRow.source) : undefined;
       const currentRecord = editingRow?.record;
       const savedRecord = definition.openAi
@@ -360,7 +359,7 @@ export function useApiProviders(): ApiProvidersController {
       if (hasDuplicateProviderRecord(activeSection, currentEntries.map((row) => row.record), [savedRecord], targetIndex)) {
         throw new Error(t('apiAccess.error.duplicate'));
       }
-      nextList = editingRow?.source
+      const nextList: Record<string, unknown>[] = editingRow?.source
         ? updateProviderEntry(current, editingRow.source, editingRow.record, savedRecord)
         : appendProviderEntry(current, activeCategory === 'deepseek' ? 'deepseek' : activeSection, savedRecord);
 

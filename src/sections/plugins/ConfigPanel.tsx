@@ -86,11 +86,11 @@ export function ConfigPanel({ plugin, onClose, onSaved }: {
       try {
         const parsed: unknown = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) nextRawError = pt('expected_object');
-        else if (Object.prototype.hasOwnProperty.call(parsed, 'enabled') || Object.prototype.hasOwnProperty.call(parsed, 'priority')) nextRawError = pt('reserved');
+        else if (Object.hasOwn(parsed, 'enabled') || Object.hasOwn(parsed, 'priority')) nextRawError = pt('reserved');
         else {
           const custom = parsed as PluginConfigObject;
           for (const key of new Set([...Object.keys(original), ...Object.keys(custom)])) {
-            const removed = !Object.prototype.hasOwnProperty.call(custom, key);
+            const removed = !Object.hasOwn(custom, key);
             if (removed) removeKeys.push(key);
             else if (JSON.stringify(original[key]) !== JSON.stringify(custom[key]))
               Object.defineProperty(patch, key, { value: custom[key], enumerable: true, configurable: true, writable: true });
@@ -125,7 +125,7 @@ export function ConfigPanel({ plugin, onClose, onSaved }: {
     const type = normalizePluginConfigFieldType(field);
     const value = draft.values[field.name];
     const fieldId = `${id}-field-${index}`;
-    const fieldError = Object.prototype.hasOwnProperty.call(draft.errors, field.name) ? draft.errors[field.name] : '';
+    const fieldError = Object.hasOwn(draft.errors, field.name) ? draft.errors[field.name] : '';
     const inputProps = {
       id: fieldId,
       'aria-invalid': Boolean(fieldError),

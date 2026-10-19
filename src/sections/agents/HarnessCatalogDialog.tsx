@@ -5,7 +5,7 @@ import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/resources';
 import {
   harnessContextDefault, harnessDraft, harnessReasoningLevels, harnessSchema, isHarnessRecord, parseHarnessDraft, sameHarnessDraft, updateHarnessDraft,
-  type HarnessContextDefault, type HarnessDraft, type HarnessEditorSnapshot, type HarnessProfile,
+  type HarnessContextDefault, type HarnessDraft, type HarnessEditorModel, type HarnessEditorSnapshot, type HarnessProfile,
 } from '../../services/deepSeekHarnessCatalog';
 import { Button, Chip, Dialog, EmptyState, ErrorState, Masked, SearchInput, Skeleton } from '../../ui';
 import { CatalogDiscardConfirm, CatalogField, CatalogFooter } from './CatalogParts';
@@ -43,7 +43,7 @@ function HarnessReasoningField({ name, label, value, automatic, onChange }: {
   const { t } = useI18n();
   let mapping: HarnessProfile = {};
   try { const parsed: unknown = JSON.parse(value || '{}'); if (isHarnessRecord(parsed)) mapping = parsed; } catch { /* custom JSON mid-edit */ }
-  const has = (level: string) => Object.prototype.hasOwnProperty.call(mapping, level);
+  const has = (level: string) => Object.hasOwn(mapping, level);
   return (
     <div className="cd-field cd-field--wide" key={name}>
       <label className="cd-field">
@@ -90,7 +90,7 @@ function HarnessFields({ group, draft, defaults = {}, prefix = '', api, contextD
     const supplied = defaults[field.name] ?? field.default;
     const automatic = `${t('agents.harness.auto')}${supplied === undefined ? '' : ` (${typeof supplied === 'string' ? supplied : JSON.stringify(supplied)})`}`;
     const set = (next: string) => onChange(updateHarnessDraft(draft, key, next));
-    const overridden = Object.prototype.hasOwnProperty.call(draft, key);
+    const overridden = Object.hasOwn(draft, key);
     if (field.name === 'contextWindow' || field.name === 'defaultContextWindow') {
       return <HarnessContextWindowInput key={key} label={label(field.name)} value={draft[key]} inherited={contextDefault ?? harnessContextDefault({}, {})} onChange={set} />;
     }
@@ -173,9 +173,9 @@ export function HarnessCatalogDialog({ onClose, onSaved }: HarnessCatalogDialogP
   const changed = () => { setNotice(''); setError(''); };
   const save = async () => {
     if (!snapshot || saving || loading) return;
-    let request;
+    let request: { revision: HarnessEditorSnapshot['revision']; provider: HarnessProfile; models: HarnessEditorModel[] };
     try {
-      let configuration;
+      let configuration: HarnessProfile;
       try { configuration = parseHarnessDraft(provider, 'provider', api); }
       catch (e) { setSelected(null); throw e; }
       request = { revision: snapshot.revision, provider: configuration, models: snapshot.models.map(m => {

@@ -1,15 +1,12 @@
-import React from 'react';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { managementApi } from '../../../src/services/managementApi';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { enrichXaiQuotaPlan, loadQuota, consumeClaudeResetCredit, consumeCodexResetCredit, invalidateQuotaRequests, quotaKey, idleQuota } from '../../../src/services/quotaService';
 import { captureQuotaCacheGeneration, getQuotaCacheSnapshot, invalidateQuotaCache } from '../../../src/services/quotaCache';
 import { commitFetchedQuota } from '../../../src/services/quotaEnrichment';
 import { startQuotaOperation } from '../../../src/services/quotaOperation';
 import { resetQuotaWithConfirmation } from '../../../src/services/quotaActions';
 import { renderCard } from '../../helpers/quotaAccount';
-import { I18nProvider } from '../../../src/i18n';
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;

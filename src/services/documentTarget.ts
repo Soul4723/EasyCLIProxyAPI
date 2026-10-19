@@ -16,10 +16,11 @@ export function createDocumentTarget(transport: Transport) {
       revisionOwner = owner;
       revision = undefined;
     }
-    return revision ??= transport<number>('get_management_target_revision').then(value => {
+    revision ??= transport<number>('get_management_target_revision').then(value => {
       if (!Number.isSafeInteger(value) || value < 0) throw new Error('Invalid core target revision');
       return value;
     });
+    return revision;
   };
   const assertActive = () => { if (blocked) throw changed(); };
   return {

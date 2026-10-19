@@ -7,7 +7,7 @@ const {
 let checks = 0;
 const assert = new Proxy(realAssert, {
   get: (target, key) => (typeof target[key] === 'function' ? (...args) => { checks += 1; return target[key](...args); } : target[key]),
-  apply: (target, self, args) => { checks += 1; return target(...args); },
+  apply: (target, _self, args) => { checks += 1; return target(...args); },
 });
 const ok = (value, message) => { checks += 1; realAssert.ok(value, message); };
 

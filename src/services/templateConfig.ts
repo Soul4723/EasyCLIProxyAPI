@@ -43,7 +43,7 @@ export const sameTemplateValue = (left: unknown, right: unknown): boolean => {
   if (Array.isArray(left) && Array.isArray(right)) return left.length === right.length && left.every((item, i) => sameTemplateValue(item, right[i]));
   if (left && right && typeof left === 'object' && typeof right === 'object' && !Array.isArray(left) && !Array.isArray(right)) {
     const keys = Object.keys(left);
-    return keys.length === Object.keys(right).length && keys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && sameTemplateValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
+    return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameTemplateValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
   }
   return false;
 };
@@ -51,7 +51,7 @@ export const sameTemplateValue = (left: unknown, right: unknown): boolean => {
 export function readTemplatePath(config: unknown, path: readonly string[]): { exists: boolean; value: unknown } {
   let value = config;
   for (const segment of path) {
-    if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.prototype.hasOwnProperty.call(value, segment)) return { exists: false, value: null };
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(value, segment)) return { exists: false, value: null };
     value = (value as Record<string, unknown>)[segment];
   }
   return { exists: true, value };

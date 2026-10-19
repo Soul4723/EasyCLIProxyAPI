@@ -39,7 +39,7 @@ const reasonKeys: Record<string, MessageKey> = {
 };
 
 export function cooldownReasonKey(reason: string): MessageKey {
-  return Object.prototype.hasOwnProperty.call(reasonKeys, reason)
+  return Object.hasOwn(reasonKeys, reason)
     ? reasonKeys[reason] : 'authFiles.health.reason.unknown';
 }
 
@@ -128,7 +128,7 @@ export function authFileHealth(file: Record<string, unknown>): AuthFileHealth {
   if (disabled) return { ...base, label: 'authFiles.status.disabled', tone: 'neutral' };
   if (readBoolean(file, 'unavailable') || status === 'error') {
     const marker = message.toLowerCase();
-    const reason = Object.prototype.hasOwnProperty.call(messageReasons, marker) ? messageReasons[marker] : marker;
+    const reason = Object.hasOwn(messageReasons, marker) ? messageReasons[marker] : marker;
     const reasonKey = cooldownReasonKey(reason);
     return {
       ...base,

@@ -18,7 +18,7 @@ export function createThemeRegistry(definitions: readonly ThemeDefinition[]) {
     }
     if (!/^#[\da-f]{6}$/i.test(definition.windowBackground)) throw new Error(`Invalid window background: ${definition.id}`);
     for (const [key, value] of Object.entries(definition.tokens)) {
-      if (!Object.prototype.hasOwnProperty.call(themeTokenProperties, key) || !/^#(?:[\da-f]{6}|[\da-f]{8})$/i.test(value)) {
+      if (!Object.hasOwn(themeTokenProperties, key) || !/^#(?:[\da-f]{6}|[\da-f]{8})$/i.test(value)) {
         throw new Error(`Invalid theme color: ${definition.id}.${key}`);
       }
     }

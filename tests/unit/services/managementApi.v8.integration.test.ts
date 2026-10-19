@@ -70,11 +70,9 @@ oauth: {auth-dir: ${JSON.stringify(join(work, 'auth'))}}
     it(`${provider}: saves all template provider, key and model options through native v8 groups`, async () => {
       const section = (provider === 'openai-compatibility' ? provider : `${provider}-api-key`) as ProviderSection;
       const model: Record<string, unknown> = { name: 'isolated-model', alias: 'isolated-public' };
-      {
-        model.thinking = { levels: ['low', 'high'], min: 0, max: 32768, 'zero-allowed': false, 'dynamic-allowed': true };
-        model['display-name'] = 'Isolated model';
-        if (provider !== 'vertex') { model['max-context-length'] = 1048576; model['is-compat'] = false; }
-      }
+      model.thinking = { levels: ['low', 'high'], min: 0, max: 32768, 'zero-allowed': false, 'dynamic-allowed': true };
+      model['display-name'] = 'Isolated model';
+      if (provider !== 'vertex') { model['max-context-length'] = 1048576; model['is-compat'] = false; }
       model['force-mapping'] = true;
       if (['codex', 'xai', 'meta'].includes(provider)) model['support-configuration-update'] = false;
       if (provider === 'openai-compatibility') Object.assign(model, { image: false, 'input-modalities': ['text', 'image'], 'output-modalities': ['text'], 'use-max-completion-tokens': true });
