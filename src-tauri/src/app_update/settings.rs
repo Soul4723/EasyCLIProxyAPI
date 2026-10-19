@@ -125,5 +125,3 @@ pub(crate) fn persist_automatic_download_source_switch(
 pub(crate) fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
     open_external_url_inner(&app, &url)
 }
-
-#[tauri::command]

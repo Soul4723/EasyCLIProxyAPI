@@ -1,5 +1,6 @@
 use super::*;
 
+#[tauri::command]
 pub(crate) async fn check_app_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppUpdateState>,

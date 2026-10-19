@@ -211,5 +211,3 @@ pub(crate) fn validate_local_portable_app_manifest(expected_arch: &str) -> Resul
         && manifest.auto_update
         && normalize_version(&manifest.version) == normalize_version(env!("CARGO_PKG_VERSION")))
 }
-
-#[tauri::command]
