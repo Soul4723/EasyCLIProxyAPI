@@ -3,7 +3,11 @@ import { pluginStoreApi, type PluginListResponse, type PluginStoreInstallResult 
 
 export type PluginActionStatus = 'ready' | 'globalDisabled' | 'restart' | 'pending' | 'cancelled';
 
-/** A successful write is not evidence that the runtime has applied it. */
+/** A successful write is not evidence that the runtime has applied it.
+ * Intentional bounded action reconciliation, not a subscribed data resource: the
+ * caller awaits one outcome with its own cancellation/deadline (including hidden
+ * windows). The plugin list itself is owned by pluginListSource.
+ */
 export async function waitForPluginAction(
   check: () => Promise<PluginActionStatus>,
   cancelled: () => boolean = () => false,

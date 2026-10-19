@@ -63,6 +63,7 @@ export function AccessTab() {
         await invoke('open_external_url', { url: `${connection.managementOrigin}/management.html#/login` });
         return;
       }
+      // Resolve the current URL only when opening the management UI.
       const tls = await invoke<TlsSettings>('get_core_tls_settings');
       const latest = settings;
       await invoke('open_external_url', { url: webUiManagementUrl(latest.port, tls.enabled, latest.host) });

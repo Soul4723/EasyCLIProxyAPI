@@ -2,6 +2,7 @@
 // Same commands, events and result handling as the old Version page.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../../../services/platform';
+import { createSettingsRead } from '../../../services/settingsData';
 import { listen } from '../../../services/platform';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime } from '../../../coreRuntime';
@@ -11,6 +12,9 @@ import type { BundledCoreInfo, CoreInstallResult, CoreInstallTask } from './mode
 type Notify = (message: NoticeMessage, tone?: NoticeTone) => void;
 
 export type CoreInstallTarget = { kind: 'bundled' } | { kind: 'release'; version: string };
+
+const installTaskRead = createSettingsRead(() => invoke<CoreInstallTask>('get_core_install_task'));
+const bundledCoreRead = createSettingsRead(() => invoke<BundledCoreInfo | null>('detect_bundled_core'));
 
 export function useCoreInstall(notify: Notify) {
   const { t } = useI18n();
@@ -69,10 +73,10 @@ export function useCoreInstall(notify: Notify) {
       if (disposed) stop();
       else unlisten = stop;
     }).catch(() => undefined);
-    void invoke<CoreInstallTask>('get_core_install_task')
+    void installTaskRead.read()
       .then((task) => { if (!disposed) applyTask(task, false); })
       .catch(() => undefined);
-    void invoke<BundledCoreInfo | null>('detect_bundled_core')
+    void bundledCoreRead.read()
       .then((info) => { if (!disposed) setBundledCore(info); })
       .catch((error) => { if (!disposed) setBundledCoreError(String(error)); });
     return () => {

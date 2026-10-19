@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke as invokeNative } from '../../services/platform';
 import { listen } from '../../services/platform';
+import { createDataSource, useDataSource } from '../../services/dataSource';
 import { open } from '../../services/platform';
 import { useCoreTargetRevision } from '../../coreRuntime';
 import { useI18n } from '../../i18n';
@@ -182,11 +183,15 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
   const [deepSeekHarnessLaunchDraft, setDeepSeekHarnessLaunchDraft] = useState<DeepSeekHarnessLaunchDraft>(
     () => ({ ...DEFAULT_DEEPSEEK_HARNESS_LAUNCH_DRAFT }),
   );
-  const [deepSeekHarnessProcessStatus, setDeepSeekHarnessProcessStatus] = useState<DeepSeekHarnessProcessStatus>({
-    running: false,
-    pid: null,
-    mode: null,
-  });
+  const harnessDetailOpen = detailOpen && selected === 'deepseek-harness';
+  const processSource = useMemo(() => createDataSource({
+    load: () => invoke<DeepSeekHarnessProcessStatus>('get_deepseek_harness_process_status'),
+    // The grid needs one badge read; only the open harness detail owns a live poll.
+    pollMs: harnessDetailOpen ? 2_000 : undefined,
+  }), [harnessDetailOpen, targetRevision]);
+  const processSnapshot = useDataSource(processSource, !detailOpen || harnessDetailOpen);
+  const deepSeekHarnessProcessStatus = processSnapshot.data ?? { running: false, pid: null, mode: null };
+  const setDeepSeekHarnessProcessStatus = (status: DeepSeekHarnessProcessStatus) => processSource.mutate(() => status);
   const [launchDirectoryHistory, setLaunchDirectoryHistory] = useState(
     readAgentLaunchDirectoryHistory,
   );
@@ -252,9 +257,10 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
   }, []);
 
   const loadDeepSeekHarnessProcessStatus = useCallback(async () => {
-    const status = await invoke<DeepSeekHarnessProcessStatus>('get_deepseek_harness_process_status');
-    setDeepSeekHarnessProcessStatus(status);
-  }, []);
+    await processSource.refresh();
+    const snapshot = processSource.getSnapshot();
+    if (snapshot.error) throw new Error(snapshot.error);
+  }, [processSource]);
 
   const loadModels = useCallback(async (client: AgentClientId, preferredModel = '', background = false) => {
     const requestId = modelRequestRef.current + 1;
@@ -329,24 +335,9 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
     };
   }, [detailOpen, loadModels, loadStatuses, selected]);
 
-  const harnessDetailOpen = detailOpen && selected === 'deepseek-harness';
   useEffect(() => {
-    // The grid card only needs one read for its running badge; the live poll belongs to the open DeepSeek detail.
-    if (detailOpen && !harnessDetailOpen) return undefined;
-    let disposed = false;
-    const refreshProcessStatus = () => {
-      void loadDeepSeekHarnessProcessStatus().catch((requestError) => {
-        if (!disposed) setLaunchError(String(requestError));
-      });
-    };
-    refreshProcessStatus();
-    if (!harnessDetailOpen) return () => { disposed = true; };
-    const timer = window.setInterval(refreshProcessStatus, 2000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [detailOpen, harnessDetailOpen, loadDeepSeekHarnessProcessStatus]);
+    if (processSnapshot.error) setLaunchError(processSnapshot.error);
+  }, [processSnapshot.error]);
 
   useEffect(() => {
     setModelSelectionError('');
