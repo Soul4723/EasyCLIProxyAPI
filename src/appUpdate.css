@@ -1,18 +1,5 @@
 /* App update / install dialog (appUpdate). */
 
-@media (max-width: 520px) {
-
-  .install-dialog-backdrop {
-    padding: 16px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .install-progress-track.unknown.is-running .install-progress-fill {
-    animation-duration: 2.2s;
-  }
-}
-
 .install-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -172,5 +159,18 @@
 
   to {
     transform: translateX(300%);
+  }
+}
+
+@media (max-width: 520px) {
+
+  .install-dialog-backdrop {
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .install-progress-track.unknown.is-running .install-progress-fill {
+    animation-duration: 2.2s;
   }
 }

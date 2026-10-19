@@ -1,16 +1,5 @@
 /* Copilot plugin status cards (CopilotPluginStatus). */
 
-@media (max-width: 520px) {
-
-  .agent-status-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .agent-status-grid {
-    height: auto;
-  }
-}
-
 .agent-status-grid span {
   display: flex;
   align-items: center;
@@ -47,4 +36,15 @@
   font-weight: var(--font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+
+  .agent-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-status-grid {
+    height: auto;
+  }
 }

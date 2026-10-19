@@ -1,19 +1,5 @@
 /* Windows close-button dialog (WindowsCloseHandler). */
 
-@media (max-width: 520px) {
-  .close-dialog-backdrop {
-    padding: 16px;
-  }
-
-  .close-dialog {
-    padding: 20px;
-  }
-
-  .close-dialog-actions {
-    grid-template-columns: 1fr;
-  }
-}
-
 .close-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -125,4 +111,18 @@
 .close-choice-button:focus-visible {
   outline: 3px solid rgba(66, 99, 127, 0.36);
   outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .close-dialog-backdrop {
+    padding: 16px;
+  }
+
+  .close-dialog {
+    padding: 20px;
+  }
+
+  .close-dialog-actions {
+    grid-template-columns: 1fr;
+  }
 }

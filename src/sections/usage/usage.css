@@ -1,12 +1,4 @@
 /* Legacy rules for the custom date range of FilterBar; the .ec-sec-usage rules further down take precedence. */
-@media (max-width: 520px) {
-
-  .usage-custom-range {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-
 .usage-custom-range {
   display: flex;
   align-items: center;
@@ -25,6 +17,14 @@
   background: var(--theme-fff);
   color: var(--theme-2d2a26);
   font-size: var(--font-size-caption);
+}
+
+@media (max-width: 520px) {
+
+  .usage-custom-range {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 @container workspace (max-width: 540px) {

@@ -1,16 +1,5 @@
 /* Confirmation dialog (ConfirmationDialog). */
 
-@media (max-width: 520px) {
-
-  .config-dialog-backdrop {
-    padding: 14px;
-  }
-
-  .config-dialog {
-    padding: 18px;
-  }
-}
-
 .config-dialog-heading > div {
   display: flex;
   align-items: center;
@@ -131,4 +120,15 @@
 .app-confirm-warning {
   color: var(--theme-7a746c);
   font-size: var(--font-size-label);
+}
+
+@media (max-width: 520px) {
+
+  .config-dialog-backdrop {
+    padding: 14px;
+  }
+
+  .config-dialog {
+    padding: 18px;
+  }
 }
