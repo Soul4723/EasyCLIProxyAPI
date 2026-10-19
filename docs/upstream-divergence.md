@@ -22,6 +22,7 @@ Intentional removals and replacements relative to router-for-me/EasyCLIProxyAPI:
 - Rust module layout (#69–#71): `src-tauri/src/main.rs`, `usage.rs` and `codex_sessions/context.rs` were split into modules without behaviour change. Upstream edits to those files must be applied to the new module files (`git diff --color-moved` on the split PRs shows where each block went).
 
   - `agents/configuration.rs`: configuration builders, managed removal, restoration, and client-specific formats now live in `agents/configuration/`; parent orchestration and shared format helpers remain in place.
+  - `agents/discovery.rs`: paths, Pi lifecycle/packages, desktop detection, executable/version probing, model presentation, and client configuration inspection now live in `agents/discovery/`.
 
 ## When merging upstream
 
