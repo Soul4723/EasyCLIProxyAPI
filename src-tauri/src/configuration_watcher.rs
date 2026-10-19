@@ -10,6 +10,7 @@ use super::{
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     fs,
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread,
@@ -88,10 +89,20 @@ fn tracked_configuration_paths(app: &tauri::AppHandle) -> Result<Vec<PathBuf>, S
     Ok(paths)
 }
 
+// Keep the last observed bytes, including accepted software writes. Duplicate
+// notifications and metadata changes on backends reporting Modify(Any) are benign.
+fn record_content_change(known: &mut HashMap<PathBuf, Option<Vec<u8>>>, path: &Path) -> bool {
+    let content = fs::read(path).ok();
+    let changed = known.get(path) != Some(&content);
+    known.insert(path.to_path_buf(), content);
+    changed
+}
+
 fn handle_configuration_file_changes(
     app: &tauri::AppHandle,
     changed_paths: Vec<PathBuf>,
     tracked_paths: &[PathBuf],
+    known_contents: &mut HashMap<PathBuf, Option<Vec<u8>>>,
 ) {
     let gui_path = gui_config_path().ok();
     let core_path = core_install_dir()
@@ -115,10 +126,12 @@ fn handle_configuration_file_changes(
         else {
             continue;
         };
-        if consume_software_write(&tracked_path) {
+        let software_write = consume_software_write(&tracked_path);
+        wait_for_config_file_stability(&tracked_path);
+        let content_changed = record_content_change(known_contents, &tracked_path);
+        if software_write || !content_changed {
             continue;
         }
-        wait_for_config_file_stability(&tracked_path);
         tracked_changes.retain(|existing| !paths_refer_to_same_file(existing, &tracked_path));
         tracked_changes.push(tracked_path);
     }
@@ -309,8 +322,10 @@ impl PendingConfigurationChanges {
             }
             return true;
         }
+        if matches!(event.kind, notify::EventKind::Modify(notify::event::ModifyKind::Metadata(_))) {
+            return false;
+        }
         let allow_ancestor_match = match event.kind {
-            notify::EventKind::Modify(notify::event::ModifyKind::Metadata(_)) => false,
             #[cfg(target_os = "windows")]
             notify::EventKind::Modify(notify::event::ModifyKind::Any) => false,
             _ => true,
@@ -365,6 +380,8 @@ pub(crate) fn start_configuration_file_watcher(app: tauri::AppHandle) -> Result<
     let mut watched_directories = Vec::new();
     ensure_configuration_watch_directories(&mut watcher, &tracked_paths, &mut watched_directories)?;
 
+    let mut known_contents = tracked_paths.iter()
+        .map(|path| (path.clone(), fs::read(path).ok())).collect();
     thread::spawn(move || {
         let mut watcher = watcher;
         loop {
@@ -406,7 +423,7 @@ pub(crate) fn start_configuration_file_watcher(app: tauri::AppHandle) -> Result<
                 }
                 Err(error) => eprintln!("Failed to update configuration directory watcher: {error}"),
             }
-            handle_configuration_file_changes(&app, changes.paths, &tracked_paths);
+            handle_configuration_file_changes(&app, changes.paths, &tracked_paths, &mut known_contents);
         }
     });
     Ok(())
@@ -444,13 +461,38 @@ mod tests {
     }
 
     #[test]
+    fn exact_file_metadata_events_are_ignored() {
+        let tracked = PathBuf::from("/config/gui.toml");
+        for kind in [MetadataKind::Any, MetadataKind::Permissions, MetadataKind::Ownership, MetadataKind::WriteTime] {
+            let mut pending = PendingConfigurationChanges::default();
+            assert!(!pending.record(Event::new(EventKind::Modify(ModifyKind::Metadata(kind)))
+                .add_path(tracked.clone()), &[(tracked.clone(), tracked.clone())]));
+            assert!(pending.paths.is_empty());
+        }
+    }
+
+    #[test]
+    fn unchanged_content_is_ignored_but_external_edits_are_detected() {
+        let root = std::env::temp_dir().join(format!("cpa-watch-content-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.toml");
+        fs::write(&path, "locale = 'en'\n").unwrap();
+        let mut known = HashMap::new();
+        assert!(record_content_change(&mut known, &path));
+        fs::write(&path, "locale = 'en'\n").unwrap();
+        assert!(!record_content_change(&mut known, &path));
+        fs::write(&path, "locale = 'zh'\n").unwrap();
+        assert!(record_content_change(&mut known, &path));
+        assert!(!record_content_change(&mut known, &path));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn tracked_file_events_still_mark_exact_and_canonical_paths() {
         let tracked = std::env::temp_dir().join("cpa-watch-file-events/config.yaml");
         let canonical = configuration_watch_path(&tracked);
         for path in [tracked.clone(), canonical.clone()] {
             for kind in [
-                EventKind::Modify(ModifyKind::Metadata(MetadataKind::Ownership)),
-                EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
                 EventKind::Modify(ModifyKind::Any),
                 EventKind::Modify(ModifyKind::Data(DataChange::Content)),
                 EventKind::Create(CreateKind::File),

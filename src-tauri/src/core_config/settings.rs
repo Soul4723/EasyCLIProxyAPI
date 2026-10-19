@@ -793,7 +793,9 @@ fn write_bytes_directly_with_mode(path: &Path, content: &[u8], private: bool) ->
         #[cfg(unix)]
         if private {
             use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            if file.metadata()?.permissions().mode() & 0o7777 != 0o600 {
+                file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            }
         }
         #[cfg(not(unix))]
         let _ = private;
@@ -812,6 +814,24 @@ pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), 
     write_bytes_atomically_with_mode(path, content, false)
 }
 
+// Avoid even a metadata notification when the file is already private.
+fn restrict_private_permissions(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = fs::metadata(path)
+            .map_err(|error| format!("Failed to read GUI configuration permissions: {error}"))?
+            .permissions();
+        if permissions.mode() & 0o7777 != 0o600 {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+                .map_err(|error| format!("Failed to restrict GUI configuration permissions: {error}"))?;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), String> {
     write_bytes_atomically_with_mode(path, content, true)
 }
@@ -820,6 +840,12 @@ fn write_bytes_atomically_with_mode(path: &Path, content: &[u8], private: bool) 
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    if fs::read(path).ok().as_deref() == Some(content) {
+        if private {
+            restrict_private_permissions(path)?;
+        }
+        return Ok(());
+    }
     let directory = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
@@ -846,7 +872,9 @@ fn write_bytes_atomically_with_mode(path: &Path, content: &[u8], private: bool) 
         #[cfg(unix)]
         if private {
             use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            if file.metadata()?.permissions().mode() & 0o7777 != 0o600 {
+                file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            }
         }
         #[cfg(not(unix))]
         let _ = private;
@@ -2242,13 +2270,7 @@ pub(crate) fn write_gui_config_to_path(
     toml::from_str::<GuiConfigFile>(&content)
         .map_err(|error| format!("Failed to validate GUI configuration: {error}"))?;
     if existing.as_deref() == Some(content.as_str()) {
-        // A file written by an older build may still be world-readable.
-        #[cfg(unix)]
-        if existing.is_some() {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(config_path, fs::Permissions::from_mode(0o600))
-                .map_err(|error| format!("Failed to restrict GUI configuration permissions: {error}"))?;
-        }
+        restrict_private_permissions(config_path)?;
         return Ok(());
     }
     write_private_bytes_atomically(config_path, content.as_bytes())

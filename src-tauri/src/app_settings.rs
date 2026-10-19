@@ -382,7 +382,7 @@ mod tests {
         let state = GuiConfigState::new(remote);
         let expected = state.snapshot().unwrap();
         let mut replacement = expected.clone();
-        replacement.target_revision = expected.target_revision.wrapping_add(1);
+        replacement.remote_management_key.push_str("-changed");
         state.replace_external(replacement).unwrap();
         let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let callback_called = called.clone();
@@ -860,6 +860,10 @@ pub(crate) fn set_app_locale(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     locale: String,
 ) -> Result<String, String> {
+    let selected = super::normalize_app_locale(&locale);
+    if gui_config_state.snapshot()?.locale == selected {
+        return Ok(selected.to_string());
+    }
     let config = set_locale_for_tray(gui_config_state.inner(), locale)?;
     let selected_locale = config.locale.clone();
     #[cfg(any(target_os = "linux", target_os = "windows"))]
