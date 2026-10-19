@@ -24,7 +24,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Component, Path, PathBuf},
-    sync::{LazyLock, Mutex},
+    sync::{atomic::{AtomicBool, Ordering}, LazyLock, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, Manager};
@@ -104,6 +104,7 @@ where
 }
 
 pub(crate) struct UsageCollectorState {
+    readiness_requested: AtomicBool,
     inner: Mutex<UsageCollectorInner>,
 }
 
@@ -163,6 +164,7 @@ struct UsageMigrationSnapshot {
 impl Default for UsageCollectorState {
     fn default() -> Self {
         Self {
+            readiness_requested: AtomicBool::new(false),
             inner: Mutex::new(UsageCollectorInner {
                 token: None,
                 status: UsageCollectorStatus::waiting(),
@@ -592,6 +594,10 @@ struct UsageSqlFilter {
 }
 
 impl UsageCollectorState {
+    pub(crate) fn request_readiness_check(&self) {
+        self.readiness_requested.store(true, Ordering::Release);
+    }
+
     fn start(&self) -> Option<CancellationToken> {
         let mut inner = self.inner.lock().ok()?;
         if inner.token.is_some() {
@@ -2055,6 +2061,66 @@ fn next_empty_remote_poll_seconds(current: u64) -> u64 {
     (current * 2).min(REMOTE_EMPTY_POLL_MAX_SECONDS)
 }
 
+// Readiness failures are not queue failures: keep their retry budget independent
+// of successful inbox processing and the healthy empty-queue polling schedule.
+struct ReadinessSchedule {
+    next_at: tokio::time::Instant,
+    retry_seconds: u64,
+}
+
+impl ReadinessSchedule {
+    fn new(now: tokio::time::Instant) -> Self {
+        Self { next_at: now, retry_seconds: 2 }
+    }
+
+    fn reset(&mut self, now: tokio::time::Instant) {
+        *self = Self::new(now);
+    }
+
+    fn checked(&mut self, now: tokio::time::Instant, ready: bool) {
+        if ready {
+            self.retry_seconds = 2;
+        }
+        self.next_at = now + Duration::from_secs(self.retry_seconds);
+        if !ready {
+            self.retry_seconds = (self.retry_seconds * 2).min(30);
+        }
+    }
+}
+
+#[test]
+fn readiness_backoff_is_bounded_and_success_resets_it() {
+    let mut now = tokio::time::Instant::now();
+    let mut schedule = ReadinessSchedule::new(now);
+    for seconds in [2, 4, 8, 16, 30, 30, 30] {
+        assert!(now >= schedule.next_at);
+        schedule.checked(now, false);
+        assert_eq!(schedule.next_at - now, Duration::from_secs(seconds));
+        now = schedule.next_at;
+    }
+    schedule.checked(now, true);
+    assert_eq!(schedule.next_at - now, Duration::from_secs(2));
+    now = schedule.next_at;
+    schedule.checked(now, false);
+    assert_eq!(schedule.next_at - now, Duration::from_secs(2));
+}
+
+#[test]
+fn readiness_target_or_lifecycle_reset_is_immediately_due() {
+    let now = tokio::time::Instant::now();
+    let mut schedule = ReadinessSchedule::new(now);
+    for _ in 0..8 { schedule.checked(now, false); }
+    assert_eq!(schedule.next_at - now, Duration::from_secs(30));
+    let state = UsageCollectorState::default();
+    state.request_readiness_check();
+    assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
+    assert!(!state.readiness_requested.swap(false, Ordering::AcqRel));
+    schedule.reset(now);
+    assert!(schedule.next_at <= now);
+    schedule.checked(now, false);
+    assert_eq!(schedule.next_at - now, Duration::from_secs(2));
+}
+
 async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut retry_seconds = 1_u64;
     // Idle remote cores are polled less often each time the queue comes back empty.
@@ -2064,7 +2130,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut subscribe_retry_at = tokio::time::Instant::now();
     let mut next_inbox_cleanup_at = tokio::time::Instant::now() + Duration::from_secs(60 * 60);
     let mut next_inbox_recovery_at = tokio::time::Instant::now();
-    let mut next_core_check_at = tokio::time::Instant::now();
+    let mut readiness = ReadinessSchedule::new(tokio::time::Instant::now());
     let mut core_ready = false;
     let mut remote_ready_error: Option<String> = None;
     let mut active_connection: Option<String> = None;
@@ -2119,7 +2185,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
             subscription = None;
             redis_queue = RedisUsageQueueSource::default();
             subscribe_retry_at = tokio::time::Instant::now();
-            next_core_check_at = tokio::time::Instant::now();
+            readiness.reset(tokio::time::Instant::now());
             core_ready = false;
             remote_ready_error = None;
             let state = app.state::<UsageCollectorState>();
@@ -2176,7 +2242,13 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 }
             }
         }
-        if tokio::time::Instant::now() >= next_core_check_at {
+        // Lifecycle status is emitted by user actions, not by unchanged status
+        // polls. While waiting we revisit this flag at least once per second.
+        if app.state::<UsageCollectorState>().readiness_requested.swap(false, Ordering::AcqRel) {
+            readiness.reset(tokio::time::Instant::now());
+            empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
+        }
+        if tokio::time::Instant::now() >= readiness.next_at {
             if remote {
                 // Remote readiness is authenticated management reachability,
                 // never a local process check or a local RESP connect.
@@ -2196,7 +2268,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                     .map(|status| status.ready)
                     .unwrap_or(false);
             }
-            next_core_check_at = tokio::time::Instant::now() + Duration::from_secs(2);
+            readiness.checked(tokio::time::Instant::now(), core_ready);
         }
         if !core_ready {
             subscription = None;
@@ -2210,7 +2282,6 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 "Waiting for kernel to become ready"
             };
             set_collector_status(&app, "waiting-core", message, None);
-            retry_seconds = 1;
             wait_or_cancel(&token, 1).await;
             continue;
         }
