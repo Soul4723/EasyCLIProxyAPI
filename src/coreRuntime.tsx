@@ -113,6 +113,14 @@ export function useCoreRuntime() {
   return context;
 }
 
+// Standalone agent-page fixtures have no runtime provider (null); undefined means
+// a provider is present but its first status is still pending.
+export function useCoreConnectionMode() {
+  const context = useContext(CoreRuntimeContext);
+  if (!context) return null;
+  return context.status ? context.status.connectionMode ?? 'local' : undefined;
+}
+
 // Standalone agent-page fixtures have no runtime provider.
 export function useCoreTargetRevision() {
   return useContext(CoreRuntimeContext)?.connectionRevision ?? 0;

@@ -105,7 +105,7 @@ const invoke = (page, command, payload) => page.evaluate(([c, p]) => window.__TA
     await page.waitForFunction(() => !document.querySelector('#updates-sources')?.textContent?.includes('gh-proxy.example.com'));
     await page.close();
 
-    // --- remote mode: core install/update disabled with a reason; remote version read-only ---
+    // --- remote mode: host-managed core has no local check/install controls; version is read-only ---
     page = await open();
     await invoke(page, 'stop_core_process');
     await invoke(page, 'save_core_connection', {
@@ -120,9 +120,9 @@ const invoke = (page, command, payload) => page.evaluate(([c, p]) => window.__TA
     const remoteCard = page.getByRole('region', { name: 'Proxy core' });
     await remoteCard.getByText('Remote core', { exact: true }).first().waitFor();
     await remoteCard.getByText(/Can't install or update the core in Remote mode/).waitFor();
-    assert.ok(await remoteCard.getByRole('button', { name: /Install|Update to/ }).isDisabled());
+    assert.equal(await remoteCard.getByRole('button', { name: /Install|Update to/ }).count(), 0);
     assert.equal(await remoteCard.getByRole('button', { name: 'Use bundled' }).count(), 0);
-    assert.ok(await remoteCard.getByRole('button', { name: 'Check for Updates' }).isEnabled());
+    assert.equal(await remoteCard.getByRole('button', { name: 'Check for Updates' }).count(), 0);
     await page.close();
 
     // --- narrow width: cards stack, no horizontal overflow ---
@@ -133,7 +133,7 @@ const invoke = (page, command, payload) => page.evaluate(([c, p]) => window.__TA
     await page.close();
 
     assert.deepEqual(runtimeErrors, []);
-    console.log('PASS: settings updates — app/core cards, confirm + install + bundled, source switching, custom mirror add/validate/remove, release notes, privacy, remote disabled with reason, narrow layout.');
+    console.log('PASS: settings updates — app/core cards, confirm + install + bundled, source switching, custom mirror add/validate/remove, release notes, privacy, remote host-managed without local controls, narrow layout.');
   } finally {
     await browser?.close();
     await server?.close();

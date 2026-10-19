@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
-import { useCoreRuntime } from '../../coreRuntime';
+import { useCoreConnectionMode } from '../../coreRuntime';
 import { useI18n } from '../../i18n';
 import { Button, Chip, EmptyState, Tabs, tabPanelProps } from '../../ui';
 import { navigate, routeHref, routePath } from '../../shell/router';
@@ -17,7 +17,7 @@ import type { AgentsController } from './useAgentsController';
 /** One client's page: identity header (state, version, launch controls) and Setup · Backups · Manage tabs. */
 export function AgentDetail({ ctl, tab }: { ctl: AgentsController; tab: AgentDetailTab }) {
   const { t } = useI18n();
-  const remote = useCoreRuntime().status?.connectionMode === 'remote';
+  const remote = useCoreConnectionMode() === 'remote';
   const { activeDefinition: definition } = ctl;
   const status = ctl.activeStatus ?? undefined;
   const state = clientState(definition, status);

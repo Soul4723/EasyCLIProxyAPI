@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { AgentsSection } from '../../src/sections/agents';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { resetRouterForTests, useRoute } from '../../src/shell/router';
 import { I18nProvider, useI18n } from '../../src/i18n';
 import '../../src/styles/index.css';
@@ -44,6 +45,11 @@ const calls:any[]=[];(window as any).fixtureCalls=calls;
 mockIPC(async (cmd,args:any) => {
   if (cmd === 'get_management_target_revision') return 1;
  calls.push({cmd,args});
+ if(cmd==='get_core_connection')return {mode:params.get('runtime'),managementOrigin:'',managementKey:'',clientOrigin:'',clientKey:''};
+ if(cmd==='get_core_status') {
+   await new Promise<void>(resolve=>{(window as any).fixtureResolveCoreStatus=resolve;});
+   return {connectionMode:params.get('runtime'),installed:true,running:true,ready:true,starting:false,managed:false,processId:null,currentVersion:'8.0.29',installDir:'',binaryPath:null,message:''};
+ }
  if(cmd==='get_codex_cli_daemon_running') {
    if(params.has('daemon-error'))throw new Error('Codex daemon probe failed');
    return !params.has('daemon-stopped');
@@ -198,6 +204,6 @@ function Host(){
  (window as any).fixtureSetLocale=useI18n().setLocale;
  return <AgentsSection sub={route.sub} params={route.params}/>;
 }
-const render=()=>{ root.render(<I18nProvider><Host/></I18nProvider>); };
+const render=()=>{ root.render(<I18nProvider>{params.has('runtime')?<CoreRuntimeProvider><Host/></CoreRuntimeProvider>:<Host/>}</I18nProvider>); };
 (window as any).fixtureRemount=()=>{root.unmount();root=createRoot(document.getElementById('root')!);render();};
 render();

@@ -191,7 +191,32 @@ runUi(async ({ base }) => {
     await sessionsReady();
     assert.deepEqual(await sessionIds(), ['session-new']);
 
+    // A real runtime must wait for its first status. No provider (tested above)
+    // is Local, but a pending provider must never mount local session commands.
+    for (const mode of ['local', 'remote']) {
+      await page.goto(`${base}/tests/fixtures/agent-backups.html?sessions&locale=en&runtime=${mode}`);
+      await page.waitForFunction(() => typeof window.fixtureResolveCoreStatus === 'function');
+      await page.locator('.ec-sec-agents').waitFor();
+      assert.equal(await page.locator('.ses-page').count(), 0);
+      assert.equal(await page.evaluate(() => window.fixtureCalls.filter(call => call.cmd === 'list_codex_sessions').length), 0,
+        'pending runtime must not read local sessions');
+      await page.evaluate(() => window.fixtureResolveCoreStatus());
+      if (mode === 'local') {
+        await sessionsReady();
+        assert.equal(await hash(), '#/agents/sessions');
+      } else {
+        await page.waitForFunction(() => location.hash === '#/agents');
+        await card('codex').waitFor();
+        assert.equal(await tab('Codex sessions').count(), 0);
+        await card('codex').click();
+        await detailReady();
+        assert.equal(await page.getByRole('link', { name: /^Sessions/ }).count(), 0);
+        assert.equal(await page.evaluate(() => window.fixtureCalls.filter(call => call.cmd === 'list_codex_sessions').length), 0,
+          'Remote runtime must not read local sessions');
+      }
+    }
+
     assert.deepEqual(errors, []);
-    console.log('PASS: per-client drafts and feedback, route-driven tabs, help state, remounts, keyboard tab navigation, narrow layout, session pagination/selection restore, failed reload retry and stale response handling');
+    console.log('PASS: per-client drafts and feedback, route-driven tabs, help state, remounts, keyboard tab navigation, narrow layout, session pagination/selection restore, failed reload retry, stale response handling, pending runtime session gating and Remote redirect');
   } finally { await browser.close(); }
 }, { url: process.env.AGENT_TEST_URL });
