@@ -126,8 +126,8 @@ fn handle_configuration_file_changes(
         else {
             continue;
         };
-        let software_write = consume_software_write(&tracked_path);
         wait_for_config_file_stability(&tracked_path);
+        let software_write = consume_software_write(&tracked_path);
         let content_changed = record_content_change(known_contents, &tracked_path);
         if software_write || !content_changed {
             continue;
