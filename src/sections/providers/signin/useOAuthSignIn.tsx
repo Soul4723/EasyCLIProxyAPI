@@ -1,4 +1,3 @@
-import { credentialsSource } from '../../../services/credentials';
 // Sign-in flow controller. Port of the OAuthLoginPage flow (ManagementPages.tsx) and of the plugin PluginOAuthDialog:
 // snapshot credentials -> start_oauth_login -> poll get_oauth_status every 3s -> default priority 0 on new credentials
 // -> success; refresh link, callback submit with the xAI/Devin validation, browser preference. One flow per provider;
@@ -14,6 +13,8 @@ import {
   type AuthFileSnapshot,
 } from '../../../services/authFiles';
 import { managementApi } from '../../../services/managementApi';
+import { startSessionPolling } from '../../../services/sessionPolling';
+import { credentialsSource } from '../../../services/credentials';
 import { createOAuthLoginSuccessCache } from '../../../services/oauthLoginState';
 import { getPluginTitle, notifyPluginResourcesChanged } from '../../../services/pluginResources';
 import {
@@ -99,9 +100,8 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
   const remoteRef = useRef(remote);
   remoteRef.current = remote;
 
-  const pollingTimers = useRef<Record<string, number>>({});
+  const pollingStops = useRef<Record<string, () => void>>({});
   const expiryTimers = useRef<Record<string, number>>({});
-  const pollingRequests = useRef<Record<string, boolean>>({});
   const pollingSessions = useRef<Record<string, string>>({});
   const credentialSnapshots = useRef<Record<string, AuthFileSnapshot>>({});
   const attempts = useRef<Record<string, number>>({});
@@ -170,14 +170,12 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
   }, []);
 
   const clearPolling = useCallback((id: string) => {
-    const timer = pollingTimers.current[id];
-    if (timer !== undefined) window.clearInterval(timer);
+    pollingStops.current[id]?.();
     const expiry = expiryTimers.current[id];
     if (expiry !== undefined) window.clearTimeout(expiry);
     delete pollingSessions.current[id];
-    delete pollingTimers.current[id];
+    delete pollingStops.current[id];
     delete expiryTimers.current[id];
-    delete pollingRequests.current[id];
   }, []);
 
   const cancelSession = useCallback((state: string | undefined) => {
@@ -248,8 +246,6 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
     pollingSessions.current[id] = state;
     const isCurrent = () => pollingSessions.current[id] === state;
     const checkStatus = async () => {
-      if (pollingRequests.current[id]) return;
-      pollingRequests.current[id] = true;
       try {
         const result = await invoke<OAuthStatusResult>('get_oauth_status', { state });
         if (!isCurrent()) return;
@@ -274,11 +270,13 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
       } catch (error) {
         if (!isCurrent()) return;
         failFlow(id, errorText(error), plugin);
-      } finally {
-        if (isCurrent()) delete pollingRequests.current[id];
       }
     };
-    pollingTimers.current[id] = window.setInterval(() => void checkStatus(), OAUTH_POLL_INTERVAL_MS);
+    pollingStops.current[id] = startSessionPolling({
+      intervalMs: OAUTH_POLL_INTERVAL_MS,
+      check: async () => { await checkStatus(); return isCurrent(); },
+      onError: error => { if (isCurrent()) failFlow(id, errorText(error), plugin); },
+    });
   }, [applyDefaultCredentialPriority, clearPolling, completeAuth, failFlow]);
 
   useEffect(() => () => {
@@ -286,7 +284,8 @@ export function useOAuthSignIn(options: UseOAuthSignInOptions = {}): OAuthSignIn
     // must be cancelled, not allowed to create another polling interval.
     Object.keys(attempts.current).forEach((id) => { attempts.current[id] += 1; });
     const sessions = new Set([...Object.values(pollingSessions.current), ...Object.values(pluginSessions.current)]);
-    Object.values(pollingTimers.current).forEach((timer) => window.clearInterval(timer));
+    Object.values(pollingStops.current).forEach((stop) => stop());
+    pollingStops.current = {};
     Object.values(expiryTimers.current).forEach((timer) => window.clearTimeout(timer));
     sessions.forEach(cancelSession);
     pollingSessions.current = {};

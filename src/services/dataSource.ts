@@ -5,12 +5,16 @@ import { listen } from './platform';
 export type SourceSnapshot<T> = { data: T | undefined; error: string | null; updatedAt: number; loading: boolean };
 export type DataSourceOptions<T> = {
   load: () => Promise<T>;
+  /** Component-owned queries may expose background refresh progress; shared sources stay quiet. */
+  trackRefresh?: boolean;
   events?: string[];
   subscribeEvents?: (invalidate: () => void) => (() => void);
   pollMs?: number | (() => number);
   maxPollMs?: number;
   focusMs?: number;
   minIntervalMs?: number;
+  /** Fixed coalescing window for events only; manual refresh/focus stay immediate. */
+  eventDelayMs?: number;
 };
 
 // Sources carry JSON-like IPC values. Treat other object types as changed rather than
@@ -66,7 +70,7 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
     startedAt = Date.now();
     const current = generation;
     dirty = false;
-    publish({ ...snapshot, loading: snapshot.data === undefined });
+    publish({ ...snapshot, loading: options.trackRefresh === true || snapshot.data === undefined });
     request = (async () => {
       try {
         const data = await options.load();
@@ -86,14 +90,16 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
     });
     return request;
   };
-  const invalidate = () => {
+  const invalidateAfter = (eventDelayMs: number) => {
     dirty = true;
     if (!listeners.size) return;
-    const delay = Math.max(0, (options.minIntervalMs ?? 0) - (Date.now() - startedAt));
+    const delay = Math.max(eventDelayMs, (options.minIntervalMs ?? 0) - (Date.now() - startedAt));
     if (delay) {
       throttle ??= setTimeout(() => { throttle = undefined; void refresh(); }, delay);
     } else void refresh();
   };
+  const invalidate = () => invalidateAfter(0);
+  const invalidateFromEvent = () => invalidateAfter(options.eventDelayMs ?? 0);
   const onVisible = () => {
     if (!visible()) { clearTimeout(timer); return; }
     if (request || throttle) return;
@@ -106,11 +112,11 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
       let disposed = false;
       const stops: Array<() => void> = [];
       for (const event of options.events ?? []) {
-        void listen(event, invalidate).then(stop => { if (disposed) stop(); else stops.push(stop); }).catch(error => {
+        void listen(event, invalidateFromEvent).then(stop => { if (disposed) stop(); else stops.push(stop); }).catch(error => {
           if (!disposed) publish({ ...snapshot, error: String(error), loading: false });
         });
       }
-      const customStop = options.subscribeEvents?.(invalidate);
+      const customStop = options.subscribeEvents?.(invalidateFromEvent);
       stopEvents = () => { disposed = true; stops.forEach(stop => stop()); customStop?.(); };
       if (typeof window !== 'undefined') window.addEventListener('focus', onVisible);
       if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);

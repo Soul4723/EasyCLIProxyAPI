@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useResource } from '../../services/useResource';
 import { invoke } from '../../services/usageApi';
 import { HardDrive, Wrench, X } from 'lucide-react';
 import { useI18n } from '../../i18n';
@@ -60,8 +61,9 @@ function DataStat({ label, value }: { label: string; value: ReactNode }) {
 export function DataStorage({ onNotice }: { onNotice: (notice: DataNotice) => void }) {
   const { t } = useI18n();
   const { refreshVersion, refresh } = useUsage();
-  const [storage, setStorage] = useState<UsageStorageSettings | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const snapshot = useResource(() => invoke<UsageStorageSettings>('get_usage_storage_settings'), [refreshVersion]);
+  const storage = snapshot.data ?? null;
+  const loadError = snapshot.error;
   const [limitDraft, setLimitDraft] = useState('');
   const [limitInvalid, setLimitInvalid] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -71,36 +73,19 @@ export function DataStorage({ onNotice }: { onNotice: (notice: DataNotice) => vo
   const [repairing, setRepairing] = useState(false);
   const [confirmRepair, setConfirmRepair] = useState(false);
   const [repairResult, setRepairResult] = useState<UsageRepairResult | null>(null);
-  const requestId = useRef(0);
   const seeded = useRef(false);
-
-  // Each accepted response bumps the id so an older in-flight load cannot overwrite it.
+  useEffect(() => {
+    if (!seeded.current && snapshot.data) {
+      seeded.current = true;
+      setLimitDraft(String(snapshot.data.maxDatabaseSizeMb));
+    }
+  }, [snapshot.data]);
+  // Action responses fence an outstanding read; refresh also invalidates records.
   const applyStorage = (next: UsageStorageSettings) => {
-    requestId.current += 1;
-    setStorage(next);
-    setLoadError(null);
+    snapshot.source.mutate(() => next);
     refresh();
   };
-
-  const load = useCallback(() => {
-    const id = ++requestId.current;
-    invoke<UsageStorageSettings>('get_usage_storage_settings')
-      .then((next) => {
-        if (id !== requestId.current) return;
-        setStorage(next);
-        setLoadError(null);
-        if (!seeded.current) {
-          seeded.current = true;
-          setLimitDraft(String(next.maxDatabaseSizeMb));
-        }
-      })
-      .catch((error: unknown) => {
-        if (id === requestId.current) setLoadError(String(error));
-      });
-  }, []);
-
-  // Quiet refresh on invalidation: previous data stays on screen while the request runs.
-  useEffect(() => { load(); return () => { requestId.current += 1; }; }, [load, refreshVersion]);
+  const load = () => { void snapshot.source.refresh(); };
 
   const limitMb = parseMb(limitDraft);
   const saveLimit = () => {

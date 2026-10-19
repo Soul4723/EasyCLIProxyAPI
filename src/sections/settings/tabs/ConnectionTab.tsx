@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { open, save } from '../../../services/platform';
+import { createSettingsRead } from '../../../services/settingsData';
 import { ArrowRight, Check, Download, Eye, EyeOff, FileUp, Globe, Laptop, PlugZap, Server, ShieldAlert, TriangleAlert, XCircle } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime } from '../../../coreRuntime';
@@ -26,6 +27,8 @@ const hostOf = (origin: string | null | undefined) => {
   try { return new URL(origin ?? '').host; } catch { return origin ?? ''; }
 };
 
+const connectionRead = createSettingsRead(getCoreConnection);
+
 export function ConnectionTab() {
   const { t } = useI18n();
   const { status } = useCoreRuntime();
@@ -50,7 +53,7 @@ export function ConnectionTab() {
 
   const load = useCallback(async () => {
     try {
-      const value = await getCoreConnection();
+      const value = await connectionRead.read();
       if (!alive.current) return;
       setSavedConn(value); setDraft(value); setLoadError('');
     } catch (cause) { if (alive.current) setLoadError(String(cause)); }

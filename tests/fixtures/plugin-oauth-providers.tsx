@@ -44,9 +44,9 @@ const fixture = {
 Object.assign(window, { pluginOAuthProvidersFixture: fixture });
 
 // Keep OAuth polling quick in this fixture while preserving the production timer behavior.
-const nativeSetInterval = window.setInterval.bind(window);
-window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
-  nativeSetInterval(handler, timeout === 3000 ? 25 : timeout, ...args)) as typeof window.setInterval;
+const nativeSetTimeout = window.setTimeout.bind(window);
+window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
+  nativeSetTimeout(handler, timeout === 3000 ? 25 : timeout, ...args)) as typeof window.setTimeout;
 
 mockIPC(async (cmd, unknownArgs) => {
   if (cmd === 'get_management_target_revision') return 0; // documentTarget fences every target command
