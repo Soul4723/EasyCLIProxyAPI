@@ -1,0 +1,107 @@
+/* Document base: typography tokens, reset, page background and focus ring. Loaded after legacy-tokens.css. */
+
+:root {
+  --font-family-sans: 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-family-mono: 'Cascadia Code', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-size-caption: 12px;
+  --font-size-meta: 13px;
+  --font-size-label: 14px;
+  --font-size-body: 14px;
+  --font-size-panel-title: 18px;
+  --font-size-dialog-title: 20px;
+  --line-height-tight: 1.35;
+  --line-height-body: 1.6;
+  --line-height-relaxed: 1.7;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--theme-2d2a26);
+  background: var(--theme-faf9f5);
+  font-synthesis: none;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+}
+
+:root:lang(zh-TW) {
+  --font-family-sans: 'Noto Sans TC', 'Noto Sans CJK TC', 'Source Han Sans TC', 'PingFang TC', 'Microsoft JhengHei UI', 'Microsoft JhengHei', system-ui, sans-serif;
+}
+
+:root:lang(ja) {
+  --font-family-sans: 'Noto Sans JP', 'Noto Sans CJK JP', 'Source Han Sans JP', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, system-ui, sans-serif;
+}
+
+:root:lang(en) {
+  --font-family-sans: 'Inter', 'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Noto Sans', 'Noto Sans SC', sans-serif;
+}
+
+h1, h2, h3, h4, strong, b {
+  font-weight: var(--font-weight-semibold);
+}
+
+code, pre, kbd, samp {
+  font-family: var(--font-family-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scrollbar-width: thin;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  background: var(--theme-faf9f5);
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-placeholder);
+  opacity: 1;
+}
+
+button {
+  cursor: pointer;
+  font-weight: var(--font-weight-medium);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--ui-focus-ring);
+  outline-offset: 2px;
+}
+
+body, html, #root {
+  background: var(--bg-secondary) !important;
+}
+
+:root:not([data-theme='dark']),
+:root:not([data-theme='dark']) body,
+:root:not([data-theme='dark']) #root {
+  background: var(--theme-workspace-background, #fff);
+}
+
+option, optgroup {
+  background-color: var(--theme-overlay-surface);
+}

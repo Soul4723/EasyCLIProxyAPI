@@ -1,0 +1,283 @@
+/*
+ * Legacy colour variables (--bg-*, --text-*, --border-*, --theme-*, --ui-*, --sidebar-*): light values on :root, dark values on
+ * :root[data-theme='dark']. They only feed the src/components/* styles that predate the --ec-* kit; src/ui/legacy-compat.css
+ * (loaded last) re-points them at the selected theme. Later blocks override earlier ones, so keep the order.
+ */
+
+:root {
+  color-scheme: light;
+  --theme-2d2a26: #2d2a26;
+  --theme-2f6b3a: #2f6b3a;
+  --theme-2f6b3f: #2f6b3f;
+  --theme-3f6f98: #3f6f98;
+  --theme-42637f: #42637f;
+  --theme-433f39: #433f39;
+  --theme-4f825c: #4f825c;
+  --theme-5f5a53: var(--text-secondary);
+  --theme-6d6760: var(--text-secondary);
+  --theme-777067: var(--text-tertiary);
+  --theme-7a746c: var(--text-tertiary);
+  --theme-8069ad: #8069ad;
+  --theme-817b72: var(--text-tertiary);
+  --theme-8a847c: var(--text-quaternary);
+  --theme-9f2d20: #9f2d20;
+  --theme-a33b2b: #a33b2b;
+  --theme-a83f32: #a83f32;
+  --theme-b64132: #b64132;
+  --theme-b6d3bd: #b6d3bd;
+  --theme-c9d6e2: #c9d6e2;
+  --theme-c9dfcf: #c9dfcf;
+  --theme-d5d2cb: #d5d2cb;
+  --theme-dce8df: #dce8df;
+  --theme-dfb7b0: #dfb7b0;
+  --theme-e2ddd3: #e2ddd3;
+  --theme-e3e1db: #e3e1db;
+  --theme-e8e5dc: #e8e5dc;
+  --theme-ece8df: #ece8df;
+  --theme-eeeae2: #eeeae2;
+  --theme-eeece6: #eeece6;
+  --theme-eef7f0: #eef7f0;
+  --theme-efc9c2: #efc9c2;
+  --theme-f0ede6: #f0ede6;
+  --theme-f1f6fa: #f1f6fa;
+  --theme-f4f1ea: #f4f1ea;
+  --theme-f4f2ec: #f4f2ec;
+  --theme-f8f5ef: #f8f5ef;
+  --theme-faf9f5: #f6f7f5;
+  --theme-fdf1ee: #fdf1ee;
+  --theme-fff: #fff;
+  --theme-fff1ee: #fff1ee;
+  --theme-fffdf8: #fffdf8;
+  --theme-ffffff: #ffffff;
+
+  --bg-secondary: #f6f7f5;
+  --bg-primary: #ffffff;
+  --bg-tertiary: #f8fafc;
+  --bg-hover: #f1f5f9;
+  --bg-card: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: #1e293b;
+  --text-tertiary: #334155;
+  --text-quaternary: #475569;
+  --text-placeholder: var(--text-quaternary);
+  --text-disabled: #64748b;
+  --border-color: #e2e8f0;
+  --border-primary: #cbd5e1;
+  --primary-color: #222222;
+  --primary-contrast: #ffffff;
+  --error-color: #9f2d20;
+  --amber-color: #c77b30;
+  --failure-badge-text: #9f2d20;
+  --ui-accent: #222222;
+  --ui-accent-strong: #000000;
+  --ui-focus-ring: rgba(34, 34, 34, 0.28);
+  --ui-accent-shadow: rgba(34, 34, 34, 0.18);
+  --ui-panel-shadow: 0 8px 24px rgba(32, 42, 36, 0.07);
+  --shadow-sm: 0 1px 2px rgba(32, 42, 36, 0.06);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg-secondary: #0b0d11;
+  --bg-primary: #141720;
+  --bg-tertiary: #1c212c;
+  --bg-hover: #252b38;
+  --bg-card: #141720;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #d3dce8;
+  --text-tertiary: #b0bdcf;
+  --text-quaternary: #9aa9bf;
+  --text-disabled: #64748b;
+
+  --border-color: #222836;
+  --border-primary: #2e3646;
+
+  --primary-color: #f5f5f5;
+  --primary-contrast: #0b0d11;
+  --error-color: #c65746;
+  --amber-color: #d97706;
+  --failure-badge-text: #fca5a5;
+
+  --ui-accent: #f5f5f5;
+  --ui-accent-strong: #ffffff;
+  --ui-focus-ring: rgba(245, 245, 245, 0.28);
+  --ui-accent-shadow: rgba(0, 0, 0, 0.22);
+  --ui-panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.28), 0 12px 32px -10px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+
+  --theme-2d2a26: #f8fafc;
+  --theme-2f6b3a: #34d399;
+  --theme-2f6b3f: #34d399;
+  --theme-3f6f98: #9c958d;
+  --theme-42637f: #9c958d;
+  --theme-433f39: #d3cfc7;
+  --theme-4f825c: #34d399;
+  --theme-8069ad: #8a847c;
+  --theme-9f2d20: #c65746;
+  --theme-a33b2b: #c65746;
+  --theme-a83f32: #c65746;
+  --theme-b64132: #c65746;
+  --theme-b6d3bd: rgba(16, 185, 129, 0.3);
+  --theme-c9d6e2: #222836;
+  --theme-c9dfcf: rgba(16, 185, 129, 0.3);
+  --theme-d5d2cb: #2e3646;
+  --theme-dce8df: rgba(16, 185, 129, 0.25);
+  --theme-dfb7b0: rgba(198, 87, 70, 0.35);
+  --theme-e2ddd3: #2e2a26;
+  --theme-e3e1db: #222836;
+  --theme-e8e5dc: #1c212c;
+  --theme-ece8df: #1c212c;
+  --theme-eeeae2: #1c212c;
+  --theme-eeece6: #1c212c;
+  --theme-eef7f0: rgba(16, 185, 129, 0.12);
+  --theme-efc9c2: rgba(198, 87, 70, 0.3);
+  --theme-f0ede6: #12151c;
+  --theme-f1f6fa: #1c212c;
+  --theme-f4f1ea: #10131a;
+  --theme-f4f2ec: #10131a;
+  --theme-f8f5ef: #0f1218;
+  --theme-faf9f5: #0b0d11;
+  --theme-fdf1ee: rgba(198, 87, 70, 0.1);
+  --theme-fff: #141720;
+  --theme-fff1ee: rgba(198, 87, 70, 0.16);
+  --theme-fffdf8: #141720;
+  --theme-ffffff: #141720;
+}
+
+/* Second :root pass: later declarations win, re-pointing the legacy --theme-* greys and accents at the readable palette. */
+
+:root {
+  --ui-accent: #222222;
+  --ui-accent-strong: #000000;
+  --ui-focus-ring: rgba(34, 34, 34, 0.28);
+  --ui-accent-shadow: rgba(34, 34, 34, 0.18);
+  --ui-panel-shadow: 0 8px 24px rgba(32, 42, 36, 0.07);
+  --theme-2d2a26: #202521;
+  --theme-433f39: #39413b;
+  --theme-d5d2cb: #cfd7d0;
+  --theme-e2ddd3: #dce4dd;
+  --theme-e3e1db: #e2e8e3;
+  --theme-e8e5dc: #e6ece7;
+  --theme-ece8df: #edf1ee;
+  --theme-eeeae2: #edf1ee;
+  --theme-eeece6: #eff3f0;
+  --theme-f0ede6: #f0f3f1;
+  --theme-f4f1ea: #f6f8f6;
+  --theme-f4f2ec: #f5f7f5;
+  --theme-f8f5ef: #f9faf9;
+  --theme-faf9f5: #ffffff;
+  --theme-fff: #ffffff;
+  --theme-fffdf8: #ffffff;
+  --theme-ffffff: #ffffff;
+}
+
+/* Shared with the Windows titlebar in components/WindowFrame.css, which lives outside .app-shell. */
+
+:root {
+  --app-sidebar-width: 264px;
+}
+
+:root {
+  --bg-secondary: #f6f7f5;
+  --bg-primary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-tertiary: #eff3f0;
+  --bg-hover: #f6f8f6;
+  --border-color: #e2e8f0;
+  --border-primary: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #1e293b;
+  --text-tertiary: #334155;
+  --text-quaternary: #475569;
+  --theme-faf9f5: #f6f7f5;
+  --theme-fffdf8: #ffffff;
+  --theme-f4f1ea: #f8fafc;
+  --theme-eeeae2: #e2e8f0;
+  --theme-eeece6: #f1f5f9;
+  --theme-e8e5dc: #f1f5f9;
+  --theme-e3e1db: #e2e8f0;
+  --theme-d5d2cb: #cbd5e1;
+  --theme-7a746c: var(--text-tertiary);
+  --theme-5f5a53: var(--text-secondary);
+  --theme-433f39: #334155;
+  --theme-2d2a26: #0f172a;
+  --ui-accent: #222222;
+  --ui-accent-strong: #000000;
+  --ui-panel-shadow: 0 1px 3px 0 var(--theme-panel-shadow-color, rgba(15, 23, 42, 0.05)), 0 1px 2px -1px var(--theme-panel-shadow-color, rgba(15, 23, 42, 0.03));
+}
+
+:root {
+  --sidebar-bg: #f7f8fa;
+  --sidebar-edge: rgba(15, 23, 42, 0.07);
+  --sidebar-text: #334155;
+  --sidebar-text-strong: #0f172a;
+  --sidebar-text-subtle: #55657a;
+  --sidebar-icon: #64748b;
+  --sidebar-hover-bg: rgba(15, 23, 42, 0.045);
+  --sidebar-popover-bg: #ffffff;
+  --sidebar-popover-edge: rgba(15, 23, 42, 0.08);
+  --sidebar-popover-shadow: 0 12px 32px -8px rgba(15, 23, 42, 0.2), 0 2px 6px rgba(15, 23, 42, 0.06);
+  --sidebar-focus: color-mix(in srgb, var(--ui-accent) 70%, transparent);
+}
+
+:root[data-theme='dark'] {
+  --sidebar-bg: #0f1218;
+  --sidebar-edge: rgba(255, 255, 255, 0.06);
+  --sidebar-text: #b7c2d3;
+  --sidebar-text-strong: #f8fafc;
+  --sidebar-text-subtle: #8593a8;
+  --sidebar-icon: #8593a8;
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.045);
+  --sidebar-popover-bg: #1a1e27;
+  --sidebar-popover-edge: rgba(255, 255, 255, 0.08);
+  --sidebar-popover-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --sidebar-edge: rgba(15, 23, 42, 0.24);
+    --sidebar-text: var(--sidebar-text-strong);
+  }
+
+  :root[data-theme='dark'] {
+    --sidebar-edge: rgba(255, 255, 255, 0.24);
+  }
+}
+
+/* Light-mode workspace surfaces. Keep the sidebar and semantic status colors separate. */
+
+:root:not([data-theme='dark']) {
+  --theme-faf9f5: var(--theme-soft-surface, #fff);
+  --bg-secondary: var(--theme-workspace-background, #fff);
+}
+
+:root:not([data-theme='dark']) :is(.config-dialog, dialog) {
+  --bg-primary: var(--theme-surface, #fff);
+  --bg-secondary: var(--theme-workspace-background, #fff);
+  --bg-card: var(--theme-surface, #fff);
+  --bg-tertiary: var(--theme-soft-surface, #fff);
+  --bg-hover: var(--theme-hover-background, #fff);
+  --theme-f0ede6: var(--theme-soft-surface, #fff);
+  --theme-f4f1ea: var(--theme-soft-surface, #fff);
+  --theme-f4f2ec: var(--theme-soft-surface, #fff);
+  --theme-f8f5ef: var(--theme-soft-surface, #fff);
+  --theme-faf9f5: var(--theme-soft-surface, #fff);
+  --theme-fffdf8: var(--theme-surface, #fff);
+  --border-color: var(--theme-border, #dce3eb);
+  --text-secondary: var(--theme-text-secondary, #253449);
+  --text-tertiary: var(--theme-text-tertiary, #475569);
+  --text-quaternary: var(--theme-text-muted, #526174);
+}
+
+:root {
+  --theme-overlay-surface: var(--bg-card);
+  --theme-scrim: #2d2a266b;
+  --theme-control-thumb: #ffffff;
+}
+
+:root[data-theme='dark'] {
+  --theme-scrim: #030814a6;
+  --theme-control-thumb: #f8fafc;
+}

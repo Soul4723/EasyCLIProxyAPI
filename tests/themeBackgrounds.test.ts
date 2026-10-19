@@ -6,16 +6,16 @@ import { themeTokenProperties } from '../src/themes/types';
 const semanticPaint = new Set([
   'components/WindowFrame.css|.window-controls .window-close:hover',
   'components/WindowFrame.css|.window-controls .window-close:active',
-  'styles/ui-refinements.css|.danger-button',
-  'styles/ui-refinements.css|.danger-button:hover:not(:disabled)',
-  "styles/ui-refinements.css|:root[data-theme='dark'] .danger-button",
-  "styles/ui-refinements.css|:root[data-theme='dark'] .danger-button:hover:not(:disabled)",
+  'styles/controls.css|.danger-button',
+  'styles/controls.css|.danger-button:hover:not(:disabled)',
+  "styles/controls.css|:root[data-theme='dark'] .danger-button",
+  "styles/controls.css|:root[data-theme='dark'] .danger-button:hover:not(:disabled)",
 ]);
 
 const semanticPalettePaint = new Set([
   'components/AppReleaseNotes.css|.app-release-notes-latest',
-  'styles.css|.danger-button:hover:not(:disabled)',
-  'styles.css|.icon-button.danger:hover:not(:disabled)',
+  'styles/controls.css|.danger-button:hover:not(:disabled)',
+  'styles/controls.css|.icon-button.danger:hover:not(:disabled)',
   'appNotice.css|.action-feedback.inline-notice',
   'appNotice.css|.action-feedback.inline-notice.error',
   'appNotice.css|.action-feedback.inline-notice.info',

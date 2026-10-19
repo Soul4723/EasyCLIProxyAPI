@@ -33,7 +33,7 @@ test('text on accent fills uses the accent contrast color', async () => {
 });
 
 test('default accents keep readable contrast text', async () => {
-  const css = await readFile(`${source}styles.css`, 'utf8');
+  const css = await readFile(`${source}styles/legacy-tokens.css`, 'utf8');
   const value = (block: string, name: string) => block.match(new RegExp(`--${name}:\\s*(#[\\da-f]{6})`, 'i'))![1];
   const light = css.slice(css.indexOf(':root {'));
   const dark = css.slice(css.indexOf(":root[data-theme='dark'] {"));

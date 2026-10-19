@@ -3,9 +3,8 @@ import { readFileSync } from 'node:fs';
 import postcss from 'postcss';
 
 const stylesheet = postcss.parse([
-  '../src/styles.css',
-  '../src/styles/feature-pages.css',
-  '../src/styles/ui-refinements.css',
+  '../src/styles/legacy-tokens.css',
+  '../src/styles/base.css',
 ].map((file) => readFileSync(new URL(file, import.meta.url), 'utf8')).join('\n'));
 const aliases: Record<string, string> = {
   '--theme-5f5a53': '--text-secondary',
