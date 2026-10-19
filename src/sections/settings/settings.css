@@ -114,3 +114,17 @@
   .ec-sec-settings .ec-set-row-control { justify-content: flex-start; flex-wrap: wrap; }
   .ec-sec-settings .ec-set-input, .ec-sec-settings .ec-set-input.is-short { width: 100%; max-width: 100%; text-align: left; }
 }
+
+/* Deep-link landing (?field=): a brief accent wash + ring on the targeted field; static ring under reduced motion. */
+.ec-sec-settings [data-field-highlight] {
+  border-radius: var(--ec-r-sm);
+  box-shadow: 0 0 0 2px var(--ec-ring);
+  animation: ec-field-land 2.2s ease-out;
+}
+@keyframes ec-field-land {
+  0%, 55% { background: var(--ec-accent-soft); box-shadow: 0 0 0 2px var(--ec-ring); }
+  100% { background: transparent; box-shadow: 0 0 0 2px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ec-sec-settings [data-field-highlight] { animation: none; background: var(--ec-accent-soft); }
+}

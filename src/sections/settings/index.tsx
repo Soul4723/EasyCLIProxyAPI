@@ -9,6 +9,7 @@ import { Skeleton } from '../../ui';
 import { CoreConfigContext, useCoreConfigLoader } from './coreConfig';
 import { SettingsDirtyContext, useSettingsDirtyState } from './ui';
 import { settingsSubs } from './subs';
+import { useSettingFieldLink } from './useFieldLink';
 import './settings.css';
 
 const tabs: Record<string, { icon: LucideIcon; Tab: ComponentType }> = {
@@ -29,6 +30,7 @@ export function SettingsSection({ sub }: SectionPageProps) {
   const { dirtyTabs, api, guardDialog } = useSettingsDirtyState();
   const active = settingsSubs.some((entry) => entry.id === sub) ? (sub as string) : settingsSubs[0].id;
   const { Tab } = tabs[active];
+  useSettingFieldLink(active);
   return (
     <div className="ec-sec-settings">
       <PageHeader title={t('sec.settings.title')} />

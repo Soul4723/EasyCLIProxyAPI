@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { TemplateConfigSection } from '../../../components/TemplateConfigSection';
@@ -18,9 +18,11 @@ const SECTIONS: Record<TemplateSectionId, { titleKey: MessageKey; groups: readon
  * One collapsible block of extended-config template groups. The (heavy) TemplateConfigSection mounts the first time the
  * block is expanded and then stays mounted so its drafts survive collapsing. Each group keeps its own save button.
  */
-export function TemplateSection({ section, defaultOpen = false, onDirtyChange }: {
+export function TemplateSection({ section, defaultOpen = false, reveal = false, onDirtyChange }: {
   section: TemplateSectionId;
   defaultOpen?: boolean;
+  /** Expands the block (a deep link points at one of its fields). */
+  reveal?: boolean;
   onDirtyChange: (section: TemplateSectionId, dirtyGroups: number) => void;
 }) {
   const { t } = useI18n();
@@ -29,6 +31,7 @@ export function TemplateSection({ section, defaultOpen = false, onDirtyChange }:
   const [everOpened, setEverOpened] = useState(defaultOpen);
   const [dirtyCount, setDirtyCount] = useState(0);
   const bodyId = useId();
+  useEffect(() => { if (reveal) { setOpen(true); setEverOpened(true); } }, [reveal]);
   const visibleGroups = groups.map((group) => group.id);
   const handleDirty = useCallback((ids: readonly string[]) => {
     setDirtyCount(ids.length);
