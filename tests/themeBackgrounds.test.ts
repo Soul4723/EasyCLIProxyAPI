@@ -13,15 +13,15 @@ const semanticPaint = new Set([
 ]);
 
 const semanticPalettePaint = new Set([
-  'styles.css|.app-release-notes-latest',
+  'components/AppReleaseNotes.css|.app-release-notes-latest',
   'styles.css|.danger-button:hover:not(:disabled)',
   'styles.css|.icon-button.danger:hover:not(:disabled)',
-  'styles.css|.action-feedback.inline-notice',
-  'styles.css|.action-feedback.inline-notice.error',
-  'styles.css|.action-feedback.inline-notice.info',
-  'styles.css|.install-dialog.success .install-progress-fill',
-  'styles.css|.install-dialog.error .install-progress-fill',
-  'styles.css|.inline-notice.success', 'styles.css|.inline-notice.error',
+  'appNotice.css|.action-feedback.inline-notice',
+  'appNotice.css|.action-feedback.inline-notice.error',
+  'appNotice.css|.action-feedback.inline-notice.info',
+  'appUpdate.css|.install-dialog.success .install-progress-fill',
+  'appUpdate.css|.install-dialog.error .install-progress-fill',
+  'appNotice.css|.inline-notice.success', 'appNotice.css|.inline-notice.error',
 ]);
 
 test('component backgrounds use shared roles; literal paint is limited to semantic indicators', async () => {

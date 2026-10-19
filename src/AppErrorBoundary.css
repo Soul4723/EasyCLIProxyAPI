@@ -1,0 +1,27 @@
+/* Fallback screen of AppErrorBoundary. */
+
+.app-error-boundary {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: var(--theme-faf9f5);
+}
+
+.app-error-boundary .empty-state {
+  width: min(560px, 100%);
+}
+
+.empty-state {
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+  border: 1px dashed var(--theme-d5d2cb);
+  border-radius: 8px;
+  background: var(--theme-fffdf8);
+  color: var(--theme-5f5a53);
+}
+
+.empty-state strong {
+  color: var(--theme-2d2a26);
+}

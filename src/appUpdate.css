@@ -1,0 +1,176 @@
+/* App update / install dialog (appUpdate). */
+
+@media (max-width: 520px) {
+
+  .install-dialog-backdrop {
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .install-progress-track.unknown.is-running .install-progress-fill {
+    animation-duration: 2.2s;
+  }
+}
+
+.install-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--theme-scrim);
+  backdrop-filter: blur(3px);
+}
+
+.install-dialog {
+  display: grid;
+  grid-template-rows: 48px 42px 10px 22px 72px 40px;
+  gap: 15px;
+  width: min(420px, 100%);
+  height: 360px;
+  padding: 24px;
+  border: 1px solid var(--theme-d5d2cb);
+  border-radius: 8px;
+  outline: none;
+  background: var(--theme-fffdf8);
+  box-shadow: 0 18px 48px rgba(45, 42, 38, 0.24);
+}
+
+.install-dialog-heading {
+  min-width: 0;
+}
+
+.install-dialog-heading > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--theme-7a746c);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-semibold);
+}
+
+.install-dialog-heading h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--theme-2d2a26);
+  font-size: var(--font-size-dialog-title);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.install-dialog-phase {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.install-dialog-phase span {
+  color: var(--theme-7a746c);
+  font-size: var(--font-size-body);
+}
+
+.install-dialog-phase strong {
+  overflow: hidden;
+  color: var(--theme-2d2a26);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.install-progress-track {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--theme-e8e5dc);
+}
+
+.install-progress-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--theme-2d2a26);
+  transition: width 160ms ease;
+}
+
+.install-dialog.success .install-progress-fill {
+  background: var(--theme-2f6b3f);
+}
+
+.install-dialog.error .install-progress-fill {
+  background: var(--theme-9f2d20);
+}
+
+.install-progress-track.unknown .install-progress-fill {
+  visibility: hidden;
+  width: 36%;
+}
+
+.install-progress-track.unknown.is-running .install-progress-fill {
+  visibility: visible;
+  animation: install-progress-slide 1.1s ease-in-out infinite;
+}
+
+.install-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  color: var(--theme-6d6760);
+  font-size: var(--font-size-body);
+}
+
+.install-progress-meta strong,
+.install-progress-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.install-progress-meta strong {
+  color: var(--theme-2d2a26);
+}
+
+.install-dialog > button {
+  width: 100%;
+  height: 40px;
+}
+
+.app-update-dialog {
+  grid-template-rows: none;
+  height: auto;
+  min-height: 0;
+  gap: 16px;
+}
+
+.app-update-confirm-copy {
+  margin: 0;
+  color: var(--theme-5f5a53);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-relaxed);
+}
+
+.app-update-dialog-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@keyframes install-progress-slide {
+  from {
+    transform: translateX(-120%);
+  }
+
+  to {
+    transform: translateX(300%);
+  }
+}

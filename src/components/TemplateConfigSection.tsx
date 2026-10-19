@@ -13,7 +13,7 @@ import {
   applyTemplateChanges, draftTemplateField, readTemplatePath, templateFieldKey, templateFieldValidation, templateFieldSaveValue,
   type TemplateConfigChange, type TemplateConfigDraft, type TemplateConfigField, type TemplateConfigGroup, type TemplateConfigSaveResult, type TemplateText,
 } from '../services/templateConfig';
-import '../styles/template-config.css';
+import './TemplateConfigSection.css';
 
 const restartHint = { zh: '需重启内核', en: 'Core restart required', ja: 'コアの再起動が必要' } satisfies TemplateText;
 

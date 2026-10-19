@@ -13,6 +13,7 @@ import {
   type NoticeTone,
   type NoticeMessage,
 } from './services/appNotice';
+import './appNotice.css';
 
 export type { NoticeTone, NoticeMessage, AppNotice, AppNoticeState, AppNoticeAction };
 

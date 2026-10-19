@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useI18n } from './i18n';
+import './AppErrorBoundary.css';
 
 type Props = { children: ReactNode };
 type State = { error: Error | null };

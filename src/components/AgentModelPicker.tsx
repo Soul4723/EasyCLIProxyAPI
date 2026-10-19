@@ -16,6 +16,7 @@ import {
 } from '../services/agentModelPicker';
 import type { ModelOption } from '../services/modelService';
 import { useI18n } from '../i18n';
+import './AgentModelPicker.css';
 
 export type AgentModelPickerProps = {
   models: ModelOption[];

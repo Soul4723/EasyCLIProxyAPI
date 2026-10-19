@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import '../appNotice.css';
 
 type NoticeHost = { element: HTMLDivElement; users: number; dispose: () => void };
 const hosts = new WeakMap<Document, NoticeHost>();

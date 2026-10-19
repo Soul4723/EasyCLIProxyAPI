@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { createPortal } from 'react-dom';
 import { CircleHelp } from 'lucide-react';
 import { useI18n } from '../i18n';
+import './SettingsHelp.css';
 
 export function SettingsHelp({ label, children }: { label: string; children: ReactNode }) {
   const { locale } = useI18n();

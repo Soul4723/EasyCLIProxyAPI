@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { MessageNotice } from '../appNotice';
 import { useI18n } from '../i18n';
 import { useDialogFocusTrap } from '../components/useDialogFocusTrap';
+import './WindowsCloseHandler.css';
 
 type WindowsCloseAction = 'exit' | 'minimize-to-tray';
 type WindowsCloseBehavior = 'ask' | WindowsCloseAction;

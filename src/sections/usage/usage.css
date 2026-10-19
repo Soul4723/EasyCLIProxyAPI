@@ -1,3 +1,45 @@
+/* Legacy rules for the custom date range of FilterBar; the .ec-sec-usage rules further down take precedence. */
+@media (max-width: 520px) {
+
+  .usage-custom-range {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.usage-custom-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--theme-eeeae2);
+  color: var(--theme-8a847c);
+  font-size: var(--font-size-caption);
+}
+
+.usage-custom-range input {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--theme-d5d2cb);
+  border-radius: 6px;
+  background: var(--theme-fff);
+  color: var(--theme-2d2a26);
+  font-size: var(--font-size-caption);
+}
+
+@container workspace (max-width: 540px) {
+
+  .usage-custom-range {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.usage-custom-range input {
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* Usage section styles. Every rule is scoped under .ec-sec-usage (kit ec-* classes + --ec-* tokens only). */
 .ec-sec-usage .usage-body { min-width: 0; }
 .ec-sec-usage .usage-collector { display: inline-flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; }

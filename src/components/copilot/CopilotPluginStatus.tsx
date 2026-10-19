@@ -1,4 +1,5 @@
 import { useI18n } from '../../i18n';
+import './CopilotPluginStatus.css';
 
 export function CopilotPluginStatus({ installed, version, standalone = true }: { installed: boolean; version: string | null; standalone?: boolean }) {
   const { t } = useI18n();

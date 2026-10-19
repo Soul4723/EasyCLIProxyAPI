@@ -1,3 +1,59 @@
+.config-network-input {
+  width: 100%;
+  height: 38px;
+  min-width: 0;
+  padding: 0 11px;
+  border: 1px solid var(--theme-d5d2cb);
+  border-radius: 6px;
+  outline: none;
+  background: var(--theme-fffdf8);
+  color: var(--theme-2d2a26);
+  font: inherit;
+  font-size: var(--font-size-body);
+}
+
+.config-network-input:focus {
+  border-color: var(--theme-777067);
+  box-shadow: 0 0 0 3px rgba(119, 112, 103, 0.12);
+}
+
+.config-network-input.error {
+  border-color: var(--theme-b64132);
+  box-shadow: 0 0 0 3px rgba(182, 65, 50, 0.1);
+}
+
+.config-network-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.config-secret-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 7px;
+}
+
+.config-secret-input input {
+  width: 100%;
+  height: 42px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--theme-d5d2cb);
+  border-radius: 6px;
+  background: var(--theme-ffffff);
+  color: var(--theme-2d2a26);
+}
+
+.config-secret-input input[aria-invalid='true'] {
+  border-color: var(--theme-a83f32);
+}
+
+.config-secret-input input:disabled {
+  cursor: not-allowed;
+  background: var(--theme-f4f1ea);
+}
+
 /*
  * Extended-config template groups (Access keys, Routing, Logs, Models): same look as the rest of Settings —
  * card with a header, label/control rows, per-group Save in a footer. Markup and class names are unchanged

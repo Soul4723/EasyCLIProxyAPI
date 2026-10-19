@@ -1,0 +1,50 @@
+/* Copilot plugin status cards (CopilotPluginStatus). */
+
+@media (max-width: 520px) {
+
+  .agent-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-status-grid {
+    height: auto;
+  }
+}
+
+.agent-status-grid span {
+  display: flex;
+  align-items: center;
+}
+
+.agent-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-height: 76px;
+}
+
+.agent-status-grid > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--theme-e3e1db);
+  border-radius: 7px;
+  background: var(--theme-fffdf8);
+}
+
+.agent-status-grid span {
+  gap: 5px;
+  color: var(--theme-8a847c);
+  font-size: var(--font-size-meta);
+}
+
+.agent-status-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-2d2a26);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
