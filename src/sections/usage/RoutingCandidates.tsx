@@ -1,4 +1,4 @@
-import { ArrowUpRight, Plus, Users } from 'lucide-react';
+import { ArrowUpRight, PauseCircle, Plus, Users, WifiOff } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { routeHref } from '../../shell/router';
 import {
@@ -11,13 +11,15 @@ type Props = {
   groups: CandidateGroup[];
   served: Map<string, number>;
   onCooldownDone: () => void;
+  /** Set while the core is down: the credentials list is the last data received, so live status is not shown. */
+  stale: 'stopped' | 'unreachable' | null;
 };
 
-function CandidateRow({ item, served, max, onCooldownDone }: { item: Candidate; served: number; max: number; onCooldownDone: () => void }) {
+function CandidateRow({ item, served, max, onCooldownDone, stale }: { item: Candidate; served: number; max: number; onCooldownDone: () => void; stale: boolean }) {
   const { t } = useI18n();
   const color = providerInfo(item.provider).colorVar;
   return (
-    <li className="rt-cand" data-status={item.status}>
+    <li className="rt-cand" data-status={stale ? undefined : item.status} data-stale={stale ? 'true' : undefined}>
       <span className="rt-cand__rank ec-mono" title={t('sec.usage.routing.candidates.rank', { n: item.rank })}>{item.rank}</span>
       <span className="rt-cand__who">
         {item.authIndex ? (
@@ -30,8 +32,8 @@ function CandidateRow({ item, served, max, onCooldownDone }: { item: Candidate; 
         <span className="rt-cand__prio ec-muted ec-num">{t('sec.usage.routing.candidates.priority', { n: item.priority })}</span>
       </span>
       <span className="rt-cand__status">
-        <StatusPill status={item.status} size="sm" />
-        {item.status === 'cooldown' && item.cooldownUntil ? (
+        {stale ? <span className="ec-muted" aria-hidden="true">—</span> : <StatusPill status={item.status} size="sm" />}
+        {!stale && item.status === 'cooldown' && item.cooldownUntil ? (
           <Countdown to={item.cooldownUntil} compact onDone={onCooldownDone} className="rt-cand__cd" />
         ) : null}
       </span>
@@ -51,7 +53,7 @@ function CandidateRow({ item, served, max, onCooldownDone }: { item: Candidate; 
 }
 
 /** B: candidates per provider in routing order, with recent served counts and link-only actions. */
-export function RoutingCandidates({ block, groups, served, onCooldownDone }: Props) {
+export function RoutingCandidates({ block, groups, served, onCooldownDone, stale }: Props) {
   const { t } = useI18n();
   const total = groups.reduce((n, g) => n + g.items.length, 0);
   const max = Math.max(0, ...served.values());
@@ -59,6 +61,12 @@ export function RoutingCandidates({ block, groups, served, onCooldownDone }: Pro
   return (
     <Card as="section" className="rt-card rt-candidates" aria-label={t('sec.usage.routing.candidates.title')}>
       <CardHeader title={t('sec.usage.routing.candidates.title')} count={total} icon={<Users size={16} />} />
+      {stale ? (
+        <p className="rt-stale ec-muted" role="status" data-testid="rt-stale-note">
+          {stale === 'unreachable' ? <WifiOff size={13} aria-hidden="true" /> : <PauseCircle size={13} aria-hidden="true" />}
+          {t(stale === 'unreachable' ? 'sec.usage.routing.candidates.staleUnreachable' : 'sec.usage.routing.candidates.staleStopped')}
+        </p>
+      ) : null}
       {block.loading && block.data === null ? <Skeleton lines={5} height={28} /> : null}
       {showError ? <ErrorState title={t('sec.usage.routing.candidates.error')} onRetry={block.reload} /> : null}
       {block.data !== null && total === 0 ? (
@@ -80,7 +88,7 @@ export function RoutingCandidates({ block, groups, served, onCooldownDone }: Pro
               </header>
               <ul className="rt-cands">
                 {group.items.map((item) => (
-                  <CandidateRow key={item.key} item={item} served={item.authIndex ? served.get(item.authIndex) ?? 0 : 0} max={max} onCooldownDone={onCooldownDone} />
+                  <CandidateRow key={item.key} item={item} served={item.authIndex ? served.get(item.authIndex) ?? 0 : 0} max={max} onCooldownDone={onCooldownDone} stale={Boolean(stale)} />
                 ))}
               </ul>
             </section>

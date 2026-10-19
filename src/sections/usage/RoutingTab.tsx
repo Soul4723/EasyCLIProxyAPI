@@ -8,9 +8,9 @@ import { RoutingStream } from './RoutingStream';
 import { useUsage } from './UsageContext';
 import './Routing.css';
 
-/** Usage → live routing: policy strip, candidate accounts per provider, live request stream. Three independent data blocks. */
+/** Usage → routing: policy strip, candidate accounts per provider, request stream. Three independent data blocks. */
 export function RoutingTab() {
-  const { refreshVersion, manualVersion } = useUsage();
+  const { refreshVersion, manualVersion, collection } = useUsage();
   const policy = usePolicyBlock(manualVersion);
   // Credentials load on mount/manual refresh; cooldown expiry can request its own reload.
   const credentials = useCredentialsBlock(manualVersion);
@@ -21,7 +21,7 @@ export function RoutingTab() {
     <div className="rt">
       <RoutingPolicy block={policy} />
       <div className="rt-cols">
-        <RoutingCandidates block={credentials} groups={groups} served={served} onCooldownDone={credentials.reload} />
+        <RoutingCandidates block={credentials} groups={groups} served={served} onCooldownDone={credentials.reload} stale={collection.coreDown ? collection.kind === 'unreachable' ? 'unreachable' : 'stopped' : null} />
         <RoutingStream block={events} groups={groups} />
       </div>
     </div>

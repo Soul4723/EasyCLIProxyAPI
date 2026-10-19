@@ -43,10 +43,10 @@ export function ProviderRow({ providers, loading, refreshing, onRefresh }: Provi
   );
 }
 
-export type UsageTileProps = { usage: HomeUsageSummary | null; series: number[]; loading: boolean; error: string };
+export type UsageTileProps = { usage: HomeUsageSummary | null; series: number[]; loading: boolean; error: string; /** Core not reachable: figures come from stored history. */ stored?: boolean };
 
 /** One usage tile: requests 24h + success rate + sparkline → Usage. */
-export function UsageTile({ usage, series, loading, error }: UsageTileProps) {
+export function UsageTile({ usage, series, loading, error, stored = false }: UsageTileProps) {
   const { t } = useI18n();
   if (loading) return <Card className="ov-usage"><Skeleton height={72} /></Card>;
   const rate = usage?.successRate;
@@ -56,7 +56,7 @@ export function UsageTile({ usage, series, loading, error }: UsageTileProps) {
         href={routeHref('usage')}
         label={t('sec.overview.requests24h')}
         value={error ? '—' : formatCompactNumber(usage?.totalRequests ?? 0)}
-        hint={error ? t('sec.overview.usageError') : rate === null || rate === undefined ? t('sec.overview.noRate') : `${formatPercent(rate)} ${t('sec.overview.success')}`}
+        hint={error ? t('sec.overview.usageError') : stored ? t('sec.overview.usageStored') : rate === null || rate === undefined ? t('sec.overview.noRate') : `${formatPercent(rate)} ${t('sec.overview.success')}`}
         trend={series.length > 1 ? <Sparkline values={series} width={120} height={32} fill ariaLabel={t('sec.overview.requests24h')} /> : undefined}
       />
     </div>

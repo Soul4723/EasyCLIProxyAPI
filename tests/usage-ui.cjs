@@ -39,7 +39,7 @@ runUiTest('usage', async ({ base, newPage }) => {
   const tabs = page.getByRole('tab');
   await tabs.first().waitFor();
   assert.equal(await tabs.count(), 5, 'tab bar has 5 tabs');
-  assert.deepEqual(await tabs.allInnerTexts(), ['Overview', 'Requests', 'Live routing', 'Prices', 'Data']);
+  assert.deepEqual(await tabs.allInnerTexts(), ['Overview', 'Requests', 'Routing', 'Prices', 'Data']);
   for (const [id, path] of TABS) {
     await reopenApp(page, base, { path });
     await page.getByRole('tab', { selected: true }).waitFor();
@@ -114,7 +114,7 @@ runUiTest('usage', async ({ base, newPage }) => {
   assert.equal((await tbody.innerText()).includes('@example.test'), false, 'privacy masks account emails');
   await setPrivacy(page, false);
 
-  // ---- Live routing
+  // ---- Routing
   await reopenApp(page, base, { path: '/usage/routing' });
   await page.locator('.rt-group').first().waitFor();
   ok(await page.locator('.rt-facts .rt-fact').count() >= 4, 'policy strip shows facts');

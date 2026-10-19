@@ -144,7 +144,7 @@ export function OverviewSection(_props: SectionPageProps) {
           <ConnectCard profiles={profiles} clientKey={details.clientKey} keyError={details.clientKeyError} connectable={coreReady} />
         </div>
         {!firstRun && !coreReady && (
-          <UsageTile usage={snapshot.usage} series={snapshot.series} loading={false} error={snapshot.usageError} />
+          <UsageTile usage={snapshot.usage} series={snapshot.series} loading={false} error={snapshot.usageError} stored />
         )}
       </div>
       <HealthDialog open={healthOpen} onClose={() => setHealthOpen(false)} models={snapshot.models} ready={coreReady} contextKey={healthContext} />
