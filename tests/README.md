@@ -26,6 +26,7 @@ The six existing CSS/theme contract tests (`textContrast`, `themeBackgrounds`,
 `colourLiterals`, `themeAccentContrast`, `theme`, `semanticTokenBridge`) temporarily
 stay at the test root, byte-for-byte unchanged, to avoid conflicting with the open
 CSS cleanup PRs. They still run in the normal Bun suite.
+The lead will move these six tests to `tests/unit/ui-kit/` once CSS PRs #83/#84 merge.
 
 ## Run
 
