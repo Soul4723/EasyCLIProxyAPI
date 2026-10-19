@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { ArrowUpRight, Gauge, Layers, Link2, Repeat, Route, Snowflake, Timer } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/resources';
-import { routeHref } from '../../shell/router';
+import { settingFieldRoute } from '../../services/settingsNavigation';
 import { Card, CardHeader, Chip, Skeleton, ErrorState, type ChipTone } from '../../ui';
 import type { Block, RoutingPolicy as Policy } from './RoutingData';
 
@@ -29,7 +29,7 @@ export function RoutingPolicy({ block }: { block: Block<Policy> }) {
     <Chip tone={on ? tone : 'neutral'} size="sm">{t(on ? 'sec.usage.routing.policy.on' : 'sec.usage.routing.policy.off')}</Chip>
   );
   const edit = (
-    <a className="rt-link" href={routeHref('settings', 'routing')}>
+    <a className="rt-link" href={`#${settingFieldRoute('routing.strategy')}`}>
       {t('sec.usage.routing.policy.edit')}<ArrowUpRight size={13} aria-hidden="true" />
     </a>
   );

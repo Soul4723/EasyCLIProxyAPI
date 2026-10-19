@@ -8,7 +8,7 @@ import { compactNumber } from './format';
 import type { DataNotice } from './DataStorage';
 import type { CollectorStatus } from './types';
 import { useUsage } from './UsageContext';
-import { routeHref } from '../../shell/router';
+import { settingFieldRoute } from '../../services/settingsNavigation';
 
 /** Collector card: read-only state from the shared status, plus Resume when paused. Mirrors CollectorChip in HeaderActions.tsx. */
 export function DataCollector({ onNotice }: { onNotice: (notice: DataNotice) => void }) {
@@ -83,7 +83,7 @@ export function DataCollector({ onNotice }: { onNotice: (notice: DataNotice) => 
         {redis !== null ? (
           <>
             <dt>{t('sec.usage.data.redis.label')}</dt>
-            <dd>{t('sec.usage.data.redis.value', { seconds: redis })} · <a href={routeHref('settings', 'logs')}>{t('sec.usage.data.redis.edit')}</a></dd>
+            <dd>{t('sec.usage.data.redis.value', { seconds: redis })} · <a href={`#${settingFieldRoute('observability.usage.redis-usage-queue-retention-seconds')}`}>{t('sec.usage.data.redis.edit')}</a></dd>
           </>
         ) : null}
       </dl>

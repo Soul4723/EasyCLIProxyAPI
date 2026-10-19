@@ -1,6 +1,8 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n } from '../../../i18n';
 import { SegmentedControl } from '../../../ui';
+import { useRoute } from '../../../shell/router';
+import { resolveSettingField } from '../../../services/settingsNavigation';
 import { useReportDirty } from '../ui';
 import { AliasesPanel } from '../models/AliasesPanel';
 import { SensitiveWordsPanel } from '../models/SensitiveWordsPanel';
@@ -28,6 +30,10 @@ export function ModelsTab() {
   const defaultsDirty = Boolean(templateDirty.requests || templateDirty.oauth);
   useReportDirty('models', aliasDirty || wordsDirty || defaultsDirty);
 
+  // A `?field=` deep link into the template groups opens the Defaults view and expands the block holding the field.
+  const linkedField = useRoute().params.get('field');
+  const linked = linkedField ? resolveSettingField(linkedField)?.group ?? null : null;
+  useEffect(() => { if (linked === 'requests' || linked === 'oauth') choose('defaults'); }, [linked]); // eslint-disable-line react-hooks/exhaustive-deps
   const choose = (next: View) => {
     setView(next);
     setVisited((current) => (current[next] ? current : { ...current, [next]: true }));
@@ -55,8 +61,8 @@ export function ModelsTab() {
       <div className="ec-models-view" hidden={view !== 'defaults'}>
         {visited.defaults ? (
           <>
-            <TemplateSection section="requests" onDirtyChange={onTemplateDirty} />
-            <TemplateSection section="oauth" onDirtyChange={onTemplateDirty} />
+            <TemplateSection section="requests" reveal={linked === 'requests'} onDirtyChange={onTemplateDirty} />
+            <TemplateSection section="oauth" reveal={linked === 'oauth'} onDirtyChange={onTemplateDirty} />
           </>
         ) : null}
       </div>

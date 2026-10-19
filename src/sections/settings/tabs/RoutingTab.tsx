@@ -132,7 +132,7 @@ export function RoutingTab() {
     <div className="ec-routing">
       <SettingsGroup title={t('sec.settings.routing.groupSelect')} icon={<Route size={16} />}>
         <div id="routing-strategy" className="ec-routing-anchor">
-          <SettingRow label={t('config.routing.title')} hint={t('sec.settings.routing.strategyHint')} effect="instant" error={strategyError || undefined}>
+          <SettingRow fieldPath="routing.strategy" label={t('config.routing.title')} hint={t('sec.settings.routing.strategyHint')} effect="instant" error={strategyError || undefined}>
             <SegmentedControl<Strategy>
               ariaLabel={t('config.routing.title')}
               value={strategy}
@@ -145,10 +145,10 @@ export function RoutingTab() {
             />
           </SettingRow>
         </div>
-        <SettingRow label={t('config.network.sessionAffinity')} hint={t('config.network.sessionAffinityHint')}>
+        <SettingRow fieldPath="routing.session-affinity" label={t('config.network.sessionAffinity')} hint={t('config.network.sessionAffinityHint')}>
           <Toggle checked={draft.affinity} label={t('config.network.sessionAffinity')} disabled={busy} onChange={(next) => edit({ affinity: next })} />
         </SettingRow>
-        <SettingRow label={t('config.network.sessionTtl')} hint={t('config.network.sessionTtlHint')} htmlFor="routing-ttl">
+        <SettingRow fieldPath="routing.session-affinity-ttl" label={t('config.network.sessionTtl')} hint={t('config.network.sessionTtlHint')} htmlFor="routing-ttl">
           <input
             id="routing-ttl"
             className="ec-set-input is-short"
