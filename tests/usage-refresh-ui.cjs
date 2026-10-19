@@ -31,6 +31,9 @@ runUiTest('usage-refresh', async ({ base, newPage }) => {
   await settled(page);
   assert.equal((await calls(page, 'get_usage_analysis')).length, 1, 'options and Overview share identical analysis');
   const initialEnd = (await calls(page, 'get_usage_overview'))[0].args.query.end;
+  // Freeze while emitting the burst: RPC time must not consume the 2s window
+  // before the 1999ms boundary assertion. The clock resumes below.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
   await reset(page);
   for (let i = 0; i < 40; i++) await emitEvent(page, 'usage-records-updated');
   await page.clock.fastForward(1999);
@@ -48,6 +51,23 @@ runUiTest('usage-refresh', async ({ base, newPage }) => {
   await page.evaluate(() => { for (let i = 0; i < 20; i++) window.dispatchEvent(new Event('focus')); });
   await settled(page);
   assert.equal((await calls(page, 'get_usage_overview')).length, 1, 'stale focus refreshes only once');
+
+  // A filter change and a manual refresh each establish fresh records;
+  // the shared focus owner must not issue another query immediately afterward.
+  await page.clock.fastForward(31_000);
+  await page.getByRole('radio', { name: '7D', exact: true }).click();
+  await settled(page);
+  await reset(page);
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await settled(page);
+  assert.equal((await calls(page, 'get_usage_overview')).length, 0, 'filter change makes recent focus fresh');
+  await page.clock.fastForward(31_000);
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await settled(page);
+  await reset(page);
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await settled(page);
+  assert.equal((await calls(page, 'get_usage_overview')).length, 0, 'manual refresh makes recent focus fresh');
 
   await page.clock.resume();
 

@@ -5,6 +5,7 @@ import { useCoreRuntime } from '../../coreRuntime';
 import { useI18n } from '../../i18n';
 import { pluginOAuthText, type PluginOAuthMessage } from '../../i18n/pluginOAuth';
 import { usePrivacyMask } from '../../privacy';
+import { startSessionPolling } from '../../services/sessionPolling';
 import { managementApi } from '../../services/managementApi';
 import type { PluginListEntry } from '../../services/plugins';
 import { Button, Dialog, Masked } from '../../ui';
@@ -62,12 +63,12 @@ export function OAuthDialog({ plugin, browser = 'default', onClose, onCompleted 
     let terminal = false;
     let completed = false;
     let state = '';
-    let pollTimer: number | undefined;
+    let stopPolling = () => {};
     let expiryTimer: number | undefined;
     const cancelled = new Set<string>();
     const translate = (key: PluginOAuthMessage) => pluginOAuthText(key, localeRef.current);
     const current = () => active && !terminal && generation.current === currentGeneration;
-    const clearTimers = () => { window.clearTimeout(pollTimer); window.clearTimeout(expiryTimer); };
+    const clearTimers = () => { stopPolling(); window.clearTimeout(expiryTimer); };
     const cancel = (value: string) => {
       if (!value || cancelled.has(value)) return;
       cancelled.add(value);
@@ -103,8 +104,7 @@ export function OAuthDialog({ plugin, browser = 'default', onClose, onCompleted 
           setCallback(''); setNotice(''); setError(''); setSubmitting(false); setOpening(false);
           completedRef.current();
         } else if (result.status === 'error') fail(result.error || translate('failed'));
-        else if (result.status === 'wait') pollTimer = window.setTimeout(() => void poll(), 3000);
-        else fail(translate('failed'));
+        else if (result.status !== 'wait') fail(translate('failed'));
       } catch (reason) { fail(message(reason)); }
     };
     void invoke<OAuthStart>('start_oauth_login', { provider, browser: 'none', pluginProvider: true }).then(result => {
@@ -121,7 +121,7 @@ export function OAuthDialog({ plugin, browser = 'default', onClose, onCompleted 
       const nextSession: Session = { state, url: result.url, code: result.userCode?.trim() ?? '', device: result.flow?.toLowerCase() === 'device' || Boolean(result.userCode), expires: Date.now() + duration };
       setSession(nextSession); setPhase('waiting');
       expiryTimer = window.setTimeout(() => fail(translate('expired')), duration);
-      pollTimer = window.setTimeout(() => void poll(), 3000);
+      stopPolling = startSessionPolling({ intervalMs: 3000, check: async () => { await poll(); return current(); }, onError: reason => fail(message(reason)) });
     }).catch(reason => fail(message(reason)));
     return stop;
   }, [provider, plugin.supportsOAuth, plugin.effectiveEnabled, attempt]);

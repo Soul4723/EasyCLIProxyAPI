@@ -26,9 +26,9 @@ localStorage.setItem('easy-cli-proxy-api.oauth-browser.v3', 'none');
 document.documentElement.dataset.theme = params.get('theme') ?? 'light';
 
 // Keep OAuth polling quick in this fixture while preserving the production timer behavior.
-const nativeSetInterval = window.setInterval.bind(window);
-(window as any).setInterval = (handler: TimerHandler, timeout?: number, ...args: any[]) =>
-  nativeSetInterval(handler, timeout === 3000 ? 25 : timeout, ...args);
+const nativeSetTimeout = window.setTimeout.bind(window);
+(window as any).setTimeout = (handler: TimerHandler, timeout?: number, ...args: any[]) =>
+  nativeSetTimeout(handler, timeout === 3000 ? 25 : timeout, ...args);
 
 const fixture: MetaFixture = {
   calls: [],

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react';
 import { invoke } from '../../../services/documentTarget';
+import { createSettingsRead } from '../../../services/settingsData';
 import { Plus, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { Chip, ConfirmDialog, ErrorState, IconButton, ProviderLogo, Skeleton } from '../../../ui';
@@ -16,6 +17,8 @@ const normalizedWords = (entries: WordEntry[]) => entries.map(({ value }) => val
 const splitLines = (value: string) => value.split(/\r\n|\n|\r/).map((word) => word.trim()).filter(Boolean);
 
 /** Words that are replaced in system prompts per provider. Draft + one save (`save_core_sensitive_words_settings`). */
+const sensitiveWordsRead = createSettingsRead(() => invoke<SensitiveWordsSettings>('get_core_sensitive_words_settings'));
+
 export function SensitiveWordsPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
   const { t } = useI18n();
   const nextEntryId = useRef(0);
@@ -35,11 +38,11 @@ export function SensitiveWordsPanel({ onDirtyChange }: { onDirtyChange: (dirty: 
     setComposer({ antigravity: '', devin: '' });
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     setLoading(true);
     setLoadError('');
     try {
-      const result = await invoke<SensitiveWordsSettings>('get_core_sensitive_words_settings');
+      const result = await sensitiveWordsRead.read({ fresh });
       setSaved(result);
       replaceDraft({
         ...result,
@@ -113,6 +116,7 @@ export function SensitiveWordsPanel({ onDirtyChange }: { onDirtyChange: (dirty: 
     setSaveError('');
     try {
       const result = await invoke<SensitiveWordsSettings>('save_core_sensitive_words_settings', { settings: words });
+      sensitiveWordsRead.publish(result);
       setSaved(result);
       replaceDraft(result);
       setJustSaved(true);
@@ -131,11 +135,11 @@ export function SensitiveWordsPanel({ onDirtyChange }: { onDirtyChange: (dirty: 
 
   const refresh = () => {
     if (dirty) setConfirmRefresh(true);
-    else void load();
+    else void load(true);
   };
 
   if (loadError && saved === null) {
-    return <ErrorState title={t('sec.settings.loadFailed')} message={loadError} onRetry={() => void load()} />;
+    return <ErrorState title={t('sec.settings.loadFailed')} message={loadError} onRetry={() => void load(true)} />;
   }
   if (loading && saved === null) {
     return <div className="ec-set-skel" aria-busy="true"><Skeleton lines={5} /></div>;
@@ -220,7 +224,7 @@ export function SensitiveWordsPanel({ onDirtyChange }: { onDirtyChange: (dirty: 
         message={t('config.sensitiveWords.discardMessage')}
         confirmLabel={t('common.refresh')}
         onCancel={() => setConfirmRefresh(false)}
-        onConfirm={() => { setConfirmRefresh(false); void load(); }}
+        onConfirm={() => { setConfirmRefresh(false); void load(true); }}
       />
     </div>
   );
