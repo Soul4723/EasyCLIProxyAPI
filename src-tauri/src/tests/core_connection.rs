@@ -520,3 +520,112 @@ async fn queued_typed_and_alias_commands_revalidate_revision_before_dispatch() {
     assert!(typed.await.err().unwrap().contains("connection changed"));
     assert!(alias.await.err().unwrap().contains("connection changed"));
 }
+
+#[test]
+fn external_presentation_edits_refresh_settings_without_invalidating_target() {
+    use tauri::Listener;
+    let app = tauri::test::mock_builder()
+        .manage(GuiConfigState::new(GuiConfigFile::default()))
+        .manage(AgentConfigStatusCache::default()).manage(CoreProcessState::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let received = events.clone();
+    app.listen("core-connection-changed", move |event| received.lock().unwrap().push(event.payload().to_string()));
+    let state = app.state::<GuiConfigState>();
+    let before = state.snapshot().unwrap();
+    let _guard = state.target_operation.blocking_lock();
+    let mut external = before.clone();
+    external.locale = "zh-CN".into();
+    external.target_revision = 999;
+    crate::core_connection::replace_external_target(app.handle(), external).unwrap();
+    assert_eq!(state.snapshot().unwrap().locale, "zh-CN");
+    state.ensure_target(&before).unwrap();
+    crate::core_connection::replace_external_target(app.handle(), state.snapshot().unwrap()).unwrap();
+    assert!(events.lock().unwrap().is_empty());
+    let mut connection_edit = state.snapshot().unwrap();
+    connection_edit.port += 1;
+    crate::core_connection::replace_external_target(app.handle(), connection_edit).unwrap();
+    assert_eq!(state.snapshot().unwrap().target_revision, before.target_revision + 1);
+    assert_eq!(events.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn saving_the_same_connection_preserves_revision_and_file() {
+    let root = super::support::agent_test_home("connection-noop");
+    let path = root.join("config.toml");
+    let config = GuiConfigFile::default();
+    let mut state = GuiConfigState::new(config);
+    state.persistence_path = Some(path.clone());
+    let app = tauri::test::mock_builder().manage(state)
+        .manage(AgentConfigStatusCache::default()).manage(CoreProcessState::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let before = app.state::<GuiConfigState>().snapshot().unwrap();
+    let connection = crate::core_connection::get_core_connection(app.state()).unwrap();
+    crate::core_connection::save_core_connection(app.handle().clone(), app.state(), connection).await.unwrap();
+    assert!(!path.exists());
+    app.state::<GuiConfigState>().ensure_target(&before).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn unchanged_gui_update_and_atomic_write_do_not_touch_file_metadata() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let root = super::support::agent_test_home("gui-noop-update");
+    let path = root.join("config.toml");
+    let mut config = GuiConfigFile::default();
+    sanitize_gui_config(&mut config).unwrap();
+    write_gui_config_to_path(&config, &path).unwrap();
+    let mut state = GuiConfigState::new(config.clone());
+    state.persistence_path = Some(path.clone());
+    let before = fs::metadata(&path).unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    state.set_locale(config.locale.clone()).unwrap();
+    state.set_close_behavior(config.close_behavior).unwrap();
+    write_gui_config_to_path(&config, &path).unwrap();
+    let bytes = fs::read(&path).unwrap();
+    write_private_bytes_atomically(&path, &bytes).unwrap();
+    let after = fs::metadata(&path).unwrap();
+    assert_eq!(before.ino(), after.ino());
+    assert_eq!(before.modified().unwrap(), after.modified().unwrap());
+    assert_eq!((before.ctime(), before.ctime_nsec()), (after.ctime(), after.ctime_nsec()));
+    assert_eq!(before.permissions().mode(), after.permissions().mode());
+    // Older permissive files are still tightened, once, without rewriting bytes.
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    write_private_bytes_atomically(&path, &bytes).unwrap();
+    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn active_connection_fields_alone_determine_target_identity() {
+    let local = GuiConfigFile::default();
+    for edit in [
+        |c: &mut GuiConfigFile| c.host = "0.0.0.0".into(),
+        |c: &mut GuiConfigFile| c.port += 1,
+        |c: &mut GuiConfigFile| c.management_secret_key.push_str("-changed"),
+        |c: &mut GuiConfigFile| c.api_keys = vec![GuiApiKeyEntry { key: "changed".into(), remark: String::new() }],
+    ] {
+        let mut changed = local.clone(); edit(&mut changed);
+        assert!(crate::core_connection::target_changed(&local, &changed));
+    }
+    let mut inactive = local.clone();
+    inactive.remote_management_key = "inactive-draft".into();
+    assert!(!crate::core_connection::target_changed(&local, &inactive));
+    let mut remote = local;
+    remote.connection_mode = CoreConnectionMode::Remote;
+    for edit in [
+        |c: &mut GuiConfigFile| c.remote_management_origin.push_str("changed"),
+        |c: &mut GuiConfigFile| c.remote_management_key.push_str("changed"),
+        |c: &mut GuiConfigFile| c.remote_client_origin.push_str("changed"),
+        |c: &mut GuiConfigFile| c.remote_client_key.push_str("changed"),
+    ] {
+        let mut changed = remote.clone(); edit(&mut changed);
+        assert!(crate::core_connection::target_changed(&remote, &changed));
+    }
+    let mut inactive = remote.clone();
+    inactive.port += 1;
+    inactive.management_secret_key.push_str("-inactive");
+    assert!(!crate::core_connection::target_changed(&remote, &inactive));
+}

@@ -633,7 +633,7 @@ struct CoreInstallTask {
     result: Option<CoreInstallResult>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 struct GuiConfigFile {
     #[serde(skip)]
@@ -2294,14 +2294,15 @@ impl GuiConfigState {
         Ok(guard)
     }
 
-    fn replace_external(&self, mut config: GuiConfigFile) -> Result<(), String> {
+    fn replace_external(&self, mut config: GuiConfigFile) -> Result<bool, String> {
         let mut current = self
             .inner
             .lock()
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())?;
-        config.target_revision = current.target_revision.wrapping_add(1);
+        let changed = core_connection::target_changed(&current, &config);
+        config.target_revision = current.target_revision.wrapping_add(u64::from(changed));
         *current = config;
-        Ok(())
+        Ok(changed)
     }
 
     fn replace_core_settings_external(
@@ -2571,6 +2572,16 @@ impl GuiConfigState {
         let mut config = current.clone();
         update(&mut config)?;
         sanitize_gui_config(&mut config)?;
+        if config == *current {
+            return Ok(config);
+        }
+        #[cfg(test)]
+        if let Some(path) = &self.persistence_path {
+            write_gui_config_to_path(&config, path)?;
+        } else {
+            write_gui_config(&config)?;
+        }
+        #[cfg(not(test))]
         write_gui_config(&config)?;
         *current = config.clone();
         Ok(config)

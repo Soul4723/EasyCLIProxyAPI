@@ -11,11 +11,14 @@ export type CoreConnection = {
 export type ConnectionTestResult = { connected: boolean; version: string | null; message: string };
 export const getCoreConnection = () => invoke<CoreConnection>('get_core_connection');
 export async function saveCoreConnection(connection: CoreConnection): Promise<CoreConnection> {
-  // Block continuations before native save; restore the same revision only on failure.
+  const revision = await documentTarget.getRevision();
+  // Block continuations before native save; a no-op retains this document.
   documentTarget.block();
   try {
     const saved = await invoke<CoreConnection>('save_core_connection', { connection });
-    window.location.reload();
+    const current = await invoke<number>('get_management_target_revision');
+    if (current !== revision) window.location.reload();
+    else documentTarget.restore();
     return saved;
   } catch (error) {
     documentTarget.restore();
