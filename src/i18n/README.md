@@ -29,7 +29,7 @@ and supported locales). Update the direct UI dictionaries in `ui/uiText.ts` too.
 
 ## Checks
 
-`bun test tests/i18n.test.ts` checks complete key parity, nonempty translations,
+`bun test tests/unit/shell/i18n.test.ts` checks complete key parity, nonempty translations,
 matching interpolation variables, Japanese coverage, English prose and selected
 terminology. TypeScript's `MessageKey` and fragment `Record` types also check
 coverage (`bun run check`). Run `bun test --isolate` for the section-specific

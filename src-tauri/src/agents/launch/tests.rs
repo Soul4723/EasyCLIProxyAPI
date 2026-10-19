@@ -363,7 +363,7 @@ class GuiHelper {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
             configure_background_command(&mut command);
-            processes.children.push(command.spawn().unwrap());
+            processes.children.push(crate::process_spawn::spawn(&mut command).unwrap());
             for _ in 0..100 {
                 if marker.exists() {
                     break;

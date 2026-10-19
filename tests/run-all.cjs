@@ -5,7 +5,7 @@ const root = path.resolve(__dirname, '..');
 const stages = [
   ['Typecheck', 'bun', ['run', 'check']],
   ['Build', 'bun', ['run', 'build']],
-  ['Bun', 'bun', ['test']],
+  ['Bun', 'bun', ['test', '--isolate']],
   ['Rust', 'cargo', ['test', '--manifest-path', 'src-tauri/Cargo.toml', '--bin', 'cpa-gui']],
   ['UI', process.execPath, [path.join(__dirname, 'run-ui.cjs')]],
 ];

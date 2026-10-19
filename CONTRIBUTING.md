@@ -29,7 +29,7 @@ node tests/run-ui.cjs                # the WHOLE UI suite, never a subset
 
 Docs-only changes need `bun run check` and `bun test --isolate`. Run the whole UI suite for any
 change under `src/` or `tests/`; a subset can let regressions in other sections through. See
-[Test](README.md#test) for Playwright setup. If something already fails on `dev`, say so in the PR
+[tests/README.md](tests/README.md) for layout, adding tests and Playwright setup. If something already fails on `dev`, say so in the PR
 with evidence.
 
 Green tests against the browser mock do not show that the app works. For behaviour that depends on
