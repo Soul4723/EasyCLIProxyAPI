@@ -39,12 +39,12 @@ export function deriveCollectionState(collector: CollectorStatus | null, core: C
   const coreDown = Boolean(core && !core.ready);
   const done = (kind: CollectionKind): CollectionState => ({ kind, live: kind === 'collecting', lastCollectedAt, coreDown });
   if (!collector && !core) return done('unknown');
-  if (collector?.state === 'error') return done('error');
-  if (collector?.state === 'paused') return done('paused');
   if (core && !core.ready) {
     if (core.starting) return done('starting');
     return done(core.connectionMode === 'remote' ? 'unreachable' : 'stopped');
   }
+  if (collector?.state === 'error') return done('error');
+  if (collector?.state === 'paused') return done('paused');
   if (!collector) return done('unknown');
   if (collector.state === 'collecting') return done('collecting');
   // Core is reachable but the collector has not attached yet.

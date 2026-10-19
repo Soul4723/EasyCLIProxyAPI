@@ -2354,7 +2354,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 }
                 Ok(Err(error)) => {
                     subscription = None;
-                            subscribe_retry_at = tokio::time::Instant::now()
+                    subscribe_retry_at = tokio::time::Instant::now()
                         + Duration::from_secs(USAGE_SUBSCRIBE_RETRY_SECONDS);
                     set_collector_status(
                         &app,
@@ -2362,6 +2362,10 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                         &format!("Live subscription disconnected; switched to HTTP compatibility mode: {error}"),
                         None,
                     );
+                    // A disconnect can be an explicit stop. Recheck readiness
+                    // before attempting a compatibility pop with cached readiness.
+                    next_core_check_at = tokio::time::Instant::now();
+                    continue;
                 }
             }
         }
@@ -2405,9 +2409,20 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 }
             }
             Err(error) => {
-                set_collector_error(&app, error);
-                wait_or_cancel(&token, retry_seconds).await;
-                retry_seconds = (retry_seconds * 2).min(10);
+                // The core may have stopped since the last readiness probe.
+                // Only report a queue fault if it is still ready to collect.
+                let process_state = app.state::<CoreProcessState>();
+                let ready = current_core_status(Some(process_state.inner()), Some(config.port))
+                    .map(|status| status.ready).unwrap_or(false);
+                if ready {
+                    set_collector_error(&app, error);
+                    wait_or_cancel(&token, retry_seconds).await;
+                    retry_seconds = (retry_seconds * 2).min(10);
+                } else {
+                    core_ready = false;
+                    next_core_check_at = tokio::time::Instant::now();
+                    set_collector_status(&app, "waiting-core", "Waiting for kernel to become ready", None);
+                }
             }
         }
     }

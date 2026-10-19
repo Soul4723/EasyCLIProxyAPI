@@ -29,10 +29,13 @@ describe('deriveCollectionState', () => {
     expect(state.live).toBe(false);
   });
 
-  test('paused and error collector states win and are never live', () => {
+  test('paused and error collector states remain visible while the core is ready', () => {
     expect(deriveCollectionState(collector('paused'), { ready: true }).kind).toBe('paused');
     expect(deriveCollectionState(collector('error'), { ready: true }).live).toBe(false);
-    expect(deriveCollectionState(collector('error'), { ready: false }).kind).toBe('error');
+    expect(deriveCollectionState(collector('error'), { ready: true }).kind).toBe('error');
+    expect(deriveCollectionState(collector('error'), { ready: false }).kind).toBe('stopped');
+    expect(deriveCollectionState(collector('error'), { ready: false, connectionMode: 'remote' }).kind).toBe('unreachable');
+    expect(deriveCollectionState(collector('error'), { ready: false, starting: true }).kind).toBe('starting');
   });
 
   test('a reachable core whose collector has not attached is not live', () => {
