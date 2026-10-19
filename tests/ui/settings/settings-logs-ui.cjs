@@ -87,6 +87,8 @@ const { openApp } = require('../../helpers/shell.cjs');
       await invoke('stop_core_process', {});
       await invoke('save_core_connection', { connection: { mode: 'remote', managementOrigin: 'https://core.example.test', managementKey: 'fixture-management-key', clientOrigin: 'https://core.example.test', clientKey: 'fixture-client-key' } });
     });
+    // Wait for the reloaded shell to consume the new target before starting another navigation.
+    await page.waitForFunction(() => document.querySelector('.ec-core-line')?.dataset.coreStatus === 'remote');
     // The native save reloads the document onto the new target revision; a hash-only goto would keep the fenced old one.
     await openApp(page, base, { path: '/settings/logs', query: 'retarget=1' });
     const folder = page.getByRole('button', { name: 'Open Log Folder' }).last();
