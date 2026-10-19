@@ -18,7 +18,6 @@ const semanticPaint = new Set([
 ]);
 
 const semanticPalettePaint = new Set([
-  'styles/feature-pages.css|.easy-mode-hint',
   'styles/feature-pages.css|.simple-mode-step-status-item.complete .simple-mode-step-status-number',
   'styles/feature-pages.css|.simple-mode-step-status-connector.complete',
   'styles.css|.state-pill.success', 'styles.css|.state-pill.error',

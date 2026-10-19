@@ -34,7 +34,7 @@ if (mode === 'local' && !fs.existsSync(coreConfig)) throw Error('--core-config m
 const seconds = Number(option('--seconds', '60'));
 const settle = Number(option('--settle', '10'));
 if (!(Number.isFinite(seconds) && Number.isFinite(settle) && seconds > 0 && settle >= 0)) throw Error('Invalid duration');
-const routes = option('--routes', '/overview,/providers,/providers/all,/providers/exclusions,/quota,/usage,/usage/requests,/usage/routing,/usage/prices,/usage/data,/plugins,/agents,/agents/sessions,/settings/connection,/settings/access,/settings/routing,/settings/network,/settings/models,/settings/logs,/settings/app,/settings/updates,/easy').split(',');
+const routes = option('--routes', '/overview,/providers,/providers/all,/providers/exclusions,/quota,/usage,/usage/requests,/usage/routing,/usage/prices,/usage/data,/plugins,/agents,/agents/sessions,/settings/connection,/settings/access,/settings/routing,/settings/network,/settings/models,/settings/logs,/settings/app,/settings/updates').split(',');
 if (new Set(routes).size !== routes.length || routes.some(route => !/^\/[a-z0-9/-]*$/.test(route))) throw Error('--routes must contain unique simple hash-router paths');
 const run = (cmd, argv, options = {}) => {
   const result = spawnSync(cmd, argv, { cwd: root, stdio: 'inherit', ...options });

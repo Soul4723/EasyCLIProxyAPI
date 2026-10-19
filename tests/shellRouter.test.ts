@@ -20,6 +20,7 @@ describe('hash router', () => {
     expect(routePath('quota', null, { cred: 'a b', none: undefined })).toBe('/quota?cred=a+b');
   });
   test('legacy page ids map to routes', () => {
+    expect(legacyPagePaths.easy).toBe('/overview');
     expect(legacyPagePaths.config).toBe('/settings');
     expect(legacyPagePaths['usage-records']).toBe('/usage');
   });

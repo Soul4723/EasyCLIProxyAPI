@@ -111,7 +111,6 @@ describe('i18n', () => {
       .toBe('Click “Add Service” in the upper-right to create your first connection');
     expect(translate('ja', 'apiAccess.empty.addFirst', { action: 'API キーを追加' }))
       .toBe('右上の「API キーを追加」から最初の接続を追加してください');
-    expect(translate('zh-CN', 'easyMode.api.supportedPlatforms')).toContain('Vertex');
   });
 
   it('localizes API controls and usage labels in Chinese, English, and Japanese', () => {
@@ -131,8 +130,6 @@ describe('i18n', () => {
   it('preserves technical field names and units in every interface language', () => {
     for (const locale of supportedLocales) {
       for (const [key, term] of [
-        ['easyMode.api.baseUrl', 'API Base URL'],
-        ['easyMode.api.apiKey', 'API Key'],
         ['apiAccess.field.baseUrl', 'Base URL'],
         ['apiAccess.field.key', 'API Key'],
         ['kernel.access.apiUrl', 'API URL'],
@@ -141,9 +138,6 @@ describe('i18n', () => {
         expect(translate(locale, key)).toBe(term);
       }
       for (const key of [
-        'easyMode.api.description',
-        'easyMode.guide.cardStep1ApiDesc',
-        'easyMode.guide.cardStep2ApiFillTip',
         'apiAccess.error.baseRequired',
         'model.error.invalidBaseUrl',
       ] as const) {

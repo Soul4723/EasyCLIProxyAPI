@@ -77,8 +77,6 @@ core.
 The version-1 JSON format is described in the [contract reference](#portable-format-v1).
 Native file dialogs and cross-platform transfer require platform validation.
 
-**Guided setup** (the Overview button) is available only in Local mode.
-
 ## Runtime and management
 
 Remote status means authenticated reachability, not local process ownership. The sidebar

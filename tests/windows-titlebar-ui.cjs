@@ -76,11 +76,11 @@ const coversCenterOf = (locator) => locator.evaluate(el => {
     await setTheme(page, 'dark');
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
 
-    await page.evaluate(() => { window.location.hash = '/easy'; });
-    await page.locator('.ec-app[data-page=easy]').waitFor();
-    assert.equal(await page.locator('.window-titlebar').count(), 1, 'guided setup keeps controls');
-    const easyBounds = await page.locator('.ec-app[data-page=easy]').boundingBox();
-    assert.equal(easyBounds.y + easyBounds.height, 800, 'guided setup is not clipped below the titlebar');
+    await page.evaluate(() => { window.location.hash = '/providers'; });
+    await page.locator('.ec-app[data-page=providers]').waitFor();
+    assert.equal(await page.locator('.window-titlebar').count(), 1, 'providers keeps controls');
+    const providerBounds = await page.locator('.ec-app[data-page=providers]').boundingBox();
+    assert.equal(providerBounds.y + providerBounds.height, 800, 'providers is not clipped below the titlebar');
     await page.setViewportSize({ width: 640, height: 600 });
     assert.equal(await page.locator('.window-close').isVisible(), true);
     const bounds = await page.locator('.window-close').boundingBox();

@@ -89,11 +89,11 @@ before sampling. Stop the externally managed test core yourself after the pass.
 
 ## Routes, timing and output
 
-Default: all 22 routes (main pages, Providers/Agents/Usage/Settings subpages and guided
-setup), **10 seconds settle + 60 seconds idle per route**. To select a shorter pass,
+Default: all 21 routes (main pages and the Providers/Agents/Usage/Settings subpages),
+**10 seconds settle + 60 seconds idle per route**. To select a shorter pass,
 append `--routes /overview,/usage/requests,/settings/routing`. `--settle` and
-`--seconds` override the windows; rates are normalized per minute. Remote guided
-setup intentionally redirects to Overview, and the report records the actual route.
+`--seconds` override the windows; rates are normalized per minute. Routes that redirect
+(for example `/agents/sessions` in Remote mode) are reported with the actual route.
 
 Output defaults to `$XDG_CACHE_HOME/easycli-observe/measure/<name>` (or
 `~/.cache/easycli-observe/measure/<name>`). `--out /absolute/output/directory`

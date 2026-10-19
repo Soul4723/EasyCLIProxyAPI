@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { buildProviderGroupRecord, providerDraftFromRecord, type ProviderSection } from '../src/sections/providers/api/logic';
-import { appendNativeProviderGroup, validateProviderTemplateRecord, validateProviderGroupKeys, providerKeyDraft } from '../src/services/providerGroups';
+import { validateProviderTemplateRecord, validateProviderGroupKeys, providerKeyDraft } from '../src/services/providerGroups';
 import { modelEndpointCandidates, modelsFromRecord } from '../src/services/modelService';
 import { buildProviderHealthProbe } from '../src/services/providerHealthCheck';
 
@@ -77,18 +77,6 @@ describe('v8 provider template fields', () => {
     ]) expect(validateProviderTemplateRecord(value)).not.toBeNull();
     expect(validateProviderTemplateRecord({ 'request-retry': -1, keys: [{ weight: -1 }] })).toBeNull();
     expect(validateProviderGroupKeys([providerKeyDraft({ 'api-key': 'k', weight: -1 })])).toBeNull();
-  });
-
-  it('EasyMode appends one native group without flattening or losing existing overrides', () => {
-    const existing = [{ name: 'codex', opaque: { keep: null }, models: [{ name: 'm', thinking: { levels: [] } }], keys: [
-      { 'api-key': 'a', weight: 5, headers: null, models: null },
-      { 'api-key': 'b', weight: 0, headers: {}, models: [], 'request-retry': 0 },
-    ] }, { name: 'codex (2)', keys: [] }];
-    const snapshot = structuredClone(existing);
-    const next = appendNativeProviderGroup(existing, { name: 'codex', keys: [{ 'api-key': 'c' }] });
-    expect(next.slice(0, 2)).toEqual(snapshot);
-    expect(next[2]).toEqual({ name: 'codex (3)', keys: [{ 'api-key': 'c' }] });
-    expect(existing).toEqual(snapshot);
   });
 
   it('retains full model metadata only when requested for the configuration editor', () => {

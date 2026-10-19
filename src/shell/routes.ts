@@ -6,7 +6,7 @@ import { agentsRoute } from '../sections/agents/route';
 import { pluginsRoute } from '../sections/plugins/route';
 import { settingsRoute } from '../sections/settings/route';
 import { pluginPageRoute } from './PluginPage';
-import { easyRoute, kitRoute } from './extraRoutes';
+import { kitRoute } from './kitRoute';
 import { legacyPagePaths } from './legacyPaths';
 import { pluginPagePathFromLegacyRoute } from '../services/pluginNavigation';
 import type { SectionRoute } from './types';
@@ -15,7 +15,7 @@ import type { SectionRoute } from './types';
 export const routes: readonly SectionRoute[] = [
   overviewRoute, providersRoute, quotaRoute, usageRoute,
   agentsRoute, pluginsRoute, settingsRoute,
-  pluginPageRoute, easyRoute, ...(import.meta.env.DEV ? [kitRoute] : []),
+  pluginPageRoute, ...(import.meta.env.DEV ? [kitRoute] : []),
 ];
 
 export const defaultRouteId = 'overview';

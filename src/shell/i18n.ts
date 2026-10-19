@@ -36,7 +36,6 @@ export const shellZhCN = {
   "shell.density.compact": "紧凑",
   "shell.notFound": "页面不存在",
   "shell.notFound.action": "返回概览",
-  "shell.easyMode": "引导设置",
   "shell.privacy": "隐私模式",
 } as const;
 
@@ -77,7 +76,6 @@ export const shellEn: Record<keyof typeof shellZhCN, string> = {
   "shell.density.compact": "Compact",
   "shell.notFound": "Page not found",
   "shell.notFound.action": "Back to Overview",
-  "shell.easyMode": "Guided setup",
   "shell.privacy": "Privacy mode",
 };
 
@@ -118,6 +116,5 @@ export const shellJa: Record<keyof typeof shellZhCN, string> = {
   "shell.density.compact": "コンパクト",
   "shell.notFound": "ページが見つかりません",
   "shell.notFound.action": "概要に戻る",
-  "shell.easyMode": "ガイド付きセットアップ",
   "shell.privacy": "プライバシーモード",
 };
