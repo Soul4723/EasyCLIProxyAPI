@@ -1,3 +1,5 @@
+// guards the browser-mock contract used by the UI suite
+// Scenario selection, usage filters, lifecycle events, configuration and remote-session fencing support browser-mock-ui.cjs and remote-core-ui.cjs.
 import { describe, expect, test } from 'bun:test';
 import {
   BROWSER_MOCK_CONNECTION_STORAGE_KEY,

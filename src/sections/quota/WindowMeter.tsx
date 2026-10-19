@@ -2,6 +2,7 @@
 // Reset is relative first with the absolute local time in the tooltip; unknown reset is "—", never invented.
 import { Countdown, QuotaBar } from '../../ui';
 import { useI18n } from '../../i18n';
+import { formatShortDateTime } from '../../services/format';
 import type { WindowView } from './model';
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -15,7 +16,7 @@ export function windowLabel(window: WindowView, t: Translate): string {
 export function ResetTime({ ms, now, passed = true }: { ms?: number; now: number; passed?: boolean }) {
   const { t, locale } = useI18n();
   if (ms === undefined || !Number.isFinite(ms)) return <span className="qt-reset qt-reset--none">—</span>;
-  const absolute = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(ms);
+  const absolute = formatShortDateTime(ms, locale);
   if (ms <= now) return passed ? <span className="qt-reset qt-reset--passed" title={absolute}>{t('sec.quota.resetPassed')}</span> : null;
   return <span className="qt-reset ec-mono" title={absolute}><Countdown to={ms} compact /></span>;
 }

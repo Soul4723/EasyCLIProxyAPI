@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { languageOptions, normalizeLocale, supportedLocales, translate } from '../src/i18n';
 import { en, ja, zhCN, zhTW, type MessageKey } from '../src/i18n/resources';
-import { jaOverrides } from '../src/i18n/ja';
+import { jaOverrides } from '../src/i18n/locales/ja';
 
 describe('i18n', () => {
   it('translates connection guidance into Japanese', () => {

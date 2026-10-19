@@ -82,3 +82,28 @@ or stopped, and no host credential or client configuration files are written. Th
 fixtures verify interaction, not native HTTP, TLS or provider OAuth completion.
 Run `bun run test:ui:remote-core` with Playwright available for the interaction
 regression check; it blocks all external HTTP requests.
+
+## Source layout and contract tests
+
+- `src/mocks/` owns the browser adapter, runtime, scenario selection and shared
+  stateful backend simulations. `quotaMock.ts` supplies cross-section credential
+  and quota scenarios; `lightingMock.ts` supplies scheduler commands/events;
+  `pluginMock.ts` supplies management routes and the native-webview simulation.
+  These are runtime services, not section-local display fixtures.
+- `src/sections/<name>/mock.ts` owns section-specific fixture data and command or
+  management handlers, with provider subsections following the same convention.
+  `sectionMocks.ts` registers the section handlers; `sectionMockTypes.ts` defines
+  their shared host/result contract. Keep shared runtime state in `src/mocks/`
+  rather than copying it into a section.
+- Keep mock responses compatible with the real services and the UI consumers.
+  `tests/browserMockRuntime.test.ts`, `browserMockQuota.test.ts`,
+  `lightingMock.test.ts` and `pluginMock.test.ts` guard the browser-mock contract
+  used by the UI suite: lifecycle and connection fencing, real quota parsing and
+  credential edits, lighting commands/events, and plugin routes/webview ownership.
+  They are not evidence of native backend correctness. All four are retained;
+  none tests only unconsumed private mock internals.
+
+Run `bun test --isolate` for these contracts and `node tests/run-ui.cjs` for the
+whole headless UI suite. Add fixture data locally when only one section needs it;
+add shared scenarios or simulated backend protocols here when several consumers
+must see the same state.

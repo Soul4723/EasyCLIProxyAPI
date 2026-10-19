@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { formatDuration, formatUsageNumber } from '../src/services/usageNumber';
+import { formatLatency as formatDuration, formatUsageNumber } from '../src/services/format';
 
 describe('使用统计数量单位', () => {
   test('按数量级自动切换 K、M、B', () => {

@@ -1,3 +1,4 @@
+import { formatNumericDateTime24 } from './format';
 import { getCurrentLocale, translate, type AppLocale } from '../i18n';
 
 export const quotaResetInstant = (value: unknown): number | undefined => {
@@ -38,9 +39,7 @@ export const formatQuotaReset = (
   nowMs = Date.now(),
 ): string => {
   if (resetAtMs === undefined || !Number.isFinite(resetAtMs)) return fallback || '';
-  const absolute = new Intl.DateTimeFormat(locale, {
-    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(resetAtMs);
+  const absolute = formatNumericDateTime24(resetAtMs, locale);
   const delta = resetAtMs - nowMs;
   if (delta <= 0) return `${absolute} · ${translate(locale, 'quota.resetPassed')}`;
   const minutes = Math.max(1, Math.floor(delta / 60000));
