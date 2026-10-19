@@ -20,6 +20,7 @@ Run all of these from the repository root and record the results in the PR descr
 
 ```bash
 bun install --frozen-lockfile
+bun run lint                        # Biome (existing findings are tracked separately)
 bun run check
 bun run build
 bun test --isolate
@@ -35,6 +36,12 @@ with evidence.
 Green tests against the browser mock do not show that the app works. For behaviour that depends on
 the Rust backend, a core process or Remote mode, also observe the real app; see
 [Observe the real debug app](docs/dev-observe.md).
+
+Biome lints TS/TSX/JS/CJS in `src/`, `tests/` and `scripts/`; it does not format during lint.
+Format only files you changed with `bunx biome format --write <files>` (or
+`bunx biome format --write --changed --since=origin/dev`), never the whole repository.
+The formatter uses two spaces, single JS quotes, double JSX quotes, semicolons and a 120-column target;
+it is opt-in, and existing compact layouts are not reformatted by this setup.
 
 ## Commits and pull requests
 
