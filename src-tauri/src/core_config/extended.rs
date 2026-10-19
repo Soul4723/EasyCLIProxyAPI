@@ -798,7 +798,7 @@ fn remove_yaml_path(mapping: &yaml_edit::Mapping, path: &[String]) {
             mapping.remove(key.as_str());
         } else if let Some(node) = mapping.get(key.as_str()) {
             if let Some(child) = node.as_mapping() {
-                remove_yaml_path(&child, rest);
+                remove_yaml_path(child, rest);
             }
         }
     }
@@ -928,14 +928,12 @@ fn prepare_patch(
             }
         }
     }
-    if changed("credentials/in-flight/snapshot-interval")
-        || changed("credentials/in-flight/stale-after")
-    {
-        if duration("credentials/in-flight/snapshot-interval", 2_000_000_000)
+    if (changed("credentials/in-flight/snapshot-interval")
+        || changed("credentials/in-flight/stale-after"))
+        && duration("credentials/in-flight/snapshot-interval", 2_000_000_000)
             > duration("credentials/in-flight/stale-after", 10_000_000_000) / 3
-        {
-            return Err("Credential stale-after must be at least three snapshot intervals".into());
-        }
+    {
+        return Err("Credential stale-after must be at least three snapshot intervals".into());
     }
     if ["max-part-bytes", "max-part-count", "max-revision-bytes"]
         .iter()

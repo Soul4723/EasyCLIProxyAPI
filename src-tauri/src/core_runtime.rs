@@ -585,6 +585,7 @@ pub(crate) fn restart_core_process_with_state(
     current_core_status(Some(process_state), Some(config.port))
 }
 
+#[allow(clippy::too_many_arguments)] // Preserve the existing command/helper interface in this behavior-neutral cleanup.
 pub(crate) async fn stage_core_version_inner(
     app: &tauri::AppHandle,
     window: &tauri::Window,

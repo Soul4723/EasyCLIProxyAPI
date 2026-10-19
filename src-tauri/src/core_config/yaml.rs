@@ -152,7 +152,7 @@ fn remove_yaml_edit_path(mapping: &yaml_edit::Mapping, path: &[String]) {
         mapping.remove(key.as_str());
     } else if let Some(node) = mapping.get(key.as_str()) {
         if let Some(child) = node.as_mapping() {
-            remove_yaml_edit_path(&child, rest);
+            remove_yaml_edit_path(child, rest);
         }
     }
 }

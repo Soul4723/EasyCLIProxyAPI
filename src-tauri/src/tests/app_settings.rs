@@ -30,8 +30,10 @@ fn image_generation_preference_round_trips_without_leaking_into_kernel_yaml() {
 fn usage_statistics_opt_out_is_removed_when_reenabled() {
     let home = agent_test_home("usage-opt-out");
     let path = home.join("config.toml");
-    let mut config = GuiConfigFile::default();
-    config.usage_statistics_disabled = Some(true);
+    let mut config = GuiConfigFile {
+        usage_statistics_disabled: Some(true),
+        ..Default::default()
+    };
     write_gui_config_to_path(&config, &path).unwrap();
     let content = fs::read_to_string(&path).unwrap();
     assert!(content.contains("usage_statistics_disabled = true"));
@@ -269,8 +271,10 @@ fn gui_config_holding_keys_is_private_on_unix() {
     use std::os::unix::fs::PermissionsExt;
     let home = agent_test_home("gui-config-private");
     let path = home.join("config.toml");
-    let mut config = GuiConfigFile::default();
-    config.remote_management_key = "remote-management-secret".into();
+    let mut config = GuiConfigFile {
+        remote_management_key: "remote-management-secret".into(),
+        ..Default::default()
+    };
     write_gui_config_to_path(&config, &path).unwrap();
     let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&path), 0o600, "a new GUI config is created owner-only");

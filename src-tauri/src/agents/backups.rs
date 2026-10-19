@@ -92,7 +92,7 @@ pub(crate) fn agent_data_directory(paths: &[PathBuf]) -> Result<PathBuf, String>
                 .as_os_str(),
         );
         assert!(paths.iter().all(|p| p.starts_with(&directory)));
-        return Ok(directory.join("cpa-data"));
+        Ok(directory.join("cpa-data"))
     }
     #[cfg(not(test))]
     {

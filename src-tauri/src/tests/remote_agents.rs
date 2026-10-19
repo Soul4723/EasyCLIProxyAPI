@@ -141,7 +141,7 @@ async fn remote_model_errors_and_redirects_cannot_echo_or_forward_keys() {
         let target = remote_target(&format!("http://{}", listener.local_addr().unwrap()), "fixture-client");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut data = [0; 8192]; stream.read(&mut data).unwrap();
+            let mut data = [0; 8192]; let _request_bytes = stream.read(&mut data).unwrap();
             stream.write_all(response.as_bytes()).unwrap();
         });
         let error = fetch_agent_model_payload(&target, effective_agent_api_key(&target)).await.unwrap_err();

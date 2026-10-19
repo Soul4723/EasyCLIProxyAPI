@@ -179,7 +179,7 @@ pub(crate) async fn resolve_plugin_entry_url(
     let response = request_plugins(config).await?;
     let plugins = read_management_value(response).await?;
     let path = active_plugin_menu_path(&plugins, plugin_id, menu_index)?;
-    let origin = crate::core_connection::connection_from_config(&config)?.management_origin;
+    let origin = crate::core_connection::connection_from_config(config)?.management_origin;
 
     resolve_plugin_resource_url(&origin, path)
 }

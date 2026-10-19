@@ -200,10 +200,9 @@ pub(super) fn validate_restore_target(
                 add(&pair, "url", "key", &openai)?;
             }
         }
-        PI_AGENT_ID => {
-            if root.get("baseUrl").is_some() || root.get("apiKey").is_some() {
-                add(root, "baseUrl", "apiKey", &origin)?;
-            }
+        PI_AGENT_ID
+            if root.get("baseUrl").is_some() || root.get("apiKey").is_some() => {
+            add(root, "baseUrl", "apiKey", &origin)?;
         }
         _ => {}
     }

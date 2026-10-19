@@ -36,9 +36,8 @@ pub(crate) fn resolve_pi_executable(
 static CODEX_CATALOG_SYNC_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static CODEX_CATALOG_UPDATE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static CODEX_CATALOG_REFRESH: tokio::sync::Notify = tokio::sync::Notify::const_new();
-static CODEX_CATALOG_FILE_SIGNATURES: std::sync::Mutex<
-    Option<HashMap<PathBuf, Option<(u64, Option<SystemTime>)>>>,
-> = std::sync::Mutex::new(None);
+type CatalogFileSignatures = HashMap<PathBuf, Option<(u64, Option<SystemTime>)>>;
+static CODEX_CATALOG_FILE_SIGNATURES: std::sync::Mutex<Option<CatalogFileSignatures>> = std::sync::Mutex::new(None);
 
 #[derive(Clone, Copy)]
 enum AgentStatusDetectionTarget {
@@ -102,11 +101,11 @@ pub(crate) fn inspect_agent_config_statuses_with_overrides(
                         AgentStatusDetectionTarget::Client(client) => {
                             let (executable_override, desktop_override) =
                                 agent_executable_overrides(executable_overrides, client);
-                            inspect_agent_config_with_executables(client, home, &config, api_key,
+                            inspect_agent_config_with_executables(client, home, config, api_key,
                                 executable_override, desktop_override)
                         }
                         AgentStatusDetectionTarget::PiProvider => {
-                            inspect_pi_provider_status_with_executable(home, &config, api_key,
+                            inspect_pi_provider_status_with_executable(home, config, api_key,
                                 executable_overrides.get(PI_AGENT_ID).map(Path::new))
                         }
                     };
@@ -705,6 +704,7 @@ pub(crate) async fn get_model_alias_edit_source(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Preserve the existing command/helper interface in this behavior-neutral cleanup.
 pub(crate) async fn create_thinking_alias(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     expected_revision: u64,
@@ -1065,7 +1065,7 @@ fn sync_prepared_codex_model_catalog(
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let changed = sync_codex_model_catalog_if_configured(
         &home,
-        &config,
+        config,
         effective_agent_api_key(config),
         &prepared.models,
         catalog,

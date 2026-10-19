@@ -11,174 +11,162 @@
 <h1 align="center">EasyCLIProxyAPI</h1>
 
 <p align="center">
-  A portable desktop console for CLIProxyAPI.<br>
-  Our goal is to make tokens free—as in freedom.
+  A desktop console for <a href="https://github.com/router-for-me/CLIProxyAPI">CLIProxyAPI</a>.
 </p>
 
-## Overview
+EasyCLIProxyAPI is a graphical desktop app for running and managing a CLIProxyAPI core: lifecycle,
+OAuth sign-in, API providers, credentials, quota, usage history, plugins, and the configuration of
+agent clients such as Claude Code and Codex. It is built with Tauri 2, React and Rust, and can carry
+a matching core archive for first-time and offline setup.
 
-EasyCLIProxyAPI is a graphical desktop management tool built on
-[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). It brings core lifecycle management,
-OAuth authorization, API provider aggregation, protocol conversion, credential management,
-quota inspection, usage records, model aliases, and agent client configuration into one interface.
+This repository is a **fork** of [router-for-me/EasyCLIProxyAPI](https://github.com/router-for-me/EasyCLIProxyAPI),
+which is the original project and the source of the app's foundation, the bundled-core packaging, the
+agent integrations and the release pipeline. Please see the upstream
+[README](https://github.com/router-for-me/EasyCLIProxyAPI#readme) and releases for the upstream
+product. What the fork changed or removed is listed in
+[docs/upstream-divergence.md](docs/upstream-divergence.md).
 
-The application is built with Tauri, React, and Rust. It can carry a matching CLIProxyAPI core
-archive, making first-time setup and offline installation easier.
+## What this fork adds
 
-## Sponsor
+- **Remote core mode.** Attach to one already-running CLIProxyAPI v8 core over its management API
+  instead of managing a process on this computer. See [Local vs Remote](#local-vs-remote-core) below.
+- **A reworked UI with seven sections.** Overview, Providers, Quota, Usage, Agents, Plugins and
+  Settings, with a route registry, a shared component kit and a global privacy mode that masks
+  identifiers.
+- **Quota.** Per-account quota windows with refresh, enable/disable, cooldowns, and by-provider, grid
+  and timeline views. **Lighting** lets you set an opt-in schedule per credential that starts the next
+  quota window after a reset or at a chosen time, with active hours and retry settings.
+- **Usage history stored locally.** Traffic from the core's usage queue is kept in a local SQLite
+  database, so history stays visible while the core is stopped. It includes a request list with
+  detail and export, model prices, and a **Routing** view with the candidates and the policy used for
+  each request.
+- **A browser mock and a headless observation path** so the UI can be developed and tested without
+  Tauri, and the real app can be observed without a desktop session.
 
-[![https://go.apimart.ai/gh-easycliproxyapi](./assets/apimart-en.png)](https://go.apimart.ai/gh-easycliproxyapi)
+The upstream capabilities (multi-provider OAuth, API-provider aggregation and protocol conversion,
+model aliases, authentication-file management, plugins, in-app updates, tray/menu-bar integration,
+and automatic recovery of a managed local core that exits unexpectedly, see
+[docs/core-recovery.md](docs/core-recovery.md)) remain.
 
-Thanks to APIMart for sponsoring this project!
+## Local vs Remote core
 
-APIMart is a low-cost API platform for AI image & video generation — GPT-Image-2 from $0.006/image, 160+ images per dollar. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — [sign up here](https://go.apimart.ai/gh-easycliproxyapi) to get started.
+| | **Local** (This computer) | **Remote** |
+| --- | --- | --- |
+| Core | Installed, started, supervised and updated by the app | Already running elsewhere; the app does not touch its process |
+| Connection | Loopback to the managed process | Management origin and key, plus a separate client API origin and key |
+| Process controls | Start, stop, restart, install, update, crash recovery | Not available |
+| Agent clients | Configured against the local endpoint | Configured against the remote client API |
+| Codex sessions (Agents) | Available | Hidden (they live on the local disk) |
 
-## Feature Tour
+Choose the mode in **Settings → Connection**. Use `https://` (or a private tunnel) for a remote core
+on another host, since plain HTTP sends both keys unencrypted. The guide, fencing rules, transport
+policy and limitations are in [docs/remote-core.md](docs/remote-core.md), which is authoritative.
+Remote mode requires a v8 management API (core 8.0.29 or later).
 
-### Home dashboard and local API endpoints
+## The sections
 
-![Home dashboard and local API endpoints](docs/screenshots/en/1.png)
+| Section | What it is for | Tabs |
+| --- | --- | --- |
+| **Overview** | Core runtime card (start/stop/restart, recovery, versions), a connect-a-client card, a provider quota summary, a usage tile, "Needs action" and "Coming up" lists, a health check, and a Get started checklist | – |
+| **Providers** | OAuth sign-in and API-key providers, per-provider detail, health checks, model transfer, credential settings and model rules | Providers · All credentials · Model exclusions |
+| **Quota** | Per-account quota windows, refresh, enable/disable, cooldowns, and lighting schedules | – (by provider, grid and timeline views) |
+| **Usage** | Charts and statistics, requests, routing, model prices, and collector/storage controls | Overview · Requests · Routing · Prices · Data |
+| **Agents** | Detect, configure, back up and launch agent clients on this computer against the selected core; Codex session browser and editor | Clients · Codex sessions (Local only) |
+| **Plugins** | Core plugins: installed list, configuration and sign-in, the store, and plugin settings | Installed · Store · Settings |
+| **Settings** | Core and app configuration | Connection · Access keys · Routing · Network & TLS · Models · Logs · App · Updates |
 
-The Home page provides a quick overview of the local proxy runtime and ready-to-use API endpoints:
+Plugins can contribute their own pages, which appear in the sidebar under Plugins. The interface is
+available in English, Simplified Chinese, Traditional Chinese and Japanese, with several themes.
+Screenshots from the real app are pending; see [docs/screenshots](docs/screenshots/README.md).
 
-- Start, stop, restart, and refresh the CLIProxyAPI core.
-- View installation state, runtime state, process ID, and listening port.
-- Copy ready-to-use OpenAI, Claude, and Gemini-compatible API endpoints.
-- Check local connectivity and the application/core version at a glance.
+## Quick start (release packages)
 
-Home Runtime Control also supports attaching to one already-running remote core.
-See [Remote core connections](docs/remote-core.md) for setup, OAuth completion,
-usage compatibility behavior, and the local-process safeguards.
+This fork does not publish release packages yet, so [build from source](#build-from-source) to try its
+changes. Upstream's packages are on the
+[upstream releases page](https://github.com/router-for-me/EasyCLIProxyAPI/releases/latest) and do not
+include this fork's changes.
 
-Core installation, version comparison, and offline installation are available from the
-**Version Management** page. You can switch between official GitHub, GitCode, and GitHub
-mirror proxies or add custom HTTPS mirror prefixes; application and core updates prefer the selected
-channel and fall back automatically.
+1. Extract the Windows or Linux archive, or open the macOS DMG, and launch EasyCLIProxyAPI (or run the
+   portable directory from a source build).
+2. For a Local core, install the bundled or latest CLIProxyAPI core from **Overview** (or **Settings →
+   Updates**). For a Remote core, choose **Remote core** in **Settings → Connection**.
+3. On **Overview**, start the core and follow the Get started checklist: sign in or add a provider
+   under **Providers**, then connect a client from **Agents** or copy the local endpoint.
 
-Application and core updates are each checked once in the background at startup and automatically
-whenever you enter **Version Management**. Their respective **Check for Updates** buttons remain
-available for manual checks. Re-rendering the page does not trigger another check. Changing download
-sources does not trigger a check, and reopening the page preserves the saved source. Checks do not
-automatically download or install updates.
+## Build from source
 
-### OAuth account authorization
+Prerequisites:
 
-![OAuth account authorization](docs/screenshots/en/2.png)
+- [Bun](https://bun.sh) at the version in `packageManager` in `package.json` (currently 1.3.14).
+- Node.js, used by the build scripts and the UI tests.
+- A stable [Rust toolchain](https://rustup.rs) and the
+  [Tauri 2 system prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform. On
+  Debian/Ubuntu the release workflow installs `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
+  patchelf`.
 
-The OAuth page centralizes browser-based authorization for supported providers:
+```bash
+bun install --frozen-lockfile
+bun run tauri dev          # run the app with hot reload
+```
 
-- Codex OAuth
-- Claude OAuth
-- Antigravity OAuth
-- Kimi OAuth
-- xAI OAuth
+Release build (Linux/macOS): `./build.sh` runs `bun tauri build --no-bundle`, then
+`scripts/portable.mjs` assembles a portable directory in `bin-work/` that includes the CLIProxyAPI core
+archive named by `core-version.txt` (downloaded and checksum-verified). `./run.sh` starts it.
+`build.ps1` and `run.ps1` do the same on Windows. Official release packages are produced by
+`.github/workflows/release.yml`. Set `CARGO_TARGET_DIR` to a directory outside the repository if you
+build in several checkouts.
 
-EasyCLIProxyAPI opens the authorization page in the browser and supports completing the callback
-flow when an automatic redirect is unavailable.
+### Run the UI without Tauri
 
-### API provider aggregation
+`bun run dev` serves the frontend with a **browser mock** of the backend (fictional data, nothing
+persists). Open the printed URL, and add `?mock=running`, `?mock=stopped`, `?mock=empty` or
+`?mock=error` to pick a scenario. See [src/mocks/README.md](src/mocks/README.md). In dev builds, the
+shared component gallery is at `#/kit`.
 
-![API provider aggregation](docs/screenshots/en/3.png)
+## Test
 
-The provider workspace manages upstream API credentials and endpoints by protocol or provider:
+```bash
+bun run check                       # tsc --noEmit
+bun run build                       # tsc + vite build
+bun test --isolate                  # unit tests
+node tests/run-ui.cjs               # the whole headless UI suite
+(cd src-tauri && cargo test --bin cpa-gui)
+```
 
-- Codex
-- OpenAI-compatible providers
-- DeepSeek
-- Claude
-- Gemini
+- `tests/*.test.ts(x)` run under Bun. `tests/*-ui.cjs` are headless Playwright tests against the
+  browser mock; each starts its own Vite server. Run the **whole** suite with `node tests/run-ui.cjs`
+  rather than a subset, because a subset can miss regressions elsewhere.
+- The UI tests need Playwright. Point `PLAYWRIGHT_MODULE` at an existing Playwright installation and
+  use `PLAYWRIGHT_CHANNEL` (for example `chrome` or `msedge`) to use an installed browser instead of the
+  bundled Chromium. `tests/run-ui.cjs` documents both.
+- A green mock suite does not prove the packaged app works. To observe the real debug app headlessly,
+  see [Observe the real debug app](docs/dev-observe.md).
 
-You can add multiple connections, search existing entries, refresh provider state, and use them
-through the unified local CLIProxyAPI endpoint. Requests and responses can be converted between
-supported OpenAI, Claude, Gemini, and compatible formats.
+## Architecture overview
 
-### Plugins
+**Frontend** (`src/`, React + TypeScript):
 
-The **Plugins** page manages installed core plugins, their enabled state and typed configuration.
-Browse the plugin store to install, update or select a release version, configure additional stores
-and environment-based authentication, open pages and sign in to accounts provided by enabled plugins. Pages provided by enabled plugins appear as a submenu under Plugins in the sidebar (below Versions), expanded when space allows and collapsible otherwise. A plugin page opens in a native webview that fills the content area, with small Back, Reload and Open in browser buttons in its bottom-right corner (drag the grip to move them; double-click it to reset); new-window links open in the system browser. Third-party
-installations require source review and a typed confirmation. The page detects unsupported core
-builds and shows a restart action when an installation or removal requires it.
-Refreshing **Local plugins** checks installed plugins for updates and shows an update action on their cards.
-Public GitHub releases are checked directly using the configured GitHub token or the app's `GITHUB_TOKEN` environment variable; auth-required entries keep the core's authentication flow.
-Refreshing the **Plugin store** only reloads the plugin list. Installation queries the latest release unless a version is selected.
+- `src/shell/` is the app frame. `routes.ts` is the single registry that sets the sidebar order and
+  groups; add a page by adding its route.
+- `src/sections/<name>/` holds one folder per section, following the convention
+  `index`, `route`, `subs` (tabs), `model`, `mock`, `i18n`.
+- `src/ui/` is the shared component kit (browse it at `#/kit` in a dev build).
+- `src/services/platform.ts` is the only bridge to Rust (`invoke`); commands that are fenced in Remote
+  mode are covered by a parity test (see [docs/remote-core.md](docs/remote-core.md)).
+- `src/services/dataSource.ts` provides shared, de-duplicated data sources (core status, credentials,
+  configuration, lighting, plugins).
+- `src/mocks/` is the browser mock runtime used for development and by the UI tests.
 
-### Usage history and token analytics
+**Backend** (`src-tauri/src/`, Rust), by concern: core process and runtime (`core_runtime.rs`,
+`core_recovery.rs`), connection mode (`core_connection.rs`), management API client
+(`management_api.rs`), `usage/` (collector and SQLite store), `agents/` and `codex_sessions/` (client
+discovery and configuration), `plugins/`, `lighting.rs`, `provider_health/`, tray and window
+handling, app updates, and `dev_observe.rs` (gated debug harness). Commands are registered in
+`main.rs`.
 
-![Usage history and token analytics](docs/screenshots/en/4.png)
+## Supported platforms
 
-The Usage page helps you understand local request activity and token consumption:
-
-- Review request totals, token counts, success rate, throughput, cache hit rate, and estimated cost.
-- Filter usage by time, model, provider, source, key, and result.
-- Inspect request/token trends and input, output, reasoning, and cache usage.
-- Browse request details, analysis views, and price statistics.
-- Collect through CPA's real-time usage subscription with a durable local inbox and automatic HTTP fallback.
-- Upgrade legacy usage databases once at startup after saving a backup under `usage-records/backups`.
-
-### Agent client configuration
-
-![Agent client configuration](docs/screenshots/en/5.png)
-
-The Agents page detects installed desktop and CLI clients and helps connect them to the local
-proxy. Supported clients include:
-
-- Claude Code
-- Claude Desktop
-- Codex
-- OpenCode
-- OpenClaw
-- Hermes Agent
-- Pi (with the CLIProxyAPI provider extension)
-- ZCode
-- WorkBuddy / WorkBuddy AI
-- Antigravity CLI
-- Kimi Code
-- Grok Build
-- Oh My Pi
-
-For supported clients, the application can synchronize the available model catalog, select a
-default model, back up the original configuration before applying managed settings, and restore the
-previous configuration.
-
-Antigravity CLI connects through CPA's Gemini-compatible API. Launch the CLI from CPA to supply its endpoint and API key for that process. Running `agy` directly requires setting those environment variables yourself.
-
-Codex **Session Management → Edit Context (Experimental)** reads messages only after a session is selected.
-Listing and pagination query SQLite, the session index and directory metadata without opening or prefetching rollouts.
-Unindexed sessions are discovered by their standard rollout filenames; missing workspace and provider details load when the editor opens.
-Metadata is collapsed by default, with message-role filters retained. Close the target session before saving; saves modify real local history and create backups.
-Manually renamed files without a session ID in their filename or a database path are not discovered by scanning their contents.
-
-## Additional Capabilities
-
-- Manage core settings, API keys, remote management credentials, and routing strategy.
-- Create client-visible model aliases and map them to provider models and reasoning levels.
-- Upload, download, inspect, and manage authentication files.
-- Review provider quotas and account availability.
-- Keep the application available from the macOS menu bar or Windows system tray.
-
-## Quick Start
-
-1. Download the package for your operating system from
-   [GitHub Releases](https://github.com/router-for-me/EasyCLIProxyAPI/releases/latest).
-2. Extract the Windows or Linux archive, or open the macOS DMG.
-3. Launch EasyCLIProxyAPI.
-4. Open **Version Management** and install the bundled or latest CLIProxyAPI core.
-5. Return to **Home**, start the core, then copy the required local endpoint or configure an OAuth/API provider.
-
-## Upgrading
-
-Every Windows release publishes both the complete ZIP and the legacy `update` ZIP. This keeps in-app updates available to older clients that have not migrated yet, while newer clients use the complete package so the bundled core can be updated too.
-
-Current Windows, Linux, and macOS release packages support in-app automatic updates. Linux replaces the portable application files while preserving runtime data, and macOS replaces the signed application bundle. Each platform waits for the new version to confirm a successful launch and rolls back automatically if startup fails. The installation directory must be writable by the current user.
-
-Existing Linux and macOS installations need one manual upgrade to a release that includes the cross-platform auto-update marker. In-app updates are available after that release has been launched once.
-
-If you are running v0.2.5 or earlier, perform one manual migration: exit EasyCLIProxyAPI, download the latest complete Windows ZIP for your architecture, then copy the contents of its top-level directory over the existing installation directory. Do not delete the existing directory first; user data such as `config.toml`, `oauth`, and `cpa-core/config.yaml` will remain in place. After launching the new version, later releases can use in-app automatic updates.
-
-## Supported Platforms
-
-GitHub Actions builds the following release packages:
+GitHub Actions builds these release packages:
 
 | Operating System | Architecture | Package |
 | --- | --- | --- |
@@ -186,6 +174,18 @@ GitHub Actions builds the following release packages:
 | macOS | amd64, aarch64 | DMG |
 | Linux | amd64, aarch64 | TAR.GZ |
 
-## Related Project
+This fork's changes have been exercised mainly on Linux; Windows and macOS behaviour that depends on
+native dialogs and file permissions has not been verified for them.
 
-- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) — the proxy core managed by this application.
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Pull requests target `dev`.
+
+## Credits and license
+
+EasyCLIProxyAPI is created by [router-for-me](https://github.com/router-for-me); this fork builds on
+[their work](https://github.com/router-for-me/EasyCLIProxyAPI). The proxy core it manages is
+[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). Licensed under the [MIT License](LICENSE).
+
+Other languages: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) (both describe upstream and are
+outdated for this fork).

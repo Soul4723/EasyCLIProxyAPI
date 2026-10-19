@@ -133,6 +133,7 @@ fn validate_selected_agent_restart(config: &GuiConfigFile, client: AgentClient, 
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Preserve the existing command/helper interface in this behavior-neutral cleanup.
 pub(crate) fn launch_agent(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
@@ -614,9 +615,9 @@ fn spawn_managed_deepseek_harness(
             .args(arguments)
             .current_dir(working_directory)
             .process_group(0);
-        return command
+        command
             .spawn()
-            .map_err(|error| format!("Failed to start DeepSeek Harness: {error}"));
+            .map_err(|error| format!("Failed to start DeepSeek Harness: {error}"))
     }
 
     #[cfg(not(any(windows, unix)))]
@@ -708,7 +709,7 @@ fn terminate_deepseek_harness_process_tree(child: &mut Child) -> Result<(), Stri
         child
             .wait()
             .map_err(|error| format!("Failed while waiting for DeepSeek Harness process to exit: {error}"))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(windows, unix)))]

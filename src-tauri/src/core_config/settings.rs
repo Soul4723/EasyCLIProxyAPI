@@ -1444,8 +1444,8 @@ fn read_saved_gui_config(config_path: &Path, legacy_config_path: &Path) -> Resul
     let had_existing_gui_config = gui_config_exists || legacy_config_exists;
 
     let (config, presence, changed) = if gui_config_exists {
-        let content = fs::read_to_string(&config_path)
-            .map_err(|err| format!("Failed to read GUI configuration {}: {err}", path_to_string(&config_path)))?;
+        let content = fs::read_to_string(config_path)
+            .map_err(|err| format!("Failed to read GUI configuration {}: {err}", path_to_string(config_path)))?;
         match (
             toml::from_str::<GuiConfigFile>(&content),
             toml::from_str::<GuiConfigPresence>(&content),
@@ -1454,10 +1454,10 @@ fn read_saved_gui_config(config_path: &Path, legacy_config_path: &Path) -> Resul
             _ => return Err(format!("Failed to parse saved GUI configuration {}; repair it before starting the app", path_to_string(config_path))),
         }
     } else if legacy_config_exists {
-        let content = fs::read_to_string(&legacy_config_path).map_err(|err| {
+        let content = fs::read_to_string(legacy_config_path).map_err(|err| {
             format!(
                 "Failed to read old GUI configuration {}: {err}",
-                path_to_string(&legacy_config_path)
+                path_to_string(legacy_config_path)
             )
         })?;
         let config = serde_yaml::from_str::<GuiConfigFile>(&content)
@@ -2196,7 +2196,7 @@ pub(crate) fn write_gui_config_to_path(
         ),
         (
             "max-retry-interval",
-            value(i64::from(config.max_retry_interval)),
+            value(config.max_retry_interval),
         ),
         (
             "streaming-bootstrap-retries",
@@ -2383,11 +2383,13 @@ mod saved_config_tests {
         let root = std::env::temp_dir().join(format!("cpa-native-remote-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let path = root.join("config.toml");
-        let mut config = GuiConfigFile::default();
-        config.connection_mode = CoreConnectionMode::Remote;
-        config.remote_management_origin = "https://remote.example/path".into();
-        config.remote_management_key = "management-secret".into();
-        config.remote_client_origin = "https://remote.example".into();
+        let config = GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: "https://remote.example/path".into(),
+            remote_management_key: "management-secret".into(),
+            remote_client_origin: "https://remote.example".into(),
+            ..Default::default()
+        };
         fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
         assert!(read_saved_gui_config(&path, &root.join("legacy.yaml")).is_err());
         fs::remove_dir_all(root).unwrap();

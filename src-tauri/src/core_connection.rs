@@ -228,7 +228,7 @@ fn write_portable_connection(path: &Path, document: &[u8]) -> Result<(), String>
         let _ = fs::remove_file(&temporary);
         return Err(format!("Failed to write connection export: {error}"));
     }
-    if let Err(error) = crate::core_config::replace_file_atomically(&temporary, &path) {
+    if let Err(error) = crate::core_config::replace_file_atomically(&temporary, path) {
         let _ = fs::remove_file(&temporary);
         return Err(format!("Failed to finalize connection export: {error}"));
     }

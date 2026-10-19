@@ -721,8 +721,10 @@ server.serve_forever()
         let url = format!("https://127.0.0.1:{}/v8/management/config", port.trim());
         let compatible = local_management_http_client(true).unwrap().get(&url).send().await;
         let strict_local = local_management_http_client(false).unwrap().get(&url).send().await;
-        let mut config = GuiConfigFile::default();
-        config.connection_mode = super::super::CoreConnectionMode::Remote;
+        let config = GuiConfigFile {
+            connection_mode: super::super::CoreConnectionMode::Remote,
+            ..Default::default()
+        };
         let strict_remote = management_http_client_for(&config).unwrap().get(&url).send().await;
         server.kill().unwrap();
         server.wait().unwrap();
@@ -743,7 +745,7 @@ server.serve_forever()
             let server = async {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut request = [0; 4096];
-                socket.read(&mut request).await.unwrap();
+                let _request_bytes = socket.read(&mut request).await.unwrap();
                 socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
             };
             let client = management_http_client_for(&config).unwrap();
@@ -779,8 +781,10 @@ server.serve_forever()
     #[test]
     fn oauth_states_remain_bound_to_start_revision_in_both_modes() {
         for mode in [super::super::CoreConnectionMode::Local, super::super::CoreConnectionMode::Remote] {
-            let mut config = GuiConfigFile::default();
-            config.connection_mode = mode;
+            let config = GuiConfigFile {
+                connection_mode: mode,
+                ..Default::default()
+            };
             let state = GuiConfigState::new(config.clone());
             state.oauth_sessions.lock().unwrap().insert("state-A".into(), config.target_revision);
             assert!(ensure_oauth_target(&state, &config, "state-A").is_ok());
@@ -852,10 +856,12 @@ server.serve_forever()
     async fn run_held_request(method: &str, path: &str, switch_target: bool) -> (bool, Result<serde_json::Value, String>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let mut config = GuiConfigFile::default();
-        config.connection_mode = super::super::CoreConnectionMode::Remote;
-        config.remote_management_origin = format!("http://{}", listener.local_addr().unwrap());
-        config.remote_management_key = "management-secret".into();
+        let mut config = GuiConfigFile {
+            connection_mode: super::super::CoreConnectionMode::Remote,
+            remote_management_origin: format!("http://{}", listener.local_addr().unwrap()),
+            remote_management_key: "management-secret".into(),
+            ..Default::default()
+        };
         config.remote_client_origin = config.remote_management_origin.clone();
         let state = GuiConfigState::new(config);
         let revision = state.snapshot().unwrap().target_revision;
@@ -866,7 +872,7 @@ server.serve_forever()
         let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
-            socket.read(&mut [0; 4096]).await.unwrap();
+            let _request_bytes = socket.read(&mut [0; 4096]).await.unwrap();
             arrived_tx.send(()).unwrap();
             release_rx.await.unwrap();
             socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();

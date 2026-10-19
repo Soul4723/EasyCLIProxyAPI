@@ -75,6 +75,7 @@ pub(crate) fn acquire_app_instance_guard_for(
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(&lock_path)
         .map_err(|error| format!("Failed to open application instance lock for the current directory: {error}"))?;
     let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };

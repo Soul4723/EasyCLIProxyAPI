@@ -360,10 +360,12 @@ mod tests {
 
     #[test]
     fn remote_locale_publication_runs_without_local_core_requirements() {
-        let mut remote = GuiConfigFile::default();
-        remote.connection_mode = CoreConnectionMode::Remote;
-        remote.remote_management_origin = "https://remote.example".into();
-        remote.remote_management_key = "management-only-key".into();
+        let remote = GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: "https://remote.example".into(),
+            remote_management_key: "management-only-key".into(),
+            ..Default::default()
+        };
         let state = GuiConfigState::new(remote);
         let expected = state.snapshot().unwrap();
         let published = with_target_locale_publication(&state, &expected, |target| {
@@ -376,10 +378,12 @@ mod tests {
 
     #[test]
     fn stale_remote_locale_publication_is_rejected_before_callback() {
-        let mut remote = GuiConfigFile::default();
-        remote.connection_mode = CoreConnectionMode::Remote;
-        remote.remote_management_origin = "https://remote.example".into();
-        remote.remote_management_key = "management-only-key".into();
+        let remote = GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: "https://remote.example".into(),
+            remote_management_key: "management-only-key".into(),
+            ..Default::default()
+        };
         let state = GuiConfigState::new(remote);
         let expected = state.snapshot().unwrap();
         let mut replacement = expected.clone();
