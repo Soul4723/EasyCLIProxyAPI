@@ -252,6 +252,9 @@ pub(crate) async fn fetch_portable_update_manifest(
     source: VersionDownloadCandidate,
     custom_mirrors: &[String],
 ) -> Result<(PortableUpdateManifest, VersionDownloadCandidate), String> {
+    if source.source == VersionDownloadSource::Gitcode && !gitcode_version_source_available() {
+        return Err("GitCode application update source is not configured for this build".to_string());
+    }
     let gitcode_repository = configured_gitcode_gui_repository();
     let mut failures = Vec::new();
     for candidate in
@@ -321,6 +324,26 @@ pub(crate) async fn fetch_portable_update_manifest_url(
         .json::<PortableUpdateManifest>()
         .await
         .map_err(|error| format!("parse update manifest: {error}"))?;
+    prepare_portable_update_manifest(manifest, configured_gitcode_gui_repository())
+}
+
+pub(crate) fn prepare_portable_update_manifest(
+    mut manifest: PortableUpdateManifest,
+    gitcode_repository: Option<&str>,
+) -> Result<PortableUpdateManifest, String> {
+    // A manifest can advertise optional GitCode mirrors even in a GitHub-only
+    // build. Discard unavailable mirrors before validation AND before retaining
+    // download candidates; never download an unvalidated fallback.
+    if gitcode_repository.is_none() {
+        for asset in manifest.assets.values_mut() {
+            asset.fallback_urls.clear();
+        }
+        if let Some(assets) = manifest.full_assets.as_mut() {
+            for asset in assets.values_mut() {
+                asset.fallback_urls.clear();
+            }
+        }
+    }
     validate_portable_update_manifest(&manifest)?;
     Ok(manifest)
 }

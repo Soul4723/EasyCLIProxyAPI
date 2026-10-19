@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { invoke } from './services/platform';
-import { useCoreRuntime } from './coreRuntime';
+import { useCoreRuntime, type CoreStatus } from './coreRuntime';
 
 export type CoreLatest = {
   version: string;
@@ -97,6 +97,11 @@ export function coreUpdateAvailable(
   return Boolean(current && latest && compareSemanticVersions(latest, current) > 0);
 }
 
+// Unknown startup mode must not issue a Local-only native command.
+export function canCheckCoreUpdates(status: CoreStatus | null) {
+  return status !== null && status.connectionMode !== 'remote';
+}
+
 export function requestLatestCore(force = false) {
   if (!force && latestCheckPromise) {
     return latestCheckPromise;
@@ -131,13 +136,17 @@ export function requestLatestCore(force = false) {
 const CoreUpdateContext = createContext<CoreUpdateContextValue | null>(null);
 
 export function CoreUpdateProvider({ children }: { children: ReactNode }) {
-  const { status } = useCoreRuntime();
+  const { status, connectionRevision } = useCoreRuntime();
+  const local = canCheckCoreUpdates(status);
+  const localRef = useRef(local);
+  localRef.current = local;
   const [latest, setLatest] = useState<CoreLatest | null>(cachedLatest);
   const [error, setError] = useState(cachedLatestError);
   const [checking, setChecking] = useState(Boolean(latestCheckPromise));
   const checkEpochRef = useRef(0);
 
   const check = useCallback(async (force = false) => {
+    if (!localRef.current) return;
     const checkEpoch = ++checkEpochRef.current;
     setChecking(true);
     setError('');
@@ -171,22 +180,29 @@ export function CoreUpdateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // A target change fences pending responses and clears Local-only badges.
+    reset();
+    latestAutoCheckStarted = false;
+  }, [local, connectionRevision, reset]);
+
+  useEffect(() => {
+    if (!local) return;
     if (!latestAutoCheckStarted) {
       latestAutoCheckStarted = true;
       void check();
     } else if (latestCheckPromise) {
       void check();
     }
-  }, [check]);
+  }, [check, local, connectionRevision]);
 
   const value = useMemo<CoreUpdateContextValue>(() => ({
-    latest,
-    error,
-    checking,
-    hasUpdate: status?.connectionMode !== 'remote' && coreUpdateAvailable(status?.currentVersion, latest?.version),
+    latest: local ? latest : null,
+    error: local ? error : '',
+    checking: local && checking,
+    hasUpdate: local && coreUpdateAvailable(status?.currentVersion, latest?.version),
     check,
     reset,
-  }), [check, checking, error, latest, reset, status?.connectionMode, status?.currentVersion]);
+  }), [check, checking, error, latest, reset, local, status?.currentVersion]);
 
   return <CoreUpdateContext.Provider value={value}>{children}</CoreUpdateContext.Provider>;
 }
