@@ -150,3 +150,28 @@ test('focus staleness uses the last successful refresh, including silent reloads
     else Reflect.deleteProperty(globalThis, 'window');
   }
 });
+
+test('event coalescing uses one fixed trailing window; explicit refresh bypasses it', async () => {
+  let event!: () => void;
+  let reads = 0;
+  const source = createDataSource({
+    eventDelayMs: 30,
+    subscribeEvents: invalidate => { event = invalidate; return () => {}; },
+    load: async () => ++reads,
+  });
+  const off = source.subscribe(() => {});
+  try {
+    await source.load();
+    for (let n = 0; n < 40; n++) event();
+    await pause(15);
+    expect(reads).toBe(1);
+    event(); // does not restart the window
+    await pause(25);
+    expect(reads).toBe(2);
+    event();
+    await source.refresh();
+    expect(reads).toBe(3);
+    await pause(45);
+    expect(reads).toBe(3); // refresh consumed the pending event invalidation
+  } finally { off(); }
+});

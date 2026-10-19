@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { invoke, onUsageRecordsUpdated } from '../../services/usageApi';
+import { invoke } from '../../services/usageApi';
 import { useCoreRuntime } from '../../coreRuntime';
+import { createDataSource, useDataSource, type DataSource } from '../../services/dataSource';
+import { useResource } from '../../services/useResource';
 import { managementApi } from '../../services/managementApi';
 import { usagePreferences } from '../../services/usagePreferences';
 import type { CollectorStatus, UsageAnalysis, UsageQuery, UsageRange } from './types';
@@ -112,23 +114,24 @@ export function UsageProvider({ params, needsOptions, children }: { params: URLS
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSizeState] = useState(loadPageSize);
-  const [status, setStatusState] = useState<CollectorStatus | null>(null);
-  const statusRequest = useRef(0);
-  const [options, setOptions] = useState<UsageAnalysis>(emptyAnalysis);
+  // This provider is the single owner; the native collector itself owns queue
+  // draining and retry backoff (not a frontend poll).
+  const statusSource = useMemo(() => createDataSource({
+    load: () => invoke<CollectorStatus>('get_usage_collector_status'),
+    pollMs: coreReady ? 30_000 : undefined,
+    maxPollMs: 120_000, events: ['usage-records-updated'], eventDelayMs: 2_000, minIntervalMs: 2_000,
+  }), [coreReady, connectionRevision]);
+  const statusSnapshot = useDataSource(statusSource);
+  const status = statusSnapshot.data ?? null;
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [clock, setClock] = useState(() => Date.now());
   const [manualVersion, setManualVersion] = useState(0);
-  const [statusError, setStatusError] = useState('');
-  const [optionsError, setOptionsError] = useState('');
-  const [eventError, setEventError] = useState('');
-  const lastRefresh = useRef(Date.now());
+  const statusError = statusSnapshot.error ?? '';
 
   const setStatus = useCallback((next: CollectorStatus) => {
-    statusRequest.current += 1;
-    setStatusState(next);
-    setStatusError('');
+    statusSource.mutate(() => next);
     setRefreshVersion((n) => n + 1);
-  }, []);
+  }, [statusSource]);
 
   // Resolve a file-name account link to the collector's auth_index source key.
   const accountParam = params.get('account');
@@ -182,10 +185,8 @@ export function UsageProvider({ params, needsOptions, children }: { params: URLS
     failed: filters.result === 'failed' ? true : filters.result === 'success' ? false : undefined,
     canceled: filters.result === 'canceled' ? true : filters.result === 'failed' ? false : undefined,
   }), [timeQuery, filters]);
-  useEffect(() => { lastRefresh.current = Date.now(); }, [query]);
 
   const invalidate = useCallback(() => {
-    lastRefresh.current = Date.now();
     setRefreshVersion((n) => n + 1);
   }, []);
   const refresh = useCallback(() => {
@@ -195,81 +196,75 @@ export function UsageProvider({ params, needsOptions, children }: { params: URLS
 
   // The page owns analysis reads. Identical option/breakdown queries share one promise,
   // including StrictMode and the no-filter Overview case. A signal starts a new snapshot.
-  const analyses = useMemo(() => ({ refreshVersion, connectionRevision, timeQuery, requests: new Map<string, Promise<UsageAnalysis>>() }), [refreshVersion, connectionRevision, timeQuery]);
+  const analyses = useMemo(() => ({ refreshVersion, connectionRevision, timeQuery, requests: new Map<string, DataSource<UsageAnalysis>>() }), [refreshVersion, connectionRevision, timeQuery]);
   const loadAnalysis = useCallback((analysisQuery: UsageQuery) => {
     const key = JSON.stringify(analysisQuery);
     let request = analyses.requests.get(key);
     if (!request) {
-      request = invoke<UsageAnalysis>('get_usage_analysis', { query: analysisQuery });
+      request = createDataSource({ load: () => invoke<UsageAnalysis>('get_usage_analysis', { query: analysisQuery }) });
       analyses.requests.set(key, request);
-      const current = request;
-      void request.catch(() => { if (analyses.requests.get(key) === current) analyses.requests.delete(key); });
     }
-    return request;
+    const source = request;
+    return source.load().then(() => {
+      const snapshot = source.getSnapshot();
+      if (snapshot.error) { analyses.requests.delete(key); throw new Error(snapshot.error); }
+      return snapshot.data!;
+    });
   }, [analyses]);
 
-  useEffect(() => {
-    if (!needsOptions) return;
-    let cancelled = false;
-    loadAnalysis(timeQuery).then((next) => {
-      if (!cancelled) { setOptions(next); setOptionsError(''); }
-    }, (error) => { if (!cancelled) setOptionsError(String(error)); });
-    return () => { cancelled = true; };
-  }, [needsOptions, timeQuery, loadAnalysis]);
-
-  // Rust set_collector_status updates memory without emitting an event (pause/error
-  // paths included). Poll only this small status while visible and the core is ready.
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let delay = 30_000;
-    const load = async () => {
-      const id = ++statusRequest.current;
-      clearTimeout(timer);
-      try {
-        const next = await invoke<CollectorStatus>('get_usage_collector_status');
-        if (!cancelled && id === statusRequest.current) { setStatusState(next); setStatusError(''); delay = 30_000; }
-      } catch (error) {
-        if (!cancelled && id === statusRequest.current) { setStatusError(String(error)); delay = Math.min(delay * 2, 120_000); }
-      }
-      if (!cancelled && id === statusRequest.current && coreReady && !document.hidden) timer = setTimeout(load, delay);
-    };
-    const visible = () => {
-      clearTimeout(timer);
-      if (!document.hidden && coreReady) timer = setTimeout(load, delay);
-    };
-    void load();
-    document.addEventListener('visibilitychange', visible);
-    return () => { cancelled = true; statusRequest.current += 1; clearTimeout(timer); document.removeEventListener('visibilitychange', visible); };
-  }, [refreshVersion, coreReady, connectionRevision]);
+  const optionSnapshot = useResource(async () => needsOptions ? loadAnalysis(timeQuery) : emptyAnalysis,
+    [needsOptions, timeQuery, loadAnalysis]);
+  const options = optionSnapshot.data ?? emptyAnalysis;
+  const optionsError = optionSnapshot.error ?? '';
 
   const relative = filters.range !== 'custom' && filters.range !== 'all';
+  // Separate the relative-range clock from event invalidation: records events
+  // refresh the current query, but must not move its time window before 60s.
+  const recordsSource = useMemo(() => createDataSource({
+    load: async () => Date.now(),
+    events: ['usage-records-updated'], eventDelayMs: 2_000, minIntervalMs: 2_000, focusMs: 30_000,
+  }), [connectionRevision]);
+  const clockSource = useMemo(() => createDataSource({
+    load: async () => Date.now(),
+    pollMs: relative && coreReady ? 60_000 : undefined, focusMs: Infinity,
+  }), [relative, coreReady, connectionRevision]);
+  const clockSnapshot = useDataSource(clockSource);
+  const firstClock = useRef<{ source: typeof clockSource; value: number | undefined }>({ source: clockSource, value: undefined });
   useEffect(() => {
-    if (!relative || !coreReady) return;
-    const timer = window.setInterval(() => {
-      if (!document.hidden) {
-        lastRefresh.current = Date.now();
-        setClock(Date.now());
-      }
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, [relative, coreReady]);
-
+    if (firstClock.current.source !== clockSource || firstClock.current.value === undefined) {
+      firstClock.current = { source: clockSource, value: clockSnapshot.data };
+      return;
+    }
+    if (clockSnapshot.data !== undefined && clockSnapshot.data !== firstClock.current.value) {
+      firstClock.current.value = clockSnapshot.data;
+      setClock(clockSnapshot.data);
+    }
+  }, [clockSnapshot.data, clockSource]);
+  const records = useDataSource(recordsSource);
   useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // Fixed trailing windows: a continuous stream cannot postpone refresh forever.
-    const recordsUpdated = () => {
-      if (disposed || timer !== undefined) return;
-      timer = setTimeout(() => { timer = undefined; if (!disposed) invalidate(); }, 2_000);
-    };
-    const focus = () => { if (!document.hidden && Date.now() - lastRefresh.current > 30_000) invalidate(); };
-    onUsageRecordsUpdated(recordsUpdated).then((stop) => { if (disposed) stop(); else unlisten = stop; },
-      (error) => { if (!disposed) setEventError(String(error)); });
-    window.addEventListener('focus', focus);
-    return () => { disposed = true; unlisten?.(); clearTimeout(timer); window.removeEventListener('focus', focus); };
-  }, [invalidate]);
+    // A query/manual refresh already refreshed its views. Mark the focus owner
+    // fresh without publishing a second records invalidation.
+    const current = recordsSource.getSnapshot().data;
+    if (current !== undefined) recordsSource.mutate(() => current);
+  }, [query, manualVersion, recordsSource]);
+  const firstRecord = useRef<{ source: typeof recordsSource; value: number | undefined }>({ source: recordsSource, value: undefined });
+  useEffect(() => {
+    if (firstRecord.current.source !== recordsSource || firstRecord.current.value === undefined) {
+      firstRecord.current = { source: recordsSource, value: records.data };
+      return;
+    }
+    if (records.data !== undefined && records.data !== firstRecord.current.value) {
+      firstRecord.current.value = records.data;
+      invalidate();
+    }
+  }, [records.data, recordsSource, invalidate]);
+  const eventError = records.error ?? '';
+  const statusRefresh = useRef(manualVersion);
+  useEffect(() => {
+    if (statusRefresh.current === manualVersion) return;
+    statusRefresh.current = manualVersion;
+    void statusSource.refresh();
+  }, [manualVersion, statusSource]);
 
   const collection = useMemo(() => deriveCollectionState(status, coreStatus), [status, coreStatus]);
   const activeFilterCount = [filters.model, filters.agent, filters.source, filters.apiKeyHash, filters.provider, filters.result !== 'all' ? 'x' : ''].filter(Boolean).length;

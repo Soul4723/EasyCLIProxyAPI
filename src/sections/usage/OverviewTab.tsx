@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useResource } from '../../services/useResource';
 import { invoke } from '../../services/usageApi';
 import { BarChart3, Ban } from 'lucide-react';
 import { useI18n } from '../../i18n';
@@ -27,32 +28,17 @@ const rank = (items: UsageCategory[], metric: Metric) =>
 export function OverviewTab() {
   const { t } = useI18n();
   const { query, timeQuery, refreshVersion, loadAnalysis, activeFilterCount, resetFilters } = useUsage();
-  const [overview, setOverview] = useState<UsageOverview | null>(null);
-  const [analysis, setAnalysis] = useState<UsageAnalysis>(emptyAnalysis);
-  const [failed, setFailed] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
-  const requestId = useRef(0);
-
-  // Retain the last successful snapshot for both refreshes and changed queries.
-  useEffect(() => {
-    const id = ++requestId.current;
-    Promise.all([
-      invoke<UsageOverview>('get_usage_overview', { query }),
-      loadAnalysis(query),
-    ]).then(([nextOverview, nextAnalysis]) => {
-      if (id !== requestId.current) return;
-      setOverview(nextOverview);
-      setAnalysis(nextAnalysis);
-      setFailed(false);
-      setLoading(false);
-    }).catch(() => {
-      if (id !== requestId.current) return;
-      setFailed(true);
-      setLoading(false);
-    });
-    return () => { requestId.current += 1; };
+  const snapshot = useResource(async () => {
+    const [overview, analysis] = await Promise.all([
+      invoke<UsageOverview>('get_usage_overview', { query }), loadAnalysis(query),
+    ]);
+    return { overview, analysis };
   }, [query, refreshVersion, loadAnalysis, reload]);
+  const overview = snapshot.data?.overview ?? null;
+  const analysis = snapshot.data?.analysis ?? emptyAnalysis;
+  const failed = !!snapshot.error;
+  const loading = snapshot.loading;
 
   const retry = useCallback(() => { setReload((n) => n + 1); }, []);
 

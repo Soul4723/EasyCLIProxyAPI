@@ -1,3 +1,4 @@
+import { createSettingsRead } from '../../../services/settingsData';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '../../../services/documentTarget';
 import { listen, open } from '../../../services/platform';
@@ -19,6 +20,8 @@ const isLoopbackHost = (host: string) => {
   return value === 'localhost' || value === '::1' || value === '[::1]' || value.startsWith('127.');
 };
 
+const tlsRead = createSettingsRead(() => invoke<TlsSettings>('get_core_tls_settings'));
+
 export function NetworkTab() {
   const { t } = useI18n();
   const { settings, loading, error, reload, apply } = useCoreConfig();
@@ -29,10 +32,10 @@ export function NetworkTab() {
   const [tlsLoading, setTlsLoading] = useState(true);
   const [tlsLoadError, setTlsLoadError] = useState('');
   const tlsRequests = useRequestGuard();
-  const loadTls = useCallback(async () => {
+  const loadTls = useCallback(async (fresh = false) => {
     const isCurrent = tlsRequests.begin();
     try {
-      const value = await invoke<TlsSettings>('get_core_tls_settings');
+      const value = await tlsRead.read({ fresh });
       if (!isCurrent()) return;
       setTls(value);
       setTlsLoadError('');
@@ -46,7 +49,7 @@ export function NetworkTab() {
     let disposed = false;
     let stop: (() => void) | undefined;
     void loadTls();
-    void listen('config-files-changed', () => { if (!disposed) void loadTls(); }).then((unlisten) => {
+    void listen('config-files-changed', () => { if (!disposed) void loadTls(true); }).then((unlisten) => {
       if (disposed) unlisten(); else stop = unlisten;
     });
     return () => { disposed = true; stop?.(); };
@@ -149,11 +152,12 @@ export function NetworkTab() {
       try {
         const saved = await invoke<TlsSettings>('save_core_tls_settings', { settings: { enabled: draft.tlsEnabled, cert, key } });
         tlsRequests.invalidate();
+        tlsRead.publish(saved);
         setTls(saved);
         needsRestart = true;
       } catch (cause) {
         failure = String(cause);
-        void loadTls();
+        void loadTls(true);
       }
     }
     if (needsRestart && status?.running && !remote) {

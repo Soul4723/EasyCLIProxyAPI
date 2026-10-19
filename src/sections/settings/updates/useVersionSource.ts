@@ -1,3 +1,4 @@
+import { createSettingsRead } from '../../../services/settingsData';
 // Download-source state for the Updates tab: selected source, built-in channels and custom HTTPS mirrors.
 // Same commands/events as the old Version page (get_version_source_settings, set_download_source, add/remove_custom_download_mirror).
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -8,6 +9,8 @@ import { useRequestGuard } from '../useRequestGuard';
 import { downloadSourceLabel, type VersionDownloadSource, type VersionSourceSettings } from './model';
 
 type Notify = (message: NoticeMessage, tone?: NoticeTone) => void;
+
+const versionSourceRead = createSettingsRead(() => invoke<VersionSourceSettings>('get_version_source_settings'));
 
 export function useVersionSource(notify: Notify, onSourceChanged: () => void, refreshStatus: () => Promise<void>) {
   const { t } = useI18n();
@@ -26,10 +29,10 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
 
   // A save result or auto-switch event supersedes any load still in flight.
   const requests = useRequestGuard();
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     const isCurrent = requests.begin();
     try {
-      const value = await invoke<VersionSourceSettings>('get_version_source_settings');
+      const value = await versionSourceRead.read({ fresh });
       if (!isCurrent()) return;
       setSettings(value);
       setError('');
@@ -44,7 +47,7 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     let stopSource: (() => void) | null = null;
     void listen('config-files-changed', () => {
       if (disposed) return;
-      void load();
+      void load(true);
       void refreshRef.current();
     }).then((stop) => {
       if (disposed) stop();
@@ -53,6 +56,7 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     void listen<VersionSourceSettings>('version-download-source-changed', (event) => {
       if (disposed) return;
       requests.invalidate();
+      versionSourceRead.publish(event.payload);
       setSettings(event.payload);
       setError('');
       notifyRef.current({ key: 'kernel.versions.sourceAutoSwitched', variables: { source: downloadSourceLabel(event.payload.source, tRef.current) } }, 'info');
@@ -74,11 +78,12 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     try {
       const next = await invoke<VersionSourceSettings>('set_download_source', { source });
       requests.invalidate();
+      versionSourceRead.publish(next);
       setSettings(next);
       changedRef.current();
       notifyRef.current({ key: 'kernel.versions.sourceSwitched', variables: { source: downloadSourceLabel(next.source, tRef.current) } }, 'info');
     } catch (cause) {
-      await load();
+      await load(true);
       setError(tRef.current('kernel.versions.gitcodeSaveFailed', { error: String(cause) }));
     } finally {
       setSaving(false);
@@ -94,6 +99,7 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     try {
       const next = await invoke<VersionSourceSettings>('add_custom_download_mirror', { url });
       requests.invalidate();
+      versionSourceRead.publish(next);
       setSettings(next);
       changedRef.current();
       notifyRef.current({ key: 'kernel.versions.customMirrorAdded' }, 'success');
@@ -112,6 +118,7 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     try {
       const next = await invoke<VersionSourceSettings>('remove_custom_download_mirror', { url });
       requests.invalidate();
+      versionSourceRead.publish(next);
       setSettings(next);
       notifyRef.current({ key: 'kernel.versions.customMirrorRemoved' }, 'success');
       if (wasSelected) changedRef.current();

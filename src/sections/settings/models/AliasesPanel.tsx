@@ -1,3 +1,4 @@
+import { createSettingsRead } from '../../../services/settingsData';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../../../services/documentTarget';
 import { ArrowRight, Check, GitFork, Pencil, Plus, Trash2, X, Zap } from 'lucide-react';
@@ -17,6 +18,14 @@ import {
 } from './aliasLogic';
 
 const EMPTY_EDITOR: AliasEditorState = { sourceId: '', effort: '', fast: false, alias: '' };
+
+const aliasesRead = createSettingsRead(() => Promise.all([
+  invoke<ThinkingAliasEntry[]>('get_thinking_aliases'),
+  invoke<ThinkingAliasSource[]>('get_model_alias_sources'),
+  invoke<ThinkingAliasSource[]>('get_thinking_alias_sources'),
+  invoke<SpeedAliasEntry[]>('get_speed_aliases'),
+  invoke<ThinkingAliasSource[]>('get_speed_alias_sources'),
+]));
 
 /**
  * Model / thinking / speed aliases. Each add, edit and delete is written to the core config immediately
@@ -46,17 +55,11 @@ export function AliasesPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolean
   const [confirmDelete, setConfirmDelete] = useState<AliasListEntry | null>(null);
   const generatedAliasRef = useRef('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     setLoading(true);
     setLoadError('');
     try {
-      const [nextThinking, nextBase, nextThinkingSources, nextSpeed, nextSpeedSources] = await Promise.all([
-        invoke<ThinkingAliasEntry[]>('get_thinking_aliases'),
-        invoke<ThinkingAliasSource[]>('get_model_alias_sources'),
-        invoke<ThinkingAliasSource[]>('get_thinking_alias_sources'),
-        invoke<SpeedAliasEntry[]>('get_speed_aliases'),
-        invoke<ThinkingAliasSource[]>('get_speed_alias_sources'),
-      ]);
+      const [nextThinking, nextBase, nextThinkingSources, nextSpeed, nextSpeedSources] = await aliasesRead.read({ fresh });
       setThinkingEntries(nextThinking);
       setSpeedEntries(nextSpeed);
       setBaseSources(nextBase);
@@ -143,6 +146,7 @@ export function AliasesPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolean
     setPageError('');
     setNotice('');
     try {
+      // Fresh editor context is a one-shot action, not shared list state.
       const context = await invoke<ModelAliasEditContext>('get_model_alias_edit_source', { alias: entry.alias, entry });
       const next = { sourceId: context.source.id, effort: context.effort ?? '', fast: context.fast, alias: entry.alias };
       generatedAliasRef.current = '';
@@ -194,7 +198,7 @@ export function AliasesPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolean
         });
         setNotice(t('aliases.createdPlain', { alias }));
       }
-      await load();
+      await load(true);
       setEditorOpen(false);
       resetEditor();
     } catch (cause) {
@@ -217,7 +221,7 @@ export function AliasesPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolean
         await invoke<SpeedAliasEntry[]>('delete_speed_alias', { alias: entry.alias, oauthChannel: entry.oauthChannel, entry });
       }
       setNotice(t('aliases.deleted', { alias: entry.alias }));
-      await load();
+      await load(true);
     } catch (cause) {
       setPageError(String(cause));
     } finally {
@@ -285,7 +289,7 @@ export function AliasesPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolean
   return (
     <div className="ec-models-panel">
       {loadError && !loaded ? (
-        <ErrorState title={t('sec.settings.loadFailed')} message={loadError} onRetry={() => void load()} />
+        <ErrorState title={t('sec.settings.loadFailed')} message={loadError} onRetry={() => void load(true)} />
       ) : (
         <SettingsGroup
           title={t('app.nav.thinkingAliases')}

@@ -1,7 +1,7 @@
 // Settings → Updates: app + core version cards, download sources (incl. custom HTTPS mirrors), release notes.
 // Behaviour comes from the old Version page: same commands, task events and visit-triggered checks.
 import { useEffect, useRef, useState } from 'react';
-import { getVersion } from '../../../services/platform';
+import { appVersionRead } from '../versionData';
 import { invoke } from '../../../services/platform';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime } from '../../../coreRuntime';
@@ -43,7 +43,7 @@ export function UpdatesTab() {
 
   useEffect(() => {
     let disposed = false;
-    void getVersion().then((version) => { if (!disposed) setInstalledAppVersion(version); }).catch(() => undefined);
+    void appVersionRead.read().then((version) => { if (!disposed) setInstalledAppVersion(version); }).catch(() => undefined);
     return () => { disposed = true; };
   }, []);
 

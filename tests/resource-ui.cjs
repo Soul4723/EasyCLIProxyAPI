@@ -1,0 +1,34 @@
+const assert = require('node:assert/strict');
+const { runUiTest } = require('./helpers/shell.cjs');
+
+runUiTest('resource', async ({ base, newPage }) => {
+  const page = await newPage();
+  await page.goto(`${base}/tests/fixtures/resource.html`);
+  const data = () => page.getByTestId('data').innerText();
+  await page.waitForFunction(() => window.resourceFixture?.calls.length === 1);
+  assert.equal(await data(), 'none');
+  await page.evaluate(() => window.resourceFixture.resolve(0, 10));
+  await page.waitForFunction(() => document.querySelector('[data-testid=data]').textContent === '10');
+  await page.getByText('Next query', { exact: true }).click();
+  await page.waitForFunction(() => window.resourceFixture.calls.includes(1));
+  assert.equal(await data(), '10', 'changing query keeps last successful data');
+  assert.equal(await page.getByTestId('loading').innerText(), 'false', 'retained data does not flip initial loading');
+  await page.getByText('Next query', { exact: true }).click();
+  await page.waitForFunction(() => window.resourceFixture.calls.includes(2));
+  await page.evaluate(() => { window.resourceFixture.resolve(2, 20); window.resourceFixture.resolve(1, 999); });
+  await page.waitForFunction(() => document.querySelector('[data-testid=data]').textContent === '20');
+  assert.equal(await data(), '20', 'late replaced query cannot publish into active query');
+  await page.getByText('Next query', { exact: true }).click();
+  await page.waitForFunction(() => window.resourceFixture.calls.includes(3));
+  await page.evaluate(() => window.resourceFixture.reject(3));
+  await page.waitForFunction(() => document.querySelector('[data-testid=error]').textContent === 'offline');
+  assert.equal(await data(), '20', 'errors retain data');
+  assert.equal(await page.getByTestId('loading').innerText(), 'false');
+  await page.getByText('Next query', { exact: true }).click();
+  await page.waitForFunction(() => window.resourceFixture.calls.includes(4));
+  await page.getByText('Unmount', { exact: true }).click();
+  await page.evaluate(() => window.resourceFixture.resolve(4, 40));
+  assert.equal(await page.getByTestId('data').count(), 0);
+  assert.deepEqual(await page.evaluate(() => window.resourceFixture.calls), [0, 1, 2, 3, 4], 'StrictMode coalesces reads');
+  console.log('PASS: resource query replacement, late fencing, retained data/error, StrictMode and unmount');
+});
