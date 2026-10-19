@@ -1,4 +1,4 @@
-// Shared helpers for UI tests against the cohesive shell (src/shell). DOM contract:
+// Shared helpers for UI tests against the application shell (src/shell). DOM contract:
 //   root .ec-app[data-page=<routeId>] (bare/full-screen pages add .ec-app--bare and have no sidebar) · main#main.ec-main
 //   sidebar aside.ec-sidebar (.is-open while the <=720px drawer is open; .ec-drawer-scrim is the click-away layer)
 //   nav a.ec-nav-item[data-nav=<routeId>] (aria-current=page when active; locked pages are disabled

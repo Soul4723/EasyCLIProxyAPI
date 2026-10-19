@@ -1,6 +1,6 @@
 // Providers → credentials: cooldown display and the "Clear cooldown" flow (confirmation, single auth_index POST, pending
 // protection, isolated refresh, failure preservation, stale-read protection, unknown/absent snapshots, elapsed timers).
-// Rewritten for the cohesive UI (src/sections/providers/creds). Run like auth-file-list-ui.cjs.
+// Rewritten for the section UI (src/sections/providers/creds). Run like auth-file-list-ui.cjs.
 const assert = require('node:assert/strict');
 const { startApp, launch, openCreds, requestsOf, rowOf } = require('./helpers/creds.cjs');
 

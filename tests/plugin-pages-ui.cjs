@@ -1,4 +1,4 @@
-// Plugin pages in the cohesive shell: sidebar group (order, drag, keyboard, collapse, rail/drawer, locked) and the
+// Plugin pages in the application shell: sidebar group (order, drag, keyboard, collapse, rail/drawer, locked) and the
 // `#/plugin/<id>` webview route (layout, overlays, reload, failure/retry, core stop). Run:
 //   PLAYWRIGHT_MODULE=<path> node tests/plugin-pages-ui.cjs
 const assert = require('node:assert/strict');

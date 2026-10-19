@@ -1,5 +1,5 @@
 // Providers → credentials: list, filters, sorting, pagination, side panel fields/save, toggle, delete, remote mode,
-// privacy and the model-exclusions overview. Rewritten for the cohesive UI (src/sections/providers/creds).
+// privacy and the model-exclusions overview. Rewritten for the section UI (src/sections/providers/creds).
 // Run: PLAYWRIGHT_MODULE=… node tests/auth-file-list-ui.cjs   (UI_BASE=http://127.0.0.1:PORT/ reuses a running dev server)
 const assert = require('node:assert/strict');
 const { startApp, launch, openCreds, openExclusions, requestsOf, rowOf } = require('./helpers/creds.cjs');
