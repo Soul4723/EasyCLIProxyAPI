@@ -28,7 +28,7 @@ pub(crate) async fn check_app_update(
     Ok(info)
 }
 
-async fn resolve_app_update(
+pub(super) async fn resolve_app_update(
     app: &tauri::AppHandle,
     gui_config_state: &GuiConfigState,
 ) -> Result<(AppUpdateInfo, Option<PendingAppUpdate>), String> {
