@@ -1712,14 +1712,12 @@ pub(crate) fn wait_for_portable_parent_exit(pid: u32, timeout: Duration) -> Resu
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) fn wait_for_portable_parent_exit(pid: u32, timeout: Duration) -> Result<(), String> {
-    if pid == 0 || pid > i32::MAX as u32 {
+    if crate::process_signal::process_id(pid).is_err() {
         return Err("Invalid application update parent process ID".to_string());
     }
     let deadline = Instant::now() + timeout;
     loop {
-        let result = unsafe { libc::kill(pid as i32, 0) };
-        if result != 0 {
-            let error = io::Error::last_os_error();
+        if let Err(error) = crate::process_signal::signal_process(pid, 0) {
             if error.raw_os_error() == Some(libc::ESRCH) {
                 return Ok(());
             }
@@ -2236,9 +2234,7 @@ pub(crate) fn run_macos_update_command_with_timeout(
         // The group is private to this command. Kill descendants too, including
         // when the direct child has already exited but a pipe is still open.
         // SAFETY: spawn succeeded with process_group(0), so this is its group ID.
-        unsafe {
-            libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
-        }
+        let _ = crate::process_signal::signal_group(child.id(), libc::SIGKILL);
         let _ = child.kill();
         let _ = child.wait();
     }

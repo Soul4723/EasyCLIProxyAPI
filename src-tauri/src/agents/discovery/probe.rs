@@ -82,7 +82,7 @@ pub(super) fn terminate_agent_probe_process(child: &mut Child) {
         // Like managed harness commands, probes own a process group. Kill the
         // entire group even if the shell already exited but its pipes remain open.
         // SAFETY: the negative PID targets only the group created for this child.
-        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+        let _ = crate::process_signal::signal_group(child.id(), libc::SIGKILL);
     }
     let _ = child.kill();
     let _ = child.wait();
