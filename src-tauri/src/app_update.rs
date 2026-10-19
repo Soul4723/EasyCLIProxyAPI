@@ -128,6 +128,7 @@ mod manifest;
 mod download;
 mod archive;
 mod portable;
+#[cfg(any(target_os = "macos", test))]
 mod macos;
 
 pub(crate) use settings::*;
@@ -136,4 +137,5 @@ pub(crate) use manifest::*;
 pub(crate) use download::*;
 pub(crate) use archive::*;
 pub(crate) use portable::*;
+#[cfg(any(target_os = "macos", test))]
 pub(crate) use macos::*;
