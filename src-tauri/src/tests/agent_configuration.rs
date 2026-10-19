@@ -2776,6 +2776,19 @@ fn agent_probe_command_stops_at_timeout() {
     assert!(started.elapsed() < Duration::from_secs(3));
 }
 
+#[cfg(unix)]
+#[test]
+fn agent_probe_command_times_out_when_exited_shell_leaves_descendant_pipes() {
+    let mut command = Command::new("sh");
+    // The shell exits successfully immediately; the background child retains both pipes.
+    command.args(["-c", "sleep 5 & exit 0"]);
+    let started = Instant::now();
+    let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
+
+    assert!(output.is_none());
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
+
 #[test]
 fn codex_model_list_is_empty_when_cpa_has_no_writable_models() {
     let prepared = prepare_codex_agent_models(&[]).unwrap();
