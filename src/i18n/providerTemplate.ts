@@ -1,5 +1,5 @@
 import { getCurrentLocale, type AppLocale } from './index';
-import { createTraditionalMessages } from './traditional';
+import { createTraditionalMessages } from './locales/traditional';
 
 const messages = {
   modelRules: ['模型规则', 'Model rules', 'モデルルール'],

@@ -22,7 +22,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { cx } from './cx';
-import { clamp } from './format';
+import { clamp } from '../services/format';
 import './Popover.css';
 
 const GAP = 6;
