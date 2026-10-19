@@ -1,7 +1,8 @@
-import { coreConfigSource, useSharedCoreConfig } from '../../services/coreConfig';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '../../services/usageApi';
 import { credentialsSource } from '../../services/credentials';
+import { coreConfigSource, useSharedCoreConfig } from '../../services/coreConfig';
+import { useResource } from '../../services/useResource';
 import { useDataSource } from '../../services/dataSource';
 import { normalizeAuthIndex, readString } from '../../services/managementApi';
 import {
@@ -47,20 +48,9 @@ export type Block<T> = { data: T | null; error: boolean; loading: boolean; reloa
  * and ignores responses that arrive out of order.
  */
 export function useBlock<T>(fetcher: () => Promise<T>, key: number): Block<T> {
-  const [state, setState] = useState<{ data: T | null; error: boolean; loading: boolean }>({ data: null, error: false, loading: true });
-  const request = useRef(0);
-  const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
-  const load = useCallback(() => {
-    const id = ++request.current;
-    fetcherRef.current().then(
-      (data) => { if (id === request.current) setState({ data, error: false, loading: false }); },
-      () => { if (id === request.current) setState((s) => ({ data: s.data, error: true, loading: false })); },
-    );
-  }, []);
-  useEffect(() => { load(); return () => { request.current += 1; }; }, [load, key]);
-  const reload = useCallback(() => { setState((s) => ({ ...s, loading: s.data === null })); load(); }, [load]);
-  return { ...state, reload };
+  const snapshot = useResource(fetcher, [key]);
+  const reload = useCallback(() => { void snapshot.source.refresh(); }, [snapshot.source]);
+  return { data: snapshot.data ?? null, error: !!snapshot.error, loading: snapshot.loading, reload };
 }
 
 export function usePolicyBlock(key: number): Block<RoutingPolicy> {

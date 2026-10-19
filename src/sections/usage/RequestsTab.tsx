@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useResource } from '../../services/useResource';
 import { invoke } from '../../services/usageApi';
 import { Download, Inbox, SearchX, X } from 'lucide-react';
 import { useI18n } from '../../i18n';
@@ -21,32 +22,16 @@ export function RequestsTab() {
   const { t } = useI18n();
   const agentLabel = useAgentLabel();
   const { query, page, setPage, pageSize, setPageSize, refreshVersion, activeFilterCount, resetFilters, setFilter, filters } = useUsage();
-  const [data, setData] = useState<UsageEventPage | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [fetching, setFetching] = useState(false);
   const [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<UsageRecord | null>(null);
   const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
-  const requestId = useRef(0);
-
-  useEffect(() => {
-    const id = ++requestId.current;
-    setFetching(true);
-    invoke<UsageEventPage>('get_usage_events', { query: { ...query, page, page_size: pageSize } })
-      .then((next) => {
-        if (id !== requestId.current) return;
-        setData(next);
-        setError(null);
-      })
-      .catch((reason) => {
-        if (id !== requestId.current) return;
-        // Keep the last successful rows alongside the refresh error.
-        setError(String(reason instanceof Error ? reason.message : reason));
-      })
-      .finally(() => { if (id === requestId.current) setFetching(false); });
-    return () => { requestId.current += 1; };
-  }, [query, page, pageSize, refreshVersion, retry]);
+  const snapshot = useResource(() => invoke<UsageEventPage>('get_usage_events', {
+    query: { ...query, page, page_size: pageSize },
+  }), [query, page, pageSize, refreshVersion, retry]);
+  const data = snapshot.data ?? null;
+  const error = snapshot.error;
+  const fetching = snapshot.refreshing;
 
   // The log shrank under the current page (filters, retention): fall back to the last page.
   useEffect(() => {
@@ -109,7 +94,7 @@ export function RequestsTab() {
 
       {error && data ? <ErrorState title={t('sec.usage.error.load')} message={error} onRetry={() => setRetry((n) => n + 1)} retryLabel={t('sec.usage.retry')} /> : null}
       {error && data === null ? (
-        <ErrorState title={t('sec.usage.error.load')} message={error} onRetry={() => { setError(null); setRetry((n) => n + 1); }} retryLabel={t('sec.usage.retry')} />
+        <ErrorState title={t('sec.usage.error.load')} message={error} onRetry={() => { setRetry((n) => n + 1); }} retryLabel={t('sec.usage.retry')} />
       ) : (
         <div className={`req-table${fetching && data ? ' is-fetching' : ''}`} aria-busy={initialLoading}>
           <DataTable<UsageRecord>
