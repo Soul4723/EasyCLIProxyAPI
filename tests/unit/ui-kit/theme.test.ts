@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { createThemeRegistry, themeRegistry, type ThemeRegistry } from '../src/themes/registry';
-import { FIRST_PAINT_KEY, firstPaint } from '../src/themes/firstPaint';
-import type { SystemThemes, ThemeDefinition } from '../src/themes/types';
-import { createThemeController, type AppTheme, type NativeThemeSource, type ThemePreference } from '../src/themeController';
+import { createThemeRegistry, themeRegistry, type ThemeRegistry } from '../../../src/themes/registry';
+import { FIRST_PAINT_KEY, firstPaint } from '../../../src/themes/firstPaint';
+import type { SystemThemes, ThemeDefinition } from '../../../src/themes/types';
+import { createThemeController, type AppTheme, type NativeThemeSource, type ThemePreference } from '../../../src/themeController';
 
 const registryWithRetiredThemes = themeRegistry;
 
@@ -352,7 +352,7 @@ describe('theme preferences and native synchronization', () => {
 });
 
 describe('desktop first paint', () => {
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
   const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
   const paint = (stored: Record<string, string>, media: AppTheme = 'light') => {
     const root = { dataset: {} as Record<string, string>, style: {} as Record<string, string> };

@@ -154,7 +154,6 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     // 'easy' (legacy id) opens Overview in local mode
     await send('easy');
     await page.waitForFunction(() => location.hash === '#/overview');
-    assert.equal(await page.locator('.ec-app--bare').count(), 0);
     assert.equal(await page.locator('.ec-sidebar').count(), 1);
     await send('home');
     await page.waitForFunction(() => location.hash === '#/overview');
@@ -378,7 +377,6 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     assert.equal(await page.locator('#remote-navigation-reason').evaluate((element) => element.className.includes('ec-sr-only')), true, 'visually hidden');
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'easy' })));
     await page.waitForTimeout(150);
-    assert.equal(await page.locator('.ec-app--bare').count(), 0, 'Easy mode never opens in remote mode');
     assert.equal(await h.currentRoute(page), '/overview');
     await page.evaluate(() => { location.hash = '#/easy'; });
     await page.waitForFunction(() => location.hash === '#/overview');

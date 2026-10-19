@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 
 // Colour-literal lint for the new UI: src/ui/** and src/sections/** must take colours from the --ec-* tokens.
 // src/ui/tokens.css is the only place that defines raw colours (transparent/currentColor/inherit are fine).
-const root = join(import.meta.dir, '..');
+const root = join(import.meta.dir, '../../..');
 const scanned = ['src/ui', 'src/sections'];
 const excluded = new Set(['src/ui/tokens.css']);
 

@@ -12,7 +12,6 @@ tests/
 ├── helpers/            Shared harnesses, IPC/fixture helpers and render utilities
 ├── fixtures/           Vite HTML/React entry points and static test data
 ├── manual/             Opt-in live integration scripts and native probes
-├── *.test.ts           Temporary CSS-PR compatibility exception (see below)
 ├── run-ui.cjs          Recursive, serial UI runner
 └── run-all.cjs         Typecheck, build, Bun, Rust and whole UI suite
 ```
@@ -21,12 +20,6 @@ Areas follow the app: `overview`, `providers`, `quota`, `usage`, `agents`,
 `plugins`, `settings`, plus `shell`, `ui-kit`, `services`, `platform` and `mocks`.
 Section-specific service tests live with their section; cross-section services live
 in `services`. Rust tests remain in `src-tauri/`.
-
-The six existing CSS/theme contract tests (`textContrast`, `themeBackgrounds`,
-`colourLiterals`, `themeAccentContrast`, `theme`, `semanticTokenBridge`) temporarily
-stay at the test root, byte-for-byte unchanged, to avoid conflicting with the open
-CSS cleanup PRs. They still run in the normal Bun suite.
-The lead will move these six tests to `tests/unit/ui-kit/` once CSS PRs #83/#84 merge.
 
 ## Run
 

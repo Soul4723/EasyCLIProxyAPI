@@ -24,7 +24,5 @@ export type SectionRoute = {
   subs?: readonly SectionSub[];
   /** Usable while the core is not ready (see src/navigation.ts). */
   alwaysAvailable?: boolean;
-  /** Full-screen page without the sidebar (Easy mode). */
-  bare?: boolean;
   Page: ComponentType<SectionPageProps>;
 };

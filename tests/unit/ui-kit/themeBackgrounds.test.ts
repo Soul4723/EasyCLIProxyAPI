@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { themeTokenProperties } from '../src/themes/types';
+import { themeTokenProperties } from '../../../src/themes/types';
 
 const semanticPaint = new Set([
   'components/WindowFrame.css|.window-controls .window-close:hover',
@@ -25,7 +25,7 @@ const semanticPalettePaint = new Set([
 ]);
 
 test('component backgrounds use shared roles; literal paint is limited to semantic indicators', async () => {
-  const source = fileURLToPath(new URL('../src/', import.meta.url));
+  const source = fileURLToPath(new URL('../../../src/', import.meta.url));
   const violations: string[] = [];
   const themeRoles = new Set<string>(Object.values(themeTokenProperties).flat());
   const adaptiveLegacyColors = new Set(['--theme-8a847c', '--theme-7a746c']);
