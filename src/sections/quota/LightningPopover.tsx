@@ -6,6 +6,7 @@ import {
   Button, ConfirmDialog, Countdown, Masked, Popover, ProviderLogo, SegmentedControl,
 } from '../../ui';
 import { useI18n } from '../../i18n';
+import { formatShortDateTime } from '../../services/format';
 import type { LightingMode, LightingSchedule, LightingWindowKind } from '../../services/lighting';
 import type { QuotaAccount } from './model';
 import { lightingStateOf, type LightingApi } from './useLighting';
@@ -129,7 +130,7 @@ export function LightningPopover({
     } finally { setBusy(false); }
   };
 
-  const fmt = (ms: number) => new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(ms);
+  const fmt = (ms: number) => formatShortDateTime(ms, locale);
   const defaultModel = capability?.defaultModel ?? '';
 
   return (

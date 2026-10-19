@@ -1,5 +1,5 @@
 import { getCurrentLocale, type AppLocale } from './index';
-import { createTraditionalMessages } from './traditional';
+import { createTraditionalMessages } from './locales/traditional';
 
 const messages = {
   title: ['插件登录', 'Plugin sign-in', 'プラグインのログイン'],

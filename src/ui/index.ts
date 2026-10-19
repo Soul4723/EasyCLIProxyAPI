@@ -25,5 +25,5 @@ export * from './RelativeTime';
 export * from './Charts';
 export * from './providers';
 export * from './ProviderLogo';
-export * from './format';
+export * from '../services/format';
 export { cx } from './cx';

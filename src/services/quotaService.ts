@@ -1,3 +1,4 @@
+import { formatNumericDateTime24 } from './format';
 import { startQuotaOperation, assertQuotaOperation, finishQuotaOperation, type QuotaOperation } from './quotaOperation';
 import { antigravityWindow, antigravityBucketLabel, antigravityGroupLabel, antigravityDescription } from './antigravityQuotaLabels';
 import { captureQuotaCacheGeneration } from './quotaCache';
@@ -158,13 +159,7 @@ const quotaFraction = (value: unknown): number | null => {
 
 const formatDateTime = (date: Date): string | undefined => {
   if (Number.isNaN(date.getTime())) return undefined;
-  return new Intl.DateTimeFormat(getCurrentLocale(), {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
+  return formatNumericDateTime24(date, getCurrentLocale());
 };
 
 export const formatQuotaTimestamp = (
