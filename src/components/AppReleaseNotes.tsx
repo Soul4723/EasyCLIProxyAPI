@@ -3,6 +3,7 @@ import { ChevronDown, ExternalLink, FileText } from 'lucide-react';
 import Markdown from 'react-markdown';
 import type { AppUpdateInfo } from '../appUpdate';
 import { useI18n } from '../i18n';
+import './AppReleaseNotes.css';
 
 type Props = {
   info: Pick<AppUpdateInfo, 'latestVersion' | 'releaseNotes' | 'publishedAt'> | null;

@@ -14,6 +14,7 @@ import { listen } from './services/platform';
 import { Download, RefreshCw } from 'lucide-react';
 import { getCurrentLocale, translate, useI18n, type AppLocale } from './i18n';
 import { useDialogFocusTrap } from './components/useDialogFocusTrap';
+import './appUpdate.css';
 
 export type AppUpdateInfo = {
   currentVersion: string;

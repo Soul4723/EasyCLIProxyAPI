@@ -3,7 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { WindowFrame } from '../../src/components/WindowFrame';
-import '../../src/styles.css';
+import '../../src/styles/index.css';
+// The test injects an .install-dialog-backdrop to check its stacking against the titlebar.
+import '../../src/appUpdate.css';
 
 const state = {
   calls: [] as string[],

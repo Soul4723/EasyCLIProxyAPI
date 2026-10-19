@@ -1,0 +1,128 @@
+/* Windows close-button dialog (WindowsCloseHandler). */
+
+.close-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--theme-scrim);
+  backdrop-filter: blur(4px);
+}
+
+.close-dialog {
+  position: relative;
+  display: grid;
+  gap: 18px;
+  width: min(430px, 100%);
+  padding: 24px;
+  border: 1px solid var(--theme-d5d2cb);
+  border-radius: 10px;
+  outline: none;
+  background: var(--theme-fffdf8);
+  box-shadow: 0 22px 60px rgba(45, 42, 38, 0.28);
+}
+
+.close-dialog-heading {
+  display: grid;
+  padding-right: 34px;
+}
+
+.close-dialog-dismiss {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--theme-7a746c);
+}
+
+.close-dialog-dismiss:hover:not(:disabled) {
+  border-color: var(--theme-d5d2cb);
+  background: var(--theme-f0ede6);
+  color: var(--theme-2d2a26);
+}
+
+.close-dialog-dismiss:focus-visible {
+  outline: 3px solid rgba(66, 99, 127, 0.3);
+  outline-offset: 2px;
+}
+
+.close-dialog-dismiss:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.close-dialog-heading h2 {
+  margin: 0;
+  color: var(--theme-2d2a26);
+  font-size: var(--font-size-dialog-title);
+  line-height: var(--line-height-tight);
+}
+
+.close-dialog > p {
+  margin: 0;
+  color: var(--theme-5f5a53);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-relaxed);
+}
+
+.close-dialog-remember {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 8px;
+  color: var(--theme-5f5a53);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.close-dialog-remember input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--theme-4f825c);
+}
+
+.close-dialog-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.close-choice-button {
+  display: grid;
+  min-height: 58px;
+  gap: 3px;
+  padding: 8px 12px;
+}
+
+.close-choice-button span {
+  font-size: var(--font-size-body);
+}
+
+.close-choice-button:focus-visible {
+  outline: 3px solid rgba(66, 99, 127, 0.36);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .close-dialog-backdrop {
+    padding: 16px;
+  }
+
+  .close-dialog {
+    padding: 20px;
+  }
+
+  .close-dialog-actions {
+    grid-template-columns: 1fr;
+  }
+}

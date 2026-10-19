@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { usePrivacyMask } from '../privacy';
+import './ConfirmationDialog.css';
 
 export type ConfirmationOptions = {
   title: string;
