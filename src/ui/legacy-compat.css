@@ -1,7 +1,7 @@
 /*
- * Hand-maintained compatibility mappings for old upstream class names and page variables
- * (--bg-*, --text-*, --theme-*) onto the semantic --ec-* tokens. These keep old pages
- * following the selected theme and may be removed in a later CSS cleanup.
+ * Maps the legacy variables (--bg-*, --text-*, --border-*, --theme-*, --ui-*, --sidebar-*) that src/styles/*.css and
+ * src/components/*.css still consume onto the semantic --ec-* tokens, so they follow the selected theme.
+ * Variables nothing consumes any more are not listed.
  */
 :root[data-theme='dark'],
 :root[data-theme='light'] {
@@ -15,32 +15,18 @@
   --theme-fffdf8: var(--ec-surface);
   --theme-soft-surface: var(--ec-raised);
   --bg-tertiary: var(--ec-raised);
-  --bg-quinary: var(--ec-raised);
-  --count-badge-bg: var(--ec-raised);
   --theme-f0ede6: var(--ec-raised);
-  --theme-f0eee8: var(--ec-raised);
-  --theme-f2efe8: var(--ec-raised);
-  --theme-f2f0ea: var(--ec-raised);
   --theme-f4f1ea: var(--ec-raised);
   --theme-f4f2ec: var(--ec-raised);
-  --theme-f6f2ec: var(--ec-raised);
-  --theme-f8f5ee: var(--ec-raised);
   --theme-f8f5ef: var(--ec-raised);
-  --theme-f8f6f1: var(--ec-raised);
-  --theme-faf8f2: var(--ec-raised);
-  --theme-faf8f4: var(--ec-raised);
   --theme-faf9f5: var(--ec-raised);
   --theme-hover-background: var(--ec-hover);
   --bg-hover: var(--ec-hover);
-  --theme-text-primary: var(--ec-fg);
   --text-primary: var(--ec-fg);
   --theme-2d2a26: var(--ec-fg);
   --theme-text-secondary: var(--ec-fg-2);
   --text-secondary: var(--ec-fg-2);
-  --theme-342f2a: var(--ec-fg-2);
-  --theme-39352f: var(--ec-fg-2);
   --theme-433f39: var(--ec-fg-2);
-  --theme-4f4a43: var(--ec-fg-2);
   --theme-text-tertiary: var(--ec-fg-muted);
   --text-tertiary: var(--ec-fg-muted);
   --theme-text-muted: var(--ec-fg-subtle);
@@ -49,22 +35,14 @@
   --border-color: var(--ec-border);
   --theme-e3e1db: var(--ec-border);
   --theme-eeeae2: var(--ec-border);
-  --theme-border-subtle: var(--ec-border-soft);
-  --border-secondary: var(--ec-border-soft);
   --theme-eeece6: var(--ec-border-soft);
   --theme-e8e5dc: var(--ec-border-soft);
-  --theme-e8e4dc: var(--ec-border-soft);
   --border-primary: var(--ec-input-border);
   --theme-d5d2cb: var(--ec-input-border);
-  --border-hover: var(--ec-ring);
-  --theme-c7c2b8: var(--ec-ring);
   --theme-panel-shadow-color: var(--ec-shade-3);
   --ui-accent: var(--ec-accent);
   --primary-color: var(--ec-accent);
   --ui-accent-strong: var(--ec-accent);
-  --primary-hover: var(--ec-accent);
-  --ui-accent-soft: var(--ec-accent-soft);
-  --ui-accent-contrast: var(--ec-accent-fg);
   --primary-contrast: var(--ec-accent-fg);
   --ui-accent-shadow: var(--ec-shade-2);
   --theme-primary-button-background: var(--ec-accent);
@@ -84,30 +62,16 @@
   --sidebar-edge: var(--ec-sidebar-border);
   --sidebar-popover-edge: var(--ec-sidebar-border);
   --sidebar-hover-bg: var(--ec-sidebar-hover);
-  --sidebar-press-bg: var(--ec-sidebar-hover);
-  --sidebar-selected-bg: var(--ec-sidebar-selected);
-  --sidebar-thumb-bg: var(--ec-sidebar-selected);
-  --sidebar-selected-border-color: var(--ec-border);
-  --sidebar-selected-shadow-color: var(--ec-shade-1);
   --sidebar-popover-bg: var(--ec-popover);
   --theme-overlay-surface: var(--ec-popover);
-  --theme-overlay-soft-surface: var(--ec-raised);
-  --theme-overlay-hover-background: var(--ec-hover);
   --theme-scrim: var(--ec-scrim);
   --theme-control-thumb: var(--ec-knob);
   --text-placeholder: var(--ec-fg-subtle);
   --text-disabled: var(--ec-fg-subtle);
-  --success-color: var(--ec-ok-fg);
   --error-color: var(--ec-danger-fg);
-  --danger-color: var(--ec-danger-fg);
   --amber-color: var(--ec-warn);
-  --amber-text: var(--ec-warn-fg);
-  --success-badge-bg: color-mix(in srgb, var(--ec-ok) var(--ec-tint), transparent);
-  --success-badge-text: var(--ec-ok-fg);
-  --success-badge-border: color-mix(in srgb, var(--ec-ok) 35%, transparent);
   --failure-badge-text: var(--ec-danger-fg);
   --ui-panel-shadow: var(--ec-shadow-card);
   --shadow-sm: var(--ec-shadow-card);
   --theme-sticky-background: var(--ec-bg);
-  --theme-sticky-hover-background: var(--ec-hover);
 }
