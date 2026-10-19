@@ -49,6 +49,13 @@ runUiTest('usage-stopped', async ({ base, newPage }) => {
   const follow = stream.getByRole('radiogroup', { name: 'Follow mode' });
   assert.deepEqual((await follow.getByRole('radio').allInnerTexts()).map((s) => s.trim()), ['Latest', 'Paused'], 'follow control reads Latest/Paused, not Live');
   assert.match(await stream.locator('.ec-card__title').first().innerText(), /^Recent requests/, 'stream title does not say Live');
+  // candidates stay listed but their last-known status is not shown as current
+  const cands = page.locator('.rt-candidates');
+  assert.match(await cands.getByTestId('rt-stale-note').innerText(), /Status unavailable · core stopped/, 'candidates carry a stale note');
+  assert.ok(await cands.locator('.rt-cand').count() > 0, 'candidate accounts are still listed');
+  assert.equal(await cands.locator('.rt-cand [data-status], .rt-cand[data-status]').count(), 0, 'no status badge on candidates');
+  assert.equal(await cands.locator('.rt-cand__cd').count(), 0, 'no cooldown countdown on candidates');
+  assert.equal(await page.locator('.ec-page-header, .usage-header, nav').getByText('Live routing').count(), 0);
   await settle(page);
   await page.screenshot({ path: path.join(SHOTS, 'usage-stopped-routing.png') });
 
@@ -74,6 +81,8 @@ runUiTest('usage-stopped', async ({ base, newPage }) => {
   await page.waitForFunction(() => document.querySelector('.usage-collector')?.getAttribute('data-live') === 'true');
   assert.match(await chip(page).innerText(), /Collecting locally/, 'running: collecting label');
   assert.equal(await page.locator('.rt-stream').getAttribute('data-live'), 'true');
+  assert.equal(await page.getByTestId('rt-stale-note').count(), 0, 'running: no stale note');
+  assert.ok(await page.locator('.rt-candidates .rt-cand [data-status], .rt-candidates .rt-cand[data-status]').count() > 0, 'running: candidates show live status');
   assert.deepEqual((await page.locator('.rt-stream').getByRole('radio').allInnerTexts()).map((s) => s.trim()), ['Live', 'Paused']);
   await page.screenshot({ path: path.join(SHOTS, 'usage-running-routing.png') });
   await invoke(page, 'stop_core_process');

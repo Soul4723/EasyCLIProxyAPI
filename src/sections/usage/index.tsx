@@ -19,7 +19,7 @@ const resolveSub = (sub: string | null) => {
   return usageSubs.find((s) => s.id === id)?.id ?? usageSubs[0].id;
 };
 
-/** Usage page: stats (Overview), request log (Requests), Live routing, Prices, Data. Deep links: #/usage/requests?account=<auth_index>&provider=<p>. */
+/** Usage page: stats (Overview), request log (Requests), Routing, Prices, Data. Deep links: #/usage/requests?account=<auth_index>&provider=<p>. */
 export function UsageSection({ sub, params }: SectionPageProps) {
   const { t } = useI18n();
   const active = resolveSub(sub);

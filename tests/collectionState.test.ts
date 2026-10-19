@@ -9,7 +9,7 @@ const collector = (state: CollectorStatus['state'], extra: Partial<CollectorStat
 describe('deriveCollectionState', () => {
   test('is live only while the core answers and the collector collects', () => {
     const state = deriveCollectionState(collector('collecting'), { ready: true, connectionMode: 'local' });
-    expect(state).toEqual({ kind: 'collecting', live: true, lastCollectedAt: '2026-10-19T14:02:00.000Z' });
+    expect(state).toEqual({ kind: 'collecting', live: true, lastCollectedAt: '2026-10-19T14:02:00.000Z', coreDown: false });
   });
 
   test('a stopped local core beats a stale "collecting" collector status', () => {
@@ -56,5 +56,19 @@ describe('formatRecordTime', () => {
   test('returns null for missing or invalid input', () => {
     expect(formatRecordTime(null, now)).toBeNull();
     expect(formatRecordTime('nope', now)).toBeNull();
+  });
+});
+
+describe('coreDown', () => {
+  test('is true whenever the shared core status is not ready, even if the collector is paused or errored', () => {
+    expect(deriveCollectionState(collector('collecting'), { ready: false, connectionMode: 'local' }).coreDown).toBe(true);
+    expect(deriveCollectionState(collector('paused'), { ready: false }).coreDown).toBe(true);
+    expect(deriveCollectionState(collector('waiting-core'), { ready: false, connectionMode: 'remote' }).coreDown).toBe(true);
+    expect(deriveCollectionState(collector('waiting-core'), { ready: false, starting: true }).coreDown).toBe(true);
+  });
+
+  test('is false while the core is ready or its status is unknown', () => {
+    expect(deriveCollectionState(collector('waiting-core'), { ready: true }).coreDown).toBe(false);
+    expect(deriveCollectionState(collector('collecting'), null).coreDown).toBe(false);
   });
 });

@@ -26,6 +26,8 @@ export type CollectionState = {
   live: boolean;
   /** ISO time of the last stored record the collector wrote, if known. */
   lastCollectedAt: string | null;
+  /** True while the shared core status says the core is not ready, whatever the collector says: core-derived live state is stale. */
+  coreDown: boolean;
 };
 
 /**
@@ -34,7 +36,8 @@ export type CollectionState = {
  */
 export function deriveCollectionState(collector: CollectorStatus | null, core: CoreReach | null): CollectionState {
   const lastCollectedAt = collector?.lastCollectedAt ?? null;
-  const done = (kind: CollectionKind): CollectionState => ({ kind, live: kind === 'collecting', lastCollectedAt });
+  const coreDown = Boolean(core && !core.ready);
+  const done = (kind: CollectionKind): CollectionState => ({ kind, live: kind === 'collecting', lastCollectedAt, coreDown });
   if (!collector && !core) return done('unknown');
   if (collector?.state === 'error') return done('error');
   if (collector?.state === 'paused') return done('paused');
