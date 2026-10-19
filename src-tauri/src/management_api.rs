@@ -16,6 +16,25 @@ use std::{
     time::Duration,
 };
 
+static OAUTH_TARGETS: LazyLock<std::sync::Mutex<HashMap<String, (u64, String)>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+fn validate_oauth_state(state: &str, revision: u64, provider: Option<&str>) -> Result<(), String> {
+    let states = OAUTH_TARGETS.lock().map_err(|_| "OAuth state lock is poisoned")?;
+    match states.get(state) {
+        Some((issued, issued_provider)) if *issued == revision && provider.is_none_or(|p| p == issued_provider) => Ok(()),
+        _ => Err(super::core_connection::STALE_TARGET.to_string()),
+    }
+}
+
+fn validate_oauth_session_request(request: &ManagementRequest) -> Result<(), String> {
+    if request.path.trim_matches('/') == "oauth/session" {
+        let state = request.query.as_ref().and_then(|q| q.get("state")).ok_or(super::core_connection::STALE_TARGET)?;
+        validate_oauth_state(state, request.expected_revision, None)?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OAuthStartResult {
@@ -58,6 +77,7 @@ struct OAuthStatusApiResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ManagementRequest {
+    expected_revision: u64,
     method: String,
     path: String,
     query: Option<HashMap<String, String>>,
@@ -80,6 +100,12 @@ pub(crate) async fn management_request(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: ManagementRequest,
 ) -> Result<serde_json::Value, String> {
+    management_request_inner(&gui_config_state, request).await
+}
+
+async fn management_request_inner(gui_config_state: &GuiConfigState, request: ManagementRequest) -> Result<serde_json::Value, String> {
+    let _revision_guard = super::core_connection::expected_operation(request.expected_revision)?;
+    validate_oauth_session_request(&request)?;
     let config = gui_config_state.snapshot()?;
     let result = async {
     let method = match request.method.trim().to_ascii_uppercase().as_str() {
@@ -140,11 +166,17 @@ fn management_request_body(
 
 #[tauri::command]
 pub(crate) async fn import_vertex_credential(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     name: String,
     data: Vec<u8>,
     location: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    import_vertex_credential_inner(&gui_config_state, expected_revision, name, data, location).await
+}
+
+async fn import_vertex_credential_inner(gui_config_state: &GuiConfigState, expected_revision: u64, name: String, data: Vec<u8>, location: Option<String>) -> Result<serde_json::Value, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let name = name.trim();
     if name.is_empty() || !name.to_ascii_lowercase().ends_with(".json") {
         return Err("Credential filename must end with .json".to_string());
@@ -176,10 +208,12 @@ pub(crate) async fn import_vertex_credential(
 
 #[tauri::command]
 pub(crate) async fn upload_auth_file(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     name: String,
     data: Vec<u8>,
 ) -> Result<serde_json::Value, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let name = name.trim().to_string();
     if name.is_empty() || !name.to_ascii_lowercase().ends_with(".json") {
         return Err("Credential filename must end with .json".to_string());
@@ -255,12 +289,14 @@ fn open_directory_in_file_manager(path: &Path) -> Result<(), String> {
 
 #[tauri::command]
 pub(crate) async fn start_oauth_login(
+    expected_revision: u64,
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     provider: String,
     browser: Option<String>,
     plugin_provider: Option<bool>,
 ) -> Result<OAuthStartResult, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     super::network_proxy::prepare_oauth(&app).await;
     let _connection_guard = super::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
@@ -281,6 +317,11 @@ pub(crate) async fn start_oauth_login(
     let payload = read_management_json::<OAuthStartApiResponse>(response).await?;
     let mut result = normalize_oauth_start_response(payload)?;
     super::core_connection::ensure_current(&config)?;
+    if let Some(state) = &result.state {
+        let mut states = OAUTH_TARGETS.lock().map_err(|_| "OAuth state lock is poisoned")?;
+        states.retain(|_, (revision, _)| *revision == expected_revision);
+        states.insert(state.clone(), (expected_revision, provider_key));
+    }
     match open_oauth_url_inner(&app, &result.url, browser.as_deref()) {
         Ok(()) => result.opened = true,
         Err(error) => result.open_error = Some(error),
@@ -328,10 +369,17 @@ fn normalize_oauth_start_response(payload: OAuthStartApiResponse) -> Result<OAut
 
 #[tauri::command]
 pub(crate) async fn get_oauth_status(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     state: String,
 ) -> Result<OAuthStatusResult, String> {
+    get_oauth_status_inner(&gui_config_state, expected_revision, state).await
+}
+
+async fn get_oauth_status_inner(gui_config_state: &GuiConfigState, expected_revision: u64, state: String) -> Result<OAuthStatusResult, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let state = state.trim().to_string();
+    validate_oauth_state(&state, expected_revision, None)?;
     if state.is_empty() {
         return Err("OAuth state cannot be empty".to_string());
     }
@@ -366,19 +414,28 @@ pub(crate) async fn get_oauth_status(
 
 #[tauri::command]
 pub(crate) async fn submit_oauth_callback(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     provider: String,
     redirect_url: String,
     plugin_provider: Option<bool>,
 ) -> Result<(), String> {
+    submit_oauth_callback_inner(&gui_config_state, expected_revision, provider, redirect_url, plugin_provider).await
+}
+
+async fn submit_oauth_callback_inner(gui_config_state: &GuiConfigState, expected_revision: u64, provider: String, redirect_url: String, plugin_provider: Option<bool>) -> Result<(), String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let redirect_url = redirect_url.trim().to_string();
     if redirect_url.is_empty() {
         return Err("Callback URL cannot be empty".to_string());
     }
     let _connection_guard = super::core_connection::target_operation()?;
+    let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
+    let callback = reqwest::Url::parse(&redirect_url).map_err(|_| "Invalid OAuth callback URL")?;
+    let state = callback.query_pairs().find(|(key, _)| key == "state").map(|(_, value)| value.into_owned()).ok_or(super::core_connection::STALE_TARGET)?;
+    validate_oauth_state(&state, expected_revision, Some(&provider_key))?;
     let config = gui_config_state.snapshot()?;
     let result = async {
-    let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
     let client = management_http_client()?;
     let body = serde_json::json!({
         "provider": provider_key,
@@ -613,6 +670,51 @@ mod tests {
         time::Duration,
     };
 
+    // Poison the snapshot: returning STALE_TARGET proves rejection happens before
+    // even reading config, let alone constructing an authenticated request.
+    fn unreadable_config_state() -> GuiConfigState {
+        let state = GuiConfigState { inner: std::sync::Mutex::new(GuiConfigFile::default()) };
+        let _ = std::panic::catch_unwind(|| { let _guard = state.inner.lock().unwrap(); panic!("test snapshot must not be read"); });
+        state
+    }
+
+    #[tokio::test]
+    async fn stale_management_request_is_rejected_before_dispatch_for_every_method() {
+        let state = unreadable_config_state();
+        for method in ["GET", "POST", "PUT", "PATCH", "DELETE"] {
+            let request = serde_json::from_value(serde_json::json!({
+                "expectedRevision": super::super::core_connection::revision().wrapping_add(1),
+                "method": method, "path": "/config",
+            })).unwrap();
+            assert_eq!(management_request_inner(&state, request).await.unwrap_err(), super::super::core_connection::STALE_TARGET);
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_vertex_import_is_rejected_before_dispatch() {
+        let state = unreadable_config_state();
+        let revision = super::super::core_connection::revision().wrapping_add(1);
+        assert_eq!(import_vertex_credential_inner(&state, revision, "secret.json".into(), b"{}".to_vec(), None).await.unwrap_err(), super::super::core_connection::STALE_TARGET);
+    }
+
+    #[tokio::test]
+    async fn oauth_old_and_unknown_states_are_rejected_before_status_callback_or_cancel() {
+        let config = unreadable_config_state();
+        let revision = super::super::core_connection::revision();
+        OAUTH_TARGETS.lock().unwrap().insert("old-target-state".into(), (revision.wrapping_sub(1), "codex".into()));
+        for state in ["old-target-state", "unknown-target-state"] {
+            let result = get_oauth_status_inner(&config, revision, state.into()).await;
+            assert_eq!(result.err().unwrap(), super::super::core_connection::STALE_TARGET);
+            let result = submit_oauth_callback_inner(&config, revision, "codex".into(), format!("http://localhost/callback?code=secret&state={state}"), None).await;
+            assert_eq!(result.unwrap_err(), super::super::core_connection::STALE_TARGET);
+            let request = serde_json::from_value(serde_json::json!({
+                "expectedRevision": revision, "method": "DELETE", "path": "/oauth/session", "query": { "state": state },
+            })).unwrap();
+            assert_eq!(management_request_inner(&config, request).await.unwrap_err(), super::super::core_connection::STALE_TARGET);
+        }
+        OAUTH_TARGETS.lock().unwrap().remove("old-target-state");
+    }
+
     #[test]
     fn v8_yaml_body_is_raw_text_and_config_values_remain_json() {
         let client = reqwest::Client::new();
@@ -661,11 +763,11 @@ mod tests {
     #[test]
     fn v8_requests_distinguish_explicit_null_from_an_absent_body() {
         let absent: ManagementRequest = serde_json::from_value(serde_json::json!({
-            "method": "GET", "path": "/config",
+            "expectedRevision": 0, "method": "GET", "path": "/config",
         }))
         .unwrap();
         let explicit: ManagementRequest = serde_json::from_value(serde_json::json!({
-            "method": "PUT", "path": "/config/requests/payload", "body": null,
+            "expectedRevision": 0, "method": "PUT", "path": "/config/requests/payload", "body": null,
         }))
         .unwrap();
         assert!(absent.body.is_none());

@@ -13,3 +13,5 @@ export function beginConnectionChange() {
 export function assertConnectionActive() {
   if (switching) throw new Error('Core connection changed; reloading.');
 }
+
+export function restoreConnectionAfterSaveFailure() { switching = false; }

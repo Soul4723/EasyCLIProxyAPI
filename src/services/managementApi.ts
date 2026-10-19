@@ -1,5 +1,6 @@
 import { assertConnectionActive, assertConnectionCurrent, connectionGeneration } from './connectionGeneration';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './targetInvoke';
+import { isStaleTarget } from './targetInvoke';
 import { getCurrentLocale, translate } from '../i18n';
 
 export type ManagementJson = Record<string, unknown> | unknown[] | string | number | boolean | null;
@@ -81,7 +82,7 @@ export const managementApi = {
   post: <T = ManagementJson>(
     path: string,
     body?: ManagementJson,
-    options: Pick<ManagementRequestOptions, 'timeoutMs'> = {},
+    options: Pick<ManagementRequestOptions, 'timeoutMs' | 'query'> = {},
   ) => request<T>('POST', path, { ...options, body }),
   put: <T = ManagementJson>(path: string, body?: ManagementJson) =>
     request<T>('PUT', path, { body }),
@@ -92,7 +93,10 @@ export const managementApi = {
     options: ManagementRequestOptions = {},
   ) => request<T>('DELETE', path, options),
   uploadAuthFile: async (file: File) => {
+    assertConnectionActive();
+    const generation = connectionGeneration();
     const data = Array.from(new Uint8Array(await file.arrayBuffer()));
+    assertConnectionCurrent(generation);
     return invoke<ManagementJson>('upload_auth_file', {
       name: file.name,
       data,
@@ -278,4 +282,24 @@ export function apiCallErrorMessage(
   return status > 0
     ? translate(locale, 'management.error.upstreamHttp', { status })
     : fallback;
+}
+
+export async function uploadAuthFiles(files: File[], active: () => boolean = () => true) {
+  assertConnectionActive();
+  const generation = connectionGeneration();
+  let uploaded = 0;
+  const failures: string[] = [];
+  for (const file of files) {
+    if (!active()) break;
+    assertConnectionCurrent(generation);
+    try {
+      await managementApi.uploadAuthFile(file);
+      assertConnectionCurrent(generation);
+      uploaded += 1;
+    } catch (error) {
+      if (isStaleTarget(error)) throw error;
+      failures.push(`${file.name}：${String(error)}`);
+    }
+  }
+  return { uploaded, failures };
 }

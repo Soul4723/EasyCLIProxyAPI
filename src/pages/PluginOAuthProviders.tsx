@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/targetInvoke';
 import { LogIn, Puzzle, RefreshCw } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { pluginOAuthText } from '../i18n/pluginOAuth';

@@ -1,9 +1,12 @@
+import { initializeTargetRevision } from '../src/services/targetInvoke';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { fetchModels } from '../src/services/modelService';
 import { checkProviderModelHealth } from '../src/services/providerHealthCheck';
 import { providerDraftConnection } from '../src/pages/ApiAccessPage';
 import { providerKeyDraft } from '../src/services/providerGroups';
+
+initializeTargetRevision(0);
 
 describe('provider request proxy routing', () => {
   let originalWindow: PropertyDescriptor | undefined;

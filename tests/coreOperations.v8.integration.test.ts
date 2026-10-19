@@ -1,3 +1,4 @@
+import { initializeTargetRevision } from '../src/services/targetInvoke';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -10,6 +11,8 @@ import { loadAuthFileSettings, saveAuthFileSettings } from '../src/services/auth
 import { setOAuthCredentialFileDisabled } from '../src/services/authFiles';
 import { loadOAuthModelSettings, saveOAuthModelSettings, saveOAuthProviderExclusions } from '../src/services/oauthModelSettings';
 import { fetchModels } from '../src/services/modelService';
+
+initializeTargetRevision(0);
 
 const executable = process.env.CPA_V8_TEST_CORE;
 describe.skipIf(!executable)('real v8 management operations', () => {

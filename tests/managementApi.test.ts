@@ -1,3 +1,4 @@
+import { initializeTargetRevision } from '../src/services/targetInvoke';
 import { flattenV8ProviderGroups, groupLegacyProviderRecords } from './fixtures/legacyProviderRecords';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
@@ -13,6 +14,8 @@ import {
   providerCategoryMatchesRecord,
   providerRecordWithDisabledState,
 } from '../src/pages/ApiAccessPage';
+
+initializeTargetRevision(0);
 
 describe('v8 Management API requests', () => {
   let originalWindow: PropertyDescriptor | undefined;

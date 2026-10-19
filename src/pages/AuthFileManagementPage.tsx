@@ -1,3 +1,5 @@
+import { assertConnectionActive, assertConnectionCurrent, connectionGeneration } from '../services/connectionGeneration';
+import { uploadAuthFiles } from '../services/managementApi';
 import { useCoreConnection } from '../coreConnection';
 import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -248,6 +250,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
     if (readBoolean(file, 'disabled')) return;
     const key = quotaKey(file);
     if (getQuotaCacheSnapshot()[key]?.status === 'loading') return;
+    assertConnectionActive();
     const cacheGeneration = captureQuotaCacheGeneration();
     updateQuotaCache((current) => ({ ...current, [key]: { status: 'loading', rows: [] } }));
     const result = await loadQuota(file);
@@ -260,10 +263,16 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
     if (!queryable.length) return;
     setQuotaRefreshing(true);
     setError('');
+    const generation = connectionGeneration();
     try {
       for (let index = 0; index < queryable.length; index += 4) {
+        if (!mountedRef.current) break;
+        assertConnectionActive();
+        assertConnectionCurrent(generation);
         await Promise.all(queryable.slice(index, index + 4).map((file) => refreshQuota(file)));
       }
+    } catch (cause) {
+      if (mountedRef.current) setError(String(cause));
     } finally {
       if (mountedRef.current) setQuotaRefreshing(false);
     }
@@ -392,17 +401,9 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
     if (selected.length === 0) return;
     setBusy(true);
     setError('');
-    let uploaded = 0;
-    const failures: string[] = [];
-    for (const file of selected) {
-      try {
-        await managementApi.uploadAuthFile(file);
-        uploaded += 1;
-      } catch (requestError) {
-        failures.push(`${file.name}：${String(requestError)}`);
-      }
-    }
     try {
+      const { uploaded, failures } = await uploadAuthFiles(selected, () => mountedRef.current);
+      if (!mountedRef.current) return;
       await loadFiles();
       if (uploaded > 0) showNotice({ key: 'authFiles.uploaded', variables: { count: uploaded } });
       if (failures.length > 0) setError(t('authFiles.uploadFailed', { count: failures.length, errors: failures.join('; ') }));

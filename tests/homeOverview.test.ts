@@ -1,3 +1,4 @@
+import { initializeTargetRevision } from '../src/services/targetInvoke';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import {
@@ -7,6 +8,8 @@ import {
   summarizeHomeCredentials,
   summarizeHomeUsage,
 } from '../src/services/homeOverview';
+
+initializeTargetRevision(0);
 
 describe('home overview aggregation', () => {
   it('measures success over completed requests and leaves empty/canceled-only windows unmeasured', () => {

@@ -205,10 +205,12 @@ pub(crate) async fn refresh_agent_config_statuses(
 
 #[tauri::command]
 pub(crate) async fn get_agent_models(
+    expected_revision: u64,
     _app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     client: String,
 ) -> Result<Vec<AgentModelOption>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     if client.trim().eq_ignore_ascii_case(PI_AGENT_ID) {
         let config = gui_config_state.snapshot()?;
@@ -560,8 +562,10 @@ async fn fetch_alias_models(config: &GuiConfigFile) -> Result<Vec<AgentModelOpti
 
 #[tauri::command]
 pub(crate) async fn get_thinking_aliases(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let content = fetch_management_config_yaml(&config).await?;
@@ -570,8 +574,10 @@ pub(crate) async fn get_thinking_aliases(
 
 #[tauri::command]
 pub(crate) async fn get_model_alias_sources(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let content = fetch_management_config_yaml(&config).await?;
@@ -591,8 +597,10 @@ pub(crate) async fn get_model_alias_sources(
 
 #[tauri::command]
 pub(crate) async fn get_thinking_alias_sources(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let content = fetch_management_config_yaml(&config).await?;
@@ -612,10 +620,12 @@ pub(crate) async fn get_thinking_alias_sources(
 
 #[tauri::command]
 pub(crate) async fn get_model_alias_edit_source(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     alias: String,
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<ModelAliasEditContext, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
@@ -626,6 +636,7 @@ pub(crate) async fn get_model_alias_edit_source(
 
 #[tauri::command]
 pub(crate) async fn create_thinking_alias(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     source_id: String,
     alias: String,
@@ -634,6 +645,7 @@ pub(crate) async fn create_thinking_alias(
     original_alias: Option<String>,
     original_entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let source_id = source_id.trim().to_string();
@@ -708,11 +720,13 @@ pub(crate) async fn create_thinking_alias(
 
 #[tauri::command]
 pub(crate) async fn delete_thinking_alias(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     alias: String,
     oauth_channel: Option<String>,
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
@@ -727,8 +741,10 @@ pub(crate) async fn delete_thinking_alias(
 
 #[tauri::command]
 pub(crate) async fn get_speed_aliases(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let content = fetch_management_config_yaml(&config).await?;
@@ -737,8 +753,10 @@ pub(crate) async fn get_speed_aliases(
 
 #[tauri::command]
 pub(crate) async fn get_speed_alias_sources(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let content = fetch_management_config_yaml(&config).await?;
@@ -758,10 +776,12 @@ pub(crate) async fn get_speed_alias_sources(
 
 #[tauri::command]
 pub(crate) async fn create_speed_alias(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     source_id: String,
     alias: String,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let source_id = source_id.trim().to_string();
@@ -796,11 +816,13 @@ pub(crate) async fn create_speed_alias(
 
 #[tauri::command]
 pub(crate) async fn delete_speed_alias(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     alias: String,
     oauth_channel: Option<String>,
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;

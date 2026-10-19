@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useI18n } from './i18n';
 import { resetQuotaCache } from './services/quotaCache';
+import { initializeTargetRevision } from './services/targetInvoke';
 import { beginConnectionChange } from './services/connectionGeneration';
 
 export type CoreConnection = {
@@ -33,14 +34,15 @@ export function CoreConnectionProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     let disposed = false;
+    window.addEventListener('core-target-stale', reload);
     let stop: (() => void) | undefined;
     void listen('core-connection-changed', () => { if (!disposed) reload(); }).then(unlisten => {
       if (disposed) unlisten(); else stop = unlisten;
     }).catch(cause => { if (!disposed) setError(String(cause)); });
-    void invoke<CoreConnection>('get_core_connection').then(next => {
-      if (!disposed && !switching.current) { setConnection(next); setError(''); }
+    void invoke<CoreConnection & { targetRevision: number }>('get_core_connection').then(next => {
+      if (!disposed && !switching.current) { initializeTargetRevision(next.targetRevision); setConnection(next); setError(''); }
     }).catch(cause => { if (!disposed) setError(String(cause)); });
-    return () => { disposed = true; stop?.(); };
+    return () => { disposed = true; stop?.(); window.removeEventListener('core-target-stale', reload); };
   }, [attempt, reload]);
   if (!connection) return <div className="panel" role="status">{error || t('common.detecting')}{error ? <button type="button" className="secondary-button" onClick={() => { setError(''); setAttempt(value => value + 1); }}>{t('common.retry')}</button> : null}</div>;
   return <CoreConnectionContext.Provider value={{ connection, reload }}>{children}</CoreConnectionContext.Provider>;

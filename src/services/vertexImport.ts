@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import { assertConnectionActive, assertConnectionCurrent, connectionGeneration } from './connectionGeneration';
+import { invoke } from './targetInvoke';
 import { getCurrentLocale, translate } from '../i18n';
 import { isRecord, readString } from './managementApi';
 
@@ -13,7 +14,10 @@ export async function importVertexCredential(file: File, location: string): Prom
   const message = (key: 'oauth.vertex.invalidFile' | 'oauth.vertex.invalidResponse') =>
     translate(getCurrentLocale(), key);
   if (!file.name.toLowerCase().endsWith('.json')) throw new Error(message('oauth.vertex.invalidFile'));
+  assertConnectionActive();
+  const generation = connectionGeneration();
   const bytes = new Uint8Array(await file.arrayBuffer());
+  assertConnectionCurrent(generation);
   try {
     if (!isRecord(JSON.parse(new TextDecoder().decode(bytes)))) throw new Error();
   } catch {

@@ -1,3 +1,5 @@
+import { initializeTargetRevision } from '../../src/services/targetInvoke';
+initializeTargetRevision(0);
 import type { ReactNode } from 'react';
 import { CoreConnectionContext } from '../../src/coreConnection';
 

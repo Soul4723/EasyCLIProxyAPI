@@ -1,6 +1,6 @@
 import { useCoreConnection } from '../coreConnection';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/targetInvoke';
 import { ArrowLeft, Download, ExternalLink, Folder, LogIn, Puzzle, RefreshCw, Search, Settings2, Trash2, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { pluginText } from '../i18n/plugins';

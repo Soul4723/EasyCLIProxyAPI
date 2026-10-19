@@ -1,3 +1,4 @@
+import { assertConnectionActive, assertConnectionCurrent, connectionGeneration } from '../services/connectionGeneration';
 import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ResetCreditExpiries } from '../components/ResetCreditExpiries';
 import { MessageNotice } from '../appNotice';
@@ -93,6 +94,8 @@ export function QuotaPage() {
   const refreshOne = useCallback(async (file: AuthFile) => {
     const key = quotaKey(file);
     if (getQuotaCacheSnapshot()[key]?.status === 'loading') return;
+    const generation = connectionGeneration();
+    assertConnectionActive();
     const cacheGeneration = captureQuotaCacheGeneration();
     updateQuotaCache((current) => ({ ...current, [key]: { status: 'loading', rows: [] } }));
     const result = await loadQuota(file);
@@ -105,6 +108,8 @@ export function QuotaPage() {
     if (Object.values(getQuotaCacheSnapshot()).some((quota) => quota.status === 'loading')) return;
     setRefreshing(true);
     setError('');
+    const generation = connectionGeneration();
+    assertConnectionActive();
     const cacheGeneration = captureQuotaCacheGeneration();
     updateQuotaCache((current) => ({
       ...current,
@@ -114,12 +119,16 @@ export function QuotaPage() {
     }));
     try {
       for (let index = 0; index < files.length; index += REFRESH_CONCURRENCY) {
+        assertConnectionActive();
+        assertConnectionCurrent(generation);
         const batch = files.slice(index, index + REFRESH_CONCURRENCY);
         await Promise.all(batch.map(async (file) => {
           const result = await loadQuota(file);
           commitFetchedQuota(cacheGeneration, file, result);
         }));
       }
+    } catch (cause) {
+      setError(String(cause));
     } finally {
       setRefreshing(false);
     }

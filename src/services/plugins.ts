@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import { isRecord, managementApi } from './managementApi';
 
 export type PluginConfigFieldType =
@@ -330,12 +329,8 @@ export const pluginStoreApi = {
     ]);
     // Native request has a separate query field: source identity survives even
     // when multiple registries expose the same plugin ID.
-    const value = responseObject(await invoke<unknown>('management_request', {
-      request: {
-        method: 'POST', path: `/plugins/store/${pluginPathID(id)}/install`, query,
-        body: version ? { version } : undefined, timeoutMs: 120_000,
-      },
-    }), 'plugin installation');
+    const value = responseObject(await managementApi.post(`/plugins/store/${pluginPathID(id)}/install`,
+      version ? { version } : undefined, { query, timeoutMs: 120_000 }), 'plugin installation');
     return {
       status: text(value.status), sourceId: text(value.source_id), sourceName: text(value.source_name),
       sourceUrl: text(value.source_url), id: text(value.id), version: text(value.version),

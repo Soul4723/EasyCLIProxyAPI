@@ -1,6 +1,6 @@
 import { usagePreferences } from '../services/usagePreferences';
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/targetInvoke';
 import { save } from '@tauri-apps/plugin-dialog';
 import { ArrowDown, ArrowUp, Brain, ChevronLeft, ChevronRight, Columns3, Copy, Database, DatabaseZap, Download, RotateCcw, TriangleAlert, X } from 'lucide-react';
 import { FloatingNotice, useAppNotice } from '../appNotice';

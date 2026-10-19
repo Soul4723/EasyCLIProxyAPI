@@ -1,3 +1,4 @@
+import { initializeTargetRevision } from '../src/services/targetInvoke';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { authFileCooldownResetIndex, resetAuthFileCooldown } from '../src/services/authFiles';
@@ -7,6 +8,8 @@ import {
   normalizeAuthFileCooldowns,
   summarizeAuthFileCooldowns,
 } from '../src/services/authFileHealth';
+
+initializeTargetRevision(0);
 
 describe('credential cooldown reset', () => {
   let originalWindow: PropertyDescriptor | undefined;
@@ -42,7 +45,7 @@ describe('credential cooldown reset', () => {
       status: 'ok', auth_index: 'auth-one', models: ['model-a', 'model-b'],
     });
     expect(requests).toEqual([{
-      method: 'POST', path: '/routing/cooldown/reset', body: { auth_index: 'auth-one' },
+      expectedRevision: 0, method: 'POST', path: '/routing/cooldown/reset', body: { auth_index: 'auth-one' },
       query: undefined, timeoutMs: undefined,
     }]);
   });

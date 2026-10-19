@@ -1,8 +1,11 @@
+import { initializeTargetRevision } from '../src/services/targetInvoke';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { canResetCodexQuota, resetCodexQuotaWithConfirmation } from '../src/services/quotaActions';
 import { getQuotaCacheSnapshot, pruneQuotaCache, updateQuotaCache } from '../src/services/quotaCache';
 import { quotaKey, type QuotaState } from '../src/services/quotaService';
+
+initializeTargetRevision(0);
 
 const file = { name: 'confirm-test.json', provider: 'codex', auth_index: 'confirm-test' };
 const key = quotaKey(file);

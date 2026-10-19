@@ -1,3 +1,4 @@
+import { initializeTargetRevision } from '../src/services/targetInvoke';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import {
@@ -12,6 +13,8 @@ import {
 } from '../src/services/pluginReleaseVersions';
 import { buildPluginConfigDraft, buildPluginConfigPatch } from '../src/services/pluginConfigDraft';
 import { getPluginStatus, isPluginInstalled } from '../src/services/pluginStatus';
+
+initializeTargetRevision(0);
 
 describe('plugin Management API', () => {
   let originalWindow: PropertyDescriptor | undefined;

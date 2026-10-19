@@ -1,7 +1,7 @@
 import { useCoreConnection } from '../coreConnection';
 import { assertConnectionCurrent, connectionGeneration } from '../services/connectionGeneration';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/targetInvoke';
 import {
   ChevronRight,
   Check,

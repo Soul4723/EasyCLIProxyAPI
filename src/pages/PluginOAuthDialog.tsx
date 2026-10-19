@@ -2,7 +2,7 @@ import { useCoreConnection } from '../coreConnection';
 import { connectionGeneration } from '../services/connectionGeneration';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/targetInvoke';
 import { CheckCircle2, Copy, ExternalLink, LoaderCircle, LogIn, X } from 'lucide-react';
 import { useDialogFocusTrap } from '../components/useDialogFocusTrap';
 import { useI18n } from '../i18n';

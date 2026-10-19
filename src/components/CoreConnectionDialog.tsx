@@ -1,6 +1,7 @@
 import { useCoreRuntime } from '../coreRuntime';
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { beginConnectionChange, restoreConnectionAfterSaveFailure } from '../services/connectionGeneration';
 import { X } from 'lucide-react';
 import { useCoreConnection } from '../coreConnection';
 import { normalizedCoreConnection } from '../services/coreConnection';
@@ -26,7 +27,9 @@ export function CoreConnectionDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       if (save) {
-        await invoke('save_core_connection', { connection: next });
+        beginConnectionChange();
+        try { await invoke('save_core_connection', { connection: next }); }
+        catch (cause) { restoreConnectionAfterSaveFailure(); throw cause; }
         if (alive.current) await reload();
       } else {
         const response = await invoke<{ version: string | null; message: string }>('test_core_connection', { connection: next });

@@ -1,3 +1,4 @@
+import { initializeTargetRevision } from '../src/services/targetInvoke';
 import { describe, expect, test } from 'bun:test';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 import { normalizedCoreConnection, remoteConfigFieldRequiresServer } from '../src/services/coreConnection';
@@ -6,6 +7,8 @@ import { captureQuotaCacheGeneration, commitQuotaCacheIfCurrent, getQuotaCacheSn
 import { createOAuthLoginSuccessCache } from '../src/services/oauthLoginState';
 import { managementApi } from '../src/services/managementApi';
 import { createBrowserMockRuntime } from '../src/mocks/browserMockRuntime';
+
+initializeTargetRevision(0);
 
 const remote = { mode: 'remote' as const, remoteManagementOrigin: ' http://100.64.0.1:8317/ ', remoteManagementKey: ' management-only ', clientApiOrigin: '', clientApiKey: '' };
 

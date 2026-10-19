@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/targetInvoke';
 import { Check, Plus, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { useConfirmation } from '../components/ConfirmationDialog';

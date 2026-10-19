@@ -1144,8 +1144,10 @@ pub(crate) async fn save_remote_core_values(config: &GuiConfigFile, values: &[(&
 
 #[tauri::command]
 pub(crate) async fn get_extended_core_config(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Json, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let config = gui_config_state.snapshot()?;
     if config.core_connection.is_remote() {
         let content = fetch_management_raw_config_yaml(&config).await?;
@@ -1165,9 +1167,11 @@ pub(crate) async fn get_extended_core_config(
 
 #[tauri::command]
 pub(crate) async fn save_extended_core_config(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     changes: Vec<ExtendedConfigChange>,
 ) -> Result<ExtendedConfigResult, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let config = gui_config_state.snapshot()?;
     if config.core_connection.is_remote() {
         let _connection_guard = crate::core_connection::target_operation()?;

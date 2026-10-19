@@ -1,3 +1,4 @@
+import { targetBoundCommands } from '../services/targetInvoke';
 import { normalizedCoreConnection } from '../services/coreConnection';
 import type { CoreConnection } from '../coreConnection';
 import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type TemplateConfigChange } from '../services/templateConfig';
@@ -952,6 +953,7 @@ export function createBrowserMockRuntime(
   delayMs = 0,
 ): BrowserMockRuntime {
   const state = createState(scenario);
+  let targetRevision = 0;
   let connection: CoreConnection = { mode: 'local', remoteManagementOrigin: '', remoteManagementKey: '', clientApiOrigin: '', clientApiKey: '' };
   let localStatus = clone(state.coreStatus);
   const agentTargets: Record<string, string> = Object.fromEntries(state.agentStatuses.filter(status => status.configured).map(status => [status.id, 'local']));
@@ -1008,6 +1010,12 @@ export function createBrowserMockRuntime(
       throw new Error(`Browser Mock error scenario: ${command}`);
     }
 
+    const expectedRevision = command === 'management_request'
+      ? asObject(payload.request).expectedRevision : payload.expectedRevision;
+    if ((command === 'management_request' || targetBoundCommands.has(command))
+      && expectedRevision !== undefined && expectedRevision !== targetRevision) {
+      throw new Error('STALE_TARGET: Core connection changed; reload the selected core');
+    }
     const pluginResponse = pluginMock.handle(command, payload);
     if (pluginResponse.handled) return pluginResponse.value;
 
@@ -1060,7 +1068,7 @@ export function createBrowserMockRuntime(
       case 'restore_agent_config_backup':
       case 'launch_agent': return null;
 
-      case 'get_core_connection': return clone(connection);
+      case 'get_core_connection': return { ...clone(connection), targetRevision };
       case 'test_core_connection': {
         const candidate = normalizedCoreConnection(asObject(payload.connection) as CoreConnection);
         if (candidate.mode === 'remote' && candidate.remoteManagementKey === 'invalid') throw new Error('Browser Mock: authentication failed (401)');
@@ -1073,6 +1081,7 @@ export function createBrowserMockRuntime(
           throw new Error('Stop the app-managed local core before switching to Remote. Go Back to Home and Stop it first.');
         }
         if (connection.mode === 'local') localStatus = clone(state.coreStatus);
+        if (JSON.stringify(connection) !== JSON.stringify(candidate)) targetRevision += 1;
         connection = candidate;
         if (connection.mode === 'local') Object.assign(state.coreStatus, localStatus);
         else Object.assign(state.coreStatus, {

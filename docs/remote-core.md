@@ -38,7 +38,9 @@ the GUI computer to use this target, preserving existing backup and restore
 behavior. Model fetching, client launch checks and Home model health use the
 selected client API. Home displays its protocol URLs and explicit client key;
 **Manage Keys** opens connection settings to change them. Saving a target reloads
-the GUI to clear old requests, dialogs and cached results. Connection errors can
+the GUI to clear old requests, dialogs and cached results. Management requests
+carry that document’s immutable native target revision; stale requests and OAuth
+states are rejected before dispatch, including pending credential file reads. Connection errors can
 be repaired from Home or Agent Configuration without switching to Local.
 
 Beginner Mode remains Local-only. DeepSeek Harness configuration and model

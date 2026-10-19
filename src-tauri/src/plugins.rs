@@ -6,8 +6,10 @@ use super::{
 
 #[tauri::command]
 pub(crate) async fn get_plugin_support(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<bool, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let config = gui_config_state.snapshot()?;
     let response = request_plugins(&config).await?;
     let result = read_plugin_support(response).await;
@@ -17,10 +19,12 @@ pub(crate) async fn get_plugin_support(
 
 #[tauri::command]
 pub(crate) async fn get_plugin_resource_url(
+    expected_revision: u64,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     plugin_id: String,
     menu_index: usize,
 ) -> Result<String, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let config = gui_config_state.snapshot()?;
     let response = request_plugins(&config).await?;
     let plugins = read_management_value(response).await?;

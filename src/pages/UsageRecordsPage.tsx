@@ -1,7 +1,7 @@
 import { usagePreferences } from '../services/usagePreferences';
 import { useConfirmation } from '../components/ConfirmationDialog';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../services/targetInvoke';
 import { listen } from '@tauri-apps/api/event';
 import {
   Activity,

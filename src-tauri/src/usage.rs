@@ -4138,9 +4138,11 @@ async fn fetch_usage_credential_notes(config: &GuiConfigFile) -> HashMap<String,
 
 #[tauri::command]
 pub(crate) async fn get_usage_analysis(
+    expected_revision: u64,
     query: UsageQuery,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<UsageAnalysis, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let metadata = sources::fetch(&config).await;
@@ -4537,9 +4539,11 @@ mod save_usage_events_export_tests {
 
 #[tauri::command]
 pub(crate) async fn get_usage_events(
+    expected_revision: u64,
     query: UsageQuery,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<UsageEventPage, String> {
+    let _revision_guard = crate::core_connection::expected_operation(expected_revision)?;
     let _connection_guard = crate::core_connection::target_operation()?;
     let config = gui_config_state.snapshot()?;
     let metadata = sources::fetch(&config).await;

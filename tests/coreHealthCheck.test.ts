@@ -1,6 +1,9 @@
+import { initializeTargetRevision } from '../src/services/targetInvoke';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { checkCoreModelHealth, checkCoreModelsHealth } from '../src/services/coreHealthCheck';
+
+initializeTargetRevision(0);
 
 describe('CPA 内核模型健康检测', () => {
   let originalWindow: PropertyDescriptor | undefined;

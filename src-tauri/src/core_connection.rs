@@ -41,6 +41,14 @@ pub(crate) fn target_operation() -> Result<tokio::sync::RwLockReadGuard<'static,
     OPERATIONS.try_read().map_err(|_| "Core connection is changing; retry operation".to_string())
 }
 
+pub(crate) const STALE_TARGET: &str = "STALE_TARGET: Core connection changed; reload the selected core";
+
+pub(crate) fn expected_operation(expected_revision: u64) -> Result<tokio::sync::RwLockReadGuard<'static, ()>, String> {
+    let guard = target_operation().map_err(|_| STALE_TARGET.to_string())?;
+    if expected_revision != revision() { return Err(STALE_TARGET.to_string()); }
+    Ok(guard)
+}
+
 pub(crate) fn local_operation() -> Result<tokio::sync::RwLockReadGuard<'static, ()>, String> {
     let guard = OPERATIONS.try_read().map_err(|_| "Core connection is changing; retry operation".to_string())?;
     require_local(&active_connection())?;
@@ -116,8 +124,11 @@ impl CoreConnection {
 }
 
 #[tauri::command]
-pub(crate) fn get_core_connection(gui_config_state: tauri::State<'_, GuiConfigState>) -> Result<CoreConnection, String> {
-    Ok(gui_config_state.snapshot()?.core_connection)
+pub(crate) fn get_core_connection(gui_config_state: tauri::State<'_, GuiConfigState>) -> Result<serde_json::Value, String> {
+    let config = gui_config_state.snapshot()?;
+    let mut value = serde_json::to_value(&config.core_connection).map_err(|error| error.to_string())?;
+    value["targetRevision"] = serde_json::json!(config.target_revision);
+    Ok(value)
 }
 
 fn validate_owned_local_children(core_running: bool, harness_running: bool) -> Result<(), String> {
