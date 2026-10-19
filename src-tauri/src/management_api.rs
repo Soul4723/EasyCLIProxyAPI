@@ -763,7 +763,10 @@ server.serve_forever()
                 "method": method, "path": "/config", "expectedRevision": revision,
                 "body": {"private": "old-document-payload"}
             })).unwrap();
-            state.replace_external(state.snapshot().unwrap()).unwrap();
+            let mut changed = state.snapshot().unwrap();
+            changed.management_secret_key.push_str("-changed");
+            changed.remote_management_key.push_str("-changed");
+            state.replace_external(changed).unwrap();
             // Default config has no management endpoint/key. Revision refusal must precede
             // endpoint resolution, body construction and network dispatch in every method.
             assert!(management_request_for_target(&state, request).await.unwrap_err().contains("connection changed"));
@@ -782,7 +785,10 @@ server.serve_forever()
             state.oauth_sessions.lock().unwrap().insert("state-A".into(), config.target_revision);
             assert!(ensure_oauth_target(&state, &config, "state-A").is_ok());
             assert!(ensure_oauth_target(&state, &config, "unknown").is_err());
-            state.replace_external(config.clone()).unwrap();
+            let mut changed = config.clone();
+            changed.management_secret_key.push_str("-changed");
+            changed.remote_management_key.push_str("-changed");
+            state.replace_external(changed).unwrap();
             let new = state.snapshot().unwrap();
             assert!(ensure_oauth_target(&state, &new, "state-A").is_err());
             // Switching back to identical settings still cannot revive the old flow.
@@ -795,7 +801,10 @@ server.serve_forever()
     async fn oauth_cancellation_rejects_unknown_or_old_state_before_dispatch() {
         let state = GuiConfigState::new(GuiConfigFile::default());
         state.oauth_sessions.lock().unwrap().insert("state-A".into(), 0);
-        state.replace_external(state.snapshot().unwrap()).unwrap();
+        let mut changed = state.snapshot().unwrap();
+        changed.management_secret_key.push_str("-changed");
+        changed.remote_management_key.push_str("-changed");
+        state.replace_external(changed).unwrap();
         for oauth_state in ["state-A", "unknown"] {
             let request = serde_json::from_value(serde_json::json!({
                 "method": "DELETE", "path": "/oauth/session",
@@ -822,11 +831,17 @@ server.serve_forever()
                     let call = management_request_for_target(&state, request);
                     tokio::pin!(call);
                     assert!(tokio::time::timeout(Duration::from_millis(10), &mut call).await.is_err());
-                    state.replace_external(state.snapshot().unwrap()).unwrap();
+                    let mut changed = state.snapshot().unwrap();
+                    changed.management_secret_key.push_str("-changed");
+                    changed.remote_management_key.push_str("-changed");
+                    state.replace_external(changed).unwrap();
                     drop(lock);
                     assert!(call.await.unwrap_err().contains("connection changed"));
                 } else {
-                    state.replace_external(state.snapshot().unwrap()).unwrap();
+                    let mut changed = state.snapshot().unwrap();
+                    changed.management_secret_key.push_str("-changed");
+                    changed.remote_management_key.push_str("-changed");
+                    state.replace_external(changed).unwrap();
                     assert!(management_request_for_target(&state, request).await.unwrap_err().contains("connection changed"));
                 }
             }
@@ -864,7 +879,10 @@ server.serve_forever()
         }
         let fence_free = state.target_operation.try_lock().is_ok();
         if switch_target {
-            state.replace_external(state.snapshot().unwrap()).unwrap();
+            let mut changed = state.snapshot().unwrap();
+            changed.management_secret_key.push_str("-changed");
+            changed.remote_management_key.push_str("-changed");
+            state.replace_external(changed).unwrap();
         }
         release_tx.send(()).unwrap();
         let result = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap();
@@ -902,7 +920,10 @@ server.serve_forever()
         let state = GuiConfigState::new(GuiConfigFile::default());
         let revision = state.snapshot().unwrap().target_revision;
         // External config changes need not have reached the browser event handler.
-        state.replace_external(state.snapshot().unwrap()).unwrap();
+        let mut changed = state.snapshot().unwrap();
+        changed.management_secret_key.push_str("-changed");
+        changed.remote_management_key.push_str("-changed");
+        state.replace_external(changed).unwrap();
         let error = upload_auth_file_for_target(&state, "account.json".into(), b"{}".to_vec(), revision)
             .await.unwrap_err();
         assert!(error.contains("upload cancelled"), "{error}");
@@ -916,7 +937,10 @@ server.serve_forever()
         let upload = upload_auth_file_for_target(&state, "account.json".into(), b"{}".to_vec(), revision);
         tokio::pin!(upload);
         assert!(tokio::time::timeout(Duration::from_millis(10), &mut upload).await.is_err());
-        state.replace_external(state.snapshot().unwrap()).unwrap();
+        let mut changed = state.snapshot().unwrap();
+        changed.management_secret_key.push_str("-changed");
+        changed.remote_management_key.push_str("-changed");
+        state.replace_external(changed).unwrap();
         drop(lock);
         assert!(upload.await.unwrap_err().contains("connection changed"));
     }
@@ -925,7 +949,10 @@ server.serve_forever()
     async fn vertex_import_rejects_a_target_changed_before_dispatch() {
         let state = GuiConfigState::new(GuiConfigFile::default());
         let revision = state.snapshot().unwrap().target_revision;
-        state.replace_external(state.snapshot().unwrap()).unwrap();
+        let mut changed = state.snapshot().unwrap();
+        changed.management_secret_key.push_str("-changed");
+        changed.remote_management_key.push_str("-changed");
+        state.replace_external(changed).unwrap();
         let error = import_vertex_credential_for_target(
             &state, "account.json".into(), b"{}".to_vec(), None, revision,
         ).await.unwrap_err();
@@ -942,7 +969,10 @@ server.serve_forever()
         );
         tokio::pin!(import);
         assert!(tokio::time::timeout(Duration::from_millis(10), &mut import).await.is_err());
-        state.replace_external(state.snapshot().unwrap()).unwrap();
+        let mut changed = state.snapshot().unwrap();
+        changed.management_secret_key.push_str("-changed");
+        changed.remote_management_key.push_str("-changed");
+        state.replace_external(changed).unwrap();
         drop(lock);
         assert!(import.await.unwrap_err().contains("connection changed"));
     }

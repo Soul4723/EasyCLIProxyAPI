@@ -248,6 +248,18 @@ pub(crate) fn import_core_connection(path: String) -> Result<CoreConnection, Str
     export.into_connection()
 }
 
+// Compare only the active connection, not presentation settings or inactive drafts.
+pub(crate) fn target_changed(before: &GuiConfigFile, after: &GuiConfigFile) -> bool {
+    if before.connection_mode != after.connection_mode { return true; }
+    match after.connection_mode {
+        CoreConnectionMode::Remote => settings_connection(before) != settings_connection(after),
+        CoreConnectionMode::Local => before.host != after.host
+            || before.port != after.port
+            || before.management_secret_key != after.management_secret_key
+            || before.api_keys.first().map(|entry| &entry.key) != after.api_keys.first().map(|entry| &entry.key),
+    }
+}
+
 // Caller holds target_operation and CORE_OPERATION_LOCK, in that order.
 pub(crate) fn prepare_target_transition<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>, mode: CoreConnectionMode,
@@ -279,10 +291,14 @@ pub(crate) fn replace_external_target<R: tauri::Runtime>(app: &tauri::AppHandle<
     use tauri::Manager;
     let _operation = crate::CORE_OPERATION_LOCK.lock()
         .map_err(|_| "Core operation lock is poisoned".to_string())?;
-    prepare_target_transition(app, config.connection_mode)?;
     let state = app.state::<GuiConfigState>();
-    state.replace_external(config)?;
-    invalidate_target(app, state.snapshot()?.target_revision)
+    if target_changed(&state.snapshot()?, &config) {
+        prepare_target_transition(app, config.connection_mode)?;
+    }
+    if state.replace_external(config)? {
+        invalidate_target(app, state.snapshot()?.target_revision)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn invalidate_target<R: tauri::Runtime>(app: &tauri::AppHandle<R>, revision: u64) -> Result<(), String> {
@@ -304,18 +320,21 @@ pub(crate) async fn save_core_connection<R: tauri::Runtime>(
     } else { connection };
     let _target_operation = gui_config_state.target_operation.lock().await;
     let _operation = crate::CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
-    prepare_target_transition(&app, connection.mode)?;
     let config = {
         let mut current = gui_config_state.inner.lock().map_err(|_| "GUI configuration lock is poisoned".to_string())?;
         let mut config = current.clone();
         config.connection_mode = connection.mode;
-        config.target_revision = config.target_revision.wrapping_add(1);
         if connection.mode == CoreConnectionMode::Remote {
             config.remote_management_origin = connection.management_origin.clone();
             config.remote_management_key = connection.management_key.clone();
             config.remote_client_origin = connection.client_origin.clone();
             config.remote_client_key = connection.client_key.clone();
         }
+        if !target_changed(&current, &config) {
+            return Ok(settings_connection(&current));
+        }
+        prepare_target_transition(&app, connection.mode)?;
+        config.target_revision = current.target_revision.wrapping_add(1);
         #[cfg(test)]
         if let Some(path) = &gui_config_state.persistence_path {
             crate::write_gui_config_to_path(&config, path)?;
