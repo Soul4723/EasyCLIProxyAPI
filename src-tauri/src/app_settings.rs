@@ -77,6 +77,7 @@ fn remember_emitted_core_status(status: &CoreStatus) -> bool {
 }
 
 pub(crate) fn emit_core_status(app: &tauri::AppHandle, status: &CoreStatus) {
+    app.state::<usage::UsageCollectorState>().request_readiness_check();
     remember_emitted_core_status(status);
     emit_core_status_unrecorded(app, status);
 }
