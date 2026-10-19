@@ -43,7 +43,6 @@
 /* Usage section styles. Every rule is scoped under .ec-sec-usage (kit ec-* classes + --ec-* tokens only). */
 .ec-sec-usage .usage-body { min-width: 0; }
 .ec-sec-usage .usage-collector { display: inline-flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; }
-.ec-sec-usage .usage-collector-last { font-size: var(--ec-fs-xs); }
 .ec-sec-usage .usage-collector-resume { background: none; border: 0; padding: 0; color: var(--ec-accent); font: inherit; font-size: var(--ec-fs-xs); cursor: pointer; text-decoration: underline; }
 .ec-sec-usage .usage-collector-error { color: var(--ec-danger-fg); font-size: var(--ec-fs-xs); }
 .ec-sec-usage .usage-period { display: inline-flex; align-items: center; gap: var(--ec-sp-1); }

@@ -26,7 +26,6 @@
 .ec-cred-req__bar-fail { background: var(--ec-st-error); }
 
 .ec-cred-actions { white-space: nowrap; display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--ec-sp-2); }
-.ec-cred-cell-stop { display: inline-flex; }
 .ec-cred-link {
   display: inline-flex; align-items: center; gap: 2px; color: var(--ec-fg-2); font-size: var(--ec-fs-sm);
   text-decoration: none; white-space: nowrap; padding: 2px var(--ec-sp-1); border-radius: var(--ec-r-xs);

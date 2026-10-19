@@ -54,7 +54,6 @@
   --theme-control-active-thumb: var(--ec-knob);
   --ui-focus-ring: var(--ec-ring);
   --sidebar-focus: var(--ec-ring);
-  --sidebar-bg: var(--ec-sidebar);
   --sidebar-text: var(--ec-fg-2);
   --sidebar-text-strong: var(--ec-fg);
   --sidebar-text-subtle: var(--ec-fg-muted);

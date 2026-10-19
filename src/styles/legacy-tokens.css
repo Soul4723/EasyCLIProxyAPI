@@ -173,12 +173,6 @@
   --theme-ffffff: #ffffff;
 }
 
-/* Shared with the Windows titlebar in components/WindowFrame.css, which lives outside .app-shell. */
-
-:root {
-  --app-sidebar-width: 264px;
-}
-
 :root {
   --bg-secondary: #f6f7f5;
   --bg-primary: #ffffff;
@@ -209,7 +203,6 @@
 }
 
 :root {
-  --sidebar-bg: #f7f8fa;
   --sidebar-edge: rgba(15, 23, 42, 0.07);
   --sidebar-text: #334155;
   --sidebar-text-strong: #0f172a;
@@ -223,7 +216,6 @@
 }
 
 :root[data-theme='dark'] {
-  --sidebar-bg: #0f1218;
   --sidebar-edge: rgba(255, 255, 255, 0.06);
   --sidebar-text: #b7c2d3;
   --sidebar-text-strong: #f8fafc;
