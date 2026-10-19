@@ -7,7 +7,7 @@ import type { AppUpdateInfo, AppUpdateTask } from '../../../appUpdate';
 import type { CoreStatus } from '../../../coreRuntime';
 import type { CoreLatest } from '../../../coreUpdate';
 import { Button, Card, Chip, IconButton, Masked, ProgressBar, formatBytes, type ChipTone } from '../../../ui';
-import { displayAppVersion, localizeInstallPhase, taskPercent, type BundledCoreInfo, type CoreInstallTask } from './model';
+import { displayAppVersion, latestCheckText, localizeInstallPhase, taskPercent, type BundledCoreInfo, type CoreInstallTask } from './model';
 
 function VersionFlow({ currentLabel, current, latestLabel, latest, highlight, currentTitle }: {
   currentLabel: string; current: string; latestLabel: string; latest: string; highlight: boolean; currentTitle?: string;
@@ -69,12 +69,13 @@ export function AppVersionCard({ info, error, checking, task, installedVersion, 
   let status: { tone: ChipTone; label: string };
   if (task.running) status = { tone: 'info', label: t(`appUpdate.phase.${task.phase}` as MessageKey) };
   else if (error) status = { tone: 'danger', label: t('sec.settings.updates.checkFailed') };
-  else if (checking || !info) status = { tone: 'info', label: t('sec.settings.updates.checking') };
+  else if (checking) status = { tone: 'info', label: t('sec.settings.updates.checking') };
+  else if (!info) status = { tone: 'neutral', label: t('sec.settings.updates.notChecked') };
   else if (hasUpdate) status = { tone: 'accent', label: t('sec.settings.updates.available') };
   else status = { tone: 'ok', label: t('sec.settings.updates.upToDate') };
 
   const percent = taskPercent({ percent: task.percent, downloaded: task.downloadedBytes, total: task.totalBytes });
-  const latestText = info ? (latest || current) : checking ? t('sec.settings.updates.checking') : t('common.detecting');
+  const latestText = latestCheckText(checking, error, info ? (latest || current) : '', t);
 
   return (
     <CardShell
@@ -143,7 +144,7 @@ export function CoreVersionCard({
   else chip = null;
 
   const currentText = current || (remote ? t('common.detecting') : t('sec.settings.updates.notInstalled'));
-  const latestText = checking ? t('sec.settings.updates.checking') : latestVersion || (latestError ? t('common.detectionFailed') : t('sec.settings.updates.notChecked'));
+  const latestText = latestCheckText(checking, latestError, latestVersion, t);
   const percent = taskPercent(progress);
   const detail = progress
     ? progress.phase === 'Extracting' ? t('kernel.progress.extracting')

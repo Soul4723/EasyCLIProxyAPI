@@ -86,3 +86,10 @@ export function taskPercent(task: { percent: number | null; downloaded: number; 
   const raw = task.percent ?? (task.total && task.total > 0 ? (task.downloaded / task.total) * 100 : null);
   return raw === null ? null : Math.min(100, Math.max(0, raw));
 }
+
+// A missing result is idle, not an in-flight check. Failure wins over cached data.
+export function latestCheckText(checking: boolean, error: string, version: string, t: Translate) {
+  if (checking) return t('sec.settings.updates.checking');
+  if (error) return t('sec.settings.updates.checkFailed');
+  return version || t('sec.settings.updates.notChecked');
+}
