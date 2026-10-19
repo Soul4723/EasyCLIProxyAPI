@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { RoutingCandidates } from './RoutingCandidates';
 import {
-  buildGroups, fetchEvents, fetchPolicy, serveCounts, useBlock, useCredentialsBlock,
+  buildGroups, fetchEvents, usePolicyBlock, serveCounts, useBlock, useCredentialsBlock,
 } from './RoutingData';
 import { RoutingPolicy } from './RoutingPolicy';
 import { RoutingStream } from './RoutingStream';
@@ -11,7 +11,7 @@ import './Routing.css';
 /** Usage → live routing: policy strip, candidate accounts per provider, live request stream. Three independent data blocks. */
 export function RoutingTab() {
   const { refreshVersion, manualVersion } = useUsage();
-  const policy = useBlock(fetchPolicy, manualVersion);
+  const policy = usePolicyBlock(manualVersion);
   // Credentials load on mount/manual refresh; cooldown expiry can request its own reload.
   const credentials = useCredentialsBlock(manualVersion);
   const events = useBlock(fetchEvents, refreshVersion);

@@ -1,3 +1,4 @@
+import { coreConfigSource, useSharedCoreConfig } from '../../services/coreConfig';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '../../services/usageApi';
 import { credentialsSource } from '../../services/credentials';
@@ -62,7 +63,10 @@ export function useBlock<T>(fetcher: () => Promise<T>, key: number): Block<T> {
   return { ...state, reload };
 }
 
-export const fetchPolicy = () => invoke<RoutingPolicy>('get_core_config_settings');
+export function usePolicyBlock(key: number): Block<RoutingPolicy> {
+  const snapshot = useSharedCoreConfig(key);
+  return { data: snapshot.data ?? null, error: !!snapshot.error, loading: snapshot.loading, reload: () => coreConfigSource.invalidate() };
+}
 
 export const fetchEvents = () => invoke<UsageEventPage>('get_usage_events', { query: { page: 1, page_size: 50 } });
 

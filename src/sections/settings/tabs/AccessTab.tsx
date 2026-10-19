@@ -63,11 +63,8 @@ export function AccessTab() {
         await invoke('open_external_url', { url: `${connection.managementOrigin}/management.html#/login` });
         return;
       }
-      const [latest, tls] = await Promise.all([
-        invoke<CoreConfigSettings>('get_core_config_settings'),
-        invoke<TlsSettings>('get_core_tls_settings'),
-      ]);
-      apply(latest);
+      const tls = await invoke<TlsSettings>('get_core_tls_settings');
+      const latest = settings;
       await invoke('open_external_url', { url: webUiManagementUrl(latest.port, tls.enabled, latest.host) });
     } catch (cause) {
       setActionError(t('config.webuiKey.error.openFailed', { error: String(cause) }));

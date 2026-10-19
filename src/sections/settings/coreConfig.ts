@@ -1,33 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { invoke } from '../../services/documentTarget';
-import { listen } from '../../services/platform';
-
-/** Core config values returned by `get_core_config_settings` and by every native save command. */
-export type CoreApiKey = { apiKey: string; remark: string };
-export type CoreConfigSettings = {
-  managementSecretConfigured: boolean;
-  apiKeys: CoreApiKey[];
-  debug: boolean;
-  commercialMode: boolean;
-  loggingToFile: boolean;
-  logsMaxTotalSizeMb: number;
-  errorLogsMaxFiles: number;
-  usageStatisticsEnabled: boolean;
-  redisUsageQueueRetentionSeconds: number;
-  host: string;
-  port: number;
-  allowLan: boolean;
-  routingStrategy: string;
-  proxyUrl: string;
-  proxyOverride: boolean;
-  routingSessionAffinity: boolean;
-  routingSessionAffinityTtl: string;
-  disableCooling: boolean;
-  requestRetry: number;
-  maxRetryCredentials: number;
-  maxRetryInterval: number;
-  streamingBootstrapRetries: number;
-};
+import { createContext, useContext } from 'react';
+import { coreConfigSource, useSharedCoreConfig, type CoreConfigSettings } from '../../services/coreConfig';
+export type { CoreApiKey, CoreConfigSettings } from '../../services/coreConfig';
 
 export type CoreConfigApi = {
   settings: CoreConfigSettings | null;
@@ -46,36 +19,12 @@ export function useCoreConfig(): CoreConfigApi {
   return api;
 }
 
-/** Loads core config once for the page and refreshes it when the config files change on disk. */
+/** Settings adapts the shared owner to the tabs' loading/error contract. */
 export function useCoreConfigLoader(): CoreConfigApi {
-  const [settings, setSettings] = useState<CoreConfigSettings | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const revision = useRef(0);
-  const reload = useCallback(async () => {
-    const request = ++revision.current;
-    setLoading(true);
-    try {
-      const value = await invoke<CoreConfigSettings>('get_core_config_settings');
-      if (request !== revision.current) return;
-      setSettings(value); setError('');
-    } catch (cause) {
-      if (request !== revision.current) return;
-      // A failed background reload keeps the last good settings; the tabs only show the error when there are none.
-      setError(String(cause));
-    } finally {
-      if (request === revision.current) setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    let disposed = false;
-    let stop: (() => void) | undefined;
-    void reload();
-    void listen('config-files-changed', () => { if (!disposed) void reload(); }).then((unlisten) => {
-      if (disposed) unlisten(); else stop = unlisten;
-    });
-    return () => { disposed = true; stop?.(); };
-  }, [reload]);
-  const apply = useCallback((next: CoreConfigSettings) => { revision.current++; setSettings(next); setError(''); setLoading(false); }, []);
-  return { settings, loading, error, reload, apply };
+  const snapshot = useSharedCoreConfig();
+  return {
+    settings: snapshot.data ?? null, loading: snapshot.loading, error: snapshot.error ?? '',
+    reload: coreConfigSource.refresh,
+    apply: next => coreConfigSource.mutate(() => next),
+  };
 }

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { extendedCoreConfigSource } from '../services/coreConfig';
+import { useDataSource } from '../services/dataSource';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '../services/documentTarget';
-import { listen } from '../services/platform';
 import { open } from '../services/platform';
 import { ExternalLink, Eye, EyeOff, RotateCcw, Save } from 'lucide-react';
 import { useI18n } from '../i18n';
@@ -24,16 +25,18 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
   const { locale, t } = useI18n();
   const { status, publishStatus, refreshStatus } = useCoreRuntime();
   const [privacyOn] = usePrivacyMode();
-  const [config, setConfig] = useState<Record<string, unknown> | null>(null);
+  const snapshot = useDataSource(extendedCoreConfigSource);
+  const config = snapshot.data ?? null;
   const [drafts, setDrafts] = useState<Record<string, TemplateConfigDraft>>({});
-  const [loadError, setLoadError] = useState('');
+  const [actionError, setLoadError] = useState('');
+  const loadError = actionError || snapshot.error || '';
+  const reload = async () => { setLoadError(''); await extendedCoreConfigSource.refresh(); };
   const [groupErrors, setGroupErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [restartNeeded, setRestartNeeded] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const mounted = useRef(true);
-  const revision = useRef(0);
   const reportedDirtyGroups = useRef<string | null>(null);
   const tr = (message: keyof typeof templateMessages) => templateText(templateMessages[message], locale);
 
@@ -46,27 +49,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
     onDirtyGroupsChange(dirtyGroups);
   }, [drafts, groups, onDirtyGroupsChange]);
 
-  const reload = useCallback(async () => {
-    const request = ++revision.current;
-    try {
-      const value = await invoke<Record<string, unknown>>('get_extended_core_config');
-      if (mounted.current && request === revision.current) { setConfig(value); setLoadError(''); }
-    } catch (error) {
-      if (mounted.current && request === revision.current) setLoadError(String(error));
-    }
-  }, []);
-
-  useEffect(() => {
-    mounted.current = true;
-    let disposed = false;
-    let stop: (() => void) | undefined;
-    void reload();
-    void listen('config-files-changed', () => { if (!disposed) void reload(); }).then((unlisten) => {
-      if (!disposed) stop = unlisten;
-      else unlisten();
-    }).catch((error) => { if (!disposed) setLoadError(String(error)); });
-    return () => { disposed = true; mounted.current = false; ++revision.current; stop?.(); };
-  }, [reload]);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const changeField = (group: TemplateConfigGroup, field: TemplateConfigField, value: unknown, remove = false) => {
     if (!config) return;
@@ -112,8 +95,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
     setGroupErrors((previous) => ({ ...previous, [group.id]: '' }));
     try {
       const result = await invoke<TemplateConfigSaveResult>('save_extended_core_config', { changes });
-      ++revision.current;
-      setConfig(result.config);
+      extendedCoreConfigSource.mutate(() => result.config);
       setLoadError('');
       setDrafts((previous) => {
         const next = { ...previous };
