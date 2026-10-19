@@ -45,7 +45,7 @@ export function createThemeRegistry(definitions: readonly ThemeDefinition[]) {
 }
 
 // Ember Dark (`dark`, default) and Ember Light (`light`) lead the list; the upstream themes stay selectable so saved
-// selections keep working. src/themes/emberBridge.ts maps every theme's tokens onto the --ec-* layer.
+// selections keep working. src/themes/semanticTokenBridge.ts maps every theme's tokens onto the --ec-* layer.
 export const themeRegistry = createThemeRegistry([dark, light, warmSand, graphite, midnight, sakura]);
 export type ThemeRegistry = ReturnType<typeof createThemeRegistry>;
 

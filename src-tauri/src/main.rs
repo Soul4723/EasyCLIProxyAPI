@@ -2259,6 +2259,8 @@ impl GuiConfigState {
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())
     }
 
+    // Fencing rejects calls from a stale document after a core-target switch.
+    // See docs/remote-core.md, “Fencing and revision semantics”.
     fn ensure_revision(&self, expected_revision: u64) -> Result<(), String> {
         if self.snapshot()?.target_revision != expected_revision {
             return Err("The core connection changed; request cancelled".to_string());

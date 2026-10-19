@@ -6,7 +6,7 @@
  * dismissible (default true), initialFocusRef?, alert? (role=alertdialog), busy? (aria-busy, not dismissible).
  * When not dismissible, Escape, the scrim and the close button do nothing.
  * Focus is trapped with useDialogFocusTrap (which also locks body scroll while open), mounted in an inner body that
- * exists only while open; the prop names mirror upstream #481's components/Dialog (initialFocusRef, alert, busy).
+ * exists only while open; the prop names mirror upstream PR #481's controls/theme refactor in components/Dialog (initialFocusRef, alert, busy).
  *
  * ConfirmDialog props: open, title, message?, confirmLabel? (common.confirm), cancelLabel? (common.cancel), danger?,
  * busy? (disables cancel, shows a spinner on confirm, not dismissible), onConfirm(), onCancel().
