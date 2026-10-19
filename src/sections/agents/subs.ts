@@ -8,3 +8,6 @@ export const agentsSubs: readonly SectionSub[] = [
 
 export const agentDetailTabs = ['setup', 'backups', 'manage'] as const;
 export type AgentDetailTab = (typeof agentDetailTabs)[number];
+
+/** Codex sessions live on the local disk, so Remote mode drops that tab. */
+export const agentsSubsFor = (remote: boolean): readonly SectionSub[] => (remote ? agentsSubs.filter((sub) => sub.id !== 'sessions') : agentsSubs);
