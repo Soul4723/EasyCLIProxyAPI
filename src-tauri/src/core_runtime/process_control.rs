@@ -353,16 +353,13 @@ pub(crate) fn terminate_process_id(process_id: u32) -> Result<(), String> {
 
 #[cfg(not(windows))]
 pub(crate) fn send_process_signal(process_id: u32, signal: &str) -> Result<(), String> {
-    let status = Command::new("kill")
-        .args([format!("-{signal}"), process_id.to_string()])
-        .status()
-        .map_err(|err| format!("Failed to send process signal: {err}"))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("Failed to send process signal: PID {process_id}"))
-    }
+    let signal = match signal {
+        "TERM" => libc::SIGTERM,
+        "KILL" => libc::SIGKILL,
+        _ => return Err(format!("Failed to send process signal: unsupported signal {signal}")),
+    };
+    crate::process_signal::signal_process(process_id, signal)
+        .map_err(|error| format!("Failed to send process signal: PID {process_id}: {error}"))
 }
 
 #[cfg(windows)]
@@ -384,10 +381,8 @@ pub(crate) fn is_process_alive(process_id: u32) -> bool {
 
 #[cfg(not(windows))]
 pub(crate) fn is_process_alive(process_id: u32) -> bool {
-    let process_id = process_id.to_string();
-    Command::new("kill")
-        .args(["-0", &process_id])
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    match crate::process_signal::signal_process(process_id, 0) {
+        Ok(()) => true,
+        Err(error) => error.raw_os_error() == Some(libc::EPERM),
+    }
 }

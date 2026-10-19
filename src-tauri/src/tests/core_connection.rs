@@ -283,8 +283,9 @@ async fn remote_selection_requires_explicit_stop_of_gui_owned_local_core() {
     }).await.err().unwrap();
     assert!(error.contains("Stop the GUI-managed local core"));
     assert_eq!(crate::core_connection::get_core_connection(app.state()).unwrap().mode, CoreConnectionMode::Local);
-    let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
-    unsafe { libc::kill(pid as i32, libc::SIGTERM); libc::waitpid(pid as i32, std::ptr::null_mut(), 0); }
+    let alive = crate::process_signal::signal_process(pid, 0).is_ok();
+    crate::process_signal::signal_process(pid, libc::SIGTERM).unwrap();
+    unsafe { libc::waitpid(crate::process_signal::process_id(pid).unwrap(), std::ptr::null_mut(), 0); }
     assert!(alive, "Rejected remote selection must leave the local child running");
     fs::remove_dir_all(directory).unwrap();
 }
