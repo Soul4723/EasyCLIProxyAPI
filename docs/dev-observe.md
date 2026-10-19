@@ -1,69 +1,144 @@
-# Observe the real debug GUI (Linux)
+# Observe the real debug app
 
-This harness runs Tauri/WebKitGTK with the production frontend **embedded in a debug
-binary**, not Vite or the browser mock. It requires Bun, Rust/Tauri build prerequisites,
-Node, ImageMagick `identify`, `mkfifo`, `qdbus6`, a running KDE graphical session and `spectacle` with active-window
-capture support. No driver, input injection or elevated permissions are needed.
+This harness measures the real Tauri/WebKitGTK app with a production frontend embedded
+in a **debug binary**, not Vite or the browser mock. It runs on a private Xvfb display
+with isolated HOME/XDG directories and a new session bus. The previous KDE/KWin/
+Spectacle path has been removed; no desktop session is required.
+
+**Never run it on your daily desktop session. Use a disposable Linux test host or VM.**
+Use test-only cores, keys and data. Remote collection consumes the core's usage queue;
+never point this harness at a core serving real sessions.
+
+## Prerequisites and build
+
+On the disposable Linux host install `xvfb`, `x11-apps` (for `xwd`), `imagemagick`
+(`convert` and `identify`), `xdotool`, `nodejs` (Node 22+), and `dbus-daemon`
+(`dbus-run-session`). Install `fuse3` (`fusermount3`) to clean up private portal/GVfs
+mounts if the desktop libraries activate those services. `strace` is optional. The driver owns an unused display
+(1280×800, software rendering); `--display :105` optionally selects an **unused**
+nonzero display. It refuses occupied displays and never attaches to a desktop.
+`xdotool` is useful for manual investigation, but idle sampling needs no input driver.
+
+Build on Linux with Bun and the Rust/Tauri Linux build prerequisites installed:
 
 ```bash
 bun install --frozen-lockfile
-node scripts/dev-observe.mjs \
-  --core /absolute/path/to/test-core/cli-proxy-api \
-  --core-config /absolute/path/to/test-core/config.example.yaml \
-  --name local-before --actions
+bun run check
+CARGO_TARGET_DIR=$HOME/.cache/easycli-target bun run tauri build --debug --no-bundle
 ```
 
-The core binary and its **unmodified distribution template** must be supplied; do
-not supply a real configured core directory. The harness copies only these two
-files. It builds with `bun run tauri build --debug --no-bundle` and
-`CARGO_TARGET_DIR=$HOME/.cache/easycli-cohesive-target`. Use `--no-build` to reuse
-that binary, or `--binary /absolute/path` to select another embedded debug binary.
-The debug build deliberately uses a production frontend: `import.meta.env.DEV`
-is false (so the kit gallery is absent).
+The binary is `$HOME/.cache/easycli-target/debug/cpa-gui`. This does not launch it.
+Debug assertions/hooks remain enabled while `import.meta.env.DEV` is false (no kit
+gallery). If building on another Linux machine, copy this binary and the repo's
+`scripts/dev-observe.mjs` plus `scripts/dev-observe/` to the test host, preserving
+their relative layout. Use a compatible architecture and GTK/WebKit runtime.
+You can strip debug symbols from a **copy** for transfer; this does not disable hooks.
+Pass `--revision "$(git rev-parse HEAD)"` when running a copied tree without Git.
+`run.json` also records the binary SHA-256 so evidence can be tied to the exact build.
 
-Each invocation needs a fresh `--name`: existing sandboxes are rejected. The GUI,
-core, auth files, config and HOME/XDG paths live below
-`~/.cache/proxy-work/sandbox/<name>`. A free loopback port is chosen and the GUI
-starts its own core through `window.__TAURI_INTERNALS__.invoke('start_core_process')`.
-Custom client-root environment overrides (such as `CODEX_HOME`) are removed so
-they cannot escape the sandbox HOME/XDG directories. No provider credentials are seeded, so empty
-provider, quota, request and session lists are expected. The driver stops the
-GUI/core process group on success or failure; SIGINT/SIGTERM requests stop after
-the current measurement. Do not SIGKILL the driver.
+Supply a CLIProxyAPI test binary and its **unmodified distribution**
+`config.example.yaml` for Local mode, not a configured core directory. Only those
+two files are copied. For Remote, start a separate test core with test-only keys,
+no provider credentials and a private auth directory. It must be **core ≥ 8.0.29**
+with the v8 management API (`config-version: 8`); allow remote management when
+connecting across hosts. See [Remote core connections](remote-core.md) for the
+configuration, transport policy and destructive single-consumer queue semantics.
+The harness does not provision, stop or modify the externally managed Remote core.
 
-By default every main page, Providers and Agents tabs, Usage tabs, Settings tabs,
-and guided setup are measured. Override with e.g.
-`--routes /overview,/usage/requests,/settings/logs`. Each page gets 10 seconds to
-settle, then a 60-second idle window (`--settle` and `--seconds` override these).
-`--actions` also exercises stop/start/restart, clicks the privacy toggle twice,
-and opens Settings → Logs. Lifecycle actions use the same application IPC commands
-as the UI; the privacy toggle uses the real React control.
+## Local pass
 
-Outputs default to `~/.cache/proxy-work/measure/<name>` (`--out` overrides):
+Run these commands **on the disposable host**, from the app repo (or copied scripts):
 
-- `ipc.log`: complete command trace, with `REPORT BEGIN/END` idle boundaries.
-- One `.log` and active-window `.png` per page; `action-*.log` for action bursts.
-- `summary.md` / `summary.json`: calls/min, per-command counts, DOM mutation records.
-- `run.json`: base commit, routes, durations, port and sandbox; `app.log` / stdout
-  provide startup diagnostics. Redirect stdout to an external driver log if desired.
+```bash
+node scripts/dev-observe.mjs --no-build \
+  --binary /absolute/path/to/cpa-gui \
+  --core /absolute/path/to/test-core/cli-proxy-api \
+  --core-config /absolute/path/to/test-core/config.example.yaml \
+  --mode local --name local-pass
+```
 
-Counts exclude reports and include management method/path distinctions. Idle
-windows exclude navigation and settling; rates normalize when `--seconds != 60`.
-The host clock defines the idle window even if the document reloads. Observer
-counts are sampled each second and summed across documents; on reload they are
-**lower bounds** (the final unsampled changes can be lost). `documents` records
-how many distinct document time origins were sampled. A temporary KWin script
-activates only the sandbox GUI PID immediately before capture and is immediately unloaded
-([KWin scripting API](https://develop.kde.org/docs/plasma/kwin/api/)).
+Without `--no-build` the driver builds first, using the Cargo target directory above
+(or `$CARGO_TARGET_DIR`). The app starts its own copied core on a free loopback port.
+No provider credentials are seeded, so empty lists are expected. `--actions` optionally
+checks Local stop/start/restart and the privacy toggle before idle measurements.
 
-The driver retries captures whose image dimensions do not match the webview plus
-window decorations. This catches many wrong-window captures, but is not a substitute
-for visually verifying the title/content (another similarly sized window can pass).
+## Remote pass
 
-DOM mutation **records** are a flicker proxy, not a rendered-frame measurement:
-clocks, live status and hidden DOM can mutate without visible flicker, and CSS
-animations need not mutate DOM. Inspect every screenshot and verify core readiness
-(`REPORT CORE`); a screenshot is a still frame, not proof of no flicker.
+Set the management origin and client origin explicitly. The host is supplied through
+these CLI origins, never hardcoded. Key values come only from environment variables
+or files; there are no key-value CLI arguments. Files override the corresponding env
+variables. Client and management keys are separate; a blank client key stays blank.
+
+```bash
+export TEST_MANAGEMENT_ORIGIN=http://127.0.0.1:8317
+export TEST_CLIENT_ORIGIN=http://127.0.0.1:8317
+node scripts/dev-observe.mjs --no-build \
+  --binary /absolute/path/to/cpa-gui \
+  --mode remote --name remote-pass \
+  --management-origin "$TEST_MANAGEMENT_ORIGIN" \
+  --client-origin "$TEST_CLIENT_ORIGIN" \
+  --management-key-file /absolute/path/to/test-management.key \
+  --client-key-file /absolute/path/to/test-client.key --strace
+```
+
+Alternatively set `EASYCLI_OBSERVE_MANAGEMENT_KEY` and
+`EASYCLI_OBSERVE_CLIENT_KEY`. No Local core or template is needed for Remote.
+The driver pre-seeds the isolated app config; this is an idle pass, not a test of
+the Connection form or mode-switch UI. It verifies authenticated core readiness
+before sampling. Stop the externally managed test core yourself after the pass.
+
+## Routes, timing and output
+
+Default: all 22 routes (main pages, Providers/Agents/Usage/Settings subpages and guided
+setup), **10 seconds settle + 60 seconds idle per route**. To select a shorter pass,
+append `--routes /overview,/usage/requests,/settings/routing`. `--settle` and
+`--seconds` override the windows; rates are normalized per minute. Remote guided
+setup intentionally redirects to Overview, and the report records the actual route.
+
+Output defaults to `$XDG_CACHE_HOME/easycli-observe/measure/<name>` (or
+`~/.cache/easycli-observe/measure/<name>`). `--out /absolute/output/directory`
+overrides it. Choose a fresh name/output directory for each run; reuse is refused.
+The sandbox remains under the same cache root's `easycli-observe/sandbox/<name>`.
+All directories/files are private to the current user. The sandbox contains test
+keys in plaintext app settings: do not commit it or publish raw captures. Inspect
+and redact evidence before sharing, especially Settings Access screenshots.
+
+- `summary.json` / `summary.md`: per-route IPC calls/min, command counts, DOM mutation
+  records/min, document count, actual routes and baseline/regression flags.
+- `ipc.log`: complete sanitized command trace plus `REPORT BEGIN/END` idle boundaries;
+  one route `.log` contains the corresponding window, excluding navigation/settling.
+- One `.xwd` and `.png` per route: root capture of the harness-owned virtual display.
+- `run.json`: revision, binary checksum, mode, routes, timing and sandbox metadata.
+  `app.log` / `xvfb.log` contain startup diagnostics.
+- With `--strace`: `connect.trace` and `connect.json` contain timestamped native
+  `connect` syscalls. These include all destinations, not just the core. Filter by
+  core address/port and thread before calculating retry intervals. Native collector
+  HTTP is **not** counted as frontend IPC. No outage or core restart is injected.
+
+Re-run analysis/report generation without launching an app:
+
+```bash
+node scripts/dev-observe/report.mjs /absolute/output/directory
+```
+
+Reference healthy empty-core measurements from 2026-10-19: **Local 2–6 IPC calls/min
+per page; Remote 4–8; Settings DOM mutations 0**. Usage pages are at the upper end.
+These are comparison baselines, not universal performance budgets; inspect command
+counts and route content before diagnosing a regression. A below-baseline result
+can mean the app was not ready. Reports flag above-range IPC, Settings mutations,
+reloads and redirects; flags do not automatically fail the run.
+
+Inspect every screenshot and `REPORT CORE` readiness. A screenshot is a still frame,
+not proof of no flicker. DOM mutation **records** are a proxy, not rendered frames:
+clocks/hidden DOM may mutate, while CSS animation may not. Host-clock idle windows
+survive reloads; observers sampled each second are summed across document time origins.
+On reload the final unsampled changes can be lost, so counts are lower bounds.
+
+The driver removes client-root overrides so agents cannot escape the sandbox HOME/XDG.
+On success/failure/SIGINT/SIGTERM it stops the GUI/core/WebKit process group, private
+bus and Xvfb. Interrupts are handled after the current sampling step; do not SIGKILL
+the driver. Sandboxes and evidence are retained for inspection; remove them when no
+longer needed. Remote cores remain the operator's responsibility.
 
 ## Debug-only hooks
 
@@ -79,7 +154,7 @@ contain neither hooks nor pseudo-command. Each facility is opt-in:
   explicitly supplied diagnostic text: **do not put secrets in them**.
 - `CPA_GUI_DEV_CONTROL=<existing-fifo>` enables a background FIFO reader on Unix.
   Each line is evaluated as JavaScript in the main webview, which is focused
-  before evaluation for reliable active-window screenshots. Create the FIFO
+  before evaluation inside the private display. Create the FIFO
   with mode 0600. Example:
 
   ```bash
