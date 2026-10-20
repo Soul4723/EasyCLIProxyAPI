@@ -648,13 +648,12 @@ fn terminate_deepseek_harness_process_tree(child: &mut Child) -> Result<(), Stri
 
     #[cfg(unix)]
     {
-        crate::process_signal::signal_group(child.id(), libc::SIGTERM)
-            .map_err(|error| {
-                format!(
-                    "Failed to stop DeepSeek Harness process group: PID {}: {error}",
-                    child.id()
-                )
-            })?;
+        crate::process_signal::signal_group(child.id(), libc::SIGTERM).map_err(|error| {
+            format!(
+                "Failed to stop DeepSeek Harness process group: PID {}: {error}",
+                child.id()
+            )
+        })?;
         for _ in 0..20 {
             match child.try_wait() {
                 Ok(Some(_)) => return Ok(()),
@@ -664,13 +663,12 @@ fn terminate_deepseek_harness_process_tree(child: &mut Child) -> Result<(), Stri
                 }
             }
         }
-        crate::process_signal::signal_group(child.id(), libc::SIGKILL)
-            .map_err(|error| {
-                format!(
-                    "Failed to force-stop DeepSeek Harness process group: PID {}: {error}",
-                    child.id()
-                )
-            })?;
+        crate::process_signal::signal_group(child.id(), libc::SIGKILL).map_err(|error| {
+            format!(
+                "Failed to force-stop DeepSeek Harness process group: PID {}: {error}",
+                child.id()
+            )
+        })?;
         child
             .wait()
             .map_err(|error| format!("Failed while waiting for DeepSeek Harness process to exit: {error}"))?;
