@@ -269,7 +269,7 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
     0
 }
 
-fn resolve_saved_target(config: Result<GuiConfigFile, String>) -> Result<(GuiConfigFile, String, &'static str), ()> {
+pub(super) fn resolve_saved_target(config: Result<GuiConfigFile, String>) -> Result<(GuiConfigFile, String, &'static str), ()> {
     let config = config.map_err(|_| ())?;
     let connection = crate::core_connection::connection_from_config(&config).map_err(|_| ())?;
     let mode = match config.connection_mode {
