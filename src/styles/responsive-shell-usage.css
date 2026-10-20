@@ -64,14 +64,15 @@
 }
 
 .usage-collector-state > strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
   white-space: nowrap;
 }
 
 .usage-collector-state > span:last-child {
-  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
   white-space: nowrap;
 }
 
