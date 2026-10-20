@@ -54,8 +54,6 @@ mod provider_health;
 ))]
 mod tray;
 mod usage;
-#[cfg(target_os = "windows")]
-mod windows_frame;
 
 #[cfg(test)]
 use configuration_watcher::nearest_existing_watch_directory;
@@ -204,6 +202,7 @@ fn main() {
         }
     };
     let initial_window_size = configured_window_size(&gui_config);
+    let initial_window_position = configured_window_position(&gui_config);
     let start_hidden = should_start_hidden(&gui_config);
 
     let app = tauri::Builder::default()
@@ -224,12 +223,28 @@ fn main() {
         .manage(usage::UsageCollectorState::default())
         .manage(GuiConfigState::new(gui_config))
         .manage(plugin_webview::PluginWebviewState::default())
-        .manage(MainWindowSizeState::new(initial_window_size))
+        .manage(MainWindowState::new(
+            initial_window_size,
+            initial_window_position,
+        ))
         .manage(AgentConfigStatusCache::default());
 
     let app = app.on_window_event(|window, event| {
         if window.label() != "main" {
             return;
+        }
+
+        if let tauri::WindowEvent::Moved(position) = event {
+            let state = window.state::<MainWindowState>();
+            // Ignore startup placement and the OS's minimized/maximized coordinates.
+            if state.position_tracking.load(Ordering::Acquire)
+                && !window.is_minimized().unwrap_or(true)
+                && !window.is_maximized().unwrap_or(true)
+            {
+                if let Err(error) = state.replace_position(*position) {
+                    eprintln!("Failed to record main window position: {error}");
+                }
+            }
         }
 
         let observed_size = match event {
@@ -247,7 +262,7 @@ fn main() {
         };
 
         if let Some(observed_size) = observed_size {
-            let window_size_state = window.state::<MainWindowSizeState>();
+            let window_size_state = window.state::<MainWindowState>();
             if let Err(error) = window_size_state.replace(observed_size) {
                 eprintln!("Failed to record main window size: {error}");
             }
@@ -287,16 +302,6 @@ fn main() {
         .setup(move |app| {
             #[cfg(debug_assertions)]
             dev_observe::start_control(app.handle());
-            // Configure before showing the initially hidden window to avoid a native titlebar flash.
-            // Other platforms retain their native window decorations. The frontend replacement
-            // (src/components/WindowFrame.tsx) uses the same platform condition synchronously.
-            // This stays a runtime call because tauri.windows.conf.json would replace the whole
-            // `app.windows` array (JSON Merge Patch) and duplicate the main window config.
-            #[cfg(target_os = "windows")]
-            if let Some(window) = app.get_webview_window("main") {
-                windows_frame::install(&window)?;
-                window.set_decorations(false)?;
-            }
             if let Err(error) = network_proxy::refresh(app.state::<GuiConfigState>().inner()) {
                 eprintln!("Failed to read startup proxy settings: {error}");
             }
@@ -309,9 +314,12 @@ fn main() {
             if let Err(error) = load_codex_model_customizations(app.handle()) {
                 eprintln!("Failed to load Codex custom model configuration: {error}");
             }
-            if let Err(error) = restore_main_window_size(app.handle()) {
+            if let Err(error) = restore_main_window_geometry(app.handle()) {
                 eprintln!("{error}");
             }
+            app.state::<MainWindowState>()
+                .position_tracking
+                .store(true, Ordering::Release);
 
             #[cfg(target_os = "macos")]
             setup_macos_tray(app)?;
@@ -514,6 +522,8 @@ fn main() {
                 delete_speed_alias,
                 clear_codex_config,
                 restore_codex_official_config,
+                set_codex_openai_provider,
+                set_codex_remote_compaction,
                 close_codex_config_modification,
                 set_agent_config_enabled,
                 update_agent_config,
@@ -546,6 +556,8 @@ fn main() {
                 clear_core_management_secret_key,
                 // Management API and plugins
                 management_api::management_request,
+                management_api::prepare_management_request,
+                management_api::cancel_management_request,
                 plugins::get_plugin_support,
                 plugins::local_install::install_local_plugin,
                 plugin_webview::show_plugin_webview,
@@ -641,8 +653,8 @@ fn main() {
                 return;
             }
             process_state.recovery.cancel();
-            if let Err(error) = persist_main_window_size(app_handle) {
-                eprintln!("Failed to save main window size: {error}");
+            if let Err(error) = persist_main_window_geometry(app_handle) {
+                eprintln!("Failed to save main window geometry: {error}");
             }
             app_handle.state::<CoreDownloadState>().cancel();
             let app_handle = app_handle.clone();

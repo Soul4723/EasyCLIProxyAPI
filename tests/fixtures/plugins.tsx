@@ -92,6 +92,8 @@ const storeEntries: Record<string, unknown>[] = [
 mockIPC(async (command, args) => {
   if (command === 'get_management_target_revision') return 0; // documentTarget fences every target command
   state.commands.push({ command, args });
+  if (command === 'prepare_management_request') return `install-${state.commands.length}`;
+  if (command === 'cancel_management_request') return null;
   if (command === 'start_oauth_login') return { url: 'https://login.example.test/authorize?state=sample-state', state: 'sample-state' };
   if (command === 'get_oauth_status') return { status: 'wait' };
   if (command === 'get_plugin_support') return state.supported;

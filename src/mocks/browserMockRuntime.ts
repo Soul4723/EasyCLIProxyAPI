@@ -267,6 +267,8 @@ function createAgentStatuses() {
     currentModel: id.startsWith('claude') ? 'claude-sonnet-4-6' : 'gpt-5.2-codex',
     oauthConfiguration: id === 'codex',
     codexNativeOauth: false,
+    codexOpenaiProvider: false,
+    codexRemoteCompaction: false,
     modificationEnabled: id !== 'openclaw',
     modificationState: id === 'openclaw' ? 'unconfigured' : 'applied',
     backupAvailable: true,
@@ -1712,10 +1714,20 @@ export function createBrowserMockRuntime(
           failedCount: 0,
         };
       }
+      case 'set_codex_remote_compaction': {
+        const codex = state.agentStatuses.find((status) => status.id === 'codex');
+        if (codex) codex.codexRemoteCompaction = Boolean(payload.enabled);
+        return {};
+      }
+      case 'set_codex_openai_provider': {
+        const codex = state.agentStatuses.find((status) => status.id === 'codex');
+        if (codex) codex.codexOpenaiProvider = Boolean(payload.enabled);
+        return createActionResult(payload);
+      }
       case 'repair_codex_session_metadata': {
         emit('codex-session-repair-progress', { phase: 'complete', percent: 100, processed: state.codexSessions.length, total: state.codexSessions.length });
         return {
-          targetProvider: 'cpa-gui', changedRolloutFiles: 2, sqliteRowsUpdated: 2,
+          targetProvider: state.agentStatuses.find((status) => status.id === 'codex')?.codexOpenaiProvider ? 'openai' : 'cpa-gui', changedRolloutFiles: 2, sqliteRowsUpdated: 2,
           skippedLockedFiles: [], backupPath: 'C:\\Users\\Mock\\.codex\\backups\\repair.zip',
           encryptedContentWarning: null, warnings: [],
         };

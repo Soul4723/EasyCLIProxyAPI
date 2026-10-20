@@ -9,6 +9,7 @@ type Translate = ReturnType<typeof useI18n>['t'];
 
 export function windowLabel(window: WindowView, t: Translate): string {
   const base = window.kind === '5h' ? t('sec.quota.win.5h') : window.kind === 'weekly' ? t('sec.quota.win.week') : '';
+  if (window.groupLabel && window.windowLabel) return base || window.windowLabel.replace(/\s*(limit\s*)?remaining$/i, '').trim();
   if (!base) return window.rawLabel.replace(/\s*(limit\s*)?remaining$/i, '').trim();
   return window.prefix ? `${window.prefix} ${base}` : base;
 }
@@ -24,7 +25,7 @@ export function ResetTime({ ms, now, passed = true }: { ms?: number; now: number
 export function WindowMeter({ window, now, stale }: { window: WindowView; now: number; stale: boolean }) {
   const { t, formatNumber } = useI18n();
   const label = windowLabel(window, t);
-  const title = [window.rawLabel, window.detail, window.resetText].filter(Boolean).join(' · ');
+  const title = [window.groupLabel ? `${window.groupLabel} · ${label}` : window.rawLabel, window.groupDescription ?? window.detail, window.resetText].filter(Boolean).join(' · ');
   return (
     <div className={`qt-win${stale ? ' qt-stale' : ''}`} title={title || undefined}>
       <span className="qt-win__label">{label}</span>

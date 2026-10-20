@@ -14,6 +14,14 @@ const settleLayout = (page, value) => page.waitForFunction((expected) =>
 
 runUiTest('plugin pages', async ({ base, newPage }) => {
   const page = await newPage({ viewport: { width: 1280, height: 900 } });
+  await page.addInitScript(() => {
+    const matchMedia = window.matchMedia.bind(window);
+    window.matchMedia = (query) => {
+      const result = matchMedia(query);
+      if (query.startsWith('(resolution:')) window.__resolutionQuery = result;
+      return result;
+    };
+  });
   await openApp(page, base, { path: '/overview' });
   await entries(page).first().waitFor();
   await settleLayout(page, 'expanded');
@@ -82,6 +90,26 @@ runUiTest('plugin pages', async ({ base, newPage }) => {
   assert.equal(await hole.getAttribute('data-mock-url'), 'http://127.0.0.1:8317/v0/resource/plugins/request-inspector/status');
   assert.deepEqual(JSON.parse(await hole.getAttribute('data-mock-labels')), { back: 'Back', reload: 'Reload', openExternal: 'Open in browser', move: 'Move controls' });
   assert.equal(await page.locator('[data-testid=plugin-host]').evaluate((el) => Math.round(el.getBoundingClientRect().bottom)), 900, 'plugin page fills the main height');
+
+  // --- moving between monitors can change DPI without changing the CSS rectangle
+  await page.evaluate(() => {
+    window.__boundsUpdates = 0;
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    window.__TAURI_INTERNALS__.invoke = (command, args, options) => {
+      if (command === 'set_plugin_webview_bounds') window.__boundsUpdates++;
+      return invoke(command, args, options);
+    };
+  });
+  for (const event of ['resize', 'resolution', 'resolution']) {
+    const previous = await page.evaluate(() => window.__boundsUpdates);
+    await page.evaluate((name) => {
+      if (name === 'resize') window.dispatchEvent(new Event('resize'));
+      else window.__resolutionQuery.dispatchEvent(new Event('change'));
+    }, event);
+    await page.waitForFunction((count) => window.__boundsUpdates > count, previous);
+    await aligned();
+  }
+  console.log('resize and repeated resolution notifications reapply unchanged CSS bounds');
 
   // --- overlays hide the native view; closing restores it
   for (const [label, open, close] of [

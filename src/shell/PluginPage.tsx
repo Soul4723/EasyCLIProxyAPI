@@ -5,7 +5,7 @@ import { useI18n } from '../i18n';
 import { pluginText } from '../i18n/plugins';
 import { findPluginEntryForPage, type PluginNavEntry } from '../services/pluginNavigation';
 import {
-  EMPTY_BOUNDS, effectiveBounds, hidePluginWebview, newWebviewToken, roundBounds, sameBounds, setPluginWebviewBounds, showPluginWebview,
+  EMPTY_BOUNDS, effectiveBounds, hidePluginWebview, newWebviewToken, roundBounds, setPluginWebviewBounds, showPluginWebview,
   type WebviewBounds,
 } from '../services/pluginWebview';
 import { Button, Skeleton } from '../ui';
@@ -39,7 +39,8 @@ function PluginWebviewPage({ entry, reloadToken }: { entry: PluginNavEntry; relo
   const measure = useCallback(() => {
     if (!host.current) return;
     const next = roundBounds(host.current.getBoundingClientRect(), window.innerHeight);
-    setBounds((previous) => sameBounds(previous, next) ? previous : next);
+    // Reapply even when CSS bounds are unchanged: the native DPI may have changed.
+    setBounds(next);
   }, []);
 
   useLayoutEffect(() => {
@@ -48,9 +49,19 @@ function PluginWebviewPage({ entry, reloadToken }: { entry: PluginNavEntry; relo
     if (host.current) observer.observe(host.current);
     observer.observe(document.documentElement);
     window.addEventListener('resize', measure);
+    // A DPI change (moving between monitors) fires only the resolution query, and each query matches one ratio.
+    let resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const onResolutionChange = () => {
+      resolution.removeEventListener('change', onResolutionChange);
+      resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      resolution.addEventListener('change', onResolutionChange);
+      measure();
+    };
+    resolution.addEventListener('change', onResolutionChange);
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', measure);
+      resolution.removeEventListener('change', onResolutionChange);
     };
   }, [measure]);
 
@@ -75,7 +86,7 @@ function PluginWebviewPage({ entry, reloadToken }: { entry: PluginNavEntry; relo
 
   useEffect(() => {
     void setPluginWebviewBounds(wanted, token.current).catch((reason) => setError(message(reason)));
-  }, [ready, wanted.x, wanted.y, wanted.width, wanted.height, wanted.viewportHeight]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, wanted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className="ec-plugin-page" data-plugin-route={entry.route} aria-label={entry.label}>

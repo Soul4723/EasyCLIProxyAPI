@@ -38,6 +38,17 @@ function BigWindow({ window, now, stale }: { window: WindowView; now: number; st
   );
 }
 
+/** Consecutive windows of the same model group (Antigravity), so each group gets a heading and its description. */
+function groupWindows(windows: WindowView[]): Array<{ label?: string; description?: string; windows: WindowView[] }> {
+  const groups: Array<{ label?: string; description?: string; windows: WindowView[] }> = [];
+  for (const window of windows) {
+    const previous = groups[groups.length - 1];
+    if (previous && previous.label === window.groupLabel) previous.windows.push(window);
+    else groups.push({ label: window.groupLabel, description: window.groupDescription, windows: [window] });
+  }
+  return groups;
+}
+
 export function AccountPanel({
   account, ctx, onClose,
 }: { account: QuotaAccount | null; ctx: ControlsContext; onClose: () => void }) {
@@ -81,7 +92,12 @@ export function AccountPanel({
 
           <section aria-label={t('sec.quota.panel.windows')}>
             {view.windows.length ? (
-              <div className="qt-bigs">{view.windows.map((window) => <BigWindow key={window.id} window={window} now={ctx.now} stale={view.stale} />)}</div>
+              <>{groupWindows(view.windows).map((group, index) => (
+                <div className="qt-mgroup" key={index}>
+                  {group.label ? <div className="qt-mgroup__head"><h3>{group.label}</h3>{group.description ? <p className="ec-muted">{group.description}</p> : null}</div> : null}
+                  <div className="qt-bigs">{group.windows.map((window) => <BigWindow key={window.id} window={window} now={ctx.now} stale={view.stale} />)}</div>
+                </div>
+              ))}</>
             ) : view.status === 'notFetched' ? (
               // The status pill already says "Not fetched"; the body only offers the action.
               <div className="qt-panel__none">

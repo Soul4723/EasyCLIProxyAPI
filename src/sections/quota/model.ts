@@ -35,6 +35,11 @@ export type WindowView = {
   resetAtMs?: number;
   resetText?: string;
   detail?: string;
+  /** Model group the window belongs to (Antigravity), with the service's description of it. */
+  groupLabel?: string;
+  groupDescription?: string;
+  /** Window name without the group, as returned by the quota service. */
+  windowLabel?: string;
 };
 
 export type BankedResets = {
@@ -145,6 +150,9 @@ export function windowsOf(quota: QuotaState, now: number, locale: AppLocale): Wi
       resetAtMs: row.resetAtMs,
       resetText: row.reset,
       detail: row.detail,
+      groupLabel: row.groupLabel,
+      groupDescription: row.groupDescription,
+      windowLabel: row.windowLabel,
     };
   });
 }

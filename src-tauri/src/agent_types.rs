@@ -22,6 +22,8 @@ pub(crate) struct AgentConfigStatus {
     pub(crate) current_model: Option<String>,
     pub(crate) oauth_configuration: bool,
     pub(crate) codex_native_oauth: bool,
+    pub(crate) codex_openai_provider: bool,
+    pub(crate) codex_remote_compaction: bool,
     pub(crate) modification_enabled: bool,
     pub(crate) modification_state: String,
     pub(crate) backup_available: bool,

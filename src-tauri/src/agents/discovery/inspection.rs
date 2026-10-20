@@ -156,6 +156,10 @@ pub(crate) fn inspect_agent_config_with_executables(
         oauth_configuration,
         codex_native_oauth: client == AgentClient::Codex
             && codex_native_oauth_enabled(home).unwrap_or(false),
+        codex_openai_provider: client == AgentClient::Codex
+            && codex_openai_proxy_enabled(home).unwrap_or(false),
+        codex_remote_compaction: client == AgentClient::Codex
+            && codex_remote_compaction_enabled(home).unwrap_or(false),
         modification_enabled: configured,
         modification_state: if !config_valid {
             "invalid"
@@ -531,7 +535,7 @@ pub(crate) fn agent_has_managed_marker(
             )
             .map_err(|_| "Failed to parse Codex configuration".to_string())?;
             Ok(root.get("model_provider").and_then(toml::Value::as_str)
-                == Some(MANAGED_AGENT_PROVIDER_ID))
+                == Some(codex_managed_provider_id(&root)))
         }
         AgentClient::OpenCode => {
             if !paths[0].is_file() {
