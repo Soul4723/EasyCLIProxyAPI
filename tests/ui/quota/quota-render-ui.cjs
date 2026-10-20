@@ -7,13 +7,15 @@ function installRenderCounter() {
   const counts = {};
   const lastProps = new Map();
   const debug = { commits: 0, names: [] };
+  const why = {};
+  const changed = (a, b) => (a && b ? Object.keys({ ...a, ...b }).filter((field) => a[field] !== b[field]) : ['(new)']);
   const MEMO_COMPONENT = 14;
   // The dev transform renames the function inside `const AccountCard = memo(function AccountCard…)` to AccountCard2.
   const CARD_NAME = /^Account(Card|Row)\d*$/;
   const noop = () => {};
   window.__qtRenders = {
-    counts, debug,
-    reset: () => { Object.keys(counts).forEach((key) => delete counts[key]); debug.commits = 0; },
+    counts, debug, why,
+    reset: () => { Object.keys(counts).forEach((key) => delete counts[key]); Object.keys(why).forEach((key) => delete why[key]); debug.commits = 0; },
   };
   // A card renders again exactly when React hands its function new props (a React.memo bail-out keeps the old object),
   // so each commit walks the whole committed tree and compares the props of every card with the last ones seen.
@@ -31,7 +33,12 @@ function installRenderCounter() {
         if (typeof name === 'string' && CARD_NAME.test(name)) {
           const props = fiber.memoizedProps;
           const key = props?.account?.key;
-          if (key && lastProps.get(key) !== props) { lastProps.set(key, props); seen.add(key); }
+          const last = lastProps.get(key);
+          if (key && last !== props) {
+            lastProps.set(key, props);
+            seen.add(key);
+            why[key] = [...(why[key] ?? []), `props:${changed(last, props).join('+')} account:${changed(last?.account, props.account).join('+')} ctx:${changed(last?.ctx, props.ctx).join('+')}`];
+          }
         }
         if (fiber.sibling) stack.push(fiber.sibling);
         if (fiber.child) stack.push(fiber.child);
@@ -80,6 +87,7 @@ h.runUiTest('quota-render-ui', async ({ base, newPage }) => {
   await settle();
   const afterTick = await counts();
   console.log(`  ${total(afterTick)} card renders over one 30 s tick, ${accounts.length} cards (${steady.length} without cooldown)`);
+  if (total(afterTick)) console.log(`  why: ${JSON.stringify(await page.evaluate(() => window.__qtRenders.why))}`);
   for (const { key } of steady) assert.equal(afterTick[key] ?? 0, 0, `card ${key} did not render on a no-op tick`);
 
   console.log('countdown text');
