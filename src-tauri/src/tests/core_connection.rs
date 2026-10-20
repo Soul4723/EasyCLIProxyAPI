@@ -566,7 +566,7 @@ async fn get_core_config_settings_cancels_after_switch_while_yaml_fetch_is_pause
     let call = get_core_config_settings(app.state(), revision);
     tokio::pin!(call);
     tokio::select! {
-        result = &mut call => panic!("settings read finished before the remote core answered: {result:?}"),
+        result = &mut call => panic!("settings read finished before the remote core answered: {}", if result.is_ok() { "success" } else { "error" }),
         arrived = arrived_rx => arrived.unwrap(),
     }
     assert!(state.target_operation.try_lock().is_ok(), "remote YAML fetch held the target fence");
@@ -575,7 +575,8 @@ async fn get_core_config_settings_cancels_after_switch_while_yaml_fetch_is_pause
     changed.remote_management_key = "target-b-management".into();
     state.replace_external(changed).unwrap();
     release_tx.send(()).unwrap();
-    let error = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap().unwrap_err();
+    let result = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap();
+    let error = match result { Ok(_) => panic!("settings read returned after the target changed"), Err(error) => error };
     assert!(error.contains("request cancelled"), "{error}");
     server.await.unwrap();
 }
