@@ -1,6 +1,7 @@
 // Download-source state for the Updates tab: selected source, built-in channels and custom HTTPS mirrors.
 // Same commands/events as the old Version page (get_version_source_settings, set_download_source, add/remove_custom_download_mirror).
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { CORE_CONFIG_SCOPES, listenConfigChange } from '../../../services/configChange';
 import { invoke, listen } from '../../../services/platform';
 import { createSettingsRead } from '../../../services/settingsData';
 import { useI18n } from '../../../i18n';
@@ -45,7 +46,7 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     let disposed = false;
     let stopConfig: (() => void) | null = null;
     let stopSource: (() => void) | null = null;
-    void listen('config-files-changed', () => {
+    void listenConfigChange(CORE_CONFIG_SCOPES, () => {
       if (disposed) return;
       void load(true);
       void refreshRef.current();
