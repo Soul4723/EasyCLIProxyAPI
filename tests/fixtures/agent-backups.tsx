@@ -48,7 +48,7 @@ mockIPC(async (cmd,args:any) => {
  if(cmd==='get_core_connection')return {mode:params.get('runtime'),managementOrigin:'',managementKey:'',clientOrigin:'',clientKey:''};
  if(cmd==='get_core_status') {
    await new Promise<void>(resolve=>{(window as any).fixtureResolveCoreStatus=resolve;});
-   return {connectionMode:params.get('runtime'),installed:true,running:true,ready:true,starting:false,managed:false,processId:null,currentVersion:'8.0.29',installDir:'',binaryPath:null,message:''};
+   return {connectionMode:params.get('runtime'),installed:true,running:!params.has('core-stopped'),ready:true,starting:false,managed:false,processId:null,currentVersion:'8.0.29',installDir:'',binaryPath:null,message:''};
  }
  if(cmd==='get_codex_cli_daemon_running') {
    if(params.has('daemon-error'))throw new Error('Codex daemon probe failed');
@@ -203,7 +203,10 @@ mockIPC(async (cmd,args:any) => {
    for(const m of args.request.models)harnessConfigurations[m.id]=m.configuration;
    harnessRevision++;return harnessSnapshot();
  }
- if(cmd==='get_codex_model_catalog_editor') return {models:[],hiddenModels:[],customizations:{}};
+ if(cmd==='get_codex_model_catalog_editor') {
+   if(params.has('core-stopped'))throw new Error('Failed to request client model list');
+   return {models:[],hiddenModels:[],customizations:{}};
+ }
  if(cmd==='check_codex_oauth_login') {
    if(!(window as any).fixtureOauthLoggedIn)throw new Error('CODEX_OAUTH_LOGIN_REQUIRED');
    return null;

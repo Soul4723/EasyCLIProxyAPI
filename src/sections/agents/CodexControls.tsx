@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '../../i18n';
+import { useCoreConnectionMode, useCoreRunning } from '../../coreRuntime';
 import { AgentModelPicker } from '../../components/AgentModelPicker';
 import { invoke } from '../../services/platform';
 import type { CodexCatalogEditorSaveResult, CodexCatalogEditorSnapshot } from '../../services/codexModelCatalog';
@@ -16,6 +17,8 @@ const isDisabled = (ctl: AgentsController) => ctl.busy || ctl.loading || ctl.has
 export function CodexProviderRow({ ctl }: { ctl: AgentsController }) {
   const { t } = useI18n();
   const status = ctl.activeStatus;
+  // Session metadata lives on this computer's disk, so syncing it applies to Local only.
+  const remote = useCoreConnectionMode() === 'remote';
   const enabled = Boolean(status?.codexOpenaiProvider);
   const [target, setTarget] = useState<boolean | null>(null);
   const [syncSessions, setSyncSessions] = useState(false);
@@ -36,7 +39,7 @@ export function CodexProviderRow({ ctl }: { ctl: AgentsController }) {
       await invoke('set_codex_openai_provider', { enabled: next });
       switched = true;
       setNotice(t('agents.provider.switched', { provider }));
-      if (syncSessions) {
+      if (syncSessions && !remote) {
         try {
           const result = await invoke<CodexSessionRepairResult>('repair_codex_session_metadata', { expectedProvider: provider });
           const summary = t('agents.sessions.repairResult', {
@@ -85,9 +88,11 @@ export function CodexProviderRow({ ctl }: { ctl: AgentsController }) {
         </>}>
         <div className="ag-dlg">
           <p>{t('agents.provider.description')}</p>
-          <Checkbox checked={syncSessions} disabled={saving} label={t('agents.provider.sync')}
-            onChange={(event) => setSyncSessions(event.currentTarget.checked)} />
-          <p className="ec-muted">{t('agents.provider.syncHint')}</p>
+          {remote ? <p className="ec-muted">{t('agents.provider.syncRemote')}</p> : <>
+            <Checkbox checked={syncSessions} disabled={saving} label={t('agents.provider.sync')}
+              onChange={(event) => setSyncSessions(event.currentTarget.checked)} />
+            <p className="ec-muted">{t('agents.provider.syncHint')}</p>
+          </>}
           <InlineNotice tone="error" message={error} />
         </div>
       </Dialog>
@@ -139,17 +144,20 @@ export function CodexApprovalModelRow({ ctl }: { ctl: AgentsController }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // The catalog comes from the core, so a stopped core is a state, not a failure.
+  const stopped = useCoreRunning() === false;
   const load = useCallback(async () => {
+    if (stopped) { setLoading(false); setError(''); setNotice(''); return; }
     setLoading(true); setError(''); setNotice('');
     try {
       const next = await invoke<CodexCatalogEditorSnapshot>('get_codex_model_catalog_editor');
       setSnapshot(next); setValue(next.defaultAutoReviewModel ?? '');
     } catch (cause) { setError(String(cause)); }
     finally { setLoading(false); }
-  }, []);
+  }, [stopped]);
   useEffect(() => { void load(); }, [load]);
 
-  const disabled = isDisabled(ctl) || ctl.nativeOauth;
+  const disabled = isDisabled(ctl) || ctl.nativeOauth || stopped;
   const save = async () => {
     if (!snapshot || disabled || saving || loading) return;
     setSaving(true); ctl.setBusyAction('approval-model'); setError(''); setNotice('');
@@ -181,6 +189,7 @@ export function CodexApprovalModelRow({ ctl }: { ctl: AgentsController }) {
           onChange={(next) => { setValue(next); setNotice(''); }}
           onRefresh={() => void load()} />
         {missing ? <span className="ec-muted">{t('agents.approvalModel.missing')}</span> : null}
+        {stopped ? <span className="ec-muted">{t('sec.overview.notRunningReason')}</span> : null}
         <InlineNotice tone="error" message={error} />
         <InlineNotice tone="success" message={notice} />
       </div>}

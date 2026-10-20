@@ -36,6 +36,7 @@ export const en: Record<MessageKey, string> = {
   'agents.provider.title': 'Switch to {provider}',
   'agents.provider.description': 'Keep the current proxy endpoint and sign-in method. Reopen Codex and test with a new conversation; existing conversations may still belong to the previous provider.',
   'agents.provider.sync': 'Also sync conversations',
+  'agents.provider.syncRemote': 'Conversations are stored on the machine where Codex runs, so they are not synced from this connection. Sync them on that machine in conversation management.',
   'agents.provider.syncHint': 'Back up and update the provider of local historical conversations to the selected provider (not cloud sync). Leave unchecked to keep history unchanged, or sync later in conversation management. Encrypted content from other accounts may remain unusable.',
   'agents.provider.switched': 'Switched to {provider}, still using CPA. Reopen Codex to apply the configuration.',
   'agents.provider.syncFailed': 'The provider was switched, but conversation sync failed: {error}. Retry in conversation management.',
