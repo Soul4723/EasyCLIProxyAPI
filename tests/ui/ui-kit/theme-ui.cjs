@@ -75,7 +75,11 @@ runUi(async ({ base }) => {
 
     // ---- More themes: pick, persist, pressed state, back to Ember ----------------------------------------------------------
     let popover = await openAppMenu(page);
-    assert.equal(await popover.locator('.ec-theme-card').count(), 4, 'Warm Sand, Sakura, Graphite and Midnight stay selectable');
+    // The browser mock serves one custom theme file (harbor-dark), listed after the built-ins.
+    await popover.locator('.ec-theme-card[data-theme-id="harbor-dark"]').waitFor();
+    assert.equal(await popover.locator('.ec-theme-card').count(), 5, 'Warm Sand, Sakura, Graphite, Midnight and the custom theme stay selectable');
+    assert.equal(await popover.locator('.ec-theme-card').last().getAttribute('data-theme-id'), 'harbor-dark', 'custom themes follow the built-ins');
+    assert.equal(await popover.locator('[data-action="open-themes"]').count(), 1, 'the menu offers the custom themes folder');
     await popover.locator('.ec-theme-card[data-theme-id="warm-sand-light"]').click();
     await closeAppMenu(page);
     state = await themeState(page);

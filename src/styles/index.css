@@ -6,3 +6,4 @@
 @import './base.css'; /* typography, reset, page background, focus ring */
 @import './controls.css'; /* class-based buttons, icon button, switch and spin shared by several components */
 @import './theme-backdrop.css'; /* gradient theme backdrop */
+@import './theme-window-material.css'; /* native window material for translucent themes */

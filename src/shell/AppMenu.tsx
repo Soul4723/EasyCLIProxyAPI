@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react';
 import { invoke } from '../services/platform';
-import { Check, ExternalLink, MessageCircle, SlidersHorizontal } from 'lucide-react';
+import { Check, ExternalLink, FolderOpen, MessageCircle, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { languageOptions, useI18n } from '../i18n';
-import { useThemePreference } from '../theme';
-import { themePreview, themeRegistry } from '../themes/registry';
+import { openCustomThemesDirectory, reloadCustomThemes, useCustomThemeStatus, useThemePreference, useThemeRegistry } from '../theme';
+import { themePreview } from '../themes/registry';
+import { localizeThemeLabel } from '../themes/types';
 import { useDensity, type Density } from '../density';
+import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 import { Popover, PopoverHeading, PopoverItem, PopoverSeparator } from '../ui/Popover';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -20,6 +22,16 @@ const DISCORD_SERVER_URL = 'https://discord.gg/PxvX4D9kgs';
 export function AppearanceControls() {
   const { t, locale, setLocale } = useI18n();
   const [theme, setTheme] = useThemePreference();
+  // The live registry includes custom theme files (upstream #481); they share the --ec-* bridge.
+  const themeRegistry = useThemeRegistry();
+  const custom = useCustomThemeStatus();
+  const [openFailed, setOpenFailed] = useState(false);
+  const customText = [
+    openFailed ? t('app.theme.custom.openFailed') : '',
+    custom.failed ? t('app.theme.custom.loadFailed') : '',
+    custom.skipped.length ? t('app.theme.custom.skipped', { files: custom.skipped.join(', ') }) : '',
+    custom.omitted ? t('app.theme.custom.omitted', { count: custom.omitted }) : '',
+  ].filter(Boolean).join(' ');
   const [density, setDensity] = useDensity();
   return (
     <div className="ec-appearance">
@@ -52,10 +64,21 @@ export function AppearanceControls() {
                 <i style={{ background: preview.surface }} />
                 <i style={{ background: preview.accent }} />
               </span>
-              <span className="ec-theme-name">{t(candidate.nameKey)}</span>
+              <span className="ec-theme-name">{candidate.name ? localizeThemeLabel(candidate.name, locale) : t(candidate.nameKey!)}</span>
             </button>
           );
         })}
+      </div>
+      {customText ? <p className="ec-theme-custom-notice" role="status">{customText}</p> : null}
+      <div className="ec-theme-custom-actions">
+        <Button size="xs" variant="ghost" icon={<FolderOpen size={12} />} data-action="open-themes"
+          onClick={() => { setOpenFailed(false); openCustomThemesDirectory().catch(() => setOpenFailed(true)); }}>
+          {t('app.theme.custom.openFolder')}
+        </Button>
+        <Button size="xs" variant="ghost" icon={<RefreshCw size={12} />} data-action="reload-themes" disabled={custom.loading}
+          onClick={() => { setOpenFailed(false); void reloadCustomThemes(); }}>
+          {t('app.theme.custom.reload')}
+        </Button>
       </div>
       <PopoverHeading>{t('shell.density')}</PopoverHeading>
       <SegmentedControl<Density>

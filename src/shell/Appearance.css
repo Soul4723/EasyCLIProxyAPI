@@ -35,3 +35,6 @@
 }
 .ec-theme-swatch i { flex: 1; border-radius: 1px; }
 .ec-theme-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Custom theme files (upstream #481): open/reload actions and load issues under the theme cards. */
+.ec-theme-custom-actions { display: flex; flex-wrap: wrap; gap: var(--ec-sp-1); margin-top: var(--ec-sp-1); }
+.ec-theme-custom-notice { margin: var(--ec-sp-1) 0 0; color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
