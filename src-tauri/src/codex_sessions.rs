@@ -171,6 +171,13 @@ struct DatabaseDeletePlan {
     has_automation_rows: bool,
 }
 
+/// The backup copy of a rollout and the SHA-256 of the bytes that were copied.
+#[derive(Debug, Clone)]
+struct RolloutBackup {
+    file_name: String,
+    sha256: String,
+}
+
 #[derive(Debug, Clone)]
 struct RolloutRepair {
     path: PathBuf,
@@ -182,6 +189,7 @@ struct RolloutRepair {
     providers: Vec<String>,
     encrypted_content: bool,
     changed: bool,
+    backup: Option<RolloutBackup>,
 }
 
 #[derive(Debug)]

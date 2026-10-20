@@ -418,19 +418,65 @@ fn rewrite_skips_a_rollout_that_changed_after_the_scan() {
     fs::remove_dir_all(root).unwrap();
 }
 
+const META_OPENAI: &str =
+    "{\"type\":\"session_meta\",\"payload\":{\"id\":\"thread-1\",\"model_provider\":\"openai\"}}\r\n{\"type\":\"event_msg\"}\r\n";
+
+fn scanned_rollout(root: &Path, name: &str, content: &str, mtime: usize) -> RolloutRepair {
+    let path = root.join("sessions").join(name);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, content).unwrap();
+    set_mtime(&path, fixed_mtime(mtime));
+    let repair = build_rollout_repair(&path, "cpa-gui").unwrap().unwrap();
+    assert!(repair.changed);
+    repair
+}
+
+#[test]
+fn rewrite_skips_a_same_size_same_mtime_content_change_after_the_backup() {
+    let root = test_root("stream-same-size");
+    let mut repair = scanned_rollout(&root, "rollout.jsonl", META_OPENAI, 9);
+    create_repair_backup(
+        &root,
+        &[],
+        std::slice::from_mut(&mut repair),
+        "provider-repair",
+        "cpa-gui",
+    )
+    .unwrap();
+    let swapped = META_OPENAI.replace("openai", "opena1");
+    assert_eq!(swapped.len(), META_OPENAI.len());
+    fs::write(&repair.path, &swapped).unwrap();
+    set_mtime(&repair.path, fixed_mtime(9));
+
+    // Size and mtime still match the scan; only the content hash tells the file changed.
+    match rewrite_rollout(&repair, "cpa-gui").unwrap() {
+        RewriteOutcome::Skipped(warning) => assert!(warning.contains("changed during repair")),
+        _ => panic!("a rollout that differs from its backup must not be rewritten"),
+    }
+    assert_eq!(fs::read_to_string(&repair.path).unwrap(), swapped);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn rewrite_skips_a_rollout_without_a_backup() {
+    let root = test_root("stream-no-backup");
+    let repair = scanned_rollout(&root, "rollout.jsonl", META_OPENAI, 9);
+    assert!(matches!(
+        rewrite_rollout(&repair, "cpa-gui").unwrap(),
+        RewriteOutcome::Skipped(_)
+    ));
+    assert_eq!(fs::read_to_string(&repair.path).unwrap(), META_OPENAI);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn rollback_restores_written_rollouts_from_the_backup() {
     let root = test_root("stream-rollback");
-    fs::create_dir_all(root.join("sessions")).unwrap();
-    let path = root.join("sessions/rollout.jsonl");
-    let original = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"thread-1\",\"model_provider\":\"openai\"}}\r\n{\"type\":\"event_msg\"}\r\n";
-    fs::write(&path, original).unwrap();
-    set_mtime(&path, fixed_mtime(7));
-    let repair = build_rollout_repair(&path, "cpa-gui").unwrap().unwrap();
+    let mut repair = scanned_rollout(&root, "rollout.jsonl", META_OPENAI, 7);
     let backup = create_repair_backup(
         &root,
         &[],
-        std::slice::from_ref(&repair),
+        std::slice::from_mut(&mut repair),
         "provider-repair",
         "cpa-gui",
     )
@@ -440,10 +486,90 @@ fn rollback_restores_written_rollouts_from_the_backup() {
         rewrite_rollout(&repair, "cpa-gui").unwrap(),
         RewriteOutcome::Written
     ));
-    assert!(fs::read_to_string(&path).unwrap().contains("cpa-gui"));
-    rollback_rollouts(&[(0, &repair)], Some(backup.as_path()));
-    assert_eq!(fs::read_to_string(&path).unwrap(), original);
-    assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), fixed_mtime(7));
+    assert!(fs::read_to_string(&repair.path).unwrap().contains("cpa-gui"));
+    let not_restored = rollback_rollouts(&[&repair], Some(backup.as_path()));
+    assert!(not_restored.is_empty());
+    assert_eq!(rollback_note(&not_restored, Some(backup.as_path())), "");
+    assert_eq!(fs::read_to_string(&repair.path).unwrap(), META_OPENAI);
+    assert_eq!(
+        fs::metadata(&repair.path).unwrap().modified().unwrap(),
+        fixed_mtime(7)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn rollback_reports_every_rollout_it_could_not_restore() {
+    let root = test_root("stream-rollback-partial");
+    let mut repairs = ["a", "b", "c", "d"]
+        .map(|name| scanned_rollout(&root, &format!("{name}.jsonl"), META_OPENAI, 5));
+    let backup = create_repair_backup(&root, &[], &mut repairs, "provider-repair", "cpa-gui").unwrap();
+    for repair in &repairs {
+        assert!(matches!(
+            rewrite_rollout(repair, "cpa-gui").unwrap(),
+            RewriteOutcome::Written
+        ));
+    }
+    let backup_file = |repair: &RolloutRepair| {
+        backup
+            .join("rollouts")
+            .join(&repair.backup.as_ref().unwrap().file_name)
+    };
+    // b: backup gone. c: backup truncated. d: same length, different bytes.
+    fs::remove_file(backup_file(&repairs[1])).unwrap();
+    fs::write(backup_file(&repairs[2]), b"short").unwrap();
+    fs::write(backup_file(&repairs[3]), META_OPENAI.replace("openai", "opena1")).unwrap();
+
+    let written = repairs.iter().collect::<Vec<_>>();
+    let not_restored = rollback_rollouts(&written, Some(backup.as_path()));
+    let path = |repair: &RolloutRepair| repair.path.to_string_lossy().to_string();
+    let mut expected = vec![path(&repairs[1]), path(&repairs[2]), path(&repairs[3])];
+    let mut reported = not_restored.clone();
+    expected.sort();
+    reported.sort();
+    assert_eq!(reported, expected);
+    // a was restored; the others keep their rewritten content rather than a bad backup.
+    assert_eq!(fs::read_to_string(&repairs[0].path).unwrap(), META_OPENAI);
+    for repair in &repairs[1..] {
+        assert!(fs::read_to_string(&repair.path).unwrap().contains("cpa-gui"));
+    }
+    let note = rollback_note(&not_restored, Some(backup.as_path()));
+    assert!(note.starts_with("; NOT restored: "), "{note}");
+    assert!(note.contains(&path(&repairs[2])));
+    assert!(note.ends_with(&format!("; backup at {}", backup.display())), "{note}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_leaves_a_rollout_that_became_locked_after_the_scan_without_a_backup() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = test_root("stream-backup-locked");
+    let mut repairs = [
+        scanned_rollout(&root, "locked.jsonl", META_OPENAI, 3),
+        scanned_rollout(&root, "open.jsonl", META_OPENAI, 4),
+    ];
+    let locked = repairs[0].path.clone();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::File::open(&locked).is_ok() {
+        // Running as root: permissions cannot lock the file, so there is nothing to inject.
+        fs::remove_dir_all(root).unwrap();
+        return;
+    }
+
+    let backup = create_repair_backup(&root, &[], &mut repairs, "provider-repair", "cpa-gui").unwrap();
+    assert!(repairs[0].backup.is_none());
+    let open_backup = repairs[1].backup.as_ref().unwrap();
+    assert_eq!(
+        fs::read_to_string(backup.join("rollouts").join(&open_backup.file_name)).unwrap(),
+        META_OPENAI
+    );
+    assert!(!backup.join("rollouts").join(backup_rollout_file_name(0, &locked)).exists());
+    let metadata: Value =
+        serde_json::from_slice(&fs::read(backup.join("metadata.json")).unwrap()).unwrap();
+    assert_eq!(metadata["rolloutFiles"].as_array().unwrap().len(), 1);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
     fs::remove_dir_all(root).unwrap();
 }
 

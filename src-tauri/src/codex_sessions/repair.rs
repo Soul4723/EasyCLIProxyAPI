@@ -70,7 +70,7 @@ where
         count_sqlite_repairs(&database_paths, &repairs, &projectless, target_provider)?;
     let sqlite_scan_incomplete = !database_count_warnings.is_empty();
     warnings.extend(database_count_warnings);
-    let changed_repairs = repairs
+    let mut changed_repairs = repairs
         .iter()
         .filter(|repair| repair.changed)
         .cloned()
@@ -85,13 +85,25 @@ where
                 processed: 0,
                 total: changed_repairs.len(),
             });
-            Some(create_repair_backup(
+            let directory = create_repair_backup(
                 codex_home,
                 &database_paths,
-                &changed_repairs,
+                &mut changed_repairs,
                 "provider-repair",
                 target_provider,
-            )?)
+            )?;
+            // A rollout that became locked since the scan has no backup and is left alone.
+            changed_repairs.retain(|repair| {
+                if repair.backup.is_some() {
+                    return true;
+                }
+                let path = repair.path.to_string_lossy().to_string();
+                if !skipped_locked_files.contains(&path) {
+                    skipped_locked_files.push(path);
+                }
+                false
+            });
+            Some(directory)
         };
     progress(CodexSessionRepairProgress {
         phase: "rewriting".to_string(),
@@ -101,10 +113,10 @@ where
     });
     // Each rollout is rebuilt from disk and written on its own, so only one file's rewritten
     // bytes are in memory at a time. Rollback restores from the backup copies for the same reason.
-    let mut written: Vec<(usize, &RolloutRepair)> = Vec::new();
+    let mut written: Vec<&RolloutRepair> = Vec::new();
     for (index, repair) in changed_repairs.iter().enumerate() {
         match rewrite_rollout(repair, target_provider) {
-            Ok(RewriteOutcome::Written) => written.push((index, repair)),
+            Ok(RewriteOutcome::Written) => written.push(repair),
             Ok(RewriteOutcome::Locked) => {
                 let path = repair.path.to_string_lossy().to_string();
                 if !skipped_locked_files.contains(&path) {
@@ -113,8 +125,11 @@ where
             }
             Ok(RewriteOutcome::Skipped(warning)) => warnings.push(warning),
             Err(error) => {
-                rollback_rollouts(&written, backup_path.as_deref());
-                return Err(format!("Failed to write historical session; rollback attempted: {error}"));
+                let note = rollback_note(
+                    &rollback_rollouts(&written, backup_path.as_deref()),
+                    backup_path.as_deref(),
+                );
+                return Err(format!("Failed to write historical session; rollback attempted: {error}{note}"));
             }
         }
         progress(CodexSessionRepairProgress {
@@ -137,9 +152,12 @@ where
                 updated
             }
             Err(error) => {
-                rollback_rollouts(&written, backup_path.as_deref());
+                let note = rollback_note(
+                    &rollback_rollouts(&written, backup_path.as_deref()),
+                    backup_path.as_deref(),
+                );
                 return Err(format!(
-                    "Failed to update session database; rollout rollback attempted and backup retained: {error}"
+                    "Failed to update session database; rollout rollback attempted and backup retained: {error}{note}"
                 ));
             }
         };
@@ -223,6 +241,8 @@ pub(super) struct RolloutScan {
     has_user_event: bool,
     encrypted_content: bool,
     changed: bool,
+    /// SHA-256 of the bytes read; only computed when the rewritten output is requested.
+    content_sha256: Option<String>,
 }
 
 /// Streams one rollout line by line (memory is bounded by the longest line). When `output` is
@@ -245,7 +265,9 @@ pub(super) fn scan_rollout(
         has_user_event: false,
         encrypted_content: false,
         changed: false,
+        content_sha256: None,
     };
+    let mut hasher = output.is_some().then(Sha256::new);
     let mut reader = BufReader::with_capacity(256 * 1024, file);
     let mut bytes = Vec::new();
     loop {
@@ -255,6 +277,9 @@ pub(super) fn scan_rollout(
         }
         let segment = std::str::from_utf8(&bytes)
             .map_err(|error| format!("Rollout is not UTF-8 {}: {error}", path.display()))?;
+        if let Some(hasher) = hasher.as_mut() {
+            hasher.update(segment.as_bytes());
+        }
         let (body_with_cr, newline) = segment
             .strip_suffix('\n')
             .map_or((segment, ""), |body| (body, "\n"));
@@ -305,6 +330,7 @@ pub(super) fn scan_rollout(
             output.extend_from_slice(newline.as_bytes());
         }
     }
+    scan.content_sha256 = hasher.map(|hasher| format!("{:x}", hasher.finalize()));
     Ok(scan)
 }
 
@@ -328,6 +354,7 @@ pub(super) fn build_rollout_repair(
         providers: scan.providers,
         encrypted_content: scan.encrypted_content,
         changed: scan.changed,
+        backup: None,
     }))
 }
 
@@ -358,10 +385,15 @@ pub(super) fn rewrite_rollout(repair: &RolloutRepair, target_provider: &str) -> 
         return Ok(stale());
     }
     let mut next = Vec::with_capacity(repair.original_len as usize);
-    match scan_rollout(path, target_provider, Some(&mut next)) {
-        Ok(_) => {}
+    let scan = match scan_rollout(path, target_provider, Some(&mut next)) {
+        Ok(scan) => scan,
         Err(error) if is_locked_error_message(&error) => return Ok(RewriteOutcome::Locked),
         Err(error) => return Ok(RewriteOutcome::Skipped(error)),
+    };
+    // The bytes being rewritten must be the bytes that were backed up.
+    let backed_up = repair.backup.as_ref().map(|backup| backup.sha256.as_str());
+    if backed_up.is_none() || backed_up != scan.content_sha256.as_deref() {
+        return Ok(stale());
     }
     if !rollout_matches_scan(path, repair) {
         return Ok(stale());
@@ -376,31 +408,49 @@ pub(super) fn rewrite_rollout(repair: &RolloutRepair, target_provider: &str) -> 
     }
 }
 
-fn backup_rollout_file_name(index: usize, path: &Path) -> String {
+pub(super) fn backup_rollout_file_name(index: usize, path: &Path) -> String {
     format!(
         "{index}-{}",
         path.file_name().and_then(OsStr::to_str).unwrap_or("rollout.jsonl")
     )
 }
 
-/// Puts back the original bytes of already written rollouts from the backup copies.
-pub(super) fn rollback_rollouts(written: &[(usize, &RolloutRepair)], backup_directory: Option<&Path>) {
-    let Some(backup_directory) = backup_directory else {
-        return;
-    };
-    for (index, repair) in written.iter().rev() {
-        let backup = backup_directory
-            .join("rollouts")
-            .join(backup_rollout_file_name(*index, &repair.path));
-        let Ok(original) = fs::read(&backup) else {
-            continue;
-        };
-        if original.len() as u64 != repair.original_len {
-            continue;
+/// Puts back the original bytes of already written rollouts from the backup copies, which must
+/// still match the hash taken when they were copied. Returns the paths that could not be restored.
+pub(super) fn rollback_rollouts(
+    written: &[&RolloutRepair],
+    backup_directory: Option<&Path>,
+) -> Vec<String> {
+    let mut not_restored = Vec::new();
+    for repair in written.iter().rev() {
+        let restored = (|| {
+            let backup = repair.backup.as_ref()?;
+            let original = fs::read(
+                backup_directory?
+                    .join("rollouts")
+                    .join(&backup.file_name),
+            )
+            .ok()?;
+            if original.len() as u64 != repair.original_len || sha256_hex(&original) != backup.sha256 {
+                return None;
+            }
+            crate::write_bytes_atomically(&repair.path, &original).ok()?;
+            restore_modified_time(&repair.path, repair.original_mtime);
+            Some(())
+        })();
+        if restored.is_none() {
+            not_restored.push(repair.path.to_string_lossy().to_string());
         }
-        let _ = crate::write_bytes_atomically(&repair.path, &original);
-        restore_modified_time(&repair.path, repair.original_mtime);
     }
+    not_restored
+}
+
+pub(super) fn rollback_note(not_restored: &[String], backup_directory: Option<&Path>) -> String {
+    if not_restored.is_empty() {
+        return String::new();
+    }
+    let backup = backup_directory.map_or_else(|| "unavailable".to_string(), |path| path.display().to_string());
+    format!("; NOT restored: {}; backup at {backup}", not_restored.join(", "))
 }
 
 pub(super) fn normalize_workspace_path(value: &str) -> Option<String> {
@@ -597,7 +647,7 @@ fn apply_sqlite_repairs(
 pub(super) fn create_repair_backup(
     codex_home: &Path,
     database_paths: &[PathBuf],
-    repairs: &[RolloutRepair],
+    repairs: &mut [RolloutRepair],
     label: &str,
     target_provider: &str,
 ) -> Result<PathBuf, String> {
@@ -635,19 +685,33 @@ pub(super) fn create_repair_backup(
         }
     }
     let mut rollout_files = Vec::new();
-    for (index, repair) in repairs.iter().enumerate() {
+    for (index, repair) in repairs.iter_mut().enumerate() {
         let file_name = backup_rollout_file_name(index, &repair.path);
         let target = directory.join("rollouts").join(&file_name);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| format!("Failed to create rollout backup directory: {error}"))?;
         }
-        fs::copy(&repair.path, &target)
+        // Only a failure to open the rollout counts as "locked since the scan"; an error on the
+        // backup side is a real failure.
+        let source = match fs::File::open(&repair.path) {
+            Ok(source) => source,
+            Err(error) => {
+                let message = format!("Failed to back up rollout {}: {error}", repair.path.display());
+                if !is_locked_error_message(&message) {
+                    return Err(message);
+                }
+                // The caller leaves a rollout without a backup alone.
+                continue;
+            }
+        };
+        let sha256 = copy_with_sha256(source, &target)
             .map_err(|error| format!("Failed to back up rollout {}: {error}", repair.path.display()))?;
         rollout_files.push(json!({
             "originalPath": repair.path.to_string_lossy(),
             "backupPath": format!("rollouts/{file_name}")
         }));
+        repair.backup = Some(RolloutBackup { file_name, sha256 });
     }
     write_json_atomically(
         &directory.join("metadata.json"),
@@ -662,6 +726,35 @@ pub(super) fn create_repair_backup(
         }),
     )?;
     Ok(directory)
+}
+
+struct HashingWriter<W> {
+    inner: W,
+    hasher: Sha256,
+}
+
+impl<W: std::io::Write> std::io::Write for HashingWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.write(buffer)?;
+        self.hasher.update(&buffer[..written]);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Copies a file and returns the SHA-256 of the copied bytes, without a second read pass.
+fn copy_with_sha256(source: fs::File, target: &Path) -> std::io::Result<String> {
+    let mut reader = BufReader::with_capacity(256 * 1024, source);
+    let mut writer = HashingWriter {
+        inner: fs::File::create(target)?,
+        hasher: Sha256::new(),
+    };
+    std::io::copy(&mut reader, &mut writer)?;
+    writer.inner.sync_all()?;
+    Ok(format!("{:x}", writer.hasher.finalize()))
 }
 
 fn sqlite_sidecar_paths(path: &Path) -> [PathBuf; 3] {
