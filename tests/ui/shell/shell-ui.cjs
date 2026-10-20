@@ -30,6 +30,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     const page = await open({ path: route });
     assert.equal(await h.currentRoute(page), route, `${route}: URL is not rewritten`);
     assert.equal(await page.locator('.ec-app').getAttribute('data-page'), id, `${route}: data-page`);
+    await waitForTitle(page, TITLES[id]);
     assert.equal(await h.pageTitle(page), TITLES[id], `${route}: header title`);
     assert.deepEqual(await activeNav(page), [id], `${route}: exactly one nav item is current`);
     assert.equal(await page.locator('.ec-page-header h1').count(), 1, `${route}: one header h1`);
@@ -224,6 +225,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await page.goBack();
     await page.waitForTimeout(150);
     assert.equal(await h.currentRoute(page), '/plugins', 'back is cancelled by the guard');
+    await waitForTitle(page, 'Plugins');
     assert.equal(await h.pageTitle(page), 'Plugins');
     // 8) resuming a cancelled back navigation actually navigates (typed/back hash continuation)
     await page.evaluate(() => { const pending = window.guard.pending.at(-1); window.guard.cancel = false; pending(); });
@@ -365,6 +367,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await page.waitForFunction(() => location.hash === '#/quota'
       && document.querySelector('.ec-core-line')?.dataset.coreStatus === 'unknown');
     assert.equal(await h.currentRoute(page), '/quota', 'no redirect before the core status is known');
+    await waitForTitle(page, 'Quota');
     assert.equal(await h.pageTitle(page), 'Quota', 'header shown while waiting');
     await page.waitForFunction(() => location.hash === '#/overview', null, { timeout: 8000 });
   }
@@ -375,6 +378,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await h.waitForCoreLine(page, 'running');
     for (const id of h.NAV_ORDER) assert.equal(await page.locator(`.ec-nav a[data-nav="${id}"]`).count(), 1, `${id}: unlocked after start`);
     await h.clickNav(page, 'quota');
+    await waitForTitle(page, 'Quota');
     assert.equal(await h.pageTitle(page), 'Quota');
     await h.invoke(page, 'stop_core_process');
     await h.waitForCoreLine(page, 'stopped');
