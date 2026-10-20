@@ -17,6 +17,10 @@ pub(crate) use pricing::*;
 mod export;
 pub(crate) use export::*;
 
+pub(crate) fn invalidate_sources_cache() {
+    sources::invalidate_cache();
+}
+
 #[cfg(test)]
 mod tests;
 
