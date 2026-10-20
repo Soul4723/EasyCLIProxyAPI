@@ -44,6 +44,35 @@ async fn set_codex_openai_provider_command_fences_write_and_keeps_local_behavior
     }
 }
 
+#[tokio::test]
+async fn set_codex_openai_provider_rechecks_revision_after_auth_validation() {
+    let expected_error = "The core connection changed; request cancelled";
+    let home = codex_test_home("provider-revision-changed-during-auth-validation");
+    let target = remote_target("http://client.example.test:9443", "fixture-client");
+    let config_path = home.join(".codex/config.toml");
+    let auth_path = home.join(".codex/auth.json");
+    fs::write(&config_path, codex_config_for_target(&target)).unwrap();
+    fs::write(&auth_path, "{}").unwrap();
+    let paths = vec![config_path, auth_path];
+    let before = config_images(&paths).unwrap();
+    let state = GuiConfigState::new(target);
+
+    let result = set_codex_openai_provider_for_target(
+        &state, &home, true, 0,
+        |_, _| {
+            // This closure stands in for the unlocked network auth validation.
+            let mut changed = state.snapshot().unwrap();
+            changed.remote_client_origin = "http://other-client.example.test:9443".into();
+            state.replace_external(changed).unwrap();
+            async { Ok(()) }
+        },
+    ).await;
+
+    assert_eq!(result.unwrap_err(), expected_error);
+    assert_eq!(config_images(&paths).unwrap(), before, "stale auth response must not mutate Codex files");
+    fs::remove_dir_all(home).unwrap();
+}
+
 #[test]
 fn set_codex_remote_compaction_command_fences_write_and_keeps_local_behavior() {
     let expected_error = "The core connection changed; request cancelled";
@@ -104,6 +133,43 @@ async fn save_codex_model_catalog_editor_command_fences_write_and_keeps_local_be
         }
         fs::remove_dir_all(home).unwrap();
     }
+}
+
+#[tokio::test]
+async fn save_codex_model_catalog_editor_rechecks_revision_after_catalog_read() {
+    let expected_error = "The core connection changed; request cancelled";
+    let home = codex_test_home("catalog-revision-changed-during-read");
+    let path = home.join("codex-model-customizations.json");
+    let target = remote_target("http://client.example.test:9443", "fixture-client");
+    let state = GuiConfigState::new(target);
+    let config = codex_catalog_editor_target_snapshot(&state, 0).await.unwrap();
+
+    // This is the unlocked catalog network-read interval between taking the
+    // target snapshot and saving the editor request.
+    let mut changed = state.snapshot().unwrap();
+    changed.remote_client_origin = "http://other-client.example.test:9443".into();
+    state.replace_external(changed).unwrap();
+
+    let runtime = codex_catalog::parse_runtime_models(&serde_json::json!({"models":[]})).unwrap();
+    let snapshot = codex_catalog::editor_snapshot(&runtime).unwrap();
+    let request: codex_catalog::CatalogEditorRequest = serde_json::from_value(serde_json::json!({
+        "revision": serde_json::to_value(snapshot).unwrap()["revision"],
+        "models": []
+    })).unwrap();
+    let mut applied = false;
+    let result = save_codex_model_catalog_for_target(
+        &state, &runtime, request, config.target_revision,
+        |runtime, request| {
+            applied = true;
+            let snapshot = codex_catalog::save_customizations(&path, runtime, request)?;
+            Ok((snapshot, None))
+        },
+    ).await;
+
+    assert_eq!(result.unwrap_err(), expected_error);
+    assert!(!applied, "stale catalog read must not reach the save callback");
+    assert!(!path.exists(), "stale catalog read must not create customization file");
+    fs::remove_dir_all(home).unwrap();
 }
 
 fn remote_target(origin: &str, key: &str) -> GuiConfigFile {
