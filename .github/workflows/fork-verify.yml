@@ -475,7 +475,51 @@ jobs:
             if (!port) throw Error('Could not reserve a free high localhost port');"""
           if text.count(old_port) != 1:
               raise SystemExit('Could not uniquely patch observer to choose a high app/core port')
-          script.write_text(text.replace(old_port, new_port))
+          text = text.replace(old_port, new_port)
+          old_invoke = "  const invoke = async command => {"
+          if text.count(old_invoke) != 1:
+              raise SystemExit('Could not uniquely patch observer invocation helper')
+          text = text.replace(old_invoke, "  const invoke = async (command, settleMs = 5000) => {")
+          old_settle = "    await sleep(5000);\n    const burst = lines().slice(start);"
+          if text.count(old_settle) != 1:
+              raise SystemExit('Could not uniquely patch observer action settling')
+          text = text.replace(old_settle, "    await sleep(settleMs);\n    const burst = lines().slice(start);")
+          old_actions = "  if (args.includes('--actions')) {"
+          if text.count(old_actions) != 1:
+              raise SystemExit('Could not uniquely add Local restart observer scenario')
+          restart_check = r'''  if (args.includes('--restart-check')) {
+    const managementRead = async which => {
+      const marker = `RESTART_CHECK management read ${which} restart`;
+      send(`window.__TAURI_INTERNALS__.invoke('get_management_target_revision').then(r=>window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'credentials',expectedRevision:r}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
+      const result = await waitReport(marker, 5000);
+      if (result.includes('ERROR')) throw Error(result);
+    };
+    await managementRead('before');
+    const restartStarted = Date.now();
+    await invoke('restart_core_process', 0);
+    let recovered = false;
+    while (Date.now() - restartStarted < 10000) {
+      const probeId = Date.now();
+      send(`window.__TAURI_INTERNALS__.invoke('get_core_status').then(s=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:'RESTART_STATUS ${probeId} '+JSON.stringify(s)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:'RESTART_STATUS ${probeId} ERROR '+String(e)}));`);
+      const statusReport = await waitReport(`RESTART_STATUS ${probeId} `, 2000);
+      if (!statusReport.includes('ERROR')) {
+        try {
+          const status = JSON.parse(statusReport.slice(`RESTART_STATUS ${probeId} `.length));
+          if (status.running && status.ready) {
+            recovered = true;
+            send(report(`RESTART_CHECK ready after ${Date.now() - restartStarted}ms`));
+            await waitReport('RESTART_CHECK ready after ');
+            break;
+          }
+        } catch {}
+      }
+      await sleep(250);
+    }
+    if (!recovered) throw Error('Local core did not report running and ready within 10000ms after app restart');
+    await managementRead('after');
+  } else if (args.includes('--actions')) {'''
+          text = text.replace(old_actions, restart_check)
+          script.write_text(text)
           PY
           management_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           client_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
@@ -513,6 +557,40 @@ jobs:
           statuses = [json.loads(line.split('REPORT CORE ', 1)[1]) for line in open(sys.argv[1]) if 'REPORT CORE ' in line]
           if not any(s.get('running') and s.get('ready') and s.get('managed') and s.get('connectionMode') == 'local' for s in statuses):
               raise SystemExit('In-app Local status did not report a running, ready, managed core')
+          PY
+      - name: Local app restarts core and reuses management connection
+        id: local_restart_integration
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-integration"
+          mkdir -p "$root/logs/local-restart"
+          export HOME="$root/local-restart-home"
+          mkdir -p "$HOME" "$root/local-restart-runtime"
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+          export XDG_RUNTIME_DIR="$root/local-restart-runtime"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          export CPA_TEST_MANAGEMENT_KEY CPA_TEST_CLIENT_KEY EASYCLI_OBSERVE_CACHE="$root/cache"
+          node "$root/observe/dev-observe.mjs" --mode local --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
+            --no-build --restart-check \
+            --core "$CPA_TEST_CORE" --core-config "$CPA_TEST_TEMPLATE" \
+            --name core-local-restart --out "$root/logs/local-restart/observe" \
+            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/local-restart/scenario.log"
+          cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local-restart/core.log" 2>/dev/null || true
+          python3 - "$root/logs/local-restart/observe/ipc.log" <<'PY'
+          import sys
+          text = open(sys.argv[1]).read()
+          reads = [line for line in text.splitlines() if ' management_request ' in line]
+          if len(reads) < 2:
+              raise SystemExit(f'Expected management reads before and after restart; observed {len(reads)}')
+          for marker in (
+              'RESTART_CHECK management read before restart succeeded',
+              'RESTART_CHECK management read after restart succeeded',
+              'RESTART_CHECK ready after ',
+          ):
+              if marker not in text:
+                  raise SystemExit(f'Missing restart assertion evidence: {marker}')
           PY
       - name: Start standalone remote core with isolated test config
         id: remote_core
@@ -603,6 +681,7 @@ jobs:
           CORE_SETUP_RESULT: ${{ steps.core_setup.outcome }}
           OBSERVER_SUPPORTED: ${{ steps.observer.outputs.supported }}
           LOCAL_RESULT: ${{ steps.local_integration.outcome }}
+          LOCAL_RESTART_RESULT: ${{ steps.local_restart_integration.outcome }}
           REMOTE_CORE_RESULT: ${{ steps.remote_core.outcome }}
           REMOTE_RESULT: ${{ steps.remote_integration.outcome }}
         run: |
@@ -611,11 +690,14 @@ jobs:
           print('### Real CLIProxyAPI integration')
           if os.environ.get('OBSERVER_SUPPORTED') != 'true':
               print('- Local auto-start: **skipped: source has no dev-observe hook**')
+              print('- Local restart: **skipped: source has no dev-observe hook**')
               print('- Remote connection: **skipped: source has no dev-observe hook**')
           else:
               print(f"- Source-pinned core: **{os.environ.get('CPA_TEST_VERSION', 'unknown')}**; verified checksums.txt: **{os.environ['CORE_SETUP_RESULT']}**")
               print(f"- Debug app build: **{os.environ['APP_BUILD_RESULT']}**")
               print(f"- Local auto-start: **{os.environ['LOCAL_RESULT']}** — app starts the core on launch and its in-app status hook asserts running + ready.")
+              print(f"- Local restart: **{os.environ['LOCAL_RESTART_RESULT']}** — authenticated config reads before/after app restart; in-app running + ready within 10 seconds.")
+              print('- Usage collector readiness timing: **not asserted**; dev-observe exposes core status but not collector state.')
               print(f"- Remote connection: **{os.environ['REMOTE_RESULT']}** (standalone core startup: **{os.environ['REMOTE_CORE_RESULT']}**) — app status hook asserts authenticated management readiness.")
           PY
       - name: Upload integration logs
