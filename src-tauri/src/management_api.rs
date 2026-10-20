@@ -1345,7 +1345,7 @@ server.serve_forever()
     async fn read_whose_target_changed_while_in_flight_is_discarded() {
         let (fence_free, result) = run_held_request("GET", "/config", true).await;
         assert!(fence_free);
-        assert!(result.unwrap_err().contains("request cancelled"));
+        assert!(result.unwrap_err().contains("connection changed"));
     }
 
     #[tokio::test]
