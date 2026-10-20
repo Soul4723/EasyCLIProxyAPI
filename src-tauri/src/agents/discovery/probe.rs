@@ -333,10 +333,35 @@ pub(super) fn terminate_agent_probe_process(
     }
 }
 
-fn detach_probe_child_reaper(mut child: Child) {
-    thread::spawn(move || {
-        let _ = child.wait();
-    });
+fn detach_probe_child_reaper(child: Child) {
+    // Keep ownership outside the closure until the OS confirms that the
+    // thread was created. Builder::spawn returns the closure on failure only
+    // by dropping it, so the shared slot lets us synchronously reap instead.
+    let child_slot = std::sync::Arc::new(std::sync::Mutex::new(Some(child)));
+    let reaper_slot = std::sync::Arc::clone(&child_slot);
+    if thread::Builder::new()
+        .name("agent-probe-reaper".to_owned())
+        .spawn(move || {
+            let child = reaper_slot
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+            if let Some(mut child) = child {
+                let _ = child.wait();
+            }
+        })
+        .is_err()
+    {
+        if let Some(mut child) = child_slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            // Cleanup already requested termination. If a reaper thread cannot
+            // be created, prefer waiting here over dropping an unreaped child.
+            let _ = child.wait();
+        }
+    }
 }
 
 pub(crate) enum ProbeCleanupStep {
