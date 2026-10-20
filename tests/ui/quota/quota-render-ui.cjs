@@ -88,6 +88,10 @@ h.runUiTest('quota-render-ui', async ({ base, newPage }) => {
   assert.ok(accounts.length >= 4, 'mock scenario has several accounts');
   // Cooling-down accounts derive a shrinking remaining time from the clock, so they may legitimately render.
   const steady = accounts.filter((account) => account.status !== 'cooldown');
+  // The mock's banked resets expire exactly 24 h after the fetch, so their "use soon" hint flips on the first tick
+  // (a real time boundary); measure the next tick, where nothing crosses one.
+  await page.clock.runFor(30_000);
+  await settle();
   await reset();
   await page.clock.runFor(30_000);
   await settle();
