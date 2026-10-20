@@ -96,9 +96,30 @@ jobs:
           if [ -f tests/run-ui.cjs ]; then
             node tests/run-ui.cjs 2>&1 | tee ui-tests.log
           else
-            echo 'No tests/run-ui.cjs complete UI suite is present in this source tree; UI suite skipped.' | tee ui-tests.log
-            echo 'UI scripts: 0/0 passed' | tee -a ui-tests.log
-            exit 0
+            mapfile -t ui_scripts < <(node -e "
+              const scripts = require('./package.json').scripts || {};
+              for (const name of Object.keys(scripts).filter(name => name.startsWith('test:ui:')).sort()) console.log(name);
+            ")
+            if [ ${#ui_scripts[@]} -eq 0 ]; then
+              echo 'No complete UI runner or package.json test:ui:* scripts found; no UI checks are available.' | tee ui-tests.log
+              echo 'UI scripts: 0/0 passed' | tee -a ui-tests.log
+              exit 0
+            fi
+            : > ui-tests.log
+            passed=0
+            failed=0
+            for script_name in "${ui_scripts[@]}"; do
+              echo "### $script_name" | tee -a ui-tests.log
+              if bun run "$script_name" 2>&1 | tee -a ui-tests.log; then
+                passed=$((passed + 1))
+                echo "UI_SCRIPT_RESULT: $script_name PASS" | tee -a ui-tests.log
+              else
+                failed=$((failed + 1))
+                echo "UI_SCRIPT_RESULT: $script_name FAIL" | tee -a ui-tests.log
+              fi
+            done
+            echo "UI scripts: $passed/$((passed + failed)) passed" | tee -a ui-tests.log
+            [ "$failed" -eq 0 ]
           fi
       - name: Summarize UI results
         if: always()
@@ -121,6 +142,10 @@ jobs:
               label = 'UI scripts'
           print('### Playwright UI suite')
           print(f"- {label}: {passed} passed, {total - passed} failed (step: **{os.environ['UI_TEST_RESULT']}**)")
+          if label == 'UI scripts':
+              print('\nPer-script results:')
+              for name, result in re.findall(r'^UI_SCRIPT_RESULT: (\S+) (PASS|FAIL)$', text, re.M):
+                  print(f"- `{name}`: **{result}**")
           PY
       - name: Upload logs
         if: always()
