@@ -101,6 +101,7 @@ where
 
 pub(crate) struct UsageCollectorState {
     readiness_requested: AtomicBool,
+    readiness_notify: tokio::sync::Notify,
     inner: Mutex<UsageCollectorInner>,
 }
 
@@ -156,6 +157,7 @@ impl Default for UsageCollectorState {
     fn default() -> Self {
         Self {
             readiness_requested: AtomicBool::new(false),
+            readiness_notify: tokio::sync::Notify::new(),
             inner: Mutex::new(UsageCollectorInner {
                 token: None,
                 status: UsageCollectorStatus::waiting(),
@@ -537,6 +539,26 @@ impl UsageCollectorState {
     /// outage backoff. Called when a lifecycle status is emitted.
     pub(crate) fn request_readiness_check(&self) {
         self.readiness_requested.store(true, Ordering::Release);
+        self.readiness_notify.notify_one();
+    }
+
+    /// Sleeps for `seconds`, ending early on cancellation or a pending readiness
+    /// request. The request itself is left for the loop to consume, and a stale
+    /// notification without a pending request does not end the wait.
+    async fn wait_or_cancel(&self, token: &CancellationToken, seconds: u64) {
+        let sleep = tokio::time::sleep(Duration::from_secs(seconds));
+        tokio::pin!(sleep);
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => return,
+                _ = &mut sleep => return,
+                _ = self.readiness_notify.notified() => {
+                    if self.readiness_requested.load(Ordering::Acquire) {
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     fn start(&self) -> Option<CancellationToken> {
@@ -1906,7 +1928,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
             Ok(config) => config,
             Err(error) => {
                 set_collector_error(&app, error);
-                wait_or_cancel(&token, retry_seconds).await;
+                wait_or_cancel(&app, &token, retry_seconds).await;
                 retry_seconds = (retry_seconds * 2).min(10);
                 continue;
             }
@@ -1951,14 +1973,14 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 }
                 Err(error) => {
                     set_collector_error(&app, error);
-                    wait_or_cancel(&token, retry_seconds).await;
+                    wait_or_cancel(&app, &token, retry_seconds).await;
                     retry_seconds = (retry_seconds * 2).min(10);
                     continue;
                 }
             }
         }
         // Lifecycle status is emitted by user actions and recovery attempts, not by
-        // unchanged status polls. While waiting we revisit this flag every second.
+        // unchanged status polls. A request also ends any retry wait early.
         if app
             .state::<UsageCollectorState>()
             .readiness_requested
@@ -1981,7 +2003,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
             subscribe_retry_at = tokio::time::Instant::now();
             set_collector_status(&app, "waiting-core", "Waiting for kernel to become ready", None);
             retry_seconds = 1;
-            wait_or_cancel(&token, 1).await;
+            wait_or_cancel(&app, &token, 1).await;
             continue;
         }
 
@@ -2052,7 +2074,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                         }
                         Err(error) => {
                             set_collector_error(&app, error);
-                            wait_or_cancel(&token, retry_seconds).await;
+                            wait_or_cancel(&app, &token, retry_seconds).await;
                             retry_seconds = (retry_seconds * 2).min(10);
                         }
                     }
@@ -2090,7 +2112,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                     None,
                 );
                 retry_seconds = 1;
-                wait_or_cancel(&token, 1).await;
+                wait_or_cancel(&app, &token, 1).await;
             }
             Ok(batch) => {
                 let source_label = collector_source_label(&batch.source);
@@ -2111,14 +2133,14 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                     }
                     Err(error) => {
                         set_collector_error(&app, error);
-                        wait_or_cancel(&token, retry_seconds).await;
+                        wait_or_cancel(&app, &token, retry_seconds).await;
                         retry_seconds = (retry_seconds * 2).min(10);
                     }
                 }
             }
             Err(error) => {
                 set_collector_error(&app, error);
-                wait_or_cancel(&token, retry_seconds).await;
+                wait_or_cancel(&app, &token, retry_seconds).await;
                 retry_seconds = (retry_seconds * 2).min(10);
             }
         }
@@ -2220,11 +2242,10 @@ pub(crate) fn persist_local_usage_event(
     Ok(outcome.inserted)
 }
 
-async fn wait_or_cancel(token: &CancellationToken, seconds: u64) {
-    tokio::select! {
-        _ = token.cancelled() => {},
-        _ = tokio::time::sleep(Duration::from_secs(seconds)) => {},
-    }
+async fn wait_or_cancel(app: &tauri::AppHandle, token: &CancellationToken, seconds: u64) {
+    app.state::<UsageCollectorState>()
+        .wait_or_cancel(token, seconds)
+        .await;
 }
 
 async fn fetch_usage_queue(config: &GuiConfigFile) -> Result<Vec<Value>, String> {
@@ -5117,6 +5138,35 @@ mod tests {
         assert!(!state.readiness_requested.swap(false, Ordering::AcqRel));
         backoff.reset();
         assert_eq!(backoff.checked(false), Duration::from_secs(2));
+    }
+
+    #[tokio::test]
+    async fn readiness_request_ends_a_retry_wait_early() {
+        let state = std::sync::Arc::new(UsageCollectorState::default());
+        let token = CancellationToken::new();
+        let waiter = {
+            let state = state.clone();
+            tokio::spawn(async move { state.wait_or_cancel(&token, 60).await })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!waiter.is_finished());
+        state.request_readiness_check();
+        tokio::time::timeout(Duration::from_secs(5), waiter)
+            .await
+            .expect("a readiness request should end the retry wait")
+            .unwrap();
+        // The wait leaves the request for the collector loop to consume.
+        assert!(state.readiness_requested.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn stale_readiness_notification_does_not_shorten_a_retry_wait() {
+        let state = UsageCollectorState::default();
+        state.request_readiness_check();
+        assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
+        let started = std::time::Instant::now();
+        state.wait_or_cancel(&CancellationToken::new(), 1).await;
+        assert!(started.elapsed() >= Duration::from_millis(900));
     }
 
     #[test]
