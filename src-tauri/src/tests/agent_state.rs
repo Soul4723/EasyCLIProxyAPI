@@ -1549,6 +1549,109 @@ fn connection_state_distinguishes_fresh_repair_invalid_and_ready() {
 }
 
 #[test]
+fn claude_code_connection_evidence_matches_the_active_client_origin() {
+    let home = agent_test_home("claude-code-target-connection-evidence");
+    let paths = agent_config_paths(AgentClient::ClaudeCode, &home);
+    fs::create_dir_all(paths[0].parent().unwrap()).unwrap();
+
+    let local = GuiConfigFile::default();
+    fs::write(
+        &paths[0],
+        r#"{"env":{"ANTHROPIC_BASE_URL":"http://localhost:8317"}}"#,
+    )
+    .unwrap();
+    assert!(agent_has_connection_evidence_for_target(
+        AgentClient::ClaudeCode,
+        &paths,
+        &local
+    )
+    .unwrap());
+
+    let mut remote = GuiConfigFile::default();
+    remote.connection_mode = CoreConnectionMode::Remote;
+    remote.remote_client_origin = "https://core.example.test:9443".into();
+    fs::write(
+        &paths[0],
+        r#"{"env":{"ANTHROPIC_BASE_URL":"https://core.example.test:9443"}}"#,
+    )
+    .unwrap();
+    assert!(agent_has_connection_evidence_for_target(
+        AgentClient::ClaudeCode,
+        &paths,
+        &remote
+    )
+    .unwrap());
+
+    fs::write(
+        &paths[0],
+        r#"{"env":{"ANTHROPIC_BASE_URL":"http://localhost:8317"}}"#,
+    )
+    .unwrap();
+    assert!(!agent_has_connection_evidence_for_target(
+        AgentClient::ClaudeCode,
+        &paths,
+        &remote
+    )
+    .unwrap());
+
+    remote.remote_client_origin.clear();
+    fs::write(
+        &paths[0],
+        r#"{"env":{"ANTHROPIC_BASE_URL":"https://core.example.test:9443"}}"#,
+    )
+    .unwrap();
+    assert!(!agent_has_connection_evidence_for_target(
+        AgentClient::ClaudeCode,
+        &paths,
+        &remote
+    )
+    .unwrap());
+
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn claude_desktop_connection_evidence_matches_the_active_client_origin() {
+    let home = agent_test_home("claude-desktop-target-connection-evidence");
+    let paths = agent_config_paths(AgentClient::ClaudeDesktop, &home);
+    assert_eq!(paths.len(), 4);
+    fs::create_dir_all(paths[2].parent().unwrap()).unwrap();
+    fs::write(
+        &paths[2],
+        r#"{"inferenceGatewayBaseUrl":"https://core.example.test:9443"}"#,
+    )
+    .unwrap();
+
+    let mut remote = GuiConfigFile::default();
+    remote.connection_mode = CoreConnectionMode::Remote;
+    remote.remote_client_origin = "https://core.example.test:9443".into();
+    assert!(agent_has_connection_evidence_for_target(
+        AgentClient::ClaudeDesktop,
+        &paths,
+        &remote
+    )
+    .unwrap());
+
+    remote.remote_client_origin = "https://other.example.test:9443".into();
+    assert!(!agent_has_connection_evidence_for_target(
+        AgentClient::ClaudeDesktop,
+        &paths,
+        &remote
+    )
+    .unwrap());
+
+    remote.remote_client_origin.clear();
+    assert!(!agent_has_connection_evidence_for_target(
+        AgentClient::ClaudeDesktop,
+        &paths,
+        &remote
+    )
+    .unwrap());
+
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
 fn codex_connection_evidence_survives_port_key_and_partial_config_changes() {
     let home = agent_test_home("connection-evidence");
     let paths = agent_config_paths(AgentClient::Codex, &home);

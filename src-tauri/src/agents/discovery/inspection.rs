@@ -149,7 +149,7 @@ pub(crate) fn inspect_agent_config_with_executables(
         connection_state: agent_connection_state(
             configured,
             config_valid,
-            agent_has_connection_evidence(client, &paths),
+            agent_has_connection_evidence_for_target(client, &paths, port),
         )
         .into(),
         current_model: current_model.clone(),
@@ -424,7 +424,57 @@ pub(crate) fn agent_has_connection_evidence(
     client: AgentClient,
     paths: &[PathBuf],
 ) -> Result<bool, String> {
-    let active_marker = agent_has_managed_marker(client, paths)?;
+    agent_has_connection_evidence_for_target(client, paths, 8317)
+}
+
+pub(crate) fn agent_has_connection_evidence_for_target(
+    client: AgentClient,
+    paths: &[PathBuf],
+    target: impl AgentClientOrigin,
+) -> Result<bool, String> {
+    let active_marker = match client {
+        AgentClient::ClaudeCode => {
+            let Some(path) = paths.first() else {
+                return Ok(false);
+            };
+            if !path.is_file() {
+                false
+            } else {
+                let root = read_agent_json_or_empty(path, "Claude Code configuration")?;
+                root.get("env")
+                    .and_then(|value| value.get("ANTHROPIC_BASE_URL"))
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|value| is_managed_agent_target_url(value, target))
+            }
+        }
+        AgentClient::ClaudeDesktop => {
+            if paths.len() != 4 {
+                false
+            } else {
+                let meta = read_agent_json_or_empty(
+                    &paths[3],
+                    "Claude Desktop configuration index",
+                )?;
+                let profile = read_agent_json_or_empty(
+                    &paths[2],
+                    "Claude Desktop gateway configuration",
+                )?;
+                meta.get("appliedId").and_then(serde_json::Value::as_str)
+                    == Some(CLAUDE_DESKTOP_PROFILE_ID)
+                    || meta.get("entries").and_then(serde_json::Value::as_array)
+                        .is_some_and(|entries| {
+                            entries.iter().any(|entry| {
+                                entry.get("id").and_then(serde_json::Value::as_str)
+                                    == Some(CLAUDE_DESKTOP_PROFILE_ID)
+                            })
+                        })
+                    || profile.get("inferenceGatewayBaseUrl")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|value| is_managed_agent_target_url(value, target))
+            }
+        }
+        _ => agent_has_managed_marker(client, paths)?,
+    };
     if active_marker {
         return Ok(true);
     }

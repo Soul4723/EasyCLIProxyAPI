@@ -83,6 +83,25 @@ fn remote_agents_write_inspect_rotate_and_restore_isolated_configs() {
 }
 
 #[test]
+fn remote_clear_refuses_to_remove_unrecorded_claude_code_configuration() {
+    let home = agent_test_home("remote-unrecorded-claude-code");
+    let paths = agent_config_paths(AgentClient::ClaudeCode, &home);
+    fs::create_dir_all(paths[0].parent().unwrap()).unwrap();
+    let original = r#"{"env":{"ANTHROPIC_BASE_URL":"https://client.example.test:9443","ANTHROPIC_AUTH_TOKEN":"user-key"},"userSetting":true}"#;
+    fs::write(&paths[0], original).unwrap();
+
+    let result = clear_agent_managed_configuration(
+        AgentClient::ClaudeCode,
+        &home,
+        &remote_target("https://client.example.test:9443", "fixture-client"),
+    );
+    assert!(result.is_err());
+    assert_eq!(fs::read_to_string(&paths[0]).unwrap(), original);
+
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
 fn remote_pi_uses_explicit_origin_and_allows_intentionally_blank_key() {
     let home = agent_test_home("remote-pi");
     let target = remote_target("http://pi-core.example.test:8319", "");
