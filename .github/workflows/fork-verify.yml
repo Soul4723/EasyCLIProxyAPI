@@ -350,3 +350,251 @@ jobs:
           name: app-smoke-logs
           path: ${{ runner.temp }}/*.log
           if-no-files-found: ignore
+
+  core-integration:
+    name: Real CLIProxyAPI Local and Remote integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri and headless runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential curl file libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libwebkit2gtk-4.1-dev pkg-config \
+            dbus-x11 xvfb fuse3
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: core-integration-${{ runner.os }}-${{ hashFiles('bun.lock', 'src-tauri/Cargo.lock') }}
+          restore-keys: core-integration-${{ runner.os }}-
+      - name: Install dependencies and build debug app
+        id: app_build
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run tauri build --debug --no-bundle 2>&1 | tee "$RUNNER_TEMP/core-integration-build.log"
+      - name: Download and verify source-pinned core release
+        id: core_setup
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < core-version.txt)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          asset="CLIProxyAPI_${version}_linux_amd64.tar.gz"
+          release="https://github.com/router-for-me/CLIProxyAPI/releases/download/v${version}"
+          root="$RUNNER_TEMP/core-integration"
+          mkdir -p "$root/release" "$root/logs" "$RUNNER_TEMP/core-integration-cache"
+          curl --fail --location --retry 5 --retry-all-errors --connect-timeout 15 --max-time 180 \
+            "$release/$asset" --output "$root/release/$asset"
+          curl --fail --location --retry 5 --retry-all-errors --connect-timeout 15 --max-time 60 \
+            "$release/checksums.txt" --output "$root/release/checksums.txt"
+          python3 - "$root/release/checksums.txt" "$asset" <<'PY'
+          import re, sys
+          from pathlib import Path
+          lines = Path(sys.argv[1]).read_text().splitlines()
+          matches = [m.group(1).lower() for line in lines
+                     if (m := re.fullmatch(r"\s*([0-9a-fA-F]{64})\s+\*?" + re.escape(sys.argv[2]) + r"\s*", line))]
+          if len(matches) != 1:
+              raise SystemExit(f"Expected exactly one checksum entry for {sys.argv[2]}, found {len(matches)}")
+          Path(sys.argv[1] + '.expected').write_text(matches[0] + '  ' + sys.argv[2] + '\n')
+          PY
+          (cd "$root/release" && sha256sum --check "checksums.txt.expected")
+          tar -xzf "$root/release/$asset" -C "$root/release"
+          core="$(find "$root/release" -type f -name cli-proxy-api -print -quit)"
+          template="$(find "$root/release" -type f -name config.example.yaml -print -quit)"
+          test -n "$core" && test -n "$template"
+          install_dir="$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-core"
+          mkdir -p "$install_dir" "$install_dir/auth"
+          install -m 700 "$core" "$install_dir/cli-proxy-api"
+          install -m 600 "$template" "$install_dir/config.example.yaml"
+          printf '{"version":"v%s","assetName":"%s","installedAtUnix":0}\n' "$version" "$asset" > "$install_dir/cpa-gui-meta.json"
+          echo "CPA_TEST_VERSION=$version" >> "$GITHUB_ENV"
+          echo "CPA_TEST_ROOT=$root" >> "$GITHUB_ENV"
+          echo "CPA_TEST_CORE=$install_dir/cli-proxy-api" >> "$GITHUB_ENV"
+          echo "CPA_TEST_TEMPLATE=$install_dir/config.example.yaml" >> "$GITHUB_ENV"
+          echo "CPA_TEST_INSTALL_DIR=$install_dir" >> "$GITHUB_ENV"
+      - name: Prepare isolated app observer and random local credentials
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/core-integration/observe" <<'PY'
+          import shutil, sys
+          from pathlib import Path
+          target = Path(sys.argv[1])
+          target.mkdir(parents=True)
+          shutil.copy2('scripts/dev-observe.mjs', target / 'dev-observe.mjs')
+          shutil.copytree('scripts/dev-observe', target / 'dev-observe')
+          script = target / 'dev-observe.mjs'
+          text = script.read_text()
+          old = 'start-core-on-launch = false\\nrun-on-startup = false'
+          new = "start-core-on-launch = ${mode === 'local' ? 'true' : 'false'}\\nmanagement-secret-key = ${JSON.stringify(process.env.CPA_TEST_MANAGEMENT_KEY || '')}\\nrun-on-startup = false"
+          if text.count(old) != 1:
+              raise SystemExit('Could not uniquely patch observer config for CI core integration')
+          text = text.replace(old, new)
+          manual_start = "    if (mode === 'local') await invoke('start_core_process');\\n"
+          if text.count(manual_start) != 1:
+              raise SystemExit('Could not uniquely remove observer manual Local start')
+          text = text.replace(manual_start, '')
+          old_port = """  const probe = net.createServer();
+            await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve));
+            const port = probe.address().port;
+            await new Promise(resolve => probe.close(resolve));"""
+          new_port = """  let port;
+            for (let attempt = 0; attempt < 100 && !port; attempt++) {
+              const candidate = Math.floor(Math.random() * (65535 - 49152 + 1)) + 49152;
+              const probe = net.createServer();
+              try {
+                await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(candidate, '127.0.0.1', resolve); });
+                await new Promise((resolve, reject) => probe.close(error => error ? reject(error) : resolve()));
+                port = candidate;
+              } catch { try { probe.close(); } catch {} }
+            }
+            if (!port) throw Error('Could not reserve a free high localhost port');"""
+          if text.count(old_port) != 1:
+              raise SystemExit('Could not uniquely patch observer to choose a high app/core port')
+          script.write_text(text.replace(old_port, new_port))
+          PY
+          management_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          client_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          printf 'CPA_TEST_MANAGEMENT_KEY=%s\nCPA_TEST_CLIENT_KEY=%s\n' "$management_key" "$client_key" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/core-integration/remote"
+          install -m 600 /dev/null "$RUNNER_TEMP/core-integration/remote/management.key"
+          install -m 600 /dev/null "$RUNNER_TEMP/core-integration/remote/client.key"
+          printf '%s\n' "$management_key" > "$RUNNER_TEMP/core-integration/remote/management.key"
+          printf '%s\n' "$client_key" > "$RUNNER_TEMP/core-integration/remote/client.key"
+          chmod 700 "$RUNNER_TEMP/core-integration/observe/dev-observe.mjs"
+      - name: Local app auto-starts and manages the verified core
+        id: local_integration
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-integration"
+          mkdir -p "$root/logs/local"
+          export HOME="$root/local-home"
+          mkdir -p "$HOME" "$root/local-runtime"
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+          export XDG_RUNTIME_DIR="$root/local-runtime"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          export CPA_TEST_MANAGEMENT_KEY CPA_TEST_CLIENT_KEY EASYCLI_OBSERVE_CACHE="$root/cache"
+          node "$root/observe/dev-observe.mjs" --mode local --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
+            --name core-local --out "$root/logs/local/observe" \
+            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/local/scenario.log"
+          cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local/core.log" 2>/dev/null || true
+          python3 - "$root/logs/local/observe/ipc.log" <<'PY'
+          import json, sys
+          statuses = [json.loads(line.split('REPORT CORE ', 1)[1]) for line in open(sys.argv[1]) if 'REPORT CORE ' in line]
+          if not any(s.get('running') and s.get('ready') and s.get('managed') and s.get('connectionMode') == 'local' for s in statuses):
+              raise SystemExit('In-app Local status did not report a running, ready, managed core')
+          PY
+      - name: Start standalone remote core with isolated test config
+        id: remote_core
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-integration"
+          mkdir -p "$root/remote/auth" "$root/logs/remote"
+          chmod 700 "$root/remote" "$root/remote/auth"
+          python3 - "$root/remote" "$CPA_TEST_MANAGEMENT_KEY" "$CPA_TEST_CLIENT_KEY" <<'PY'
+          import secrets, socket, sys
+          from pathlib import Path
+          root, management, client = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          def free_high_port():
+              for _ in range(100):
+                  port = secrets.randbelow(65535 - 49152 + 1) + 49152
+                  with socket.socket() as sock:
+                      try: sock.bind(('127.0.0.1', port))
+                      except OSError: continue
+                  return port
+              raise SystemExit('Could not reserve a free high localhost port')
+          port = free_high_port()
+          (root / 'port').write_text(str(port))
+          config = f'''config-version: 8\nserver:\n  host: "127.0.0.1"\n  port: {port}\nmanagement:\n  allow-remote: true\n  secret-key: "{management}"\n  disable-control-panel: true\naccess:\n  api-keys: ["{client}"]\noauth:\n  auth-dir: "{root / 'auth'}"\nobservability:\n  usage:\n    usage-statistics-enabled: false\n'''
+          (root / 'config.yaml').write_text(config)
+          (root / 'config.yaml').chmod(0o600)
+          PY
+          port="$(cat "$root/remote/port")"
+          "$CPA_TEST_CORE" -config "$root/remote/config.yaml" > "$root/logs/remote/core.log" 2>&1 &
+          core_pid=$!
+          echo "$core_pid" > "$root/remote/core.pid"
+          echo "CPA_REMOTE_CORE_PID=$core_pid" >> "$GITHUB_ENV"
+          for attempt in $(seq 1 30); do
+            if ! kill -0 "$core_pid" 2>/dev/null; then cat "$root/logs/remote/core.log"; exit 1; fi
+            if curl --silent --show-error --fail --max-time 2 -H "Authorization: Bearer $CPA_TEST_MANAGEMENT_KEY" \
+              "http://127.0.0.1:$port/v8/management/config" >/dev/null; then
+              echo "Remote test core ready on 127.0.0.1:$port (PID $core_pid)"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$root/logs/remote/core.log"
+          exit 1
+      - name: Remote app authenticates and reads management status
+        id: remote_integration
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-integration"
+          port="$(cat "$root/remote/port")"
+          mkdir -p "$root/logs/remote/observe"
+          export HOME="$root/remote-home"
+          mkdir -p "$HOME" "$root/remote-runtime"
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+          export XDG_RUNTIME_DIR="$root/remote-runtime"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          export CPA_TEST_MANAGEMENT_KEY CPA_TEST_CLIENT_KEY EASYCLI_OBSERVE_CACHE="$root/cache"
+          node "$root/observe/dev-observe.mjs" --mode remote --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
+            --name core-remote --out "$root/logs/remote/observe" \
+            --management-origin "http://127.0.0.1:$port" --client-origin "http://127.0.0.1:$port" \
+            --management-key-file "$root/remote/management.key" --client-key-file "$root/remote/client.key" \
+            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/remote/scenario.log"
+          python3 - "$root/logs/remote/observe/ipc.log" <<'PY'
+          import json, sys
+          statuses = [json.loads(line.split('REPORT CORE ', 1)[1]) for line in open(sys.argv[1]) if 'REPORT CORE ' in line]
+          if not any(s.get('running') and s.get('ready') and s.get('connectionMode') == 'remote' for s in statuses):
+              raise SystemExit('In-app Remote status did not report authenticated management readiness')
+          PY
+      - name: Stop standalone test core by recorded PID
+        if: always()
+        run: |
+          set -euo pipefail
+          pid_file="$RUNNER_TEMP/core-integration/remote/core.pid"
+          if [[ -f "$pid_file" ]]; then
+            core_pid="$(cat "$pid_file")"
+            if [[ "$core_pid" =~ ^[0-9]+$ ]] && kill -0 "$core_pid" 2>/dev/null; then
+              kill "$core_pid"
+              for _ in $(seq 1 10); do kill -0 "$core_pid" 2>/dev/null || exit 0; sleep 1; done
+              kill -KILL "$core_pid" 2>/dev/null || true
+            fi
+          fi
+      - name: Summarize core integration scenarios
+        if: always()
+        env:
+          APP_BUILD_RESULT: ${{ steps.app_build.outcome }}
+          CORE_SETUP_RESULT: ${{ steps.core_setup.outcome }}
+          LOCAL_RESULT: ${{ steps.local_integration.outcome }}
+          REMOTE_CORE_RESULT: ${{ steps.remote_core.outcome }}
+          REMOTE_RESULT: ${{ steps.remote_integration.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import os
+          print('### Real CLIProxyAPI integration')
+          print(f"- Source-pinned core: **{os.environ.get('CPA_TEST_VERSION', 'unknown')}**; verified checksums.txt: **{os.environ['CORE_SETUP_RESULT']}**")
+          print(f"- Debug app build: **{os.environ['APP_BUILD_RESULT']}**")
+          print(f"- Local auto-start: **{os.environ['LOCAL_RESULT']}** — app starts the core on launch and its in-app status hook asserts running + ready.")
+          print(f"- Remote connection: **{os.environ['REMOTE_RESULT']}** (standalone core startup: **{os.environ['REMOTE_CORE_RESULT']}**) — app status hook asserts authenticated management readiness.")
+          PY
+      - name: Upload integration logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-integration-logs
+          path: |
+            ${{ runner.temp }}/core-integration/logs/**
+            ${{ runner.temp }}/core-integration-build.log
+          if-no-files-found: ignore
