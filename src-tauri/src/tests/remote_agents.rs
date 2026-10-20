@@ -332,9 +332,20 @@ async fn preview_agent_config_template_cancels_after_switch_while_models_fetch_i
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // Claude Code first reads the management YAML to mark configured
+        // aliases, then fetches /v1/models. Hold the latter request so the
+        // command is suspended in the unlocked network phase.
+        let (mut config_socket, _) = listener.accept().await.unwrap();
+        let mut config_request = [0; 4096];
+        let config_len = config_socket.read(&mut config_request).await.unwrap();
+        assert!(String::from_utf8_lossy(&config_request[..config_len]).contains("/v0/management/config.yaml"));
+        let config_body = "{}\n";
+        config_socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/yaml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{config_body}", config_body.len()).as_bytes()).await.unwrap();
+
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut request = [0; 4096];
-        let _ = socket.read(&mut request).await.unwrap();
+        let request_len = socket.read(&mut request).await.unwrap();
+        assert!(String::from_utf8_lossy(&request[..request_len]).contains("/v1/models"));
         arrived_tx.send(()).unwrap();
         release_rx.await.unwrap();
         let body = r#"{"data":[{"id":"fixture-model"}]}"#;
