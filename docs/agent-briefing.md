@@ -36,7 +36,9 @@ The same folder holds two cache files, each written by one party only (so neithe
 | `quota.json` | the running app (`agent_briefing_publish`) | per account: provider, masked label, plan, 5h/weekly/other windows (remaining %, absolute reset time), balance, read time | when the app's quota cache changes (debounced) |
 | `core.json` | the `--brief` command | per credential: provider, disabled, unavailable, retry time, cooldowns, model ids; whether the core answered | by a query, when older than 60 s (15 s after a failure) |
 
-Both are `0600`, keyed by the core's management origin; a cache from another core is ignored.
+Both are `0600`, keyed by the core's management origin; a cache from another core is ignored. The command reads
+the app's saved `config.toml` (read-only, next to the executable) to find the core and its management key. If the
+app has never saved settings it does not dial anything: it prints `no briefing data yet` and exits 1.
 
 ## Data sources
 

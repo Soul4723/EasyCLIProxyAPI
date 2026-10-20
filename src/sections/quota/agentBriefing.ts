@@ -37,7 +37,8 @@ const MAX_TEXT = 40;
 const MAX_WINDOWS = 12;
 const BALANCE = /^[A-Za-z0-9$€£¥.,\- ]{1,24}$/;
 
-const clip = (value: string, max = MAX_TEXT) => value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
+const printable = (char: string) => char.charCodeAt(0) > 31 && char.charCodeAt(0) !== 127;
+const clip = (value: string, max = MAX_TEXT) => [...value].filter(printable).join('').trim().slice(0, max);
 
 function windowsOf(quota: QuotaState, now: number, locale: AppLocale): BriefingWindow[] {
   return quota.rows.slice(0, MAX_WINDOWS).flatMap((row) => {
