@@ -347,7 +347,8 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
   {
     const page = await newPage();
     await h.openApp(page, base, { mock: 'stopped', path: '/quota', query: 'mockDelay=700' });
-    await page.waitForTimeout(250);
+    await page.waitForFunction(() => location.hash === '#/quota'
+      && document.querySelector('.ec-core-line')?.dataset.coreStatus === 'unknown');
     assert.equal(await h.currentRoute(page), '/quota', 'no redirect before the core status is known');
     assert.equal(await h.pageTitle(page), 'Quota', 'header shown while waiting');
     await page.waitForFunction(() => location.hash === '#/overview', null, { timeout: 8000 });
