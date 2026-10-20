@@ -3,6 +3,41 @@ use super::*;
 impl UsageCollectorState {
     pub(crate) fn request_readiness_check(&self) {
         self.readiness_requested.store(true, Ordering::Release);
+        self.readiness_notify.notify_one();
+    }
+
+    /// Sleeps for `seconds`, ending early on cancellation or a pending readiness
+    /// request. The request itself is left for the loop to consume, and a stale
+    /// notification without a pending request does not end the wait.
+    pub(super) async fn wait_or_readiness(&self, token: &CancellationToken, seconds: u64) {
+        let sleep = tokio::time::sleep(Duration::from_secs(seconds));
+        tokio::pin!(sleep);
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => return,
+                _ = &mut sleep => return,
+                _ = self.readiness_notify.notified() => {
+                    if self.readiness_requested.load(Ordering::Acquire) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Waits out an idle remote poll. A readiness request ends the wait and
+    /// restarts the empty-poll backoff at once; otherwise the backoff grows.
+    pub(super) async fn wait_empty_remote_poll(
+        &self,
+        token: &CancellationToken,
+        empty_poll_seconds: &mut u64,
+    ) {
+        self.wait_or_readiness(token, *empty_poll_seconds).await;
+        *empty_poll_seconds = if self.readiness_requested.load(Ordering::Acquire) {
+            REMOTE_EMPTY_POLL_MIN_SECONDS
+        } else {
+            next_empty_remote_poll_seconds(*empty_poll_seconds)
+        };
     }
 
     pub(super) fn start(&self) -> Option<CancellationToken> {
@@ -348,6 +383,15 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
         if token.is_cancelled() {
             return;
         }
+        // Lifecycle status is emitted by user actions, not by unchanged status
+        // polls. Consume the request before anything that can wait on an error:
+        // those waits end early on a pending request, so leaving it set would
+        // spin them.
+        if app.state::<UsageCollectorState>().readiness_requested.swap(false, Ordering::AcqRel) {
+            readiness.reset();
+            next_core_check_at = tokio::time::Instant::now();
+            empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
+        }
         // Drain the captured batch before resolving another target or doing any
         // further destructive read, even when the user switched to Local mode.
         if let Some(batch) = pending_remote_batch.as_ref() {
@@ -364,14 +408,14 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                     retry_seconds = (retry_seconds * 2).min(10);
                 }
             }
-            wait_or_cancel(&token, retry_seconds).await;
+            wait_or_readiness(&app, &token, retry_seconds).await;
             continue;
         }
         let config = match app.state::<GuiConfigState>().snapshot() {
             Ok(config) => config,
             Err(error) => {
                 set_collector_error(&app, error);
-                wait_or_cancel(&token, retry_seconds).await;
+                wait_or_readiness(&app, &token, retry_seconds).await;
                 retry_seconds = (retry_seconds * 2).min(10);
                 continue;
             }
@@ -384,7 +428,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
             Ok(root) => root,
             Err(error) => {
                 set_collector_error(&app, error);
-                wait_or_cancel(&token, retry_seconds).await;
+                wait_or_readiness(&app, &token, retry_seconds).await;
                 retry_seconds = (retry_seconds * 2).min(10);
                 continue;
             }
@@ -446,18 +490,11 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                 }
                 Err(error) => {
                     set_collector_error(&app, error);
-                    wait_or_cancel(&token, retry_seconds).await;
+                    wait_or_readiness(&app, &token, retry_seconds).await;
                     retry_seconds = (retry_seconds * 2).min(10);
                     continue;
                 }
             }
-        }
-        // Lifecycle status is emitted by user actions, not by unchanged status
-        // polls. While waiting we revisit this flag at least once per second.
-        if app.state::<UsageCollectorState>().readiness_requested.swap(false, Ordering::AcqRel) {
-            readiness.reset();
-            next_core_check_at = tokio::time::Instant::now();
-            empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
         }
         if tokio::time::Instant::now() >= next_core_check_at {
             if remote {
@@ -520,8 +557,9 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                         None,
                     );
                     retry_seconds = 1;
-                    wait_or_cancel(&token, empty_poll_seconds).await;
-                    empty_poll_seconds = next_empty_remote_poll_seconds(empty_poll_seconds);
+                    app.state::<UsageCollectorState>()
+                        .wait_empty_remote_poll(&token, &mut empty_poll_seconds)
+                        .await;
                 }
                 Ok(messages) => {
                     empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
@@ -537,7 +575,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                     // backoff retry cannot lose records. Readiness/auth is
                     // re-checked separately before the next pop.
                     set_collector_error(&app, error);
-                    wait_or_cancel(&token, retry_seconds).await;
+                    wait_or_readiness(&app, &token, retry_seconds).await;
                     retry_seconds = (retry_seconds * 2).min(10);
                 }
                 Err(RemotePopError::Uncertain(error)) => {
@@ -623,7 +661,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                         }
                         Err(error) => {
                             set_collector_error(&app, error);
-                            wait_or_cancel(&token, retry_seconds).await;
+                            wait_or_readiness(&app, &token, retry_seconds).await;
                             retry_seconds = (retry_seconds * 2).min(10);
                         }
                     }
@@ -685,7 +723,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                     }
                     Err(error) => {
                         set_collector_error(&app, error);
-                        wait_or_cancel(&token, retry_seconds).await;
+                        wait_or_readiness(&app, &token, retry_seconds).await;
                         retry_seconds = (retry_seconds * 2).min(10);
                     }
                 }
@@ -698,7 +736,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                     .map(|status| status.ready).unwrap_or(false);
                 if ready {
                     set_collector_error(&app, error);
-                    wait_or_cancel(&token, retry_seconds).await;
+                    wait_or_readiness(&app, &token, retry_seconds).await;
                     retry_seconds = (retry_seconds * 2).min(10);
                 } else {
                     core_ready = false;
@@ -807,6 +845,19 @@ pub(crate) fn persist_local_usage_event(
         publish_collected_records(app, outcome, "Saved desktop health check usage record");
     }
     Ok(outcome.inserted)
+}
+
+/// Error-retry wait that a readiness request also ends. Waits that do not depend
+/// on core readiness (a paused remote target, the 1 s idle polls) use
+/// `wait_or_cancel` instead.
+pub(super) async fn wait_or_readiness(
+    app: &tauri::AppHandle,
+    token: &CancellationToken,
+    seconds: u64,
+) {
+    app.state::<UsageCollectorState>()
+        .wait_or_readiness(token, seconds)
+        .await;
 }
 
 pub(super) async fn wait_or_cancel(token: &CancellationToken, seconds: u64) {

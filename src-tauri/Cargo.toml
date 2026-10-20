@@ -11,6 +11,7 @@ tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 tauri = { version = "~2.11", features = ["test"] }
+tokio = { version = "1", features = ["test-util"] }
 
 [dependencies]
 base64 = "0.22"

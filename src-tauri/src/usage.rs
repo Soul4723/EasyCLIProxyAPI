@@ -122,6 +122,7 @@ where
 
 pub(crate) struct UsageCollectorState {
     readiness_requested: AtomicBool,
+    readiness_notify: tokio::sync::Notify,
     inner: Mutex<UsageCollectorInner>,
 }
 
@@ -182,6 +183,7 @@ impl Default for UsageCollectorState {
     fn default() -> Self {
         Self {
             readiness_requested: AtomicBool::new(false),
+            readiness_notify: tokio::sync::Notify::new(),
             inner: Mutex::new(UsageCollectorInner {
                 token: None,
                 status: UsageCollectorStatus::waiting(),
