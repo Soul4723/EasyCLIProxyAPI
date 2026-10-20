@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) const QUOTA_FILE: &str = "quota.json";
 pub(crate) const CORE_FILE: &str = "core.json";
 
-/// Providers whose quota windows the app can read (`quotaService.ts`).
+/// Providers whose quota windows the app can read (`quotaService.ts`); also the display order.
 pub(crate) const QUOTA_PROVIDERS: [&str; 6] = ["claude", "codex", "antigravity", "xai", "kimi", "devin"];
 
 const MAX_ACCOUNTS: usize = 200;
@@ -91,7 +91,7 @@ fn clean_text(value: &str, max_chars: usize) -> String {
 fn clean_label(value: &str) -> String {
     let label = clean_text(value, 40);
     // Defence in depth: the frontend masks, and an unmasked address must never reach the cache.
-    if label.contains('@') && !label.contains('*') { "***".to_string() } else { label }
+    if label.contains('@') && !label.contains("***@") { "***".to_string() } else { label }
 }
 
 fn clean_balance(value: &str) -> Option<String> {

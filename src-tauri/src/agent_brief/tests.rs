@@ -103,12 +103,12 @@ fn default_text_is_one_line_per_provider_with_guidance() {
 }
 
 #[test]
-fn best_usable_account_is_chosen_per_window() {
+fn windows_follow_the_selected_headroom_account() {
     let (mut quota, core) = fixture();
-    // The second claude account has the better weekly window; the first the better 5h one.
+    // The second account has a better weekly window, but the first has more total headroom.
     quota.accounts[1].windows = vec![window("5h", 30.0, Some(2 * HOUR)), window("weekly", 95.0, Some(5 * 24 * HOUR))];
     let out = text(&quota, &core, &Filters::default());
-    assert!(out.contains("claude ok 2/2 5h=62%~1h12m wk=95%~5d "), "{out}");
+    assert!(out.contains("claude ok 2/2 5h=62%~1h12m wk=81%~3d4h "), "{out}");
 }
 
 #[test]
@@ -125,11 +125,40 @@ fn exhausted_window_makes_the_account_out_until_its_reset() {
     let (mut quota, core) = fixture();
     quota.accounts[2].windows = vec![window("5h", 0.0, Some(22 * MIN)), window("weekly", 40.0, Some(2 * 24 * HOUR))];
     let out = text(&quota, &core, &Filters::default());
-    assert!(out.contains("codex out 0/1 back=22m 5h=0%~22m wk=40%~2d"), "{out}");
+    assert!(out.contains("codex out 0/1 back=22m 5h=<1%~22m wk=40%~2d"), "{out}");
     assert!(out.contains("guide: swarm=claude wait=codex~22m"), "{out}");
     assert!(!out.contains("gpt-6-luna"), "an exhausted provider lists no routable model: {out}");
     let asked = text(&quota, &core, &Filters { model: Some("luna".into()), ..Default::default() });
     assert!(asked.contains("codex out 0/1 back=22m") && asked.contains("| cool:gpt-6-luna~22m\n"), "{asked}");
+}
+
+#[test]
+fn exhausted_window_without_reset_has_unknown_recovery_and_is_avoided() {
+    let (mut quota, core) = fixture();
+    quota.accounts[2].windows = vec![window("5h", 0.0, None), window("weekly", 40.0, Some(2 * 24 * HOUR))];
+    let out = text(&quota, &core, &Filters::default());
+    assert!(out.contains("codex out 0/1 back=? 5h=<1% wk=40%~2d"), "{out}");
+    assert!(out.contains("guide: swarm=claude avoid=codex"), "{out}");
+    assert!(!out.contains("back=<1m"), "{out}");
+}
+
+#[test]
+fn windows_and_guide_use_the_same_headroom_account() {
+    let (mut quota, core) = fixture();
+    quota.accounts[0].windows = vec![window("5h", 90.0, Some(HOUR)), window("weekly", 5.0, Some(2 * 24 * HOUR))];
+    quota.accounts[1].windows = vec![window("5h", 2.0, Some(HOUR)), window("weekly", 80.0, Some(2 * 24 * HOUR))];
+    let out = text(&quota, &core, &Filters::default());
+    assert!(out.contains("claude low 2/2 5h=90%~1h wk=5%~2d"), "{out}");
+    assert!(out.contains("guide: light=claude(wk=5%~2d)"), "{out}");
+}
+
+#[test]
+fn fractional_headroom_below_half_percent_prints_exhausted_consistently() {
+    let (mut quota, core) = fixture();
+    quota.accounts[2].windows = vec![window("5h", 0.4, Some(22 * MIN)), window("weekly", 40.0, Some(2 * 24 * HOUR))];
+    let out = text(&quota, &core, &Filters::default());
+    assert!(out.contains("codex out 0/1 back=22m 5h=<1%~22m"), "{out}");
+    assert!(out.contains("guide: swarm=claude wait=codex~22m"), "{out}");
 }
 
 #[test]
@@ -178,6 +207,14 @@ fn quota_older_than_thirty_minutes_is_flagged_stale() {
 }
 
 #[test]
+fn quota_age_uses_only_accounts_in_the_filtered_output() {
+    let (mut quota, core) = fixture();
+    quota.accounts[2].fetched_at_ms = Some(NOW - 5 * HOUR);
+    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
+    assert!(out.starts_with("cpa local core=up quota_age=6m\n"), "{out}");
+}
+
+#[test]
 fn core_down_serves_cached_state_and_says_so() {
     let (quota, mut core) = fixture();
     core.up = false;
@@ -185,7 +222,7 @@ fn core_down_serves_cached_state_and_says_so() {
     core.ok_at_ms = NOW - 12 * MIN;
     core.error = "could not connect to the core".into();
     let out = text(&quota, &core, &Filters::default());
-    assert!(out.starts_with("cpa local core=down cached=12m quota_age=6m\ncore error: could not connect to the core\n"), "{out}");
+    assert!(out.starts_with("cpa local core=down cached=12m quota_age=6m\ncore error: core unreachable\n"), "{out}");
     assert!(out.contains("claude ok 2/2 5h=62%~1h12m"), "{out}");
     assert!(!out.contains("opus-5-5"), "no model is routable while the core is unreachable: {out}");
     assert!(out.ends_with("guide: core unreachable, nothing routes now; numbers are cached\n"), "{out}");
@@ -203,13 +240,27 @@ fn default_text_features_the_newest_model_of_each_family() {
     core.accounts[0].models = catalogue.iter().map(|m| m.to_string()).collect();
     core.accounts[1].models = core.accounts[0].models.clone();
     let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.contains("| claude-haiku-5-5 claude-opus-5-10 claude-sonnet-5-5 +6\n"), "{out}");
+    assert!(out.contains("| claude-opus-5-10 claude-haiku-5-5 claude-sonnet-5-5 +6\n"), "{out}");
     core.accounts[0].models.push("claude-image-9".into());
     core.accounts[1].models = core.accounts[0].models.clone();
     let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.contains("| claude-haiku-5-5 claude-opus-5-10 claude-sonnet-5-5 +7\n"), "images are hidden from the default list but counted: {out}");
+    assert!(out.contains("| claude-opus-5-10 claude-haiku-5-5 claude-sonnet-5-5 +7\n"), "images are hidden from the default list but counted: {out}");
     let all = text(&quota, &core, &Filters { provider: Some("claude".into()), model: Some("opus".into()), ..Default::default() });
     assert!(all.contains("| claude-opus-4-1-20250805 claude-opus-5-5 claude-opus-5-10\n"), "{all}");
+}
+
+#[test]
+fn date_tokens_do_not_outrank_newer_model_versions() {
+    let (quota, mut core) = fixture();
+    let catalogue = [
+        "claude-opus-4-20250514", "claude-opus-4-1-20250805", "claude-opus-4-8",
+        "claude-sonnet-4-5-20250929", "claude-sonnet-4-6",
+    ];
+    core.accounts[0].models = catalogue.iter().map(|m| m.to_string()).collect();
+    core.accounts[1].models = core.accounts[0].models.clone();
+    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
+    assert!(out.contains("| claude-opus-4-8 claude-sonnet-4-6"), "{out}");
+    assert!(!out.contains("claude-opus-4-20250514") && !out.contains("claude-sonnet-4-5-20250929"), "{out}");
 }
 
 #[test]
@@ -326,6 +377,29 @@ fn freshness_follows_the_ttl_and_failures_retry_sooner() {
     assert!(!is_fresh(&part, NOW - 1));
 }
 
+#[test]
+fn core_data_older_than_ttl_is_never_reported_as_up() {
+    let (quota, mut core) = fixture();
+    core.checked_at_ms = NOW - CORE_TTL_MS;
+    core.ok_at_ms = NOW - CORE_TTL_MS;
+    let out = text(&quota, &core, &Filters::default());
+    assert!(out.starts_with("cpa local core=stale cached=1m quota_age=6m\n"), "{out}");
+    assert!(out.contains("guide: core state is stale; routing is unknown"), "{out}");
+    assert!(!out.contains("| haiku-5-5"), "{out}");
+}
+
+#[test]
+fn old_unreachable_result_is_stale_when_no_recent_refresh_confirms_it() {
+    let (quota, mut core) = fixture();
+    core.up = false;
+    core.checked_at_ms = NOW - CORE_FAILURE_TTL_MS;
+    core.ok_at_ms = NOW - HOUR;
+    core.error = "could not connect to the core".into();
+    let out = text(&quota, &core, &Filters::default());
+    assert!(out.starts_with("cpa local core=stale cached=1h quota_age=6m\n"), "{out}");
+    assert!(out.contains("guide: core state is stale; routing is unknown"), "{out}");
+}
+
 const SECRET_EMAIL: &str = "alice.private@example.org";
 const SECRET_TOKEN: &str = "sk-live-0123456789abcdefSECRET";
 const SECRET_NAME: &str = "claude-alice.private@example.org.json";
@@ -363,6 +437,13 @@ fn credentials_parse_keeps_only_availability_fields() {
     assert_eq!(first.cooldowns[1], Cooldown { scope: "credential".into(), model: String::new(), retry_at_ms: now + 90_000 });
     assert_eq!(parsed[1].account.provider, "claude", "provider aliases are normalised");
     assert!(parsed[1].account.disabled && parsed[1].account.cooldowns.is_empty());
+}
+
+#[test]
+fn provider_aliases_include_xai_and_meta_names_used_by_the_core() {
+    assert_eq!(refresh::normalize_provider("x.ai"), "xai");
+    assert_eq!(refresh::normalize_provider("x-ai"), "xai");
+    assert_eq!(refresh::normalize_provider("muse"), "meta");
 }
 
 #[test]
@@ -420,6 +501,16 @@ fn sanitize_bounds_and_validates_what_the_webview_sends() {
     assert_eq!(clean[0].windows[1].remaining_percent, Some(100.0));
     let many = (0..300).map(|n| QuotaAccount { auth_index: format!("i{n}"), provider: "codex".into(), ..Default::default() }).collect();
     assert_eq!(sanitize_accounts(many).len(), 200);
+}
+
+#[test]
+fn rust_sanitizer_rejects_malformed_masked_emails_in_labels_and_groups() {
+    let clean = sanitize_accounts(vec![QuotaAccount {
+        auth_index: "c1".into(), provider: "claude".into(), label: "alice.private@example.org*".into(),
+        windows: vec![QuotaWindow { group: "bob@corp.example".into(), ..Default::default() }], ..Default::default()
+    }]);
+    assert_eq!(clean[0].label, "***");
+    assert_eq!(clean[0].windows[0].group, "***");
 }
 
 fn args(list: &[&str]) -> Vec<OsString> {
@@ -540,17 +631,25 @@ fn the_refresh_lock_is_exclusive_released_on_drop_and_reclaimed_when_stale() {
     let dir = crate::unique_test_temp_path("cpa-brief-lock");
     std::fs::create_dir_all(&dir).unwrap();
     let first = super::cli::RefreshLock::acquire(&dir).expect("first caller gets the lock");
-    assert!(super::cli::RefreshLock::acquire(&dir).is_none(), "second caller must wait");
+    assert_eq!(super::cli::RefreshLock::acquire(&dir).unwrap_err(), super::cli::LockAcquireError::Held, "second caller must wait");
     drop(first);
     let again = super::cli::RefreshLock::acquire(&dir).expect("released on drop");
     drop(again);
     // A crashed holder leaves a lock behind; it is reclaimed once it is older than the stale limit.
     let lock = dir.join("refresh.lock");
     std::fs::write(&lock, b"").unwrap();
-    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(61);
     std::fs::File::options().write(true).open(&lock).unwrap().set_modified(old).unwrap();
-    assert!(super::cli::RefreshLock::acquire(&dir).is_some());
+    assert!(super::cli::RefreshLock::acquire(&dir).is_ok());
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_lock_directory_that_cannot_be_created_is_not_mistaken_for_an_active_lock() {
+    let parent = crate::unique_test_temp_path("cpa-brief-lock-unavailable");
+    std::fs::write(&parent, b"not a directory").unwrap();
+    assert!(matches!(super::cli::RefreshLock::acquire(&parent), Err(super::cli::LockAcquireError::Unavailable)));
+    std::fs::remove_file(parent).unwrap();
 }
 
 #[test]

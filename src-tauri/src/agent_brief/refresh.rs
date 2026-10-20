@@ -29,9 +29,10 @@ pub(crate) fn normalize_provider(raw: &str) -> String {
     let value = raw.trim().to_ascii_lowercase().replace('_', "-");
     match value.as_str() {
         "anthropic" => "claude",
-        "x-ai" | "grok" => "xai",
+        "x-ai" | "x.ai" | "grok" => "xai",
         "cognition" => "devin",
         "anti-gravity" => "antigravity",
+        "muse" => "meta",
         other => other,
     }
     .to_string()
@@ -198,10 +199,8 @@ pub(crate) async fn refresh(
         .await;
     for (position, result) in fetched {
         // A failed model read keeps the older list; only the listing decides whether the core is up.
-        if let Ok(models) = result {
-            parsed[position].account.models = models;
-            parsed[position].account.models_at_ms = now_ms;
-        }
+        parsed[position].account.models_at_ms = now_ms;
+        if let Ok(models) = result { parsed[position].account.models = models; }
     }
     CorePart {
         origin: origin.to_string(),

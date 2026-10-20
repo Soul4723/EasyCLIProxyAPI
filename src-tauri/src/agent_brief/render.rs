@@ -16,7 +16,7 @@ pub(crate) const SOON_MS: i64 = 30 * 60_000;
 /// Model families listed per provider in the default text (`--model` and `--json` list all).
 const TEXT_MODEL_CAP: usize = 4;
 const TEXT_COOL_CAP: usize = 4;
-const PROVIDER_ORDER: [&str; 6] = ["claude", "codex", "antigravity", "xai", "kimi", "devin"];
+const PROVIDER_ORDER: [&str; 6] = super::model::QUOTA_PROVIDERS;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Filters {
@@ -58,6 +58,8 @@ pub(crate) struct WindowView {
     pub(crate) reset_in_ms: Option<i64>,
     /// The reset time passed since the quota was read: shown as `reset`.
     pub(crate) reset_passed: bool,
+    /// Exhausted at the strict 0.5% threshold when evaluated.
+    exhausted: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -132,7 +134,7 @@ struct Acct<'a> {
     status: Status,
     back_ms: Option<i64>,
     /// Effective view of each window at `now`.
-    windows: Vec<(WindowView, bool)>,
+    windows: Vec<WindowView>,
 }
 
 struct Eff {
@@ -163,7 +165,7 @@ fn label_of(window: &QuotaWindow) -> &'static str {
     }
 }
 
-fn window_views(windows: &[QuotaWindow], now_ms: i64) -> Vec<(WindowView, bool)> {
+fn window_views(windows: &[QuotaWindow], now_ms: i64) -> Vec<WindowView> {
     windows
         .iter()
         .filter_map(|window| {
@@ -172,11 +174,12 @@ fn window_views(windows: &[QuotaWindow], now_ms: i64) -> Vec<(WindowView, bool)>
             let view = WindowView {
                 label: label_of(window),
                 group: window.group.clone(),
-                pct: eff.pct.round() as i64,
+                pct: if eff.pct < 0.5 { 0 } else { eff.pct.round() as i64 },
                 reset_in_ms,
                 reset_passed: eff.passed,
+                exhausted: eff.pct < 0.5 && !eff.passed,
             };
-            Some((view, eff.pct <= 0.0 && !eff.passed))
+            Some(view)
         })
         .collect()
 }
@@ -199,10 +202,10 @@ fn classify<'a>(
     // Only the account's own windows decide exhaustion; a model-group window at 0% blocks just those models.
     let exhausted_until = windows
         .iter()
-        .filter(|(view, zero)| *zero && view.group.is_empty())
-        .map(|(view, _)| view.reset_in_ms.unwrap_or(0))
+        .filter(|view| view.exhausted && view.group.is_empty())
+        .filter_map(|view| view.reset_in_ms)
         .max();
-    let exhausted = windows.iter().any(|(view, zero)| *zero && view.group.is_empty());
+    let exhausted = windows.iter().any(|view| view.exhausted && view.group.is_empty());
     let disabled = core.map(|c| c.disabled).unwrap_or(false) || quota.map(|q| q.disabled).unwrap_or(false);
     let mut cool_until: Option<i64> = None;
     let mut errored = false;
@@ -237,62 +240,21 @@ fn classify<'a>(
 }
 
 fn primary<'a>(acct: &'a Acct<'_>) -> impl Iterator<Item = &'a WindowView> {
-    acct.windows.iter().map(|(view, _)| view).filter(|view| view.group.is_empty())
-}
-
-/// Best account per window kind: highest remaining, earliest reset on ties.
-fn aggregate_windows(accounts: &[&Acct]) -> Vec<WindowView> {
-    let mut out = Vec::new();
-    for label in ["5h", "wk", "lim"] {
-        let mut best: Option<WindowView> = None;
-        for acct in accounts {
-            // An account's `lim` value is its tightest generic window.
-            let candidate = primary(acct)
-                .filter(|view| view.label == label)
-                .min_by_key(|view| (view.pct, view.reset_in_ms.unwrap_or(i64::MAX)))
-                .cloned();
-            if let Some(candidate) = candidate {
-                let better = match &best {
-                    None => true,
-                    Some(current) => {
-                        (candidate.pct, -candidate.reset_in_ms.unwrap_or(i64::MAX))
-                            > (current.pct, -current.reset_in_ms.unwrap_or(i64::MAX))
-                    }
-                };
-                if better {
-                    best = Some(candidate);
-                }
-            }
-        }
-        out.extend(best);
-    }
-    // `lim` is only the fallback for providers without 5h/weekly windows.
-    if out.iter().any(|view| view.label != "lim") {
-        out.retain(|view| view.label != "lim");
-    }
-    if out.is_empty() {
-        // Providers that only report special pools (spending limits, model groups): show the tightest
-        // as information. It never decides an account's status.
-        for acct in accounts {
-            let tightest = acct.windows.iter().map(|(view, _)| view).min_by_key(|view| view.pct);
-            if let Some(view) = tightest {
-                if out.first().map_or(true, |best: &WindowView| view.pct > best.pct) {
-                    out.clear();
-                    out.push(WindowView { label: "lim", ..view.clone() });
-                }
-            }
-        }
-    }
-    out
+    acct.windows.iter().filter(|view| view.group.is_empty())
 }
 
 fn bottleneck(acct: &Acct) -> Option<f64> {
     primary(acct).map(|view| view.pct as f64).reduce(f64::min)
 }
 
+fn balance_of(account: &Acct) -> Option<String> {
+    account.quota.and_then(|q| if q.credits_unlimited { Some("unlimited".to_string()) } else { q.credit_balance.clone() })
+}
+
 /// Natural order: digit runs compare as numbers, so `opus-5-10` sorts after `opus-5-9`.
-fn natural_key(id: &str) -> Vec<(u8, u64, String)> {
+fn natural_key(id: &str) -> (Vec<(u8, u64, String)>, Vec<u64>) {
     let mut key = Vec::new();
+    let mut dates = Vec::new();
     let mut chars = id.chars().peekable();
     while let Some(&c) = chars.peek() {
         let digits = c.is_ascii_digit();
@@ -304,9 +266,23 @@ fn natural_key(id: &str) -> Vec<(u8, u64, String)> {
             run.push(n);
             chars.next();
         }
-        key.push(if digits { (0, run.parse().unwrap_or(u64::MAX), String::new()) } else { (1, 0, run) });
+        if digits {
+            let value = run.parse().unwrap_or(u64::MAX);
+            if run.len() >= 6 { dates.push(value); } else { key.push((0, value, String::new())); }
+        } else {
+            key.push((1, 0, run));
+        }
     }
-    key
+    (key, dates)
+}
+
+fn version_key(id: &str) -> Vec<u64> {
+    let mut versions = Vec::new();
+    for token in id.split(|c: char| !c.is_ascii_digit()).filter(|token| !token.is_empty()) {
+        let value = token.parse().unwrap_or(u64::MAX);
+        if token.len() < 6 { versions.push(value); }
+    }
+    versions
 }
 
 /// A model family is its id without version and date tokens: `claude-sonnet-5-5` and
@@ -316,8 +292,7 @@ fn family(id: &str) -> String {
     if words.is_empty() { id.to_string() } else { words.join("-") }
 }
 
-/// The default text has room for a few models: the newest of each family, families in name order,
-/// so a long catalogue still shows what is current. `--model` and `--json` list everything.
+/// The default text shows the newest models first, with family name as a tie-breaker.
 fn featured(models: &[String], cap: usize) -> Vec<&String> {
     let mut best: std::collections::BTreeMap<String, &String> = Default::default();
     // Image-generation models are never what a coding agent delegates to; `--model image` still lists them.
@@ -327,7 +302,10 @@ fn featured(models: &[String], cap: usize) -> Vec<&String> {
             *slot = model;
         }
     }
-    best.into_values().take(cap).collect()
+    let mut featured: Vec<_> = best.into_values().collect();
+    featured.sort_by(|a, b| version_key(b).cmp(&version_key(a)).then_with(|| family(a).cmp(&family(b))));
+    featured.truncate(cap);
+    featured
 }
 
 fn provider_rank(id: &str) -> (usize, String) {
@@ -364,6 +342,7 @@ pub(crate) fn build(inputs: &Inputs, filters: &Filters) -> Briefing {
     let mut ids: Vec<String> = per_provider.keys().cloned().collect();
     ids.sort_by_key(|id| provider_rank(id));
     let mut providers = Vec::new();
+    let mut displayed_quota_indices = BTreeSet::new();
     for id in ids {
         if provider_filter.as_ref().is_some_and(|p| *p != id) {
             continue;
@@ -371,7 +350,9 @@ pub(crate) fn build(inputs: &Inputs, filters: &Filters) -> Briefing {
         let accounts = &per_provider[&id];
         let enabled: Vec<&Acct> = accounts.iter().filter(|a| a.status != Status::Off).collect();
         let usable: Vec<&Acct> = enabled.iter().copied().filter(|a| a.status == Status::Ok).collect();
-        let headroom = usable.iter().filter_map(|a| bottleneck(a)).reduce(f64::max);
+        let headroom_account = usable.iter().copied().filter(|a| bottleneck(a).is_some())
+            .max_by(|a, b| bottleneck(a).unwrap().partial_cmp(&bottleneck(b).unwrap()).unwrap_or(std::cmp::Ordering::Equal));
+        let headroom = headroom_account.and_then(bottleneck);
         let back_ms = if usable.is_empty() { enabled.iter().filter_map(|a| a.back_ms).min() } else { None };
         let status = if enabled.is_empty() {
             Status::Off
@@ -388,13 +369,17 @@ pub(crate) fn build(inputs: &Inputs, filters: &Filters) -> Briefing {
         } else {
             Status::Ok
         };
-        let window_pool: &[&Acct] = if usable.is_empty() { &enabled } else { &usable };
-        let windows = aggregate_windows(window_pool);
-        let balance = window_pool.iter().find_map(|a| {
-            a.quota.and_then(|q| {
-                if q.credits_unlimited { Some("unlimited".to_string()) } else { q.credit_balance.clone() }
-            })
-        });
+        let selected_account = headroom_account.or_else(|| enabled.iter().copied().min_by_key(|a| a.back_ms.unwrap_or(i64::MAX)));
+        let windows = selected_account.map(|a| {
+            let mut views: Vec<_> = primary(a).cloned().collect();
+            if views.is_empty() {
+                if let Some(view) = a.windows.iter().min_by_key(|view| view.pct) {
+                    views.push(WindowView { label: "lim", ..view.clone() });
+                }
+            }
+            views
+        }).unwrap_or_default();
+        let balance = selected_account.and_then(balance_of);
 
         // Models: exact per-credential lists. A model is "ok" when an account that can route now serves it
         // without a model cooldown, otherwise it "cools" until the first serving account recovers.
@@ -440,7 +425,8 @@ pub(crate) fn build(inputs: &Inputs, filters: &Filters) -> Briefing {
         if model_filter.is_some() && models_ok.is_empty() && models_cool.is_empty() {
             continue;
         }
-        if inputs.core.is_some_and(|core| !core.up) {
+        displayed_quota_indices.extend(accounts.iter().filter_map(|a| a.quota.map(|q| q.auth_index.as_str())));
+        if inputs.core.is_some_and(|core| !core.up || !super::refresh::is_fresh(core, now_ms)) {
             // Nothing routes while the core is unreachable, so the cached model list would mislead.
             models_ok.clear();
             models_cool.clear();
@@ -454,10 +440,8 @@ pub(crate) fn build(inputs: &Inputs, filters: &Filters) -> Briefing {
                     status: a.status,
                     back_ms: a.back_ms,
                     plan: a.quota.map(|q| q.plan.clone()).unwrap_or_default(),
-                    balance: a.quota.and_then(|q| {
-                        if q.credits_unlimited { Some("unlimited".to_string()) } else { q.credit_balance.clone() }
-                    }),
-                    windows: a.windows.iter().map(|(view, _)| view.clone()).collect(),
+                    balance: balance_of(a),
+                    windows: a.windows.clone(),
                 })
                 .collect()
         } else {
@@ -479,18 +463,21 @@ pub(crate) fn build(inputs: &Inputs, filters: &Filters) -> Briefing {
         });
     }
 
-    // Quota age is the oldest account read, the conservative number for planning.
-    let quota_age_ms = inputs.quota.filter(|q| !q.accounts.is_empty()).map(|q| {
-        let oldest = q.accounts.iter().filter_map(|a| a.fetched_at_ms).min().unwrap_or(q.published_at_ms);
+    // Quota age covers only the accounts visible after the active filters.
+    let quota_age_ms = inputs.quota.filter(|q| q.accounts.iter().any(|a| displayed_quota_indices.contains(a.auth_index.as_str()))).map(|q| {
+        let oldest = q.accounts.iter().filter(|a| displayed_quota_indices.contains(a.auth_index.as_str())).filter_map(|a| a.fetched_at_ms).min().unwrap_or(q.published_at_ms);
         (now_ms - oldest).max(0)
     });
     let (core_state, core_age_ms, core_error) = match inputs.core {
         None => ("unknown", None, String::new()),
-        Some(core) if core.up => ("up", Some((now_ms - core.ok_at_ms).max(0)), String::new()),
-        Some(core) => ("down", (core.ok_at_ms > 0).then(|| (now_ms - core.ok_at_ms).max(0)), core.error.clone()),
+        Some(core) if core.up && super::refresh::is_fresh(core, now_ms) => ("up", Some((now_ms - core.checked_at_ms).max(0)), String::new()),
+        Some(core) if !core.up && super::refresh::is_fresh(core, now_ms) && (core.error.contains("connect") || core.error.contains("timed out")) => ("down", (core.ok_at_ms > 0).then(|| (now_ms - core.ok_at_ms).max(0)), "core unreachable".to_string()),
+        Some(core) => ("stale", (core.ok_at_ms > 0).then(|| (now_ms - core.ok_at_ms).max(0)), String::new()),
     };
     let guide = if core_state == "down" {
         Some("guide: core unreachable, nothing routes now; numbers are cached".to_string())
+    } else if core_state == "stale" {
+        Some("guide: core state is stale; routing is unknown".to_string())
     } else {
         guide_line(&providers)
     };
@@ -512,9 +499,10 @@ fn window_text(view: &WindowView) -> String {
     if view.reset_passed {
         return format!("{}=reset", view.label);
     }
+    let pct = if view.pct == 0 { "<1%".to_string() } else { format!("{}%", view.pct) };
     match view.reset_in_ms {
-        Some(ms) => format!("{}={}%~{}", view.label, view.pct, format_duration(ms)),
-        None => format!("{}={}%", view.label, view.pct),
+        Some(ms) => format!("{}={pct}~{}", view.label, format_duration(ms)),
+        None => format!("{}={pct}", view.label),
     }
 }
 
@@ -554,6 +542,8 @@ fn account_text(account: &AccountView) -> String {
     let mut parts = vec![format!("  {} {}", account.label, account.status.word())];
     if let Some(ms) = account.back_ms {
         parts.push(format!("back={}", format_duration(ms)));
+    } else if account.status == Status::Out {
+        parts.push("back=?".to_string());
     }
     for view in &account.windows {
         let text = window_text(view);
@@ -573,6 +563,7 @@ pub(crate) fn text(briefing: &Briefing) -> String {
     let mut header = format!("cpa {}", briefing.mode);
     match (briefing.core_state, briefing.core_age_ms) {
         ("down", Some(age)) => header.push_str(&format!(" core=down cached={}", format_duration(age))),
+        ("stale", Some(age)) => header.push_str(&format!(" core=stale cached={}", format_duration(age))),
         (state, _) => header.push_str(&format!(" core={state}")),
     }
     match briefing.quota_age_ms {
@@ -587,12 +578,14 @@ pub(crate) fn text(briefing: &Briefing) -> String {
     out.push_str(&header);
     out.push('\n');
     if briefing.core_state == "down" && !briefing.core_error.is_empty() {
-        out.push_str(&format!("core error: {}\n", briefing.core_error));
+        out.push_str("core error: core unreachable\n");
     }
     for provider in &briefing.providers {
         let mut line = format!("{} {} {}/{}", provider.id, provider.status.word(), provider.usable, provider.total);
         if let Some(ms) = provider.back_ms {
             line.push_str(&format!(" back={}", format_duration(ms)));
+        } else if provider.status == Status::Out {
+            line.push_str(" back=?");
         }
         for view in &provider.windows {
             line.push(' ');

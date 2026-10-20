@@ -21,8 +21,9 @@ Reads cached data; reads the core's management API at most once a minute; never 
 ";
 
 const LOCK_FILE: &str = "refresh.lock";
-const LOCK_STALE: Duration = Duration::from_secs(20);
+const LOCK_STALE: Duration = Duration::from_secs(60);
 const LOCK_WAIT: Duration = Duration::from_secs(5);
+const REFRESH_DEADLINE: Duration = Duration::from_secs(25);
 
 pub(crate) fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
@@ -68,28 +69,32 @@ fn load_config() -> Result<GuiConfigFile, String> {
 }
 
 /// One CLI refreshes at a time; the others wait briefly and then read the fresh file.
+#[derive(Debug)]
 pub(super) struct RefreshLock(PathBuf);
 
 impl RefreshLock {
-    pub(super) fn acquire(dir: &Path) -> Option<Self> {
+    pub(super) fn acquire(dir: &Path) -> Result<Self, LockAcquireError> {
         let path = dir.join(LOCK_FILE);
         for _ in 0..2 {
             match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(_) => return Some(Self(path)),
+                Ok(_) => return Ok(Self(path)),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     let age = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
                     if age.is_some_and(|age| age > LOCK_STALE) {
                         let _ = std::fs::remove_file(&path);
                         continue;
                     }
-                    return None;
+                    return Err(LockAcquireError::Held);
                 }
-                Err(_) => return None,
+                Err(_) => return Err(LockAcquireError::Unavailable),
             }
         }
-        None
+        Err(LockAcquireError::Unavailable)
     }
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum LockAcquireError { Held, Unavailable }
 
 impl Drop for RefreshLock {
     fn drop(&mut self) {
@@ -99,23 +104,22 @@ impl Drop for RefreshLock {
 
 pub(super) fn refresh_core(config: &GuiConfigFile, dir: &Path, origin: &str, cached: Option<CorePart>) -> Option<CorePart> {
     if std::fs::create_dir_all(dir).is_err() {
-        return cached;
+        return Some(refresh_without_cache(config, origin, cached.as_ref()));
     }
     match RefreshLock::acquire(dir) {
-        Some(_lock) => {
+        Ok(_lock) => {
             // A caller that read the cache just before another finished its refresh must not ask the core again.
             if let Some(fresh) = read_part::<CorePart>(dir, CORE_FILE).filter(|p| p.origin == origin && is_fresh(p, now_ms())) {
                 return Some(fresh);
             }
-            let now = now_ms();
-            let part = tauri::async_runtime::block_on(refresh::refresh(config, origin, cached.as_ref(), now));
+            let part = refresh_without_cache(config, origin, cached.as_ref());
             if let Ok(bytes) = serde_json::to_vec(&part) {
                 // Failing to cache costs only the next caller a round trip.
                 let _ = crate::write_private_bytes_atomically(&dir.join(CORE_FILE), &bytes);
             }
             Some(part)
         }
-        None => {
+        Err(LockAcquireError::Held) => {
             // Someone else is refreshing: wait for their file instead of asking the core again.
             let started = std::time::Instant::now();
             while started.elapsed() < LOCK_WAIT && dir.join(LOCK_FILE).exists() {
@@ -123,7 +127,28 @@ pub(super) fn refresh_core(config: &GuiConfigFile, dir: &Path, origin: &str, cac
             }
             read_part::<CorePart>(dir, CORE_FILE).filter(|part| part.origin == origin).or(cached)
         }
+        Err(LockAcquireError::Unavailable) => {
+            // A read-only or otherwise unwritable cache must not silently pin stale core state.
+            Some(refresh_without_cache(config, origin, cached.as_ref()))
+        }
     }
+}
+
+fn refresh_without_cache(config: &GuiConfigFile, origin: &str, cached: Option<&CorePart>) -> CorePart {
+    let now = now_ms();
+    tauri::async_runtime::block_on(async {
+        match tokio::time::timeout(REFRESH_DEADLINE, refresh::refresh(config, origin, cached, now)).await {
+            Ok(part) => part,
+            Err(_) => {
+                let mut part = cached.cloned().unwrap_or_default();
+                part.origin = origin.to_string();
+                part.checked_at_ms = now;
+                part.up = false;
+                part.error = "core refresh timed out".to_string();
+                part
+            }
+        }
+    })
 }
 
 #[cfg(windows)]
@@ -183,8 +208,8 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
     }
     let dir = match super::agent_dir() {
         Ok(dir) => dir,
-        Err(error) => {
-            eprintln!("cpa-brief: {error}");
+        Err(_) => {
+            eprintln!("cpa-brief: briefing cache is unavailable");
             return 1;
         }
     };
@@ -196,7 +221,8 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
         .map(|connection| connection.management_origin);
     let mode = match config.as_ref().map(|config| config.connection_mode) {
         Ok(CoreConnectionMode::Remote) => "remote",
-        _ => "local",
+        Ok(CoreConnectionMode::Local) => "local",
+        Err(_) => "unknown",
     };
     let for_origin = |part: Option<QuotaPart>| part.filter(|part| origin.as_ref().map_or(true, |o| *o == part.origin));
     let quota = for_origin(read_part::<QuotaPart>(&dir, QUOTA_FILE));
@@ -208,10 +234,7 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
         }
     }
     if quota.is_none() && !core.as_ref().is_some_and(|part| part.ok_at_ms > 0) {
-        let reason = match &config {
-            Err(error) => error.clone(),
-            Ok(_) => core.as_ref().map(|part| part.error.clone()).filter(|e| !e.is_empty()).unwrap_or_default(),
-        };
+        let reason = if config.is_err() { "saved settings are unavailable" } else { "core could not be refreshed" };
         let detail = if reason.is_empty() { String::new() } else { format!(" ({reason})") };
         eprintln!(
             "cpa-brief: no briefing data yet{detail}. Start EasyCLIProxyAPI and open Overview or Quota once so it can read the quota."
