@@ -1878,7 +1878,8 @@ fn fetch_release_rejects_a_hostile_version_before_building_any_url() {
             VersionDownloadCandidate::builtin(VersionDownloadSource::Github),
             &[],
         ))
-        .unwrap_err();
+        .err()
+        .expect("hostile version must be rejected");
         assert!(error.contains("Invalid kernel version"), "{error}");
     }
     let (release, _) = tauri::async_runtime::block_on(fetch_release(
