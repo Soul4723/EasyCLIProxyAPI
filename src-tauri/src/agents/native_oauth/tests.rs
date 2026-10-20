@@ -764,6 +764,26 @@ fn remote_switches_reject_a_configuration_written_for_another_target_without_wri
     assert!(switch_codex_remote_compaction(&other.0, 8317, true).is_err());
 }
 
+#[test]
+fn codex_tls_origin_match_normalizes_default_https_ports() {
+    assert!(codex_client_origin_matches("https://codex.example/v1", "https://codex.example:443"));
+    assert!(codex_client_origin_matches("https://codex.example:443/v1", "https://codex.example"));
+    assert!(!codex_client_origin_matches("https://codex.example:444/v1", "https://codex.example"));
+}
+
+#[test]
+fn codex_tls_origin_match_normalizes_ipv6_literals() {
+    assert!(codex_client_origin_matches("https://[::1]/v1", "https://[0:0:0:0:0:0:0:1]:443"));
+    assert!(!codex_client_origin_matches("https://[::2]/v1", "https://[::1]"));
+}
+
+#[test]
+fn codex_tls_origin_match_normalizes_host_case_but_not_other_origins() {
+    assert!(codex_client_origin_matches("HTTPS://CODEX.EXAMPLE/v1", "https://codex.example:443"));
+    assert!(!codex_client_origin_matches("https://codex.example.evil.test/v1", "https://codex.example"));
+    assert!(!codex_client_origin_matches("http://codex.example/v1", "https://codex.example"));
+}
+
 #[tokio::test]
 async fn remote_openai_proxy_auth_check_uses_the_remote_origin_and_rejects_other_targets() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};

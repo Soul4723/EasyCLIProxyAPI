@@ -145,9 +145,7 @@ async fn validate_codex_openai_proxy_auth(
         auth.get("OPENAI_API_KEY").and_then(serde_json::Value::as_str)
     }.filter(|token| !token.trim().is_empty()).ok_or("Missing Codex credentials")?;
     let strict;
-    let client = if reqwest::Url::parse(base).is_ok_and(|url| {
-        url.origin().ascii_serialization().eq_ignore_ascii_case(target.client_origin().trim_end_matches('/'))
-    }) { client } else {
+    let client = if codex_client_origin_matches(base, &target.client_origin()) { client } else {
         strict = agent_catalog_http_client_with_tls(target, false)?;
         &strict
     };
@@ -163,6 +161,14 @@ async fn validate_codex_openai_proxy_auth(
         return Err("CPA_CODEX_OAUTH_AUTH_UNSUPPORTED".into());
     }
     Err(format!("CPA authentication check failed (HTTP {})", status.as_u16()))
+}
+
+fn codex_client_origin_matches(base: &str, target_origin: &str) -> bool {
+    let Ok(base) = reqwest::Url::parse(base) else { return false; };
+    let Ok(target) = reqwest::Url::parse(target_origin) else { return false; };
+    matches!(base.scheme(), "http" | "https")
+        && matches!(target.scheme(), "http" | "https")
+        && base.origin() == target.origin()
 }
 
 #[tauri::command]
