@@ -2,6 +2,15 @@ use super::support::*;
 use super::*;
 
 #[test]
+fn successful_local_start_and_stop_invalidate_usage_source_metadata() {
+    for _lifecycle in ["start", "stop"] {
+        let before = crate::usage::sources_cache_generation_for_test();
+        crate::usage::invalidate_sources_cache_after_success(Ok(())).unwrap();
+        assert!(crate::usage::sources_cache_generation_for_test() > before);
+    }
+}
+
+#[test]
 fn archived_failed_rollback_survives_a_successful_retry_without_installed_binary() {
     let root = agent_test_home("archive-failed-rollback-retry");
     let install = root.join("cpa-core");

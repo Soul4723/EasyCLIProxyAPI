@@ -303,6 +303,7 @@ pub(crate) fn replace_external_target<R: tauri::Runtime>(app: &tauri::AppHandle<
 
 pub(crate) fn invalidate_target<R: tauri::Runtime>(app: &tauri::AppHandle<R>, revision: u64) -> Result<(), String> {
     use tauri::Manager;
+    crate::usage::invalidate_sources_cache();
     app.state::<crate::AgentConfigStatusCache>().clear()?;
     app.state::<crate::CoreProcessState>().set_starting(false);
     let _ = app.emit(CONNECTION_CHANGED_EVENT, ConnectionChangedPayload { revision });

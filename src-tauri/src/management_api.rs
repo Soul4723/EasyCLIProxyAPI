@@ -215,6 +215,7 @@ async fn management_request_inner(
         return Err("Invalid management API path".to_string());
     }
     let read_only = is_read_only_request(&method, path);
+    let invalidates_sources = method != reqwest::Method::GET;
 
     match (method.as_str(), path.trim_start_matches('/')) {
         ("GET", "oauth/status") | ("DELETE", "oauth/session") => {
@@ -259,7 +260,11 @@ async fn management_request_inner(
         .map_err(|err| format_management_request_error("Management API request failed", &err))?;
     let value = read_management_value(response).await;
     gui_config_state.ensure_target(&config)?;
-    value
+    if invalidates_sources {
+        crate::usage::invalidate_sources_cache_after_success(value)
+    } else {
+        value
+    }
 }
 
 // `requests/api-call` is the core's proxy to a provider's own API (quota, model lists): it
@@ -330,7 +335,7 @@ async fn import_vertex_credential_for_target(
         .map_err(|error| format_management_request_error("Failed to import Vertex credential", &error))?;
     let value = read_management_value(response).await;
     gui_config_state.ensure_target(&config)?;
-    value
+    crate::usage::invalidate_sources_cache_after_success(value)
 }
 
 #[tauri::command]
@@ -381,7 +386,7 @@ async fn upload_auth_file_for_target(
         .map_err(|err| format_management_request_error("Failed to upload credential file", &err))?;
     let value = read_management_value(response).await;
     gui_config_state.ensure_target(&config)?;
-    value
+    crate::usage::invalidate_sources_cache_after_success(value)
 }
 
 #[tauri::command]
@@ -551,14 +556,18 @@ pub(crate) async fn get_oauth_status(
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "wait".to_string());
-    Ok(OAuthStatusResult {
+    let result = OAuthStatusResult {
         status,
         error: payload
             .error
             .or(payload.error_message)
             .map(|value| if config.connection_mode == super::CoreConnectionMode::Remote { "Remote OAuth authorization failed; start authorization again".to_string() } else { value.trim().to_string() })
             .filter(|value| !value.is_empty()),
-    })
+    };
+    if matches!(result.status.as_str(), "ok" | "success") {
+        return crate::usage::invalidate_sources_cache_after_success(Ok(result));
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -602,7 +611,7 @@ pub(crate) async fn submit_oauth_callback(
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
-    Ok(())
+    crate::usage::invalidate_sources_cache_after_success(Ok(()))
 }
 
 pub(crate) fn management_http_client_for(config: &GuiConfigFile) -> Result<reqwest::Client, String> {
