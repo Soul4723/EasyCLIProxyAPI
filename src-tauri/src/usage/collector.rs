@@ -2,6 +2,7 @@ use super::*;
 
 impl UsageCollectorState {
     pub(crate) fn request_readiness_check(&self) {
+        self.readiness_generation.fetch_add(1, Ordering::AcqRel);
         self.readiness_requested.store(true, Ordering::Release);
         self.readiness_notify.notify_one();
     }
@@ -10,6 +11,12 @@ impl UsageCollectorState {
     /// request. The request itself is left for the loop to consume, and a stale
     /// notification without a pending request does not end the wait.
     pub(super) async fn wait_or_readiness(&self, token: &CancellationToken, seconds: u64) {
+        self.wait_for_request_after(token, seconds, 0).await;
+    }
+
+    /// Like `wait_or_readiness`, but a pending request ends the wait only if it
+    /// is newer than generation `seen`.
+    async fn wait_for_request_after(&self, token: &CancellationToken, seconds: u64, seen: u64) {
         let sleep = tokio::time::sleep(Duration::from_secs(seconds));
         tokio::pin!(sleep);
         loop {
@@ -17,7 +24,9 @@ impl UsageCollectorState {
                 _ = token.cancelled() => return,
                 _ = &mut sleep => return,
                 _ = self.readiness_notify.notified() => {
-                    if self.readiness_requested.load(Ordering::Acquire) {
+                    if self.readiness_requested.load(Ordering::Acquire)
+                        && self.readiness_generation.load(Ordering::Acquire) > seen
+                    {
                         return;
                     }
                 }
@@ -26,22 +35,21 @@ impl UsageCollectorState {
     }
 
     /// Retry wait for a failed loop prerequisite (config, storage root, inbox,
-    /// retained batch). A pending readiness request cuts the first such wait
-    /// short, since its probe cannot run until the prerequisite passes. The
-    /// request stays pending for the loop to consume after that, so `woken`
-    /// records the early wake and later failures back off normally.
+    /// retained batch). A pending readiness request cuts the wait short, since
+    /// its probe cannot run until the prerequisite passes. The request stays
+    /// pending for the loop to consume after that, so `woken_for` records the
+    /// generation already woken for: a persistent failure backs off normally,
+    /// and only a newer request ends the wait early again.
     pub(super) async fn wait_prerequisite_retry(
         &self,
         token: &CancellationToken,
         seconds: u64,
-        woken: &mut bool,
+        woken_for: &mut u64,
     ) {
-        if *woken {
-            wait_or_cancel(token, seconds).await;
-            return;
+        self.wait_for_request_after(token, seconds, *woken_for).await;
+        if self.readiness_requested.load(Ordering::Acquire) {
+            *woken_for = self.readiness_generation.load(Ordering::Acquire);
         }
-        self.wait_or_readiness(token, seconds).await;
-        *woken = self.readiness_requested.load(Ordering::Acquire);
     }
 
     /// Waits out an idle remote poll. A readiness request ends the wait and
@@ -398,9 +406,9 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
     let mut remote_ready_error: Option<String> = None;
     let mut active_connection: Option<String> = None;
     let mut pending_remote_batch: Option<PendingRemoteUsageBatch> = None;
-    // Set once a pending readiness request has cut a prerequisite retry wait
+    // Newest readiness request generation that has cut a prerequisite retry wait
     // short, so a persistent failure backs off normally instead of spinning.
-    let mut prerequisite_woken = false;
+    let mut prerequisite_woken_for = 0_u64;
     loop {
         if token.is_cancelled() {
             return;
@@ -421,14 +429,14 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                     retry_seconds = (retry_seconds * 2).min(10);
                 }
             }
-            wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken).await;
+            wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken_for).await;
             continue;
         }
         let config = match app.state::<GuiConfigState>().snapshot() {
             Ok(config) => config,
             Err(error) => {
                 set_collector_error(&app, error);
-                wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken).await;
+                wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken_for).await;
                 retry_seconds = (retry_seconds * 2).min(10);
                 continue;
             }
@@ -441,7 +449,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
             Ok(root) => root,
             Err(error) => {
                 set_collector_error(&app, error);
-                wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken).await;
+                wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken_for).await;
                 retry_seconds = (retry_seconds * 2).min(10);
                 continue;
             }
@@ -503,7 +511,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                 }
                 Err(error) => {
                     set_collector_error(&app, error);
-                    wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken).await;
+                    wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken_for).await;
                     retry_seconds = (retry_seconds * 2).min(10);
                     continue;
                 }
@@ -516,7 +524,6 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
             readiness.reset();
             next_core_check_at = tokio::time::Instant::now();
             empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
-            prerequisite_woken = false;
         }
         if tokio::time::Instant::now() >= next_core_check_at {
             if remote {
@@ -888,10 +895,10 @@ pub(super) async fn wait_prerequisite_retry(
     app: &tauri::AppHandle,
     token: &CancellationToken,
     seconds: u64,
-    woken: &mut bool,
+    woken_for: &mut u64,
 ) {
     app.state::<UsageCollectorState>()
-        .wait_prerequisite_retry(token, seconds, woken)
+        .wait_prerequisite_retry(token, seconds, woken_for)
         .await;
 }
 

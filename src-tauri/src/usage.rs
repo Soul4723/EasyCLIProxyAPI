@@ -41,7 +41,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Component, Path, PathBuf},
-    sync::{atomic::{AtomicBool, Ordering}, LazyLock, Mutex},
+    sync::{atomic::{AtomicBool, AtomicU64, Ordering}, LazyLock, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, Manager};
@@ -122,6 +122,7 @@ where
 
 pub(crate) struct UsageCollectorState {
     readiness_requested: AtomicBool,
+    readiness_generation: AtomicU64,
     readiness_notify: tokio::sync::Notify,
     inner: Mutex<UsageCollectorInner>,
 }
@@ -183,6 +184,7 @@ impl Default for UsageCollectorState {
     fn default() -> Self {
         Self {
             readiness_requested: AtomicBool::new(false),
+            readiness_generation: AtomicU64::new(0),
             readiness_notify: tokio::sync::Notify::new(),
             inner: Mutex::new(UsageCollectorInner {
                 token: None,

@@ -51,13 +51,13 @@
     async fn pending_request_cuts_a_failed_prerequisite_wait_short_and_stays_pending() {
         let state = UsageCollectorState::default();
         let token = CancellationToken::new();
-        let mut woken = false;
+        let mut woken_for = 0_u64;
         let started = tokio::time::Instant::now();
         // A request arrives, the config check fails once and enters its retry wait.
         state.request_readiness_check();
-        state.wait_prerequisite_retry(&token, 10, &mut woken).await;
+        state.wait_prerequisite_retry(&token, 10, &mut woken_for).await;
         assert!(started.elapsed() < Duration::from_secs(1));
-        assert!(woken);
+        assert_eq!(woken_for, 1);
         // The retry succeeds; the loop consumes the request and probes at once.
         assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
         assert!(started.elapsed() < Duration::from_secs(1));
@@ -67,14 +67,14 @@
     async fn persistent_prerequisite_failure_with_a_pending_request_backs_off_without_spinning() {
         let state = UsageCollectorState::default();
         let token = CancellationToken::new();
-        let mut woken = false;
+        let mut woken_for = 0_u64;
         let started = tokio::time::Instant::now();
         state.request_readiness_check();
-        state.wait_prerequisite_retry(&token, 1, &mut woken).await;
+        state.wait_prerequisite_retry(&token, 1, &mut woken_for).await;
         assert!(started.elapsed() < Duration::from_secs(1));
         let mut expected = Duration::ZERO;
         for seconds in [2, 4, 8] {
-            state.wait_prerequisite_retry(&token, seconds, &mut woken).await;
+            state.wait_prerequisite_retry(&token, seconds, &mut woken_for).await;
             expected += Duration::from_secs(seconds);
             assert!(started.elapsed() >= expected);
             assert!(started.elapsed() < expected + Duration::from_secs(1));
@@ -84,12 +84,41 @@
     }
 
     #[tokio::test(start_paused = true)]
+    async fn new_request_during_a_prerequisite_backoff_ends_the_wait_once() {
+        let state = std::sync::Arc::new(UsageCollectorState::default());
+        let token = CancellationToken::new();
+        let mut woken_for = 0_u64;
+        let started = tokio::time::Instant::now();
+        // Request 1 wakes the first failed wait once; the backoff then continues.
+        state.request_readiness_check();
+        state.wait_prerequisite_retry(&token, 1, &mut woken_for).await;
+        assert_eq!(woken_for, 1);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        let waiter = {
+            let state = state.clone();
+            tokio::spawn(async move {
+                state.wait_prerequisite_retry(&token, 8, &mut woken_for).await;
+                woken_for
+            })
+        };
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(3)).await;
+        assert!(!waiter.is_finished());
+        // Request 2 arrives mid-backoff and ends it at once.
+        state.request_readiness_check();
+        assert_eq!(waiter.await.unwrap(), 2);
+        assert!(started.elapsed() < Duration::from_secs(4));
+        // The prerequisites pass and the loop consumes the request to probe.
+        assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn prerequisite_wait_without_a_request_is_not_marked_woken() {
         let state = UsageCollectorState::default();
         let token = CancellationToken::new();
-        let mut woken = false;
-        state.wait_prerequisite_retry(&token, 2, &mut woken).await;
-        assert!(!woken);
+        let mut woken_for = 0_u64;
+        state.wait_prerequisite_retry(&token, 2, &mut woken_for).await;
+        assert_eq!(woken_for, 0);
     }
 
     #[tokio::test(start_paused = true)]
