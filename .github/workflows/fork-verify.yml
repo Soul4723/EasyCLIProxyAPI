@@ -491,7 +491,13 @@ jobs:
           restart_check = r'''if (mode === 'local' && args.includes('--restart-check')) {
           const managementRead = async which => {
             const marker = `RESTART_CHECK management read ${which} restart`;
-            send(`window.__TAURI_INTERNALS__.invoke('get_management_target_revision').then(r=>window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'credentials',expectedRevision:r}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
+            const revisionPrefix = `RESTART_REVISION ${which} `;
+            send(`window.__TAURI_INTERNALS__.invoke('get_management_target_revision').then(r=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(revisionPrefix)}+r})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(revisionPrefix + 'ERROR ')}+String(e)}));`);
+            const revisionReport = await waitReport(revisionPrefix, 5000);
+            if (revisionReport.includes('ERROR')) throw Error(revisionReport);
+            const revision = Number(revisionReport.slice(revisionPrefix.length));
+            if (!Number.isSafeInteger(revision) || revision < 0) throw Error('Invalid management target revision');
+            send(`window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'credentials',expectedRevision:${revision}}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
             const result = await waitReport(marker, 5000);
             if (result.includes('ERROR')) throw Error(result);
           };
