@@ -16,6 +16,33 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
   };
   const noErrors = (page, label) => assert.deepEqual(page.errors, [], `${label}: console/page errors`);
 
+  // A failed section import is contained to its page, and Retry creates a fresh lazy component.
+  console.log('lazy page import retry');
+  {
+    const page = await newPage();
+    let rejectImport = true;
+    let rejectedImports = 0;
+    await page.route('**/src/sections/plugins/index.tsx**', async (request) => {
+      if (rejectImport) {
+        rejectedImports++;
+        await request.abort('failed');
+      } else {
+        await request.continue();
+      }
+    });
+    await h.openApp(page, base, { path: '/overview' });
+    await h.waitForCoreStatus(page);
+    await h.clickNav(page, 'plugins');
+    const alert = page.locator('.ec-page-body [role="alert"]');
+    await alert.getByRole('button', { name: /retry/i }).waitFor();
+    assert.equal(await page.locator('.ec-app').getAttribute('data-page'), 'plugins', 'the shell remains on the selected section');
+    assert.ok(rejectedImports > 0, 'the section import was rejected');
+    rejectImport = false;
+    await alert.getByRole('button', { name: /retry/i }).click();
+    await waitForTitle(page, TITLES.plugins);
+    await page.context().close();
+  }
+
   // ---------------------------------------------------------------- deep links
   console.log('deep links');
   const multipleH1 = new Set();

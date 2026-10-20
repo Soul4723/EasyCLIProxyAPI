@@ -1,8 +1,9 @@
 import { Network } from 'lucide-react';
 import type { SectionRoute } from '../../shell/types';
-import { ProvidersSection } from './index';
+import { lazySection } from '../../shell/lazySection';
 import { providersSubs } from './subs';
 
+const section = lazySection(() => import('./index').then(({ ProvidersSection }) => ({ default: ProvidersSection })));
 
 export const providersRoute: SectionRoute = {
   id: 'providers',
@@ -10,5 +11,7 @@ export const providersRoute: SectionRoute = {
   icon: Network,
   group: 'main',
   subs: providersSubs,
-  Page: ProvidersSection,
+  Page: section.Page,
+  preload: section.preload,
+  retry: section.retry,
 };
