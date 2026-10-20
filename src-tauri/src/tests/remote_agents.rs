@@ -99,7 +99,7 @@ async fn save_codex_model_catalog_editor_command_fences_write_and_keeps_local_be
             ).await.unwrap();
             assert!(path.is_file(), "current target should persist catalog customizations: {name}");
         } else {
-            assert_eq!(result.unwrap_err(), expected_error);
+            assert_eq!(result.err().unwrap(), expected_error);
             assert!(!path.exists(), "stale target must not create customization file");
         }
         fs::remove_dir_all(home).unwrap();
