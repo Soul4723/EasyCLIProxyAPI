@@ -2428,7 +2428,7 @@ mod saved_config_tests {
     fn read_only_loading_refuses_to_invent_a_connection_when_nothing_is_saved() {
         let root = std::env::temp_dir().join(format!("cpa-native-readonly-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
-        let error = load_saved_gui_config_read_only_at(&root.join("config.toml"), &root.join("legacy.yaml")).unwrap_err();
+        let error = load_saved_gui_config_read_only_at(&root.join("config.toml"), &root.join("legacy.yaml")).err().unwrap();
         assert!(error.contains("no saved settings"), "{error}");
         fs::write(root.join("config.toml"), "port = 4242\n").unwrap();
         let loaded = load_saved_gui_config_read_only_at(&root.join("config.toml"), &root.join("legacy.yaml")).unwrap();
