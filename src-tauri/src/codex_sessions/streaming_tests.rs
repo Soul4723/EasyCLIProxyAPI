@@ -357,7 +357,7 @@ fn repair_output_is_byte_identical_and_untouched_files_are_not_rewritten() {
         .count();
     assert!(expected_changes >= 10);
 
-    let result = repair_codex_session_metadata_from_home(&root, "cpa-gui", |_| {}).unwrap();
+    let result = repair_codex_session_metadata_from_home(&root, "cpa-gui", false, |_| {}).unwrap();
     assert_eq!(result.changed_rollout_files, expected_changes);
     assert!(result.skipped_locked_files.is_empty());
     assert!(result.warnings.is_empty(), "{:?}", result.warnings);
@@ -392,7 +392,7 @@ fn repair_output_is_byte_identical_and_untouched_files_are_not_rewritten() {
     }
 
     // A second run has nothing to do and leaves every rollout (and the backups) alone.
-    let again = repair_codex_session_metadata_from_home(&root, "cpa-gui", |_| {}).unwrap();
+    let again = repair_codex_session_metadata_from_home(&root, "cpa-gui", false, |_| {}).unwrap();
     assert_eq!(again.changed_rollout_files, 0);
     assert_eq!(again.backup_path, None);
     fs::remove_dir_all(root).unwrap();
@@ -730,7 +730,7 @@ fn perf_codex_sessions_repair_and_index_peak_rss() {
     );
 
     let result = log_peak("repair (streaming)", || {
-        repair_codex_session_metadata_from_home(&streamed_root, "cpa-gui", |_| {}).unwrap()
+        repair_codex_session_metadata_from_home(&streamed_root, "cpa-gui", false, |_| {}).unwrap()
     });
     assert_eq!(result.changed_rollout_files, files.div_ceil(2));
     let ids = log_peak("index scan cold (streaming)", || {

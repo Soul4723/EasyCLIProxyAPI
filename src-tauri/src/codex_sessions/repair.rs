@@ -22,6 +22,7 @@ pub(super) fn resolve_current_codex_provider(codex_home: &Path) -> Result<String
 pub(super) fn repair_codex_session_metadata_from_home<F>(
     codex_home: &Path,
     target_provider: &str,
+    require_stopped_app: bool,
     mut progress: F,
 ) -> Result<CodexSessionRepairResult, String>
 where
@@ -34,6 +35,11 @@ where
     let _guard = CODEX_SESSION_WRITE_LOCK
         .lock()
         .map_err(|_| "Codex session write lock is poisoned".to_string())?;
+    // A running Codex appends to rollouts; an append between a rewrite's last read and its rename
+    // would be lost.
+    if require_stopped_app {
+        ensure_codex_apps_stopped("sync conversations")?;
+    }
     progress(CodexSessionRepairProgress {
         phase: "scanning".to_string(),
         percent: 10,
@@ -105,6 +111,10 @@ where
             });
             Some(directory)
         };
+    // Scanning and backing up take a while, so Codex may have been started since the first check.
+    if require_stopped_app {
+        ensure_codex_apps_stopped("sync conversations")?;
+    }
     progress(CodexSessionRepairProgress {
         phase: "rewriting".to_string(),
         percent: 60,
@@ -145,22 +155,55 @@ where
         processed: 0,
         total: database_paths.len(),
     });
-    let sqlite_rows_updated =
-        match apply_sqlite_repairs(&database_paths, &repairs, &projectless, target_provider) {
-            Ok((updated, database_lock_warnings)) => {
-                warnings.extend(database_lock_warnings);
-                updated
-            }
-            Err(error) => {
-                let note = rollback_note(
-                    &rollback_rollouts(&written, backup_path.as_deref()),
-                    backup_path.as_deref(),
-                );
-                return Err(format!(
-                    "Failed to update session database; rollout rollback attempted and backup retained: {error}{note}"
-                ));
-            }
-        };
+    // A rollout that was skipped (locked, changed, or without a backup) keeps its old content, so
+    // its database rows must keep matching it: only written rollouts and ones that needed no file
+    // change feed the database update.
+    let written_paths = written
+        .iter()
+        .map(|repair| repair.path.as_path())
+        .collect::<HashSet<_>>();
+    let skipped_thread_ids = repairs
+        .iter()
+        .filter(|repair| repair.changed && !written_paths.contains(repair.path.as_path()))
+        .filter_map(|repair| repair.thread_id.clone())
+        .collect::<HashSet<_>>();
+    if !skipped_thread_ids.is_empty() {
+        warnings.push(format!(
+            "Database rows of {} skipped session(s) were left unchanged to match their unchanged rollouts",
+            skipped_thread_ids.len()
+        ));
+    }
+    let applied_repairs = repairs
+        .iter()
+        .filter(|repair| {
+            repair
+                .thread_id
+                .as_ref()
+                .is_none_or(|id| !skipped_thread_ids.contains(id))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let sqlite_rows_updated = match apply_sqlite_repairs(
+        &database_paths,
+        &applied_repairs,
+        &skipped_thread_ids,
+        &projectless,
+        target_provider,
+    ) {
+        Ok((updated, database_lock_warnings)) => {
+            warnings.extend(database_lock_warnings);
+            updated
+        }
+        Err(error) => {
+            let note = rollback_note(
+                &rollback_rollouts(&written, backup_path.as_deref()),
+                backup_path.as_deref(),
+            );
+            return Err(format!(
+                "Failed to update session database; rollout rollback attempted and backup retained: {error}{note}"
+            ));
+        }
+    };
     if backup_path.is_some() {
         prune_repair_backups(codex_home)?;
     }
@@ -579,9 +622,12 @@ fn count_sqlite_repairs(
     Ok((total, warnings))
 }
 
+/// `repairs` are the rollouts whose rows may be updated; rows of `skipped_thread_ids` are left
+/// alone, including by the provider update that otherwise covers every row.
 fn apply_sqlite_repairs(
     paths: &[PathBuf],
     repairs: &[RolloutRepair],
+    skipped_thread_ids: &HashSet<String>,
     projectless: &HashSet<String>,
     target_provider: &str,
 ) -> Result<(usize, Vec<String>), String> {
@@ -600,12 +646,33 @@ fn apply_sqlite_repairs(
                 .map_err(|error| format!("Failed to begin historical session restoration transaction {}: {error}", path.display()))?;
             let mut updated = 0usize;
             if columns.contains("model_provider") {
-                updated += transaction
-                    .execute(
-                        "UPDATE threads SET model_provider = ?1 WHERE COALESCE(model_provider, '') <> ?1",
-                        [target_provider],
-                    )
-                    .map_err(|error| format!("Failed to update session provider: {error}"))?;
+                if skipped_thread_ids.is_empty() {
+                    updated += transaction
+                        .execute(
+                            "UPDATE threads SET model_provider = ?1 WHERE COALESCE(model_provider, '') <> ?1",
+                            [target_provider],
+                        )
+                        .map_err(|error| format!("Failed to update session provider: {error}"))?;
+                } else if columns.contains("id") {
+                    // A temp table has no bound on its size, unlike a `NOT IN (?, ...)` list.
+                    transaction
+                        .execute_batch(
+                            "CREATE TEMP TABLE IF NOT EXISTS skipped_threads (id TEXT PRIMARY KEY);\n\
+                             DELETE FROM temp.skipped_threads;",
+                        )
+                        .map_err(|error| format!("Failed to prepare skipped sessions: {error}"))?;
+                    for id in skipped_thread_ids {
+                        transaction
+                            .execute("INSERT OR IGNORE INTO temp.skipped_threads VALUES (?1)", [id])
+                            .map_err(|error| format!("Failed to record skipped session: {error}"))?;
+                    }
+                    updated += transaction
+                        .execute(
+                            "UPDATE threads SET model_provider = ?1 WHERE COALESCE(model_provider, '') <> ?1 AND id NOT IN (SELECT id FROM temp.skipped_threads)",
+                            [target_provider],
+                        )
+                        .map_err(|error| format!("Failed to update session provider: {error}"))?;
+                }
             }
             if columns.contains("has_user_event") {
                 for id in &user_event_ids {
