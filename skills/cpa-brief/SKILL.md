@@ -46,7 +46,7 @@ guide: swarm=claude light=codex(5h=8%~20m)
   guide: light=codex(5h=35%~20m) avoid=claude
   ```
 
-  Output → decision: use one serial worker on Codex and smaller models; do no work that only Claude can do until its reset. Avoid its cooled `gpt-6-luna` model too.
+  Output → decision: use one serial worker on Codex and smaller models; do no work that only Claude can do until its reset. Also skip `gpt-6-luna` until its cooldown clears.
 
 ## Failure modes
 
