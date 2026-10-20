@@ -19,7 +19,7 @@ tests/
 Areas follow the app: `overview`, `providers`, `quota`, `usage`, `agents`,
 `plugins`, `settings`, plus `shell`, `ui-kit`, `services`, `platform` and `mocks`.
 Section-specific service tests live with their section; cross-section services live
-in `services`. Rust tests remain in `src-tauri/`.
+in `services`. Rust tests remain in `src-tauri/`: crate-level tests that span modules live in `src-tauri/src/tests/` (declared by `src-tauri/src/tests.rs`), while a split module keeps its unit tests in a sibling `tests.rs` (for example `usage/tests.rs`) and small files use an inline `mod tests`; run them with `(cd src-tauri && cargo test --bin cpa-gui)`.
 
 ## Run
 

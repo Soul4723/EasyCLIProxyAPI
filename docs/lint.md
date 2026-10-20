@@ -5,7 +5,7 @@
 `// biome-ignore <rule>: <reason>` line.
 
 The warnings are rules that need a behaviour-aware review, so they were downgraded from error to
-`warn` rather than fixed mechanically. Counts below are from the lint run on this branch.
+`warn` rather than fixed mechanically. Counts below were measured on `dev` at 084f939 (PR #91, 2026-10-19).
 
 | Rule | Warnings | Why it is not fixed mechanically |
 | --- | ---: | --- |
@@ -39,5 +39,5 @@ unused imports, variables and parameters, `useConst`, `noImplicitAnyLet`, `noCom
 
 ## Possible bugs
 
-None identified. The ~40 `useExhaustiveDependencies` "does not specify its dependency" warnings in
-`src/` were counted, not individually triaged; read each against its effect before changing it.
+None identified. The 69 `useExhaustiveDependencies` warnings (all in `src/`, none in `tests/` or `scripts/`) were
+counted, not individually triaged; read each against its effect before changing it.
