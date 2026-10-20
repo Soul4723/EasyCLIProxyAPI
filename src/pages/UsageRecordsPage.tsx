@@ -182,7 +182,7 @@ const formatUsd = (amount: number) => {
 const filterOptions = (items: UsageCategory[]) => items.filter((item) => item.key && item.label);
 
 export function UsageRecordsPage() {
-  const { t } = useI18n();
+  const { t, formatDate } = useI18n();
   const { status: coreStatus } = useCoreRuntime();
   const privacy = usePrivacyMask();
   const [activeTab, setActiveTab] = useState<UsageTab>(loadTab);
@@ -407,7 +407,7 @@ export function UsageRecordsPage() {
     ? new Date(status.lastCollectedAt)
     : null;
   const lastCollectedLabel = lastCollectedAt && !Number.isNaN(lastCollectedAt.getTime())
-    ? new Intl.DateTimeFormat(getCurrentLocale(), { dateStyle: 'short', timeStyle: 'short' }).format(lastCollectedAt)
+    ? formatDate(lastCollectedAt, { dateStyle: 'medium' })
     : null;
   const collectorTone = status?.state === 'error' ? 'error' : collecting ? 'success' : '';
   const showInitialLoading =
@@ -521,7 +521,7 @@ export function UsageRecordsPage() {
             <span className="status-dot" />
             <strong>{collectorLabel}</strong>
             <span>{t('usage.longTermRecords', { count: compactNumber(status?.totalRecords ?? 0) })}</span>
-            {lastCollectedLabel ? <span>{t('usage.collector.lastRecord', { time: lastCollectedLabel })}</span> : null}
+            {lastCollectedLabel ? <span>{t('usage.collector.lastCollected', { time: lastCollectedLabel })}</span> : null}
           </div>
           <button
             type="button"

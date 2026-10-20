@@ -681,7 +681,7 @@ export const jaOverrides = {
   'usage.collector.stopped': 'コア停止中 · 収集を一時停止',
   'usage.collector.unavailable': 'コアを利用できません · 収集を一時停止',
   'usage.collector.unknown': 'コアの状態が不明 · 履歴のみ',
-  'usage.collector.lastRecord': '最新レコード {time}',
+  'usage.collector.lastCollected': '最終収集 {time}',
   'usage.longTermRecords': '長期レコード {count} 件',
   'usage.pageLabel': '使用履歴ページ',
   'usage.tab.overview': '概要',

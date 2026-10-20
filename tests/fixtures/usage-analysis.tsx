@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { UsageRecordsPage } from '../../src/pages/UsageRecordsPage';
 import type { UsageCategory } from '../../src/pages/UsageAnalysisView';
 import type { UsageTimelinePoint } from '../../src/services/usageTrend';
@@ -72,6 +73,10 @@ const timeline: UsageTimelinePoint[] = Array.from({ length: records.length ? 36 
 mockIPC(async command => {
   if (command === 'plugin:event|listen') return 1;
   if (command === 'plugin:event|unlisten' || command === 'set_app_locale') return null;
+  if (command === 'get_core_status') return {
+    installed: true, running: true, ready: true, starting: false, managed: true,
+    processId: 42817, currentVersion: '7.3.15', installDir: '', binaryPath: null, message: 'Fixture core is running',
+  };
   if (command === 'get_usage_collector_status') return { state: 'collecting', message: '', lastCollectedAt: null, totalRecords: records.length };
   if (command === 'get_usage_analysis') return analysis;
   if (command === 'get_usage_overview') return {
@@ -87,9 +92,11 @@ mockIPC(async command => {
 
 createRoot(document.getElementById('root')!).render(
   <I18nProvider>
-    <div className="app-shell">
-      <aside className="sidebar" aria-hidden="true" />
-      <div className="workspace"><main className="content"><UsageRecordsPage /></main></div>
-    </div>
+    <CoreRuntimeProvider>
+      <div className="app-shell">
+        <aside className="sidebar" aria-hidden="true" />
+        <div className="workspace"><main className="content"><UsageRecordsPage /></main></div>
+      </div>
+    </CoreRuntimeProvider>
   </I18nProvider>,
 );

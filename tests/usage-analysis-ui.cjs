@@ -9,7 +9,7 @@ const screenshots = path.resolve('.codex/request-log-ui');
 fs.mkdirSync(screenshots, { recursive: true });
 
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true,
+  const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge', headless: true,
     args: ['--no-proxy-server'], ignoreDefaultArgs: ['--hide-scrollbars'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1266, height: 900 }, timezoneId: 'Asia/Shanghai' });

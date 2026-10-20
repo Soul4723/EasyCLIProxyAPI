@@ -22,23 +22,47 @@ const path = require('node:path');
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
 
+    await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=running`);
+    const state = page.locator('.usage-collector-state');
+    const setCore = scenario => page.evaluate(value => window.usageStateFixture.setCore(value), scenario);
+    await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collecting Locally'));
+    assert.equal(await state.getAttribute('data-live'), 'true');
+    assert.doesNotMatch(await state.innerText(), /Last collected/, 'the timestamp is hidden while live');
+    await setCore('stopped');
+    await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Core stopped'));
+    assert.equal(await state.getAttribute('data-live'), 'false');
+    assert.match(await state.innerText(), /Last collected/, 'the timestamp is shown when stopped');
+    await setCore('running');
+    await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collecting Locally'));
+    assert.equal(await state.getAttribute('data-live'), 'true');
+
+    await setCore('unknown');
+    await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Core status unknown'));
+    assert.equal(await state.getAttribute('data-live'), 'false');
+    await setCore('running');
+    await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collecting Locally'));
+
     for (const [scenario, label] of [
-      ['stopped', 'Core stopped · collection paused'],
-      ['unknown', 'Core status unknown · history only'],
+      ['starting', 'Waiting for Core'],
+      ['uninstalled', 'Core unavailable'],
     ]) {
-      await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=${scenario}`);
-      const state = page.locator('.usage-collector-state');
+      await setCore(scenario);
       await page.waitForFunction(expected => document.querySelector('.usage-collector-state')?.textContent?.includes(expected), label);
-      assert.equal(await state.getAttribute('data-live'), 'false', `${scenario} core is never presented as live`);
-      assert.ok((await state.innerText()).includes(label));
-      assert.match(await state.innerText(), /Last record/, 'the most recent collection time is shown when known');
+      assert.equal(await state.getAttribute('data-live'), 'false', `${scenario} is never presented as live`);
     }
 
-    await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=running`);
-    await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collecting Locally'));
-    assert.equal(await page.locator('.usage-collector-state').getAttribute('data-live'), 'true');
+    await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=error`);
+    const errorState = page.locator('.usage-collector-state');
+    await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collection Error'));
+    assert.equal(await errorState.getAttribute('data-live'), 'false', 'collector error is never presented as live');
+
+    await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=zh-CN&core=stopped`);
+    const translatedState = page.locator('.usage-collector-state');
+    await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('内核已停止'));
+    assert.match(await translatedState.innerText(), /内核已停止 · 采集已暂停/);
+    assert.match(await translatedState.innerText(), /上次采集/);
     assert.deepEqual(errors, []);
-    console.log('PASS: stopped, unknown and running core states label stored Usage history honestly.');
+    console.log('PASS: transitions, stopped/unknown/starting/uninstalled/error states, zh-CN labels and collection timestamp visibility verified.');
   } finally {
     await browser?.close();
     await server.close();
