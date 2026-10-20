@@ -8,6 +8,12 @@ function installRenderCounter() {
   const lastProps = new Map();
   const debug = { commits: 0, names: [] };
   const why = {};
+  // Leaf paths where two values differ, to name the time-derived field that made an account change.
+  const leaves = (a, b, path = '') => {
+    if (Object.is(a, b)) return [];
+    if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) return [`${path}=${JSON.stringify(a)}>${JSON.stringify(b)}`];
+    return Object.keys({ ...a, ...b }).flatMap((field) => leaves(a[field], b[field], `${path}.${field}`));
+  };
   const changed = (a, b) => (a && b ? Object.keys({ ...a, ...b }).filter((field) => a[field] !== b[field]) : ['(new)']);
   const MEMO_COMPONENT = 14;
   // The dev transform renames the function inside `const AccountCard = memo(function AccountCard…)` to AccountCard2.
@@ -37,7 +43,7 @@ function installRenderCounter() {
           if (key && last !== props) {
             lastProps.set(key, props);
             seen.add(key);
-            why[key] = [...(why[key] ?? []), `props:${changed(last, props).join('+')} account:${changed(last?.account, props.account).join('+')} ctx:${changed(last?.ctx, props.ctx).join('+')}`];
+            why[key] = [...(why[key] ?? []), `props:${changed(last, props).join('+')} account:${changed(last?.account, props.account).join('+')} ctx:${changed(last?.ctx, props.ctx).join('+')} leaves:${last ? leaves(last.account, props.account).slice(0, 6).join(' ') : ''}`];
           }
         }
         if (fiber.sibling) stack.push(fiber.sibling);
