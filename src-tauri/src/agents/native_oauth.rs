@@ -174,33 +174,70 @@ fn codex_client_origin_matches(base: &str, target_origin: &str) -> bool {
 #[tauri::command]
 pub(crate) async fn set_codex_openai_provider(app: tauri::AppHandle, enabled: bool, expected_revision: u64) -> Result<AgentConfigActionResult, String> {
     let target_state = app.state::<GuiConfigState>();
-    let config = {
-        let _target_operation = target_state.target_operation.clone().try_lock_owned()
-            .map_err(|_| "Core target operation is in progress".to_string())?;
-        ensure_codex_control_revision(target_state.inner(), expected_revision)?;
-        target_state.snapshot()?
-    };
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
-    let directory = codex_configuration_directory(&home);
-    let paths = vec![directory.join("config.toml"), directory.join("auth.json")];
-    let before = config_images(&paths)?;
-    if enabled {
-        let client = agent_catalog_http_client(&config)?;
-        validate_codex_openai_proxy_auth(
-            &client, &config,
-            text(before[0].1.as_deref())?.ok_or("Missing Codex configuration")?,
-            text(before[1].1.as_deref())?.ok_or("Missing Codex credentials")?,
-        ).await?;
-    }
-    let _target_operation = target_state.target_operation.lock().await;
-    ensure_codex_control_revision(target_state.inner(), expected_revision)?;
-    let _guard = AGENT_CONFIG_FILE_LOCK.lock().map_err(|_| "Agent configuration file lock is poisoned")?;
-    if before != config_images(&paths)? {
-        return Err("Codex configuration or credentials changed. Refresh and try again".into());
-    }
-    let result = switch_codex_openai_provider(&home, &config, enabled)?;
+    let result = set_codex_openai_provider_for_target(
+        target_state.inner(), &home, enabled, expected_revision,
+        |config, before| async move {
+            if enabled {
+                let client = agent_catalog_http_client(&config)?;
+                validate_codex_openai_proxy_auth(
+                    &client, &config,
+                    text(before[0].1.as_deref())?.ok_or("Missing Codex configuration")?,
+                    text(before[1].1.as_deref())?.ok_or("Missing Codex credentials")?,
+                ).await?;
+            }
+            Ok(())
+        },
+    ).await?;
     app.state::<AgentConfigStatusCache>().clear()?;
     Ok(result)
+}
+
+pub(crate) async fn set_codex_openai_provider_for_target<F, Fut>(
+    state: &GuiConfigState,
+    home: &Path,
+    enabled: bool,
+    expected_revision: u64,
+    validate_auth: F,
+) -> Result<AgentConfigActionResult, String>
+where
+    F: FnOnce(GuiConfigFile, Vec<(PathBuf, Option<Vec<u8>>)>) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
+    let config = {
+        let _target_operation = state.target_operation.clone().try_lock_owned()
+            .map_err(|_| "Core target operation is in progress".to_string())?;
+        ensure_codex_control_revision(state, expected_revision)?;
+        state.snapshot()?
+    };
+    let directory = codex_configuration_directory(home);
+    let paths = vec![directory.join("config.toml"), directory.join("auth.json")];
+    let before = config_images(&paths)?;
+    validate_auth(config.clone(), before.clone()).await?;
+    let result = apply_codex_openai_provider_for_target(
+        state, home, &config, &paths, &before, enabled, expected_revision,
+    ).await?;
+    Ok(result)
+}
+
+pub(crate) async fn apply_codex_openai_provider_for_target(
+    state: &GuiConfigState,
+    home: &Path,
+    target: &GuiConfigFile,
+    paths: &[PathBuf],
+    before: &[(PathBuf, Option<Vec<u8>>)],
+    enabled: bool,
+    expected_revision: u64,
+) -> Result<AgentConfigActionResult, String> {
+    // Auth validation may require a network request. Re-acquire the target lock
+    // and fence again immediately before applying the local file mutation.
+    let _target_operation = state.target_operation.lock().await;
+    ensure_codex_control_revision(state, expected_revision)?;
+    let _guard = AGENT_CONFIG_FILE_LOCK.lock().map_err(|_| "Agent configuration file lock is poisoned")?;
+    if before != config_images(paths)? {
+        return Err("Codex configuration or credentials changed. Refresh and try again".into());
+    }
+    switch_codex_openai_provider(home, target, enabled)
 }
 
 fn parse_state(bytes: Option<&[u8]>) -> Result<NativeOAuthState, String> {
@@ -723,12 +760,21 @@ pub(crate) fn switch_codex_remote_compaction(home: &Path, target: impl AgentClie
 #[tauri::command]
 pub(crate) fn set_codex_remote_compaction(app: tauri::AppHandle, enabled: bool, expected_revision: u64) -> Result<AgentConfigActionResult, String> {
     let _target_state = app.state::<GuiConfigState>();
-    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
-    ensure_codex_control_revision(_target_state.inner(), expected_revision)?;
-    let _guard = AGENT_CONFIG_FILE_LOCK.lock().map_err(|_| "Agent configuration file lock is poisoned")?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
-    let config = _target_state.snapshot()?;
-    let result = switch_codex_remote_compaction(&home, &config, enabled)?;
+    let result = set_codex_remote_compaction_for_target(_target_state.inner(), &home, enabled, expected_revision)?;
     app.state::<AgentConfigStatusCache>().clear()?;
     Ok(result)
+}
+
+pub(crate) fn set_codex_remote_compaction_for_target(
+    state: &GuiConfigState,
+    home: &Path,
+    enabled: bool,
+    expected_revision: u64,
+) -> Result<AgentConfigActionResult, String> {
+    let _target_operation = state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
+    ensure_codex_control_revision(state, expected_revision)?;
+    let _guard = AGENT_CONFIG_FILE_LOCK.lock().map_err(|_| "Agent configuration file lock is poisoned")?;
+    let config = state.snapshot()?;
+    switch_codex_remote_compaction(home, &config, enabled)
 }

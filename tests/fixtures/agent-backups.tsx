@@ -205,7 +205,10 @@ mockIPC(async (cmd,args:any) => {
  }
  if(cmd==='get_codex_model_catalog_editor') {
    if(params.has('core-stopped'))throw new Error('Failed to request client model list');
-   return {models:[],hiddenModels:[],customizations:{}};
+   return {revision:'codex-fixture-revision',defaultAutoReviewModel:null,models:[{slug:'gpt-5.6-sol',hasOfficialTemplate:true,contextSource:'template',customized:false,configuration:{},defaults:{}}]};
+ }
+ if(cmd==='save_codex_model_catalog_editor') {
+   return {snapshot:{revision:'codex-fixture-revision-saved',defaultAutoReviewModel:args.request.review_model.model,models:[{slug:'gpt-5.6-sol',hasOfficialTemplate:true,contextSource:'template',customized:false,configuration:{},defaults:{}}]},synchronizationError:null};
  }
  if(cmd==='check_codex_oauth_login') {
    if(!(window as any).fixtureOauthLoggedIn)throw new Error('CODEX_OAUTH_LOGIN_REQUIRED');
