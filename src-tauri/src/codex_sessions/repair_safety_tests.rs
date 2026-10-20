@@ -1,28 +1,35 @@
 //! Repair refuses to rewrite rollouts while Codex runs, and only updates database rows that match
 //! the rollouts it actually left in their final state.
 
-use super::process::FAKE_CODEX_PROCESS_IDS;
+use super::process::FAKE_CODEX_PROCESSES;
 use super::tests::test_root;
 use super::*;
 
-/// Makes the given ids look like running Codex apps until dropped.
+/// Makes the given named processes look like running Codex processes until dropped.
 struct FakeCodexProcesses;
 
 impl FakeCodexProcesses {
-    fn running(ids: Vec<u32>) -> Self {
+    fn running(processes: Vec<(&str, u32)>) -> Self {
         let fake = Self;
-        fake.set(ids);
+        fake.set(processes);
         fake
     }
 
-    fn set(&self, ids: Vec<u32>) {
-        FAKE_CODEX_PROCESS_IDS.with(|fake| *fake.borrow_mut() = Some(ids));
+    fn set(&self, processes: Vec<(&str, u32)>) {
+        FAKE_CODEX_PROCESSES.with(|fake| {
+            *fake.borrow_mut() = Some(
+                processes
+                    .into_iter()
+                    .map(|(name, id)| (name.to_string(), id))
+                    .collect(),
+            )
+        });
     }
 }
 
 impl Drop for FakeCodexProcesses {
     fn drop(&mut self) {
-        FAKE_CODEX_PROCESS_IDS.with(|fake| *fake.borrow_mut() = None);
+        FAKE_CODEX_PROCESSES.with(|fake| *fake.borrow_mut() = None);
     }
 }
 
@@ -77,7 +84,7 @@ fn repair_refuses_while_codex_is_running_and_changes_nothing() {
     let original = rollout_text("thread-1", "/new", "openai");
     let rollout = write_rollout(&root, "rollout.jsonl", &original);
     create_database(&root, &[("thread-1", "/old")]);
-    let _fake = FakeCodexProcesses::running(vec![4242]);
+    let _fake = FakeCodexProcesses::running(vec![("Codex", 4242)]);
 
     let error = repair_codex_session_metadata_from_home(&root, "cpa-gui", true, |_| {}).unwrap_err();
     assert!(error.contains("still running") && error.contains("4242"), "{error}");
@@ -92,7 +99,7 @@ fn repair_proceeds_once_codex_is_stopped() {
     let root = test_root("repair-safety-stopped");
     let rollout = write_rollout(&root, "rollout.jsonl", &rollout_text("thread-1", "/new", "openai"));
     create_database(&root, &[("thread-1", "/old")]);
-    let fake = FakeCodexProcesses::running(vec![4242]);
+    let fake = FakeCodexProcesses::running(vec![("Codex", 4242)]);
     assert!(repair_codex_session_metadata_from_home(&root, "cpa-gui", true, |_| {}).is_err());
 
     fake.set(Vec::new());
@@ -113,7 +120,7 @@ fn repair_refuses_when_codex_starts_before_the_rewrite() {
 
     let error = repair_codex_session_metadata_from_home(&root, "cpa-gui", true, |progress| {
         if progress.phase == "backingUp" {
-            fake.set(vec![999]);
+            fake.set(vec![("Codex", 999)]);
         }
     })
     .unwrap_err();
@@ -126,9 +133,36 @@ fn repair_refuses_when_codex_starts_before_the_rewrite() {
 #[test]
 fn index_cleanup_refuses_while_codex_is_running() {
     let root = test_root("repair-safety-index");
-    let _fake = FakeCodexProcesses::running(vec![4242]);
+    let _fake = FakeCodexProcesses::running(vec![("Codex", 4242)]);
     let error = apply_session_index_cleanup_from_home(&root, "snapshot", &[], true).unwrap_err();
     assert!(error.contains("still running") && error.contains("4242"), "{error}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn lowercase_codex_cli_blocks_repair_and_index_cleanup() {
+    let root = test_root("repair-safety-lowercase-codex");
+    let original = rollout_text("thread-1", "/new", "openai");
+    let rollout = write_rollout(&root, "rollout.jsonl", &original);
+    create_database(&root, &[("thread-1", "/old")]);
+    let _fake = FakeCodexProcesses::running(vec![("codex", 4242)]);
+
+    let repair_error =
+        repair_codex_session_metadata_from_home(&root, "cpa-gui", true, |_| {}).unwrap_err();
+    assert!(
+        repair_error.contains("CLI or IDE extension") && repair_error.contains("sync conversations"),
+        "{repair_error}"
+    );
+    assert_eq!(fs::read_to_string(&rollout).unwrap(), original);
+    assert_eq!(row(&root, "thread-1"), row_of("openai", 0, "/old"));
+
+    let cleanup_error =
+        apply_session_index_cleanup_from_home(&root, "snapshot", &[], true).unwrap_err();
+    assert!(
+        cleanup_error.contains("process: 4242") && cleanup_error.contains("preview and clean"),
+        "{cleanup_error}"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 

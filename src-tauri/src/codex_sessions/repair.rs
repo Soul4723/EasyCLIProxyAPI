@@ -38,7 +38,7 @@ where
     // A running Codex appends to rollouts; an append between a rewrite's last read and its rename
     // would be lost.
     if require_stopped_app {
-        ensure_codex_apps_stopped()?;
+        ensure_codex_apps_stopped("sync conversations")?;
     }
     progress(CodexSessionRepairProgress {
         phase: "scanning".to_string(),
@@ -113,7 +113,7 @@ where
         };
     // Scanning and backing up take a while, so Codex may have been started since the first check.
     if require_stopped_app {
-        ensure_codex_apps_stopped()?;
+        ensure_codex_apps_stopped("sync conversations")?;
     }
     progress(CodexSessionRepairProgress {
         phase: "rewriting".to_string(),
