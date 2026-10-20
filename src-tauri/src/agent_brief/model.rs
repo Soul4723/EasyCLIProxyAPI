@@ -100,14 +100,20 @@ fn clean_balance(value: &str) -> Option<String> {
     (!text.is_empty() && text.chars().all(allowed)).then_some(text)
 }
 
+pub(crate) fn valid_auth_index(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
 /// Bounds and re-validates what the webview sent; the command never trusts its input.
 pub(crate) fn sanitize_accounts(accounts: Vec<QuotaAccount>) -> Vec<QuotaAccount> {
     accounts
         .into_iter()
-        .filter(|account| QUOTA_PROVIDERS.contains(&account.provider.as_str()) && !account.auth_index.trim().is_empty())
+        .filter(|account| QUOTA_PROVIDERS.contains(&account.provider.as_str()) && valid_auth_index(account.auth_index.trim()))
         .take(MAX_ACCOUNTS)
         .map(|account| QuotaAccount {
-            auth_index: clean_text(&account.auth_index, 128),
+            auth_index: account.auth_index.trim().to_string(),
             provider: account.provider,
             label: clean_label(&account.label),
             plan: clean_text(&account.plan, 24),

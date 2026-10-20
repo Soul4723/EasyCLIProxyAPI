@@ -79,18 +79,22 @@ app has never saved settings it does not dial anything: it prints `no briefing d
 
 Arithmetic on the numbers, with fixed thresholds in `render.rs`: windows shown come from the selected
 headroom account, so status and guidance agree. Under 0.5% is exhausted and renders `<1%`; if its reset is
-unknown, output says `back=?` and the guide uses `avoid`. A provider with at least 50% on its tightest
+unknown, output says `back=?` and the guide uses `avoid`. Displayed whole percentages are floored; status
+and guidance use the unrounded percentage. A provider with at least 50% on its tightest
 window and status `ok` is `swarm`; below that, or `low` (under 20%), is `light`; a provider with no usable
 account is `wait` if it recovers within 30 minutes, otherwise `avoid`. Providers with no quota numbers are
 omitted from the guide.
 
 ## Privacy
 
-Only masked labels (the same masking as privacy mode, applied before the data leaves the webview and
+Masked labels (the same masking as privacy mode, applied before the data leaves the webview and
 validated again in Rust), provider names, plans, percentages, times, model ids and a balance string are
-stored or printed. No email, account id, file name, path, token or API key is written to the cache or
-printed. The management key from the app's own config is used for the two core reads and never printed.
-Rust tests assert this against a fixture that contains such values.
+stored or printed. The quota/core caches also retain an `auth_index` only when it is 1–64 ASCII letters,
+digits, `_` or `-`, so quota and core records can be joined. Core v8 generates this value as the first
+eight bytes of SHA-256(seed), in hex, which is pseudonymous; the character check itself does not prove
+that an arbitrary incoming value is anonymous. Email-, path/filename-, and JWT-shaped values containing
+disallowed characters are rejected. The management key from the app's own config is used for the two
+core reads and never printed.
 
 ## Cost
 

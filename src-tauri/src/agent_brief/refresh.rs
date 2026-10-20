@@ -1,7 +1,7 @@
 //! Core-state refresh done by the `--brief` CLI when its cached copy is older than the TTL.
 //! Only the core's own management API is read (`GET /credentials`, `GET /credentials/models`);
 //! no provider endpoint and no `requests/api-call` is ever used, so a query costs no provider quota.
-use super::model::{Cooldown, CoreAccount, CorePart};
+use super::model::{valid_auth_index, Cooldown, CoreAccount, CorePart};
 use crate::management_api::{management_authorization, management_endpoint, management_http_client_for};
 use crate::GuiConfigFile;
 use chrono::DateTime;
@@ -78,7 +78,7 @@ pub(crate) fn parse_credentials(body: &Value, now_ms: i64) -> Vec<ParsedCredenti
                 .filter_map(|file| {
                     let auth_index = file["auth_index"].as_str().or_else(|| file["id"].as_str())?.trim().to_string();
                     let provider = normalize_provider(file["provider"].as_str().or_else(|| file["type"].as_str())?);
-                    if auth_index.is_empty() || provider.is_empty() {
+                    if !valid_auth_index(&auth_index) || provider.is_empty() {
                         return None;
                     }
                     let name = file["name"].as_str().or_else(|| file["id"].as_str()).unwrap_or("").to_string();

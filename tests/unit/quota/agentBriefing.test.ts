@@ -54,6 +54,16 @@ describe('briefing snapshot', () => {
     expect(buildBriefingAccounts(files, quotas, NOW, 'en').map((a) => a.authIndex)).toEqual(['a']);
   });
 
+  test('drops email-, filename-, and JWT-shaped auth indexes before publishing', () => {
+    const indexes = ['alice@example.test', 'claude-alice.json', 'eyJhbGciOiJub25l.eyJzdWIiOiJhbGljZSJ9.sig'];
+    const files = indexes.map((index) => file(index));
+    const quotas = Object.fromEntries(files.map((f) => [quotaKey(f), success()]));
+    const accounts = buildBriefingAccounts(files, quotas, NOW, 'en');
+    expect(accounts).toEqual([]);
+    const serialized = JSON.stringify(accounts);
+    for (const index of indexes) expect(serialized).not.toContain(index);
+  });
+
   test('special pools carry a group so they never decide exhaustion', () => {
     const files = [file('c1')];
     const state = success({

@@ -36,6 +36,7 @@ export type BriefingAccount = {
 const MAX_TEXT = 40;
 const MAX_WINDOWS = 12;
 const BALANCE = /^[A-Za-z0-9$€£¥.,\- ]{1,24}$/;
+const AUTH_INDEX = /^[A-Za-z0-9_-]{1,64}$/;
 
 const printable = (char: string) => char.charCodeAt(0) > 31 && char.charCodeAt(0) !== 127;
 const clip = (value: string, max = MAX_TEXT) => [...value].filter(printable).join('').trim().slice(0, max);
@@ -68,7 +69,7 @@ export function buildBriefingAccounts(
     const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
     const hasLastGoodRead = quota?.status === 'success'
       || ((quota?.status === 'loading' || quota?.status === 'error') && quota.rows.length > 0 && Boolean(quota.fetchedAt));
-    if (!provider || !authIndex || !quota || !hasLastGoodRead) return [];
+    if (!provider || !AUTH_INDEX.test(authIndex) || !quota || !hasLastGoodRead) return [];
     const windows = windowsOf(quota, now, locale);
     const identity = readString(file, 'email', 'account', 'label');
     const balance = quota.creditBalance?.trim();

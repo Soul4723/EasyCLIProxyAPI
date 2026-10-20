@@ -480,6 +480,22 @@ fn no_secret_or_identity_reaches_the_cache_or_any_output() {
 }
 
 #[test]
+fn auth_index_allowlist_drops_email_filename_and_jwt_shaped_values_from_caches() {
+    let bad = ["alice@example.test", "claude-alice.json", "eyJhbGciOiJub25l.eyJzdWIiOiJhbGljZSJ9.sig"];
+    let published = sanitize_accounts(bad.iter().map(|index| QuotaAccount {
+        auth_index: (*index).into(), provider: "claude".into(), ..Default::default()
+    }).collect());
+    assert!(published.is_empty());
+    let quota_json = serde_json::to_string(&QuotaPart { accounts: published, ..Default::default() }).unwrap();
+    for index in bad { assert!(!quota_json.contains(index), "{quota_json}"); }
+
+    let core_json = serde_json::to_string(&parse_credentials(&json!({ "files": bad.iter().map(|index| json!({
+        "auth_index": index, "provider": "claude", "name": "credential.json"
+    })).collect::<Vec<_>>() }), NOW).into_iter().map(|item| item.account).collect::<Vec<_>>()).unwrap();
+    for index in bad { assert!(!core_json.contains(index), "{core_json}"); }
+}
+
+#[test]
 fn sanitize_bounds_and_validates_what_the_webview_sends() {
     let mut account = QuotaAccount {
         auth_index: "c1".into(),
