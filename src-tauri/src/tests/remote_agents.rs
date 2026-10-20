@@ -326,6 +326,7 @@ async fn preview_agent_config_template_cancels_after_switch_while_models_fetch_i
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let app = tauri::test::mock_builder().manage(GuiConfigState::new(remote_target(&origin, "fixture-client")))
         .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let home = AgentTestHome::new("preview-template-cancel");
     let state = app.state::<GuiConfigState>();
     let (arrived_tx, arrived_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
@@ -339,8 +340,8 @@ async fn preview_agent_config_template_cancels_after_switch_while_models_fetch_i
         let body = r#"{"data":[{"id":"fixture-model"}]}"#;
         socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
     });
-    let call = crate::agents::preview_agent_config_template(
-        app.handle().clone(), "claude-code".into(), "fixture-model".into(), false, None, None,
+    let call = crate::agents::preview_agent_config_template_for_target(
+        state.inner(), home.path().to_path_buf(), "claude-code".into(), "fixture-model".into(), false, None, None,
     );
     tokio::pin!(call);
     tokio::select! {
