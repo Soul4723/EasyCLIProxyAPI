@@ -355,23 +355,8 @@ pub(super) fn find_model_price<'a>(
     prices: &'a HashMap<String, ModelPrice>,
     model: &str,
 ) -> Option<&'a ModelPrice> {
-    if let Some(price) = prices.get(model) {
+    if let Some(price) = find_exact_model_price(prices, model, |_| true) {
         return Some(price);
-    }
-    let case_insensitive = prices
-        .iter()
-        .filter(|(key, _)| key.eq_ignore_ascii_case(model))
-        .collect::<Vec<_>>();
-    if case_insensitive.len() == 1 {
-        return Some(case_insensitive[0].1);
-    }
-    let tail = canonical_model_tail(model);
-    let exact_tail = prices
-        .iter()
-        .filter(|(key, _)| canonical_model_tail(key) == tail)
-        .collect::<Vec<_>>();
-    if exact_tail.len() == 1 {
-        return Some(exact_tail[0].1);
     }
     let normalized_tail = normalized_model_tail(model);
     prices
@@ -386,16 +371,52 @@ pub(super) fn find_model_price<'a>(
         .map(|(_, price)| price)
 }
 
+fn find_exact_model_price<'a>(
+    prices: &'a HashMap<String, ModelPrice>,
+    model: &str,
+    accepts: impl Fn(&ModelPrice) -> bool,
+) -> Option<&'a ModelPrice> {
+    let model = model.trim();
+    if model.is_empty() {
+        return None;
+    }
+    if let Some(price) = prices.get(model).filter(|price| accepts(price)) {
+        return Some(price);
+    }
+    let case_insensitive = prices
+        .iter()
+        .filter(|(key, price)| key.eq_ignore_ascii_case(model) && accepts(price))
+        .collect::<Vec<_>>();
+    if case_insensitive.len() == 1 {
+        return Some(case_insensitive[0].1);
+    }
+    let tail = canonical_model_tail(model);
+    let exact_tail = prices
+        .iter()
+        .filter(|(key, price)| canonical_model_tail(key) == tail && accepts(price))
+        .collect::<Vec<_>>();
+    if exact_tail.len() == 1 {
+        return Some(exact_tail[0].1);
+    }
+    None
+}
+
 pub(super) fn resolve_model_price<'a>(
     model: &'a str,
     alias: &'a str,
     prices: &HashMap<String, ModelPrice>,
 ) -> Option<(&'a str, ModelPrice)> {
+    // Price the routed model first. Manual entries remain editable in the merged
+    // catalog, but must not hide an automatic price from the bundled catalog.
+    let automatic = find_exact_model_price(prices, model, |price| price.source != "manual")
+        .or_else(|| {
+            find_exact_model_price(cached_bundled_model_prices().ok()?, model, |_| true)
+        });
+    if let Some(price) = automatic {
+        return Some((model, price.clone()));
+    }
     for candidate in [model, alias] {
-        if candidate.trim().is_empty() {
-            continue;
-        }
-        if let Some(price) = find_model_price(prices, candidate) {
+        if let Some(price) = find_exact_model_price(prices, candidate, |price| price.source == "manual") {
             return Some((model, price.clone()));
         }
     }

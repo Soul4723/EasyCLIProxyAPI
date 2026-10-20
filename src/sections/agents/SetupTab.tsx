@@ -130,7 +130,8 @@ function ModelSection({ ctl }: { ctl: AgentsController }) {
 function CodexConnection({ ctl }: { ctl: AgentsController }) {
   const { t } = useI18n();
   const { oauthConfiguration, connectionHelpOpen, busyAction } = ctl;
-  const locked = ctl.busy || ctl.loading || ctl.modelLoading;
+  // The openai provider identity is tied to the current sign-in method; it is switched off in Manage first.
+  const locked = ctl.busy || ctl.loading || ctl.modelLoading || Boolean(ctl.activeStatus?.codexOpenaiProvider);
   return (
     <Card as="section" className="ag-setup-connection">
       <div className="ag-section-head">

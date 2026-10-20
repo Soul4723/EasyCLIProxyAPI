@@ -51,6 +51,8 @@ pub(crate) struct GuiConfigFile {
     pub(crate) default_terminal: String,
     pub(crate) window_width: Option<u32>,
     pub(crate) window_height: Option<u32>,
+    pub(crate) window_x: Option<i32>,
+    pub(crate) window_y: Option<i32>,
     pub(crate) auth_dir: String,
     pub(crate) auth_dir_user_selected: bool,
     pub(crate) image_generation_user_selected: bool,
@@ -385,6 +387,8 @@ impl Default for GuiConfigFile {
             default_terminal: DEFAULT_AGENT_TERMINAL.to_string(),
             window_width: Some(DEFAULT_MAIN_WINDOW_WIDTH),
             window_height: Some(DEFAULT_MAIN_WINDOW_HEIGHT),
+            window_x: None,
+            window_y: None,
             auth_dir: DEFAULT_AUTH_DIR.to_string(),
             auth_dir_user_selected: false,
             image_generation_user_selected: false,
@@ -875,10 +879,16 @@ impl GuiConfigState {
         Ok(Some(config))
     }
 
-    pub(crate) fn set_window_size(&self, size: SavedWindowSize) -> Result<GuiConfigFile, String> {
+    pub(crate) fn set_window_geometry(
+        &self,
+        size: SavedWindowSize,
+        position: Option<tauri::PhysicalPosition<i32>>,
+    ) -> Result<GuiConfigFile, String> {
         self.update(|config| {
             config.window_width = Some(size.width);
             config.window_height = Some(size.height);
+            config.window_x = position.map(|position| position.x);
+            config.window_y = position.map(|position| position.y);
             Ok(())
         })
     }

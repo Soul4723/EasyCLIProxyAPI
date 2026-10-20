@@ -249,6 +249,7 @@ pub(crate) async fn delete_codex_sessions(
 #[tauri::command]
 pub(crate) async fn repair_codex_session_metadata(
     app: tauri::AppHandle,
+    expected_provider: Option<String>,
 ) -> Result<CodexSessionRepairResult, String> {
     let expected = app.state::<crate::GuiConfigState>().snapshot()?;
     crate::core_connection::require_local(&expected)?;
@@ -261,7 +262,12 @@ pub(crate) async fn repair_codex_session_metadata(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<crate::GuiConfigState>();
         let _target_operation = state.blocking_local_target_operation(&expected)?;
+        let _guard = crate::AGENT_CONFIG_FILE_LOCK.lock()
+            .map_err(|_| "Agent configuration file lock is poisoned".to_string())?;
         let target_provider = resolve_current_codex_provider(&codex_home)?;
+        if expected_provider.as_deref().is_some_and(|expected| expected != target_provider) {
+            return Err("Codex provider changed before session synchronization. Refresh and try again".to_string());
+        }
         repair_codex_session_metadata_from_home(&codex_home, &target_provider, |progress| {
             let _ = progress_app.emit(REPAIR_PROGRESS_EVENT, progress);
         })

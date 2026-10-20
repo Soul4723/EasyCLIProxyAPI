@@ -78,6 +78,9 @@ export type AgentConfigStatus = {
   currentModel: string | null;
   oauthConfiguration: boolean;
   codexNativeOauth: boolean;
+  /** Codex uses the built-in `openai` provider identity instead of `cpa-gui`. */
+  codexOpenaiProvider?: boolean;
+  codexRemoteCompaction?: boolean;
   modificationEnabled: boolean;
   modificationState: AgentModificationState;
   backupAvailable: boolean;

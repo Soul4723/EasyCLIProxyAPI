@@ -30,7 +30,13 @@ export function InstallDialog({ entry, onClose, onInstalled, onOpenExternal }: {
   const [typed, setTyped] = useState('');
   const pending = useRef(false);
   const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const controller = useRef<AbortController | null>(null);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; controller.current?.abort(); }; }, []);
+  // Every exit (Cancel, Close, Escape) aborts an in-flight install and closes at once.
+  const cancel = () => {
+    controller.current?.abort();
+    onClose();
+  };
 
   const thirdParty = !isOfficialPlugin(entry);
   // Listed by the official store but hosted outside the official organisation: the store does not vouch for the author.
@@ -46,19 +52,21 @@ export function InstallDialog({ entry, onClose, onInstalled, onOpenExternal }: {
   const install = async () => {
     if (pending.current || !validVersion || !confirmed) return;
     pending.current = true; setBusy(true); setError('');
+    const request = new AbortController();
+    controller.current = request;
     try {
-      const result = await pluginStoreApi.install(entry.id, { sourceId: entry.sourceId, version: canSelectVersion ? version.trim() : undefined });
-      if (mounted.current) await onInstalled(result);
+      const result = await pluginStoreApi.install(entry.id, { sourceId: entry.sourceId, version: canSelectVersion ? version.trim() : undefined, signal: request.signal });
+      if (mounted.current && !request.signal.aborted) await onInstalled(result);
     } catch (reason) {
-      if (mounted.current) setError(errorMessage(reason));
-    } finally { pending.current = false; if (mounted.current) setBusy(false); }
+      if (mounted.current && !request.signal.aborted) setError(errorMessage(reason));
+    } finally { controller.current = null; pending.current = false; if (mounted.current) setBusy(false); }
   };
 
   return (
-    <Dialog open onClose={onClose} dismissible={!busy} size="md"
+    <Dialog open onClose={cancel} size="md"
       title={<Scope><span className="pl-dialog-title"><PluginTile size={28} />{entry.name || entry.id}<Chip size="sm" tone={entry.updateAvailable ? 'info' : 'outline'}>{entry.installed && entry.installedVersion ? `${entry.installedVersion} → ${entry.version}` : entry.version}</Chip></span></Scope>}
       footer={<>
-        <Button variant="secondary" disabled={busy} onClick={onClose}>{t('common.cancel')}</Button>
+        <Button variant="secondary" onClick={cancel}>{t('common.cancel')}</Button>
         {thirdParty && !reviewed
           ? <Button variant="primary" icon={<ShieldAlert size={14} />} onClick={() => setReviewed(true)}>{pt('trustNext')}</Button>
           : <Button variant="primary" loading={busy} disabled={!validVersion || !confirmed} onClick={() => void install()}>{action}</Button>}

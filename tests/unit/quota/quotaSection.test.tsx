@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { classifyWindow, deriveStatus, groupAccounts, matchesSearch } from '../../../src/sections/quota/model';
+import { classifyWindow, deriveStatus, groupAccounts, matchesSearch, windowsOf } from '../../../src/sections/quota/model';
 import { accountFor, renderCard, renderRow, stubLighting } from '../../helpers/quotaAccount';
-import type { QuotaState } from '../../../src/services/quotaService';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { I18nProvider } from '../../../src/i18n';
+import { BigWindow } from '../../../src/sections/quota/AccountPanel';
+import { quotaRowsFor, type QuotaState } from '../../../src/services/quotaService';
 
 const NOW = Date.parse('2030-01-01T12:00:00Z');
 const ok = (rows: QuotaState['rows'], extra: Partial<QuotaState> = {}): QuotaState => ({ status: 'success', rows, fetchedAt: NOW - 60_000, ...extra });
@@ -14,6 +17,41 @@ describe('quota section model', () => {
     expect(classifyWindow({ label: 'Mystery', remainingPercent: 50, resetAtMs: NOW + 3 * 3_600_000 }, NOW, 'en').kind).toBe('5h');
     expect(classifyWindow({ label: 'Mystery', remainingPercent: 50, resetAtMs: NOW + 3 * 86_400_000 }, NOW, 'en').kind).toBe('weekly');
     expect(classifyWindow({ label: 'Mystery', remainingPercent: 50 }, NOW, 'en').kind).toBe('other');
+  });
+
+  it('keeps the model group of each Antigravity window for the grouped account panel', () => {
+    const rows = quotaRowsFor('antigravity', { groups: [
+      { displayName: 'Gemini Models', description: 'Models within this group: Gemini Flash, Gemini Pro', buckets: [
+        { displayName: 'Five Hour Limit Remaining', remainingFraction: 1 },
+        { displayName: 'Weekly Limit Remaining', remainingFraction: 0.98 },
+      ] },
+      { displayName: 'Claude and GPT Models', buckets: [{ displayName: 'Weekly Limit Remaining', remainingFraction: 1 }] },
+    ] });
+    const windows = windowsOf(ok(rows), NOW, 'en');
+    expect(windows.map(window => window.groupLabel)).toEqual(['Gemini models', 'Gemini models', 'Claude and GPT models']);
+    expect(windows[0].groupDescription).toContain('Gemini Flash');
+    expect(windows.every(window => Boolean(window.windowLabel))).toBe(true);
+    // Providers without model groups carry no group fields.
+    const plain = windowsOf(ok([{ label: '5-hour window', remainingPercent: 50 }]), NOW, 'en');
+    expect(plain[0].groupLabel).toBeUndefined();
+  });
+
+  it('names the model group in flat meters but not under the panel heading', () => {
+    const rows = quotaRowsFor('antigravity', { groups: [
+      { displayName: 'Gemini Models', buckets: [
+        { displayName: 'Five Hour Limit Remaining', remainingFraction: 0.6 },
+        { displayName: 'Weekly Limit Remaining', remainingFraction: 0.98 },
+      ] },
+    ] });
+    const quota = ok(rows);
+    const file = { name: 'ag.json', provider: 'antigravity' };
+    expect(renderCard(file, quota)).toContain('<span class="qt-win__label">Gemini models · 5h</span>');
+    expect(renderRow(file, quota)).toContain('Gemini models · 5h');
+    const [five] = windowsOf(quota, NOW, 'en');
+    const panel = renderToStaticMarkup(<I18nProvider><BigWindow window={five} now={NOW} stale={false} /></I18nProvider>);
+    // The visible label and the bar name are just "5h"; the tooltip keeps the full raw label.
+    expect(panel).toContain('>5h</div>');
+    expect(panel).toContain('aria-label="5h"');
   });
 
   it('derives one status from health, cooldown and windows', () => {

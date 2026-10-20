@@ -1,12 +1,13 @@
 import { FolderOpen, RefreshCw, Trash2, RotateCcw, FileCog } from 'lucide-react';
-import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n';
 import { Button, Card, Chip, Masked } from '../../ui';
 import { routeHref } from '../../shell/router';
+import { CodexApprovalModelRow, CodexProviderRow, CodexRemoteCompactionRow } from './CodexControls';
+import { ManageRow as Row } from './ManageRow';
 import type { AgentsController } from './useAgentsController';
 import './manage.css';
 
-/** Manage tab: program path overrides, template reset, Codex sign-in reset, clear integration, Pi extension. Renders ctl state, calls ctl handlers. */
+/** Manage tab: program path overrides, template reset, Codex approval model / remote compaction / provider identity, Codex sign-in reset, clear integration, Pi extension. Renders ctl state, calls ctl handlers. */
 export function ManageTab({ ctl }: { ctl: AgentsController }) {
   const { t } = useI18n();
   const { selected, activeStatus: status, busy, busyAction } = ctl;
@@ -54,6 +55,11 @@ export function ManageTab({ ctl }: { ctl: AgentsController }) {
               {t('agents.modify.default')}
             </Button>} />
         ) : null}
+        {codex ? <>
+          <CodexApprovalModelRow ctl={ctl} />
+          <CodexRemoteCompactionRow ctl={ctl} />
+          <CodexProviderRow ctl={ctl} />
+        </> : null}
         {codex ? (
           <Row label={t('agents.nativeOAuth.restoreTitle')} hint={t('sec.agents.manage.restoreHint')} data-row="restore"
             value={ctl.nativeOauth ? <Chip tone="info" size="sm">{t('agents.nativeOAuth.status')}</Chip> : null}
@@ -95,20 +101,6 @@ export function ManageTab({ ctl }: { ctl: AgentsController }) {
             </> : null} />
         ) : null}
       </Card>
-    </div>
-  );
-}
-
-/** One management row: label (+ one-line hint) · current value · actions. */
-function Row({ label, hint, value, actions, ...rest }: { label: string; hint?: string; value?: ReactNode; actions?: ReactNode; 'data-row'?: string }) {
-  return (
-    <div className="ag-mg-row" {...rest}>
-      <div className="ag-mg-label">
-        <strong>{label}</strong>
-        {hint ? <span className="ec-muted">{hint}</span> : null}
-      </div>
-      <div className="ag-mg-value">{value}</div>
-      <div className="ag-mg-actions">{actions}</div>
     </div>
   );
 }

@@ -25,10 +25,19 @@ pub(crate) fn build_codex_agent_config_with_oauth(
             .map_err(|_| "Invalid Codex config.toml format".to_string())?,
         None => Document::new(),
     };
+    let provider_id = if codex_uses_openai_proxy(&document) { "openai" } else { MANAGED_AGENT_PROVIDER_ID };
+    if provider_id == "openai" {
+        let previous_oauth = codex_provider_table(&document)
+            .and_then(|p| p.get("requires_openai_auth")).and_then(Item::as_bool) == Some(true);
+        if previous_oauth != oauth_configuration {
+            return Err("Turn off the openai provider identity before changing the sign-in method".into());
+        }
+        set_codex_table_item(document.as_table_mut(), "openai_base_url", value(base_url));
+    }
     set_codex_table_item(
         document.as_table_mut(),
         "model_provider",
-        value(MANAGED_AGENT_PROVIDER_ID),
+        value(provider_id),
     );
     set_codex_table_item(document.as_table_mut(), "model", value(model));
     set_codex_table_item(
@@ -57,7 +66,8 @@ pub(crate) fn build_codex_agent_config_with_oauth(
         .get_mut(MANAGED_AGENT_PROVIDER_ID)
         .and_then(Item::as_table_mut)
         .ok_or_else(|| "Codex cpa-gui provider must be a TOML table".to_string())?;
-    set_codex_table_item(provider, "name", value("EasyCLIProxyAPI"));
+    let name = if provider.get("name").and_then(Item::as_str) == Some("OpenAI") { "OpenAI" } else { "EasyCLIProxyAPI" };
+    set_codex_table_item(provider, "name", value(name));
     set_codex_table_item(provider, "base_url", value(base_url));
     set_codex_table_item(provider, "wire_api", value("responses"));
     set_codex_table_item(provider, "experimental_bearer_token", value(api_key));
