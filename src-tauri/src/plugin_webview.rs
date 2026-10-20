@@ -358,53 +358,54 @@ async fn open_plugin_page(
     let key = management_plaintext_key(&config)?.to_string();
     let origin = url_origin(&url)?;
     drop(target_operation);
-    let mut inner = state.lock()?;
-    if !inner.owns(token) {
-        return Err(SUPERSEDED.to_string());
-    }
-    let placed = inner.placed;
-    let existing = plugin_webview(app);
-    let reusable = existing
-        .as_ref()
-        .filter(|_| {
-            inner.session.as_ref().is_some_and(|current| {
-                current.origin == origin && current.key == key && current.labels == labels
+    {
+        let mut inner = state.lock()?;
+        if !inner.owns(token) {
+            return Err(SUPERSEDED.to_string());
+        }
+        let placed = inner.placed;
+        let existing = plugin_webview(app);
+        let reusable = existing
+            .as_ref()
+            .filter(|_| {
+                inner.session.as_ref().is_some_and(|current| {
+                    current.origin == origin && current.key == key && current.labels == labels
+                })
             })
-        })
-        .cloned();
-    match reusable {
-        Some(webview) => {
-            let url_changed = inner
-                .session
-                .as_ref()
-                .is_some_and(|current| current.url != url);
-            let current_origin = webview
-                .url()
-                .ok()
-                .map(|current| current.origin().ascii_serialization());
-            match entry_action(url_changed, reload, current_origin.as_deref(), &origin) {
-                EntryAction::Keep => {}
-                EntryAction::Reload => webview.reload().map_err(|error| error.to_string())?,
-                EntryAction::Navigate => {
-                    let parsed =
-                        Url::parse(&url).map_err(|_| "Invalid plugin page URL".to_string())?;
-                    webview
-                        .navigate(parsed)
-                        .map_err(|error| error.to_string())?;
+            .cloned();
+        match reusable {
+            Some(webview) => {
+                let url_changed = inner
+                    .session
+                    .as_ref()
+                    .is_some_and(|current| current.url != url);
+                let current_origin = webview
+                    .url()
+                    .ok()
+                    .map(|current| current.origin().ascii_serialization());
+                match entry_action(url_changed, reload, current_origin.as_deref(), &origin) {
+                    EntryAction::Keep => {}
+                    EntryAction::Reload => webview.reload().map_err(|error| error.to_string())?,
+                    EntryAction::Navigate => {
+                        let parsed =
+                            Url::parse(&url).map_err(|_| "Invalid plugin page URL".to_string())?;
+                        webview
+                            .navigate(parsed)
+                            .map_err(|error| error.to_string())?;
+                    }
                 }
+                apply_bounds(&webview, placed)?;
             }
-            apply_bounds(&webview, placed)?;
-        }
-        None => {
-            inner.session = None;
-            if let Some(webview) = existing {
-                webview.close().map_err(|error| error.to_string())?;
+            None => {
+                inner.session = None;
+                if let Some(webview) = existing {
+                    webview.close().map_err(|error| error.to_string())?;
+                }
+                let script = plugin_page_script(&origin, &key, &labels);
+                build_webview(app, &url, script, placed)?;
             }
-            let script = plugin_page_script(&origin, &key, &labels);
-            build_webview(app, &url, script, placed)?;
         }
     }
-    drop(inner);
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
     let mut inner = state.lock()?;
