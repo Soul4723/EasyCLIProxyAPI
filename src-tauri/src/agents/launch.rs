@@ -830,9 +830,14 @@ pub(crate) async fn restart_codex_cli_daemon(
 
 fn codex_cli_daemon_running(home: &Path, executable_override: Option<&Path>) -> Result<bool, String> {
     let mut command = codex_cli_daemon_command(home, executable_override, "version")?;
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(10))
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(10))
         .map_err(|error| format!("Failed to check the Codex CLI background service: {error}"))?
-        .ok_or_else(|| "Checking the Codex CLI background service timed out".to_string())?;
+    {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => {
+            return Err(timeout.message("Checking the Codex CLI background service"));
+        }
+    };
     parse_codex_cli_daemon_status(output.status.success(), &output.stdout, &output.stderr)
 }
 
@@ -876,9 +881,14 @@ fn restart_codex_cli_daemon_process(home: &Path, executable_override: Option<&Pa
     let mut command = codex_cli_daemon_command(home, executable_override, "restart")?;
     // Codex drains running turns before it force-stops the old daemon, which alone can take about a
     // minute, so a shorter limit reports a timeout while the restart is still in progress.
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(150))
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(150))
         .map_err(|error| format!("Failed to restart the Codex CLI background service: {error}"))?
-        .ok_or_else(|| "Restarting the Codex CLI background service timed out".to_string())?;
+    {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => {
+            return Err(timeout.message("Restarting the Codex CLI background service"));
+        }
+    };
     if output.status.success() {
         return Ok(());
     }
@@ -1076,7 +1086,11 @@ fn stop_macos_desktop_application(application: &Path, label: &str) -> Result<(),
         .replace('"', "\\\"");
     let mut quit = Command::new("osascript");
     quit.args(["-e", &format!("tell application \"{escaped}\" to quit")]);
-    let _ = command_output_with_timeout(&mut quit, Duration::from_secs(5));
+    if let Ok(CommandOutputOutcome::TimedOut(timeout)) =
+        command_output_with_timeout(&mut quit, Duration::from_secs(5))
+    {
+        log_probe_timeout("macOS application quit", &timeout);
+    }
     for _ in 0..50 {
         if macos_processes_for_application(application)?.is_empty() {
             return Ok(());
@@ -1823,8 +1837,14 @@ mod tests {
             command.args(interactive.get_args().filter(|arg| *arg != "-NoExit"));
             command.current_dir(&directory).env("CPA_LAUNCH_TEST", "launch-fixture");
             configure_background_command(&mut command);
-            let output = command_output_with_timeout(&mut command, Duration::from_secs(20))
-                .unwrap().expect("launch fixture timed out");
+            let output = match
+                command_output_with_timeout(&mut command, Duration::from_secs(20)).unwrap()
+            {
+                CommandOutputOutcome::Completed(output) => output,
+                CommandOutputOutcome::TimedOut(timeout) => {
+                    panic!("{}", timeout.message("launch fixture"));
+                }
+            };
             assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
             let stdout = String::from_utf8_lossy(&output.stdout);
             let lines = stdout.lines().collect::<Vec<_>>();
@@ -1876,9 +1896,14 @@ class GuiHelper {
                 script,
             ]);
             configure_background_command(&mut command);
-            let result = command_output_with_timeout(&mut command, Duration::from_secs(20))
-                .unwrap()
-                .expect("PowerShell timed out");
+            let result = match
+                command_output_with_timeout(&mut command, Duration::from_secs(20)).unwrap()
+            {
+                CommandOutputOutcome::Completed(output) => output,
+                CommandOutputOutcome::TimedOut(timeout) => {
+                    panic!("{}", timeout.message("PowerShell"));
+                }
+            };
             assert!(
                 result.status.success(),
                 "{}",

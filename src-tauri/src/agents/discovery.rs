@@ -2232,7 +2232,13 @@ fn read_linux_opencode_package_version() -> Option<String> {
 #[cfg(target_os = "linux")]
 fn linux_package_version_from_output(command: &mut Command, separator: char) -> Option<String> {
     configure_background_command(command);
-    let output = command_output_with_timeout(command, AGENT_VERSION_PROBE_TIMEOUT).ok()??;
+    let output = match command_output_with_timeout(command, AGENT_VERSION_PROBE_TIMEOUT).ok()? {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => {
+            log_probe_timeout("Agent package version", &timeout);
+            return None;
+        }
+    };
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .find_map(|line| {
@@ -2379,8 +2385,14 @@ pub(crate) fn read_macos_app_version(application: &Path) -> Option<String> {
         command
             .args(["-extract", key, "raw", "-o", "-"])
             .arg(&info_plist);
-        let output =
-            command_output_with_timeout(&mut command, AGENT_VERSION_PROBE_TIMEOUT).ok()??;
+        let outcome = command_output_with_timeout(&mut command, AGENT_VERSION_PROBE_TIMEOUT).ok()?;
+        let output = match outcome {
+            CommandOutputOutcome::Completed(output) => output,
+            CommandOutputOutcome::TimedOut(timeout) => {
+                log_probe_timeout("macOS app version", &timeout);
+                continue;
+            }
+        };
         if !output.status.success() {
             continue;
         }
@@ -2918,10 +2930,38 @@ pub(crate) fn windows_batch_executable_argument(executable: &Path) -> String {
     format!("\"{}\"", path_to_string(executable))
 }
 
+pub(crate) const COMMAND_TIMEOUT_DIAGNOSTIC_LIMIT: usize = 1024;
+
+pub(crate) enum CommandOutputOutcome {
+    Completed(std::process::Output),
+    TimedOut(CommandTimeout),
+}
+
+pub(crate) struct CommandTimeout {
+    pub(crate) timeout: Duration,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
+}
+
+impl CommandTimeout {
+    pub(crate) fn message(&self, probe: &str) -> String {
+        format!(
+            "{probe} probe timed out after {:.1}s (stdout: {:?}; stderr: {:?})",
+            self.timeout.as_secs_f64(),
+            String::from_utf8_lossy(&self.stdout),
+            String::from_utf8_lossy(&self.stderr),
+        )
+    }
+}
+
+pub(crate) fn log_probe_timeout(probe: &str, timeout: &CommandTimeout) {
+    eprintln!("{}", timeout.message(probe));
+}
+
 pub(crate) fn command_output_with_timeout(
     command: &mut Command,
     timeout: Duration,
-) -> io::Result<Option<std::process::Output>> {
+) -> io::Result<CommandOutputOutcome> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2940,47 +2980,114 @@ pub(crate) fn command_output_with_timeout(
         .stderr
         .take()
         .ok_or_else(|| io::Error::other("Unable to read agent detection error output"))?;
+    let stdout_diagnostics = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let stderr_diagnostics = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Reader threads must not hold the caller past the deadline while a
     // descendant keeps either inherited pipe open.
+    let stdout_capture = std::sync::Arc::clone(&stdout_diagnostics);
+    let stdout_timed_out = std::sync::Arc::clone(&timed_out);
     let stdout_reader = thread::spawn(move || {
-        let mut output = Vec::new();
-        stdout.read_to_end(&mut output).map(|_| output)
+        read_command_output(stdout, stdout_capture, stdout_timed_out)
     });
+    let stderr_capture = std::sync::Arc::clone(&stderr_diagnostics);
+    let stderr_timed_out = std::sync::Arc::clone(&timed_out);
     let stderr_reader = thread::spawn(move || {
-        let mut output = Vec::new();
-        stderr.read_to_end(&mut output).map(|_| output)
+        read_command_output(stderr, stderr_capture, stderr_timed_out)
     });
     let deadline = Instant::now() + timeout;
     let result = (|| {
-        let mut status = None;
         loop {
-            if status.is_none() {
-                status = child.try_wait()?;
-            }
-            if status.is_some() && stdout_reader.is_finished() && stderr_reader.is_finished() {
-                break;
+            if command_child_exited(&mut child)?
+                && stdout_reader.is_finished()
+                && stderr_reader.is_finished()
+            {
+                let status = child.wait()?;
+                let stdout = stdout_reader.join().map_err(|_| {
+                    io::Error::other("Agent detection output thread exited unexpectedly")
+                })??;
+                let stderr = stderr_reader.join().map_err(|_| {
+                    io::Error::other("Agent detection error thread exited unexpectedly")
+                })??;
+                return Ok(CommandOutputOutcome::Completed(std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                }));
             }
             if Instant::now() >= deadline {
-                return Ok(None);
+                timed_out.store(true, std::sync::atomic::Ordering::Release);
+                let timeout = CommandTimeout {
+                    timeout,
+                    stdout: read_diagnostic_snippet(&stdout_diagnostics),
+                    stderr: read_diagnostic_snippet(&stderr_diagnostics),
+                };
+                terminate_agent_probe_process(&mut child);
+                return Ok(CommandOutputOutcome::TimedOut(timeout));
             }
             thread::sleep(AGENT_VERSION_PROBE_POLL_INTERVAL);
         }
-        let stdout = stdout_reader
-            .join()
-            .map_err(|_| io::Error::other("Agent detection output thread exited unexpectedly"))??;
-        let stderr = stderr_reader
-            .join()
-            .map_err(|_| io::Error::other("Agent detection error thread exited unexpectedly"))??;
-        Ok(status.map(|status| std::process::Output {
-            status,
-            stdout,
-            stderr,
-        }))
     })();
-    if !matches!(&result, Ok(Some(_))) {
+    if result.is_err() {
         terminate_agent_probe_process(&mut child);
     }
     result
+}
+
+fn read_command_output(
+    mut reader: impl Read,
+    diagnostics: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    timed_out: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> io::Result<Vec<u8>> {
+    let mut output = Vec::new();
+    let mut chunk = [0; 1024];
+    loop {
+        let bytes_read = reader.read(&mut chunk)?;
+        if bytes_read == 0 {
+            return Ok(output);
+        }
+        if timed_out.load(std::sync::atomic::Ordering::Acquire) {
+            output = Vec::new();
+        } else {
+            output.extend_from_slice(&chunk[..bytes_read]);
+        }
+        let mut diagnostics = diagnostics
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let remaining = COMMAND_TIMEOUT_DIAGNOSTIC_LIMIT.saturating_sub(diagnostics.len());
+        diagnostics.extend_from_slice(&chunk[..bytes_read.min(remaining)]);
+    }
+}
+
+fn read_diagnostic_snippet(diagnostics: &std::sync::Mutex<Vec<u8>>) -> Vec<u8> {
+    diagnostics
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
+#[cfg(unix)]
+fn command_child_exited(child: &Child) -> io::Result<bool> {
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            child.id() as _,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    };
+    if result == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: waitid initialized the process ID field on success; WNOWAIT
+    // leaves an exited child waitable so its PID continues pinning its group.
+    Ok(unsafe { info.si_pid() } != 0)
+}
+
+#[cfg(not(unix))]
+fn command_child_exited(child: &mut Child) -> io::Result<bool> {
+    Ok(child.try_wait()?.is_some())
 }
 
 fn terminate_agent_probe_process(child: &mut Child) {
@@ -2994,7 +3101,25 @@ fn terminate_agent_probe_process(child: &mut Child) {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         configure_background_command(&mut command);
-        let _ = command.status();
+        if let Ok(mut taskkill) = command.spawn() {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                match taskkill.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if Instant::now() < deadline => {
+                        thread::sleep(AGENT_VERSION_PROBE_POLL_INTERVAL);
+                    }
+                    Ok(None) | Err(_) => {
+                        let _ = taskkill.kill();
+                        let _ = taskkill.wait();
+                        break;
+                    }
+                }
+            }
+        }
+        // taskkill /T may not find descendants after the parent has exited.
+        // A Windows Job Object would close that gap; this bounded fallback is
+        // retained to keep the main-branch backport small.
     }
     #[cfg(unix)]
     {
@@ -3016,7 +3141,13 @@ pub(crate) fn read_agent_version(path: &Path, home: &Path) -> Option<String> {
     command.arg("--version");
     configure_background_command(&mut command);
     configure_agent_command_environment(&mut command, home, path).ok()?;
-    let output = command_output_with_timeout(&mut command, AGENT_VERSION_PROBE_TIMEOUT).ok()??;
+    let output = match command_output_with_timeout(&mut command, AGENT_VERSION_PROBE_TIMEOUT).ok()? {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => {
+            log_probe_timeout("Agent executable version", &timeout);
+            return None;
+        }
+    };
     if !output.status.success() {
         return None;
     }

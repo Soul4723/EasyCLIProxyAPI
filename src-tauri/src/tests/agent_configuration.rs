@@ -2736,9 +2736,10 @@ fn agent_probe_command_captures_output_before_timeout() {
         command
     };
 
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(2))
-        .unwrap()
-        .unwrap();
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(2)).unwrap() {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("test command")),
+    };
 
     assert!(output.status.success());
     assert_eq!(
@@ -2776,7 +2777,10 @@ fn agent_probe_command_stops_at_timeout() {
     let started = Instant::now();
     let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
 
-    assert!(output.is_none());
+    let CommandOutputOutcome::TimedOut(timeout) = output else {
+        panic!("probe unexpectedly completed before its timeout");
+    };
+    assert_eq!(timeout.timeout, Duration::from_millis(100));
     assert!(started.elapsed() < Duration::from_secs(3));
 }
 
@@ -2789,8 +2793,45 @@ fn agent_probe_command_times_out_when_exited_shell_leaves_descendant_pipes() {
     let started = Instant::now();
     let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
 
-    assert!(output.is_none());
+    assert!(matches!(output, CommandOutputOutcome::TimedOut(_)));
     assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn agent_probe_timeout_keeps_exited_group_leader_unreaped_while_descendant_escapes() {
+    let mut command = Command::new("sh");
+    command.args([
+        "-c",
+        "setsid sh -c 'printf escaped-descendant; sleep 5' & sleep 0.05; exit 0",
+    ]);
+    let started = Instant::now();
+    let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
+
+    let CommandOutputOutcome::TimedOut(timeout) = output else {
+        panic!("probe unexpectedly completed before its timeout");
+    };
+    assert!(String::from_utf8_lossy(&timeout.stdout).contains("escaped-descendant"));
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_probe_timeout_returns_bounded_diagnostics() {
+    let mut command = Command::new("sh");
+    command.args([
+        "-c",
+        "yes x | head -c 2048; yes y | head -c 2048 >&2; sleep 5",
+    ]);
+
+    let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
+    let CommandOutputOutcome::TimedOut(timeout) = output else {
+        panic!("probe unexpectedly completed before its timeout");
+    };
+
+    assert_eq!(timeout.stdout.len(), COMMAND_TIMEOUT_DIAGNOSTIC_LIMIT);
+    assert_eq!(timeout.stderr.len(), COMMAND_TIMEOUT_DIAGNOSTIC_LIMIT);
+    assert!(timeout.message("Agent executable").contains("probe timed out after 0.1s"));
 }
 
 #[cfg(unix)]
@@ -2805,7 +2846,7 @@ fn agent_probe_timeout_does_not_stop_an_unrelated_process() {
     let _ = unrelated.kill();
     let _ = unrelated.wait();
 
-    assert!(output.is_none());
+    assert!(matches!(output, CommandOutputOutcome::TimedOut(_)));
     assert!(unrelated_is_running, "probe timeout stopped an unrelated process");
 }
 

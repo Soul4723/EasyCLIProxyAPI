@@ -144,7 +144,13 @@ fn read_workbuddy_bundle_executable(info_plist: &Path) -> Option<String> {
     command
         .args(["-extract", "CFBundleExecutable", "raw", "-o", "-"])
         .arg(info_plist);
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(5)).ok()??;
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(5)).ok()? {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => {
+            log_probe_timeout("WorkBuddy bundle version", &timeout);
+            return None;
+        }
+    };
     if !output.status.success() {
         return None;
     }
