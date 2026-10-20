@@ -1200,6 +1200,53 @@
     }
 
     #[test]
+    fn usage_event_api_masks_key_sources_with_stable_grouping_and_keeps_storage_raw() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&connection).unwrap();
+        let config = GuiConfigFile::default();
+        let key = "sk-source-secret-1234567890abcdef";
+        let mut first = sample_record("source-key-1", "2026-10-11T00:00:00Z", "model");
+        first.source = key.to_string();
+        let mut second = sample_record("source-key-2", "2026-10-12T00:00:00Z", "model");
+        second.source = key.to_string();
+        let mut ordinary = sample_record("source-account", "2026-10-10T00:00:00Z", "model");
+        ordinary.source = "account@example.com".to_string();
+        insert_usage_records(&mut connection, &[first, second, ordinary]).unwrap();
+
+        let page = load_usage_events(&connection, &UsageQuery::default(), &config).unwrap();
+        let first_source = &page
+            .items
+            .iter()
+            .find(|item| item.id == "source-key-1")
+            .unwrap()
+            .source;
+        let second_source = &page
+            .items
+            .iter()
+            .find(|item| item.id == "source-key-2")
+            .unwrap()
+            .source;
+        assert_eq!(first_source, second_source);
+        assert!(!first_source.contains(key));
+        assert!(first_source.contains(&hash_text(key)[..8]));
+        assert_eq!(
+            page.items.iter().find(|item| item.id == "source-account").unwrap().source,
+            "account@example.com"
+        );
+        let response = serde_json::to_string(&page.items).unwrap();
+        assert!(!response.contains(key));
+
+        let stored: String = connection
+            .query_row(
+                "SELECT source FROM usage_events WHERE id = 'source-key-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, key);
+    }
+
+    #[test]
     fn usage_source_masks_shared_keys_with_different_record_remarks() {
         let key = "sk-1234567890abcdefghijklmnopqrstuvwxyz";
         let mut config = GuiConfigFile::default();

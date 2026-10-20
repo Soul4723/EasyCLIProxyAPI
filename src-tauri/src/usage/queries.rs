@@ -640,12 +640,17 @@ pub(super) fn load_usage_events_with_notes(
         }
         let source_is_client_key = hash_text(item.source.trim()) == item.api_key_hash
             || config.api_keys.iter().any(|entry| entry.key == item.source.trim());
-        let identity = if item.auth_index.trim().is_empty() && !item.source.trim().is_empty() && !source_is_client_key {
+        let mut identity = if item.auth_index.trim().is_empty() && !item.source.trim().is_empty() && !source_is_client_key {
             usage_source_display(config, &item.provider, &item.source)
         } else {
             usage_upstream_label(config, &item.provider, if source_is_client_key { "" } else { &item.source }, &item.auth_index)
         };
+        let safe_source = usage_source_api_value(&item.source, &item.api_key_hash, config);
+        if safe_source != item.source {
+            identity = identity.replace(&item.source, &mask_api_key(&item.source));
+        }
         item.source_display = identity;
+        item.source = safe_source;
         item.cost = usage_record_cost(item, &prices);
     }
     Ok(UsageEventPage {
