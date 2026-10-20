@@ -769,14 +769,29 @@ pub(crate) fn apply_gui_managed_settings(
     Ok(updated)
 }
 
-pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
-    write_bytes_directly_with_mode(path, content, false)
+/// Which permissions a direct write gives the file. Both modes create it 0600 so it is never readable by others
+/// between creation and the first write; they differ in what happens to a file that already exists.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DirectWriteMode {
+    /// Keep the mode of an existing file (a user's own tool config), 0600 only when this write creates it.
+    PrivateIfNew,
+    /// Tighten an existing file to 0600 before any content is written (files the app owns).
+    Private,
 }
 
-/// Direct write for a file that holds credentials (the GUI config.toml). On Unix the file is created 0600 and an
-/// existing file is tightened before any content is written. Windows relies on the inherited per-user ACL of the
-/// profile directory.
-fn write_bytes_directly_with_mode(path: &Path, content: &[u8], private: bool) -> Result<(), String> {
+/// Direct write for agent configuration. Files created by the app are 0600 because they can hold the client key;
+/// a file the user created keeps its mode. Windows relies on the inherited per-user ACL of the profile directory.
+pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_directly_with_mode(path, content, DirectWriteMode::PrivateIfNew)
+}
+
+/// Direct write for a file the app owns that holds credentials (the core config.yaml, DeepSeek credentials). An
+/// existing loose file is repaired to 0600.
+pub(crate) fn write_private_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_directly_with_mode(path, content, DirectWriteMode::Private)
+}
+
+fn write_bytes_directly_with_mode(path: &Path, content: &[u8], mode: DirectWriteMode) -> Result<(), String> {
     let directory = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
@@ -784,21 +799,22 @@ fn write_bytes_directly_with_mode(path: &Path, content: &[u8], private: bool) ->
     let write_result = (|| -> io::Result<()> {
         let mut options = fs::OpenOptions::new();
         options.create(true).write(true).truncate(false);
+        // The mode applies only when the file is created, and umask can only remove bits from it.
         #[cfg(unix)]
-        if private {
+        {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
         let mut file = options.open(path)?;
         #[cfg(unix)]
-        if private {
+        if mode == DirectWriteMode::Private {
             use std::os::unix::fs::PermissionsExt;
             if file.metadata()?.permissions().mode() & 0o7777 != 0o600 {
                 file.set_permissions(fs::Permissions::from_mode(0o600))?;
             }
         }
         #[cfg(not(unix))]
-        let _ = private;
+        let _ = mode;
         file.seek(SeekFrom::Start(0))?;
         file.write_all(content)?;
         file.set_len(content.len() as u64)?;
@@ -814,22 +830,24 @@ pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), 
     write_bytes_atomically_with_mode(path, content, false)
 }
 
-// Avoid even a metadata notification when the file is already private.
-fn restrict_private_permissions(path: &Path) -> Result<(), String> {
+// Avoid even a metadata notification when the file is already private. Returns whether the mode was changed.
+fn restrict_private_permissions(path: &Path) -> Result<bool, String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let permissions = fs::metadata(path)
-            .map_err(|error| format!("Failed to read GUI configuration permissions: {error}"))?
+            .map_err(|error| format!("Failed to read configuration permissions {}: {error}", path_to_string(path)))?
             .permissions();
         if permissions.mode() & 0o7777 != 0o600 {
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-                .map_err(|error| format!("Failed to restrict GUI configuration permissions: {error}"))?;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
+                format!("Failed to restrict configuration permissions {}: {error}", path_to_string(path))
+            })?;
+            return Ok(true);
         }
     }
     #[cfg(not(unix))]
     let _ = path;
-    Ok(())
+    Ok(false)
 }
 
 pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), String> {
@@ -841,8 +859,8 @@ fn write_bytes_atomically_with_mode(path: &Path, content: &[u8], private: bool) 
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     if fs::read(path).ok().as_deref() == Some(content) {
-        if private {
-            restrict_private_permissions(path)?;
+        if private && restrict_private_permissions(path)? {
+            remember_software_write(path, content);
         }
         return Ok(());
     }
@@ -934,9 +952,13 @@ pub(crate) fn write_yaml_if_changed(path: &Path, content: &str) -> Result<bool, 
 
 pub(crate) fn write_core_config_if_changed(path: &Path, content: &str) -> Result<bool, String> {
     if fs::read_to_string(path).ok().as_deref() == Some(content) {
+        // config.yaml holds the management key and provider keys; repair a loose file even when nothing changed.
+        if restrict_private_permissions(path)? {
+            remember_software_write(path, content.as_bytes());
+        }
         return Ok(false);
     }
-    write_bytes_directly(path, content.as_bytes())?;
+    write_private_bytes_directly(path, content.as_bytes())?;
     Ok(true)
 }
 

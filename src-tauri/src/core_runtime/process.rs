@@ -121,20 +121,54 @@ pub(crate) fn core_start_log_path(install_dir: &Path, auth_dir: &str) -> Result<
     Ok(core_logs_dir_path(auth_dir, install_dir)?.join("core-start-output.log"))
 }
 
+/// Creates the log directory 0700 when it does not exist yet; an existing directory keeps its mode. The core also
+/// writes its own logs there, with its own umask.
+fn create_core_log_dir(directory: &Path) -> io::Result<()> {
+    if directory.is_dir() {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        if let Some(parent) = directory.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        match fs::DirBuilder::new().mode(0o700).create(directory) {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+            result => result,
+        }
+    }
+    #[cfg(not(unix))]
+    fs::create_dir_all(directory)
+}
+
 pub(crate) fn core_start_stdio(log_path: &Path) -> io::Result<(Stdio, Stdio)> {
     if let Some(parent) = log_path.parent() {
-        fs::create_dir_all(parent)?;
+        create_core_log_dir(parent)?;
     }
 
-    let mut header_file = File::options()
-        .append(true)
-        .create(true)
-        .open(log_path)?;
+    // The log can contain request headers in debug mode, so it is created 0600 and a loose existing log is
+    // repaired. Windows relies on the inherited ACL of the profile directory.
+    let mut options = File::options();
+    options.append(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut header_file = options.open(log_path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if header_file.metadata()?.permissions().mode() & 0o7777 != 0o600 {
+            header_file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        }
+    }
     writeln!(header_file, "\n===== CPA kernel startup {} =====", unix_now())?;
     drop(header_file);
 
     let stdout_file = File::options().append(true).open(log_path)?;
-    let stderr_file = File::options().append(true).create(true).open(log_path)?;
+    let stderr_file = options.open(log_path)?;
 
     Ok((Stdio::from(stdout_file), Stdio::from(stderr_file)))
 }
