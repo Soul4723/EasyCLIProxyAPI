@@ -465,9 +465,9 @@ jobs:
           {indent}let localConfig = fs.readFileSync(localConfigPath, 'utf8');
           {indent}const localManagementKey = JSON.stringify(process.env.CPA_TEST_MANAGEMENT_KEY || '');
           {indent}if (/^management-secret-key\\s*=/m.test(localConfig)) {{
-          {indent}  localConfig = localConfig.replace(/^management-secret-key\\s*=.*$/m, `management-secret-key = ${{localManagementKey}}`);
+          {indent}  localConfig = localConfig.replace(/^management-secret-key\\s*=.*$/m, 'management-secret-key = ' + localManagementKey);
           {indent}}} else {{
-          {indent}  localConfig += `management-secret-key = ${{localManagementKey}}\\n`;
+          {indent}  localConfig += 'management-secret-key = ' + localManagementKey + '\\n';
           {indent}}}
           {indent}fs.writeFileSync(localConfigPath, localConfig, {{ mode: 0o600 }});
           {indent}}}
