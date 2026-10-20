@@ -383,7 +383,8 @@ export function useSessionContext({ sessionId, onClose, onSessionUpdated }: Opti
       const next = { ...prev };
       for (const line of lines) {
         // A partner line on a page that is not loaded yet gets a placeholder; its text fills in when the page arrives.
-        next[line] = { content: '', isEditing: false, ...prev[line], isDeleted: nextDeleted };
+        const current: MessageEditState | undefined = prev[line];
+        next[line] = { content: current?.content ?? '', isEditing: current?.isEditing ?? false, isDeleted: nextDeleted };
       }
       return next;
     });
