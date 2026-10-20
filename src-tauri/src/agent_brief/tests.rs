@@ -162,6 +162,22 @@ fn fractional_headroom_below_half_percent_prints_exhausted_consistently() {
 }
 
 #[test]
+fn guidance_uses_exact_thresholds_while_display_floors_percentages() {
+    let (mut quota, core) = fixture();
+    for (pct, status, display, guide) in [
+        (19.6, "low", "5h=19%", "light=codex"),
+        (20.0, "ok", "5h=20%", "light=codex"),
+        (49.6, "ok", "5h=49%", "light=codex"),
+        (50.0, "ok", "5h=50%", "swarm=codex"),
+    ] {
+        quota.accounts[2].windows = vec![window("5h", pct, Some(HOUR))];
+        let out = text(&quota, &core, &Filters { provider: Some("codex".into()), ..Default::default() });
+        assert!(out.contains(&format!("codex {status} 1/1 {display}")), "{pct}: {out}");
+        assert!(out.contains(&format!("guide: {guide}")), "{pct}: {out}");
+    }
+}
+
+#[test]
 fn credential_cooldown_blocks_the_account_and_a_far_one_is_avoided() {
     let (quota, mut core) = fixture();
     core.accounts[3].unavailable = true;

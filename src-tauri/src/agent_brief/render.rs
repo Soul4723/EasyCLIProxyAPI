@@ -54,6 +54,8 @@ pub(crate) struct WindowView {
     pub(crate) label: &'static str,
     pub(crate) group: String,
     pub(crate) pct: i64,
+    /// Exact effective percentage used for status and guide thresholds.
+    exact_pct: f64,
     /// Milliseconds until reset; None when the window is full or the reset is unknown.
     pub(crate) reset_in_ms: Option<i64>,
     /// The reset time passed since the quota was read: shown as `reset`.
@@ -174,7 +176,8 @@ fn window_views(windows: &[QuotaWindow], now_ms: i64) -> Vec<WindowView> {
             let view = WindowView {
                 label: label_of(window),
                 group: window.group.clone(),
-                pct: if eff.pct < 0.5 { 0 } else { eff.pct.round() as i64 },
+                pct: if eff.pct < 0.5 { 0 } else { eff.pct.floor() as i64 },
+                exact_pct: eff.pct,
                 reset_in_ms,
                 reset_passed: eff.passed,
                 exhausted: eff.pct < 0.5 && !eff.passed,
@@ -244,7 +247,7 @@ fn primary<'a>(acct: &'a Acct<'_>) -> impl Iterator<Item = &'a WindowView> {
 }
 
 fn bottleneck(acct: &Acct) -> Option<f64> {
-    primary(acct).map(|view| view.pct as f64).reduce(f64::min)
+    primary(acct).map(|view| view.exact_pct).reduce(f64::min)
 }
 
 fn balance_of(account: &Acct) -> Option<String> {
@@ -373,7 +376,7 @@ pub(crate) fn build(inputs: &Inputs, filters: &Filters) -> Briefing {
         let windows = selected_account.map(|a| {
             let mut views: Vec<_> = primary(a).cloned().collect();
             if views.is_empty() {
-                if let Some(view) = a.windows.iter().min_by_key(|view| view.pct) {
+                if let Some(view) = a.windows.iter().min_by(|a, b| a.exact_pct.total_cmp(&b.exact_pct)) {
                     views.push(WindowView { label: "lim", ..view.clone() });
                 }
             }
@@ -522,7 +525,7 @@ fn guide_line(providers: &[ProviderView]) -> Option<String> {
                 if provider.status == Status::Ok && headroom >= HIGH_PCT {
                     swarm.push(provider.id.clone());
                 } else {
-                    let tight = provider.windows.iter().min_by_key(|w| w.pct);
+                    let tight = provider.windows.iter().min_by(|a, b| a.exact_pct.total_cmp(&b.exact_pct));
                     let detail = tight.map(|w| format!("({})", window_text(w))).unwrap_or_default();
                     light.push(format!("{}{detail}", provider.id));
                 }
