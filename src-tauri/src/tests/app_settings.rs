@@ -43,7 +43,7 @@ fn gui_config_save_replaces_the_file_atomically_and_keeps_secrets_private() {
     assert_ne!(secured_metadata.ino(), initial_inode, "an unchanged save repairs loose permissions");
     assert_eq!(secured_metadata.permissions().mode() & 0o777, 0o600);
 
-    config.remote_management_key = "remote-management-secret".into();
+    config.management_secret_key = "remote-management-secret".into();
     write_gui_config_to_path(&config, &path).unwrap();
 
     let metadata = fs::metadata(&path).unwrap();
@@ -52,7 +52,7 @@ fn gui_config_save_replaces_the_file_atomically_and_keeps_secrets_private() {
     let saved = fs::read(&path).unwrap();
     assert_ne!(saved, original);
     let restored: GuiConfigFile = toml::from_str(std::str::from_utf8(&saved).unwrap()).unwrap();
-    assert_eq!(restored.remote_management_key, "remote-management-secret");
+    assert_eq!(restored.management_secret_key, "remote-management-secret");
     let entries: Vec<_> = fs::read_dir(&home).unwrap().map(|entry| entry.unwrap().file_name()).collect();
     assert_eq!(entries, vec![std::ffi::OsString::from("config.toml")]);
     fs::remove_dir_all(home).unwrap();
