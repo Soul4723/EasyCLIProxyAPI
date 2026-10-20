@@ -215,6 +215,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await page.waitForFunction(() => location.hash === '#/usage');
     await h.gotoPage(page, '/plugins');
     await page.waitForFunction(() => location.hash === '#/plugins');
+    await page.locator('.ec-page-header h1').getByText('Plugins', { exact: true }).waitFor();
     // 7) guard cancels back/forward and restores the URL
     await page.evaluate(() => { window.guard.cancel = true; window.guard.pending.length = 0; });
     await page.goBack();
@@ -224,6 +225,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     // 8) resuming a cancelled back navigation actually navigates (typed/back hash continuation)
     await page.evaluate(() => { const pending = window.guard.pending.at(-1); window.guard.cancel = false; pending(); });
     await page.waitForFunction(() => location.hash === '#/usage');
+    await page.locator('.ec-page-header h1').getByText('Usage', { exact: true }).waitFor();
     assert.deepEqual(await activeNav(page), ['usage'], 'resumed back navigation lands on its target');
     assert.equal(await h.pageTitle(page), 'Usage');
     // ... and a resumed typed hash too
