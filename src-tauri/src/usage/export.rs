@@ -1,4 +1,5 @@
 use super::*;
+use std::io::Write;
 
 #[tauri::command]
 pub(crate) async fn save_usage_events_export(path: String, contents: String) -> Result<(), String> {
@@ -9,7 +10,37 @@ pub(crate) async fn save_usage_events_export(path: String, contents: String) -> 
 
 pub(super) fn write_usage_events_export(path: &str, contents: &str) -> Result<(), String> {
     let path = validated_usage_export_path(path)?;
-    fs::write(&path, contents.as_bytes())
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err("Usage export path must not be a symbolic link".to_string());
+        }
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err("Usage export path must be a regular file".to_string());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!("Failed to inspect usage export {}: {error}", path.display()));
+        }
+        _ => {}
+    }
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options
+        .open(&path)
+        .map_err(|error| format!("Failed to write usage export {}: {error}", path.display()))?;
+    if !file
+        .metadata()
+        .map_err(|error| format!("Failed to inspect usage export {}: {error}", path.display()))?
+        .is_file()
+    {
+        return Err("Usage export path must be a regular file".to_string());
+    }
+    file.write_all(contents.as_bytes())
         .map_err(|error| format!("Failed to write usage export {}: {error}", path.display()))
 }
 
@@ -103,5 +134,19 @@ mod save_usage_events_export_tests {
             .to_string_lossy()
             .into_owned();
         assert!(write_usage_events_export(&missing, "id").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_to_write_through_a_symbolic_link() {
+        use std::os::unix::fs::symlink;
+
+        let directory = TempDir::new("symlink");
+        let target = directory.path().join("target.csv");
+        let link = directory.path().join("usage.csv");
+        fs::write(&target, "keep").unwrap();
+        symlink(&target, &link).unwrap();
+        assert!(write_usage_events_export(&link.to_string_lossy(), "overwrite").is_err());
+        assert_eq!(fs::read_to_string(target).unwrap(), "keep");
     }
 }
