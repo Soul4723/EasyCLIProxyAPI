@@ -808,9 +808,26 @@ fn write_bytes_atomically_with_mode(
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let destination_path = match fs::symlink_metadata(path) {
-        Ok(_) => fs::canonicalize(path).map_err(|error| {
-            format!("Failed to resolve configuration path {}: {error}", path_to_string(path))
-        })?,
+        Ok(metadata) if metadata.file_type().is_symlink() => match fs::canonicalize(path) {
+            Ok(target) => target,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let target = fs::read_link(path).map_err(|read_error| {
+                    format!("Failed to read configuration symlink {}: {read_error}", path_to_string(path))
+                })?;
+                return Err(format!(
+                    "configuration path is a dangling symlink: {} -> {}",
+                    path_to_string(path),
+                    path_to_string(&target)
+                ));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Failed to resolve configuration symlink {}: {error}",
+                    path_to_string(path)
+                ));
+            }
+        },
+        Ok(_) => path.to_path_buf(),
         Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_path_buf(),
         Err(error) => {
             return Err(format!(

@@ -72,23 +72,77 @@ fn gui_config_save_replaces_the_file_atomically_and_keeps_secrets_private() {
 #[cfg(unix)]
 #[test]
 fn gui_config_save_follows_symlinks_and_keeps_the_link() {
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{PermissionsExt, symlink};
 
     let home = agent_test_home("gui-config-symlink");
     let target_dir = home.join("target");
+    let link_dir = home.join("links");
     fs::create_dir_all(&target_dir).unwrap();
+    fs::create_dir_all(&link_dir).unwrap();
     let target = target_dir.join("config.toml");
     let link = home.join("config.toml");
+    let intermediate_link = link_dir.join("config-pointer");
     let mut config = GuiConfigFile::default();
     write_gui_config_to_path(&config, &target).unwrap();
-    symlink(&target, &link).unwrap();
+    symlink(Path::new("../target/config.toml"), &intermediate_link).unwrap();
+    symlink(Path::new("links/config-pointer"), &link).unwrap();
 
     config.management_secret_key = "symlink-target-secret".into();
     write_gui_config_to_path(&config, &link).unwrap();
 
     assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert!(fs::symlink_metadata(&intermediate_link).unwrap().file_type().is_symlink());
     let saved: GuiConfigFile = toml::from_str(&fs::read_to_string(&target).unwrap()).unwrap();
     assert_eq!(saved.management_secret_key, "symlink-target-secret");
+    assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+
+    let mut home_entries: Vec<_> = fs::read_dir(&home)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    home_entries.sort();
+    assert_eq!(
+        home_entries,
+        vec!["config.toml", "links", "target"].map(std::ffi::OsString::from)
+    );
+    let link_entries: Vec<_> = fs::read_dir(&link_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(link_entries, vec![std::ffi::OsString::from("config-pointer")]);
+    let target_entries: Vec<_> = fs::read_dir(&target_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(target_entries, vec![std::ffi::OsString::from("config.toml")]);
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_config_save_rejects_dangling_symlink_without_changing_it() {
+    use std::os::unix::fs::symlink;
+
+    let home = agent_test_home("gui-config-dangling-symlink");
+    let link = home.join("config.toml");
+    let target = Path::new("missing/config.toml");
+    symlink(target, &link).unwrap();
+    let config = GuiConfigFile::default();
+
+    let error = write_gui_config_to_path(&config, &link).unwrap_err();
+
+    assert!(error.contains(&format!(
+        "configuration path is a dangling symlink: {} -> {}",
+        link.display(),
+        target.display()
+    )));
+    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_link(&link).unwrap(), target);
+    let entries: Vec<_> = fs::read_dir(&home)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(entries, vec![std::ffi::OsString::from("config.toml")]);
     fs::remove_dir_all(home).unwrap();
 }
 
