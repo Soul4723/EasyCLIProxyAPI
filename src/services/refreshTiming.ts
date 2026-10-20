@@ -25,13 +25,18 @@ export function subscribeFixedWindowEvent(
   };
 }
 
-/** No initial tick or catch-up tick. Hidden time does not count toward the next interval. */
-export function startVisibleInterval(tick: () => void, intervalMs: number) {
+/** No initial or catch-up interval tick. Hidden time does not count toward the next interval. */
+export function startVisibleInterval(tick: () => void, intervalMs: number, onVisible?: () => void) {
   let timer: ReturnType<typeof setInterval> | undefined;
+  let initialized = false;
   const onVisibility = () => {
     clearInterval(timer);
     timer = undefined;
-    if (!document.hidden) timer = setInterval(tick, intervalMs);
+    if (initialized && !document.hidden) onVisible?.();
+    initialized = true;
+    if (!document.hidden) {
+      timer = setInterval(tick, intervalMs);
+    }
   };
   document.addEventListener('visibilitychange', onVisibility);
   onVisibility();

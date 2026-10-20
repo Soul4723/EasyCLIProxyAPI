@@ -77,6 +77,25 @@ test('visible interval has no initial/catch-up tick and stops on disposal', asyn
   } finally { stop(); env.restore(); }
 });
 
+test('visible interval refreshes immediately on return and does not tick while hidden', async () => {
+  const env = browser();
+  let ticks = 0;
+  let refreshes = 0;
+  const stop = startVisibleInterval(() => { ticks++; }, 30, () => { refreshes++; });
+  try {
+    expect(refreshes).toBe(0);
+    env.doc.hidden = true; env.doc.dispatchEvent(new Event('visibilitychange'));
+    await pause(45); expect(ticks).toBe(0);
+    env.doc.hidden = false; env.doc.dispatchEvent(new Event('visibilitychange'));
+    expect(refreshes).toBe(1);
+    await pause(45); expect(ticks).toBeGreaterThan(0);
+    env.doc.hidden = true; env.doc.dispatchEvent(new Event('visibilitychange'));
+    const stoppedAt = ticks;
+    await pause(45); expect(ticks).toBe(stoppedAt);
+    stop();
+  } finally { stop(); env.restore(); }
+});
+
 test('focus refresh is strictly stale, visible, not event-pending, and query/manual freshness resets it', () => {
   const env = browser();
   let now = 1_000;
