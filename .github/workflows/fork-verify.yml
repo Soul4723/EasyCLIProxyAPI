@@ -200,6 +200,7 @@ jobs:
           fi
       - name: Clippy (warnings are reported, not treated as errors)
         id: clippy
+        if: ${{ !cancelled() }}
         run: |
           set -o pipefail
           cargo_manifest=src-tauri/Cargo.toml
