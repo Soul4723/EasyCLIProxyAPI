@@ -23,6 +23,7 @@ pub(crate) use models::*;
 mod client_config;
 pub(crate) use client_config::*;
 mod windows_quoting;
+#[cfg(target_os = "windows")]
 pub(crate) use windows_quoting::*;
 
 const AGENT_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
