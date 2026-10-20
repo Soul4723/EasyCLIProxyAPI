@@ -14,7 +14,7 @@ use std::{
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
-        LazyLock, Mutex,
+        Arc, LazyLock, Mutex,
     },
     time::Duration,
 };
@@ -23,6 +23,16 @@ use tokio_util::sync::CancellationToken;
 static REQUESTS: LazyLock<Mutex<HashMap<String, CancellationToken>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
+static MANAGEMENT_CLIENTS: LazyLock<Mutex<HashMap<ManagementClientKey, Arc<reqwest::Client>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct ManagementClientKey {
+    origin: String,
+    accept_invalid_certs: bool,
+    tls_cert: Option<String>,
+    tls_key: Option<String>,
+}
 
 // Reserve before sending so cancellation also works before the HTTP request starts.
 #[tauri::command]
@@ -581,16 +591,53 @@ pub(crate) async fn submit_oauth_callback(
 }
 
 pub(crate) fn management_http_client_for(config: &GuiConfigFile) -> Result<reqwest::Client, String> {
-    if config.connection_mode == super::CoreConnectionMode::Local {
-        return management_http_client();
+    let connection = super::core_connection::connection_from_config(config)?;
+    let tls_settings = (config.connection_mode == super::CoreConnectionMode::Local)
+        .then(current_core_tls_settings)
+        .transpose()?;
+    let accept_invalid_certs = tls_settings.as_ref().is_some_and(|settings| settings.enabled);
+    cached_management_http_client(
+        &connection.management_origin,
+        accept_invalid_certs,
+        tls_settings.as_ref().map(|settings| settings.cert.clone()),
+        tls_settings.as_ref().map(|settings| settings.key.clone()),
+    )
+        .map(|client| (*client).clone())
+}
+
+fn cached_management_http_client(
+    origin: &str,
+    accept_invalid_certs: bool,
+    tls_cert: Option<String>,
+    tls_key: Option<String>,
+) -> Result<Arc<reqwest::Client>, String> {
+    let parsed = reqwest::Url::parse(origin).map_err(|_| "Invalid management origin".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("Invalid management origin".to_string());
     }
-    reqwest::Client::builder()
+    let key = ManagementClientKey {
+        origin: parsed.origin().ascii_serialization(),
+        accept_invalid_certs,
+        tls_cert,
+        tls_key,
+    };
+    let mut clients = MANAGEMENT_CLIENTS
+        .lock()
+        .map_err(|_| "Management client cache unavailable".to_string())?;
+    if let Some(client) = clients.get(&key) {
+        return Ok(Arc::clone(client));
+    }
+    let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
+        .danger_accept_invalid_certs(accept_invalid_certs)
         .build()
-        .map_err(|_| "Failed to create remote management client".to_string())
+        .map_err(|_| "Failed to create management client".to_string())?;
+    let client = Arc::new(client);
+    clients.insert(key, Arc::clone(&client));
+    Ok(client)
 }
 
 fn oauth_callback_state(redirect_url: &str) -> Result<String, String> {
@@ -773,6 +820,33 @@ fn format_management_error(status: u16, body: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn management_client_cache_is_scoped_to_origin_and_tls_policy() {
+        let first = cached_management_http_client("https://core-a.example:9443", true, Some("cert-a".into()), Some("key-a".into())).unwrap();
+        let same = cached_management_http_client("https://core-a.example:9443/", true, Some("cert-a".into()), Some("key-a".into())).unwrap();
+        let different_origin = cached_management_http_client("https://core-b.example:9443", true, Some("cert-a".into()), Some("key-a".into())).unwrap();
+        let strict = cached_management_http_client("https://core-a.example:9443", false, None, None).unwrap();
+        assert!(Arc::ptr_eq(&first, &same));
+        assert!(!Arc::ptr_eq(&first, &different_origin));
+        assert!(!Arc::ptr_eq(&first, &strict));
+    }
+
+    #[test]
+    fn management_request_timeout_overrides_client_default() {
+        let client = cached_management_http_client("http://timeout.example:8080", false, None, None).unwrap();
+        let request = client.get("http://timeout.example:8080/").timeout(Duration::from_secs(7)).build().unwrap();
+        assert_eq!(request.timeout(), Some(&Duration::from_secs(7)));
+    }
+
+    #[test]
+    fn switching_target_or_certificate_never_reuses_relaxed_client() {
+        let original = cached_management_http_client("https://target-a.example:9443", true, Some("old-cert".into()), Some("old-key".into())).unwrap();
+        let switched_target = cached_management_http_client("https://target-b.example:9443", true, Some("old-cert".into()), Some("old-key".into())).unwrap();
+        let switched_certificate = cached_management_http_client("https://target-a.example:9443", true, Some("new-cert".into()), Some("new-key".into())).unwrap();
+        assert!(!Arc::ptr_eq(&original, &switched_target));
+        assert!(!Arc::ptr_eq(&original, &switched_certificate));
+    }
 
     // Disposable TLS management endpoint: no installed core or user config is changed.
     #[tokio::test]
