@@ -953,7 +953,8 @@ pub(crate) fn write_yaml_if_changed(path: &Path, content: &str) -> Result<bool, 
 pub(crate) fn write_core_config_if_changed(path: &Path, content: &str) -> Result<bool, String> {
     if fs::read_to_string(path).ok().as_deref() == Some(content) {
         // config.yaml holds the management key and provider keys; repair a loose file even when nothing changed.
-        if restrict_private_permissions(path)? {
+        // A file the app cannot chmod must not fail a save that changes nothing.
+        if restrict_private_permissions(path).unwrap_or(false) {
             remember_software_write(path, content.as_bytes());
         }
         return Ok(false);
