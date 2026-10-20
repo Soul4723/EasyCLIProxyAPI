@@ -492,7 +492,7 @@ pub(crate) async fn write_remote_yaml(
 }
 
 // For callers whose `original` is itself a read made immediately before this call,
-// so a preflight read would only repeat it (1 GET + N writes in total).
+// so a preflight read would only repeat it; the writer then sends only the N writes.
 pub(crate) async fn write_remote_yaml_after_fresh_read(
     state: &GuiConfigState, config: &GuiConfigFile, fresh: &str, updated: &str,
 ) -> Result<(), String> {
