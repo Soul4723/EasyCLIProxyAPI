@@ -340,7 +340,7 @@ pub(crate) async fn preview_agent_config_template(
                 claude_code_model_mappings, claude_desktop_model_mappings).await
         },
         |_config, plan, _target_operation| async move { Ok(plan.preview) },
-    ).await?.ok_or_else(|| "The core connection changed; request cancelled".to_string())
+    ).await?.ok_or_else(|| super::CORE_TARGET_CHANGED_CANCELLED.to_string())
 }
 
 #[tauri::command]

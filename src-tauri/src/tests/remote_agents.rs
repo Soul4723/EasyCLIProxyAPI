@@ -321,6 +321,44 @@ async fn remote_models_command_uses_client_auth_and_fences_old_target_response()
 }
 
 #[tokio::test]
+async fn preview_agent_config_template_cancels_after_switch_while_models_fetch_is_paused() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let app = tauri::test::mock_builder().manage(GuiConfigState::new(remote_target(&origin, "fixture-client")))
+        .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let state = app.state::<GuiConfigState>();
+    let (arrived_tx, arrived_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0; 4096];
+        let _ = socket.read(&mut request).await.unwrap();
+        arrived_tx.send(()).unwrap();
+        release_rx.await.unwrap();
+        let body = r#"{"data":[{"id":"fixture-model"}]}"#;
+        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+    });
+    let call = crate::agents::preview_agent_config_template(
+        app.handle().clone(), "claude-code".into(), "fixture-model".into(), false, None, None,
+    );
+    tokio::pin!(call);
+    tokio::select! {
+        result = &mut call => panic!("template preview finished before the model server answered: {result:?}"),
+        arrived = arrived_rx => arrived.unwrap(),
+    }
+    assert!(state.target_operation.try_lock().is_ok(), "model fetch held the target fence");
+    let mut changed = state.snapshot().unwrap();
+    changed.remote_client_origin = "http://target-b.invalid:8317".into();
+    changed.remote_client_key = "target-b-client".into();
+    state.replace_external(changed).unwrap();
+    release_tx.send(()).unwrap();
+    let error = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap().unwrap_err();
+    assert!(error.contains("request cancelled"), "{error}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn remote_model_errors_and_redirects_cannot_echo_or_forward_keys() {
     for response in [
         "HTTP/1.1 401 Unauthorized\r\nContent-Length: 14\r\nConnection: close\r\n\r\nfixture-client",

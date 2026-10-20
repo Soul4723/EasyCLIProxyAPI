@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::future::Future;
 
 const AGENT_STATUS_DETECTION_CONCURRENCY: usize = 4;
+pub(crate) const CORE_TARGET_CHANGED_CANCELLED: &str = "The core connection changed; request cancelled";
 
 pub(crate) fn agent_executable_overrides(
     executable_overrides: &HashMap<String, String>,
@@ -232,6 +233,7 @@ pub(crate) async fn resolve_pi_default_model(
 pub(crate) async fn check_pi_provider_update(
     app: tauri::AppHandle,
 ) -> Result<PiProviderUpdateStatus, String> {
+    let _target_operation = app.state::<GuiConfigState>().target_operation.lock().await;
     let home = app
         .path()
         .home_dir()
@@ -398,6 +400,7 @@ pub(crate) async fn update_codex_model_catalog_inner(
     app: &tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
     let _update_guard = CODEX_CATALOG_UPDATE_LOCK.lock().await;
+    let _target_operation = app.state::<GuiConfigState>().target_operation.lock().await;
     let config = app.state::<GuiConfigState>().snapshot()?;
     let proxy_url = config.proxy_url;
     let client = build_http_client_with_proxy(
@@ -597,9 +600,7 @@ pub(crate) async fn get_codex_model_catalog_editor(
     .ok_or_else(|| "The core connection changed; request cancelled".to_string())
 }
 
-/// Capture the current target under the fence, fetch without it, then recheck
-/// before applying target-derived data. `None` means the target changed while
-/// the fetch was in flight, so callers can discard the stale result.
+/// Fetch under a target snapshot and reject the result if its target revision changed.
 pub(crate) async fn target_read_only<T, Fetch, FetchFuture>(
     state: &GuiConfigState,
     expected_revision: u64,
@@ -616,9 +617,10 @@ where
         |_config, value, _target_operation| async move { Ok(value) },
     )
     .await?
-    .ok_or_else(|| "The core connection changed; request cancelled".to_string())
+    .ok_or_else(|| CORE_TARGET_CHANGED_CANCELLED.to_string())
 }
 
+/// Capture the target under the fence, fetch unlocked, then recheck before applying.
 pub(crate) async fn target_read_then_apply<T, R, Fetch, FetchFuture, Apply, ApplyFuture>(
     state: &GuiConfigState,
     expected_revision: Option<u64>,

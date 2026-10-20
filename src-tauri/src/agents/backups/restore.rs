@@ -266,7 +266,7 @@ pub(crate) async fn preview_agent_config_backup(
         None,
         move |config| async move { prepare_restore_plan(&config, &client, &home, &id).await },
         |_config, plan, _target_operation| async move { Ok(plan.preview) },
-    ).await?.ok_or_else(|| "The core connection changed; request cancelled".to_string())
+    ).await?.ok_or_else(|| crate::agents::CORE_TARGET_CHANGED_CANCELLED.to_string())
 }
 
 #[tauri::command]
