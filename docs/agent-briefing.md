@@ -8,12 +8,12 @@ slow, cheap one. It is a briefing, not a dashboard. The agent-facing instruction
 
 ```
 cpa local core=up quota_age=6m
-claude ok 1/2 5h=62%~1h11m wk=81%~3d2h | claude-opus-4-6 claude-sonnet-4-6 claude-haiku-4-5-20251001 +4 cool:claude-opus-4-8~3m
-codex low 1/1 5h=8%~20m wk=40%~1d23h | gpt-6.1-sol gpt-6-luna codex-auto-review
+claude ok 2/2 5h=62%~1h11m wk=81%~3d2h | claude-opus-4-8 claude-sonnet-4-6 claude-haiku-4-5-20251001 +5
+codex low 1/1 5h=8%~20m wk=40%~1d23h | gpt-6.1-sol codex-auto-review cool:gpt-6-luna~3m
 guide: swarm=claude light=codex(5h=8%~20m)
 ```
 
-(`5h=62%~1h11m`: 62% left, resets in 1h11m. This example is copied from a built binary.)
+This sample is verbatim output from the built binary against fictional fixture data on lab1.
 
 ## How it works
 

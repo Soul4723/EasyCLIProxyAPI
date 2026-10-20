@@ -5,7 +5,7 @@ description: Get a cheap, cached briefing of provider headroom, reset times and 
 
 # cpa-brief: pre-delegation briefing
 
-Run once before planning or delegation. It is a briefing, not a dashboard or a polling command.
+Run before planning or delegating, then again before a long run. It is a briefing, not a dashboard or polling command; it reads cached quota and routing data and makes no provider calls.
 
 ## Run
 
@@ -20,21 +20,36 @@ The app writes the launcher at startup. Options: `--provider P`, `--model TEXT` 
 
 ## Read it
 
-- Header: `local|remote|unknown`; `core=up` means core data was refreshed within 60 s. `core=down cached=<age>` means unreachable; `core=stale cached=<age>` means refresh failed for another reason. Old core data is never marked up. `quota_age` is the age of the oldest quota read among the displayed accounts; `stale` means over 30 min.
-- Provider line: `status usable/enabled`, its windows, optional balance and models. Windows use the selected headroom account so the status, windows and guide agree. `5h=62%~1h12m` means 62% remains; reset in 1h12m. `<1%` is treated as exhausted. `back=?` means exhausted with no known reset.
-- Status: `ok`, `low` (best account under 20% on its tightest window), `out`, `cool`, `err` (core says unavailable without a retry time), or `off` (all disabled). `quota=n/a` means usable but no quota numbers.
-- After `|`, the default text samples up to four newest routable models, one per family, ordered by newest version; image models are omitted. `+N` means more models are routable. To check a specific model, run `--model <part>`. A model is unavailable only if `--model` does not list it or shows it under `cool:`.
-- `cool:m~4m` means no account can serve `m` for 4 more minutes. `guide:` uses the same headroom: `swarm` = at least 50% on the tightest window; `light` = under 50% or `low`; `wait` = unavailable and back within 30 min; `avoid` = unavailable longer or reset unknown. Providers without quota numbers are omitted from the guide.
+- Header: `local|remote|unknown`; `core=up` means core data was refreshed within 60 s. `core=down cached=<age>` means unreachable; `core=stale cached=<age>` means refresh failed otherwise. Old core data is never marked up. `quota_age` is the oldest quota read among displayed accounts; `stale` means over 30 min.
+- Provider line: `status usable/enabled`, windows, optional balance and models. Window figures come from the selected headroom account, so status and guide agree. `5h=62%~1h12m` means 62% remains and resets in 1h12m; `<1%` means exhausted. `back=?` means exhausted with no known reset.
+- Status is `ok`, `low` (best account below 20% on its tightest window), `out`, `cool`, `err` (unavailable without retry time), or `off` (all disabled); `quota=n/a` means usable but no quota numbers.
+- After `|`, default text samples up to four newest routable models, one per family, ordered by newest version; image models are omitted. `+N` means more routable models. `cool:m~4m` means no account can serve `m` for 4 more minutes. Use `--model <part>` to check a specific model.
+- `guide:` summarizes headroom: `swarm` = at least 50% on the tightest window; `light` = under 50% or `low`; `wait` = unavailable and back within 30 min; `avoid` = unavailable longer or reset unknown. Providers without quota numbers are omitted.
+
+```text
+cpa local core=up quota_age=6m
+claude ok 2/2 5h=62%~1h11m wk=81%~3d2h | claude-opus-4-8 claude-sonnet-4-6 claude-haiku-4-5-20251001 +5
+codex low 1/1 5h=8%~20m wk=40%~1d23h | gpt-6.1-sol codex-auto-review cool:gpt-6-luna~3m
+guide: swarm=claude light=codex(5h=8%~20m)
+```
 
 ## Use it
 
-- Several `swarm` providers: fan out across them. Only `light`: use fewer workers, serially, with shorter prompts. For `wait`, do prep now and start the heavy part after the reset if it is soon; otherwise use another provider.
-- Size fan-out by usable accounts and headroom, not provider name. Run it again before a run longer than the shortest reset.
+- Several `swarm` providers: fan out across them. If only `light` providers remain, use fewer workers and shorter prompts. For `wait`, prep now and start heavy work after a soon reset; otherwise use another provider. Size fan-out by usable accounts and headroom, not provider name.
+- Example: the sample above → fan out heavy work to Claude; give Codex a small task or wait about 20 minutes for its 5h reset. Do not route `gpt-6-luna` until its model cooldown clears.
+- Tight case, captured from the binary:
+
+  ```text
+  cpa local core=up quota_age=6m
+  claude out 0/2 back=2h59m 5h=<1%~2h59m wk=81%~3d2h
+  codex ok 1/1 5h=35%~20m wk=40%~1d23h | gpt-6.1-sol codex-auto-review cool:gpt-6-luna~3m
+  guide: light=codex(5h=35%~20m) avoid=claude
+  ```
+
+  Output → decision: use one serial worker on Codex and smaller models; do no work that only Claude can do until its reset. Avoid its cooled `gpt-6-luna` model too.
 
 ## Failure modes
 
 - Missing launcher or `no briefing data yet`: start EasyCLIProxyAPI and open Overview or Quota once. Do not invent numbers.
-- If you know the core is up but this command says `core=down`, your sandbox may block loopback; treat core-dependent numbers as unknown, not as an outage.
-- `core=down` lists no models; `core=stale` says routing is unknown. A failed refresh never makes cached data live.
-- `stale` quota is only refreshed when Overview or Quota loads or the user refreshes it. Treat it as potentially outdated; a recent run may have used more.
-- `remote` uses the remote core. Quota is cached per core address. Exit 1 means no data; exit 2 means a bad option. The command does not open the app or call providers.
+- If you know the core is up but the command says `core=down`, the sandbox may block loopback; treat core-dependent numbers as unknown, not an outage. `core=down` lists no models; `core=stale` means routing is unknown.
+- Stale quota is only refreshed when Overview or Quota loads or the user refreshes it. Treat it as potentially outdated; a recent run may have used more. `remote` uses the remote core; quota is cached per core address. Exit 1 means no data; exit 2 means a bad option.
