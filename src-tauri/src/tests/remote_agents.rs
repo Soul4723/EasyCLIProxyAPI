@@ -324,7 +324,9 @@ async fn remote_models_command_uses_client_auth_and_fences_old_target_response()
 async fn preview_agent_config_template_cancels_after_switch_while_models_fetch_is_paused() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let app = tauri::test::mock_builder().manage(GuiConfigState::new(remote_target(&origin, "fixture-client")))
+    let mut target = remote_target(&origin, "fixture-client");
+    target.remote_management_origin = origin.clone();
+    let app = tauri::test::mock_builder().manage(GuiConfigState::new(target))
         .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
     let home = AgentTestHome::new("preview-template-cancel");
     let state = app.state::<GuiConfigState>();
