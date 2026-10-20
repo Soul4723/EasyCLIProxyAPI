@@ -35,6 +35,7 @@ export const jaOverrides = {
   'agents.provider.title': '{provider} に切り替え',
   'agents.provider.description': '現在のプロキシ接続先とログイン方式を保持します。Codex を再起動し、新しい会話で確認してください。既存の会話は以前のプロバイダーに属する場合があります。',
   'agents.provider.sync': '会話も同期する',
+  'agents.provider.syncRemote': '会話は Codex を実行しているこのコンピューターに保存されるため、リモート接続からは同期されません。会話管理で同期してください。',
   'agents.provider.syncHint': 'ローカルの過去の会話をバックアップし、選択したプロバイダーに更新します（クラウド同期ではありません）。未選択なら履歴は変更されず、後から会話管理で同期できます。別アカウントの暗号化内容は利用できない場合があります。',
   'agents.provider.switched': '{provider} に切り替えました。通信は引き続き CPA を経由します。Codex を再起動してください。',
   'agents.provider.syncFailed': 'プロバイダーは切り替わりましたが、会話の同期に失敗しました：{error}。会話管理で再試行できます。',

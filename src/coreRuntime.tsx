@@ -121,6 +121,12 @@ export function useCoreConnectionMode() {
   return context.status ? context.status.connectionMode ?? 'local' : undefined;
 }
 
+// Standalone agent-page fixtures have no runtime provider; null means the status is not known yet.
+export function useCoreRunning() {
+  const context = useContext(CoreRuntimeContext);
+  return context?.status ? context.status.running : null;
+}
+
 // Standalone agent-page fixtures have no runtime provider.
 export function useCoreTargetRevision() {
   return useContext(CoreRuntimeContext)?.connectionRevision ?? 0;

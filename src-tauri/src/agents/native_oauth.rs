@@ -82,7 +82,7 @@ pub(crate) fn restore_codex_proxy_identity_for_removal(document: &mut toml_edit:
     restore_cpa_provider_identity(document, &mut state)
 }
 
-pub(crate) fn switch_codex_openai_provider(home: &Path, enabled: bool) -> Result<AgentConfigActionResult, String> {
+pub(crate) fn switch_codex_openai_provider(home: &Path, target: impl AgentClientOrigin, enabled: bool) -> Result<AgentConfigActionResult, String> {
     let directory = codex_configuration_directory(home);
     let paths = vec![directory.join(CODEX_NATIVE_OAUTH_STATE_FILE), directory.join("config.toml")];
     let before = config_images(&paths)?;
@@ -100,7 +100,7 @@ pub(crate) fn switch_codex_openai_provider(home: &Path, enabled: bool) -> Result
         if enabled {
             let provider = codex_provider_table(&document).ok_or("Missing CPA provider configuration")?.clone();
             if !provider.get("name").and_then(toml_edit::Item::as_str).is_some_and(is_codex_managed_provider_name)
-                || !provider.get("base_url").and_then(toml_edit::Item::as_str).is_some_and(is_managed_agent_base_url) {
+                || !provider.get("base_url").and_then(toml_edit::Item::as_str).is_some_and(|base| is_managed_agent_target_url(base, target)) {
                 return Err("Apply the CPA configuration before changing the provider identity".into());
             }
             let mut saved = toml_edit::Document::new();
@@ -121,11 +121,16 @@ pub(crate) fn switch_codex_openai_provider(home: &Path, enabled: bool) -> Result
 
 // The built-in provider ignores model_providers.openai overrides. It uses
 // auth.json and the top-level openai_base_url, so validate that auth at CPA first.
-async fn validate_codex_openai_proxy_auth(config: &str, auth: &str) -> Result<(), String> {
+async fn validate_codex_openai_proxy_auth(
+    client: &reqwest::Client,
+    target: impl AgentClientOrigin,
+    config: &str,
+    auth: &str,
+) -> Result<(), String> {
     let document = parse_codex_document(Some(config), "Codex config.toml")?;
     let provider = codex_provider_table(&document).ok_or("Missing CPA provider configuration")?;
     let base = provider.get("base_url").and_then(toml_edit::Item::as_str).ok_or("Missing CPA endpoint")?;
-    if !is_managed_agent_base_url(base) {
+    if !is_managed_agent_target_url(base, target) {
         return Err("Apply the CPA configuration before changing the provider identity".into());
     }
     let auth = parse_agent_json_object(Some(auth), "Codex auth.json")?;
@@ -135,10 +140,6 @@ async fn validate_codex_openai_proxy_auth(config: &str, auth: &str) -> Result<()
     } else {
         auth.get("OPENAI_API_KEY").and_then(serde_json::Value::as_str)
     }.filter(|token| !token.trim().is_empty()).ok_or("Missing Codex credentials")?;
-    let client = reqwest::Client::builder().no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(10)).build()
-        .map_err(|_| "Failed to create CPA authentication check")?;
     let mut request = client.get(format!("{}/models", base.trim_end_matches('/'))).bearer_auth(token);
     if oauth {
         if let Some(account) = auth.get("tokens").and_then(|tokens| tokens.get("account_id")).and_then(serde_json::Value::as_str) {
@@ -161,8 +162,11 @@ pub(crate) async fn set_codex_openai_provider(app: tauri::AppHandle, enabled: bo
     let directory = codex_configuration_directory(&home);
     let paths = vec![directory.join("config.toml"), directory.join("auth.json")];
     let before = config_images(&paths)?;
+    let config = app.state::<GuiConfigState>().snapshot()?;
     if enabled {
+        let client = agent_catalog_http_client(&config)?;
         validate_codex_openai_proxy_auth(
+            &client, &config,
             text(before[0].1.as_deref())?.ok_or("Missing Codex configuration")?,
             text(before[1].1.as_deref())?.ok_or("Missing Codex credentials")?,
         ).await?;
@@ -171,7 +175,7 @@ pub(crate) async fn set_codex_openai_provider(app: tauri::AppHandle, enabled: bo
     if before != config_images(&paths)? {
         return Err("Codex configuration or credentials changed. Refresh and try again".into());
     }
-    let result = switch_codex_openai_provider(&home, enabled)?;
+    let result = switch_codex_openai_provider(&home, &config, enabled)?;
     app.state::<AgentConfigStatusCache>().clear()?;
     Ok(result)
 }
@@ -671,7 +675,7 @@ pub(crate) fn codex_remote_compaction_enabled(home: &Path) -> Result<bool, Strin
         .and_then(|p| p.get("name")).and_then(toml_edit::Item::as_str) == Some("OpenAI"))
 }
 
-pub(crate) fn switch_codex_remote_compaction(home: &Path, enabled: bool) -> Result<AgentConfigActionResult, String> {
+pub(crate) fn switch_codex_remote_compaction(home: &Path, target: impl AgentClientOrigin, enabled: bool) -> Result<AgentConfigActionResult, String> {
     let paths = vec![codex_configuration_directory(home).join("config.toml")];
     let before = config_images(&paths)?;
     let mut document = parse_codex_document(text(before[0].1.as_deref())?, "Codex config.toml")?;
@@ -683,7 +687,7 @@ pub(crate) fn switch_codex_remote_compaction(home: &Path, enabled: bool) -> Resu
     }
     let provider = codex_provider_table(&document).ok_or("Missing CPA provider configuration")?;
     if !provider.get("name").and_then(toml_edit::Item::as_str).is_some_and(is_codex_managed_provider_name)
-        || !provider.get("base_url").and_then(toml_edit::Item::as_str).is_some_and(is_managed_agent_base_url) {
+        || !provider.get("base_url").and_then(toml_edit::Item::as_str).is_some_and(|base| is_managed_agent_target_url(base, target)) {
         return Err("Apply the CPA configuration before changing remote compaction".into());
     }
     set_codex_table_item(ensure_codex_provider_table(&mut document)?, "name",
@@ -698,7 +702,8 @@ pub(crate) fn set_codex_remote_compaction(app: tauri::AppHandle, enabled: bool) 
     let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
     let _guard = AGENT_CONFIG_FILE_LOCK.lock().map_err(|_| "Agent configuration file lock is poisoned")?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
-    let result = switch_codex_remote_compaction(&home, enabled)?;
+    let config = _target_state.snapshot()?;
+    let result = switch_codex_remote_compaction(&home, &config, enabled)?;
     app.state::<AgentConfigStatusCache>().clear()?;
     Ok(result)
 }

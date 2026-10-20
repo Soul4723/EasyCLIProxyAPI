@@ -942,20 +942,33 @@ pub(crate) async fn fetch_agent_model_payload(
     fetch_client_catalog_payload(target, api_key, false).await
 }
 
+// Shared by the model catalog and Codex auth checks: validates the target and trusts a
+// self-signed certificate only for the app-managed local core.
+pub(crate) fn agent_catalog_http_client(target: impl AgentClientOrigin) -> Result<reqwest::Client, String> {
+    agent_catalog_http_client_with_tls(target, managed_core_tls_enabled())
+}
+
+pub(crate) fn agent_catalog_http_client_with_tls(
+    target: impl AgentClientOrigin,
+    local_tls: bool,
+) -> Result<reqwest::Client, String> {
+    target.validate_client_origin()?;
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(15))
+        .danger_accept_invalid_certs(target.local_client() && local_tls)
+        .build()
+        .map_err(|_| "Failed to create client model list connection".to_string())
+}
+
 async fn fetch_client_catalog_payload(
     target: impl AgentClientOrigin,
     api_key: &str,
     codex_metadata: bool,
 ) -> Result<serde_json::Value, String> {
-    target.validate_client_origin()?;
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(3))
-        .timeout(Duration::from_secs(15))
-        .danger_accept_invalid_certs(target.local_client() && managed_core_tls_enabled())
-        .build()
-        .map_err(|_| "Failed to create client model list connection".to_string())?;
+    let client = agent_catalog_http_client(target)?;
     let origin = target.client_origin();
     let paths: &[&str] = if target.local_client() { &["/v1/models", "/models"] } else { &["/v1/models"] };
     for (index, path) in paths.iter().enumerate() {

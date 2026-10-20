@@ -815,6 +815,7 @@ export const zhCN = {
   'agents.provider.title': '切换到 {provider}',
   'agents.provider.description': '保留当前代理地址和登录方式。切换后请重新打开 Codex 并新建会话验证；已有会话可能仍属于原提供商。',
   'agents.provider.sync': '同时同步会话',
+  'agents.provider.syncRemote': '会话保存在运行 Codex 的本机，远程连接下不会同步。请在会话管理中同步本机会话。',
   'agents.provider.syncHint': '勾选后，备份并将本机历史会话的提供商同步到切换后的提供商（不是云端同步）。未勾选则不修改历史会话；也可稍后使用会话管理中的同步功能。跨账号的加密内容仍可能无法继续使用。',
   'agents.provider.switched': '已切换到 {provider}，仍通过 CPA 代理。请重新打开 Codex 使配置生效。',
   'agents.provider.syncFailed': '提供商已切换，但会话同步失败：{error}。可在会话管理中重试。',
