@@ -1,0 +1,191 @@
+name: Fork verification
+
+on:
+  push:
+    branches:
+      - 'ci/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-unit:
+    name: Typecheck and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run check 2>&1 | tee typecheck.log
+      - name: Unit tests
+        run: bun test --isolate 2>&1 | tee unit-tests.log
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-unit-logs
+          path: '*.log'
+          if-no-files-found: ignore
+
+  ui:
+    name: Playwright UI suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/playwright" playwright
+          "$RUNNER_TEMP/playwright/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Run complete UI suite
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/playwright/node_modules/playwright
+        run: node tests/run-ui.cjs 2>&1 | tee ui-tests.log
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-logs
+          path: '*.log'
+          if-no-files-found: ignore
+
+  rust:
+    name: Rust tests and Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential curl file libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libwebkit2gtk-4.1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: Install frontend dependencies and build assets
+        run: |
+          bun install --frozen-lockfile
+          bun run build 2>&1 | tee frontend-build.log
+      - name: Cargo tests
+        working-directory: src-tauri
+        run: cargo test --bin cpa-gui 2>&1 | tee cargo-tests.log
+      - name: Clippy (warnings are reported, not treated as errors)
+        working-directory: src-tauri
+        run: |
+          set -o pipefail
+          cargo clippy --all-targets --message-format=json 2>&1 | tee clippy.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          count = 0
+          for line in Path('clippy.jsonl').read_text().splitlines():
+              try:
+                  item = json.loads(line)
+              except json.JSONDecodeError:
+                  continue
+              if item.get('reason') == 'compiler-message' and item.get('message', {}).get('level') == 'warning':
+                  count += 1
+          print(f'Clippy warning count: {count}')
+          PY
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-logs
+          path: frontend-build.log src-tauri/*.log src-tauri/*.jsonl
+          if-no-files-found: ignore
+
+  app-smoke:
+    name: Tauri app headless smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri and headless runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential curl file libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libwebkit2gtk-4.1-dev pkg-config \
+            dbus-x11 xvfb
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: app-smoke-${{ runner.os }}-${{ hashFiles('bun.lock', 'src-tauri/Cargo.lock') }}
+          restore-keys: app-smoke-${{ runner.os }}-
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+      - name: Build debug app
+        run: bun run tauri build --debug --no-bundle 2>&1 | tee app-build.log
+      - name: Start app against isolated test data under Xvfb
+        run: |
+          set -euo pipefail
+          smoke_home="$RUNNER_TEMP/app-smoke-home"
+          mkdir -p "$smoke_home/.config" "$smoke_home/.local/share" "$smoke_home/.cache" "$smoke_home/auth"
+          printf 'connection-mode = "local"\nport = 18317\nhost = "127.0.0.1"\nstart-core-on-launch = false\nrun-on-startup = false\nlocale = "en"\nauth-dir = "%s/auth"\n' "$smoke_home" > "$smoke_home/config.toml"
+          export HOME="$smoke_home"
+          export XDG_CONFIG_HOME="$smoke_home/.config"
+          export XDG_DATA_HOME="$smoke_home/.local/share"
+          export XDG_CACHE_HOME="$smoke_home/.cache"
+          export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          dbus-run-session -- xvfb-run -a bash -c '
+            set -euo pipefail
+            "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" > "$RUNNER_TEMP/app-smoke.log" 2>&1 &
+            app_pid=$!
+            trap "kill $app_pid 2>/dev/null || true; wait $app_pid 2>/dev/null || true" EXIT
+            for attempt in $(seq 1 30); do
+              if ! kill -0 "$app_pid" 2>/dev/null; then cat "$RUNNER_TEMP/app-smoke.log"; exit 1; fi
+              sleep 1
+            done
+            echo 'App remained alive for 30 seconds with isolated HOME and no managed core.'
+          '
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-smoke-logs
+          path: ${{ runner.temp }}/*.log
+          if-no-files-found: ignore
