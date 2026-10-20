@@ -1925,7 +1925,7 @@ class GuiHelper {
             vec![10, 11]
         );
         assert!(desktop_process_ids_from_ps(
-            "bad input\n-1 /opt/desktop",
+            "bad input\n-1 /opt/desktop\n0 /opt/desktop\n1 /opt/desktop",
             Path::new("/opt/desktop")
         )
         .is_empty());
@@ -2299,21 +2299,39 @@ class GuiHelper {
 
     #[cfg(unix)]
     #[test]
-    fn harness_group_stop_closes_descendant_pipes_and_preserves_sibling() {
+    fn harness_stop_signals_only_its_private_process_group() {
+        let mut sibling = Command::new("sleep").arg("30").spawn().unwrap();
+        let arguments = vec!["-c".to_string(), "sleep 30 & sleep 30".to_string()];
+        // Use the production spawning path and verify it owns a private group.
+        let mut child =
+            spawn_managed_deepseek_harness(Path::new("/bin/sh"), Path::new("/"), &arguments)
+                .unwrap();
+        assert_eq!(
+            unsafe { libc::getpgid(child.id() as i32) },
+            child.id() as i32
+        );
+        let stopped = terminate_deepseek_harness_process_tree(&mut child);
+        let sibling_alive = sibling.try_wait().unwrap().is_none();
+        let _ = sibling.kill();
+        let _ = sibling.wait();
+        stopped.unwrap();
+        assert!(sibling_alive, "unrelated sibling was signalled");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn harness_group_stop_closes_descendant_pipes() {
         use std::io::{BufRead, BufReader, Read};
+        use std::os::unix::process::CommandExt;
         use std::sync::mpsc;
 
-        let mut sibling = Command::new("sleep").arg("30").spawn().unwrap();
-        let arguments = vec!["-c".to_string(), "sleep 30 & echo ready; sleep 30".to_string()];
-        // Use the production spawning path and verify it owns a private group.
-        let mut child = spawn_managed_deepseek_harness(
-            Path::new("/bin/sh"), Path::new("/"), &arguments,
-        ).unwrap();
-        assert_eq!(unsafe { libc::getpgid(child.id() as i32) }, child.id() as i32);
-        // A second private group exposes a pipe inherited by both descendants.
-        use std::os::unix::process::CommandExt;
-        let mut piped = Command::new("sh").args(["-c", "sleep 30 & echo ready; sleep 30"])
-            .process_group(0).stdout(Stdio::piped()).spawn().unwrap();
+        // A private group whose descendants all inherit the stdout pipe.
+        let mut piped = Command::new("sh")
+            .args(["-c", "sleep 30 & echo ready; sleep 30"])
+            .process_group(0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
         let mut output = BufReader::new(piped.stdout.take().unwrap());
         let mut ready = String::new();
         output.read_line(&mut ready).unwrap();
@@ -2322,20 +2340,14 @@ class GuiHelper {
             let mut rest = Vec::new();
             let _ = sender.send(output.read_to_end(&mut rest));
         });
-        let stopped = terminate_deepseek_harness_process_tree(&mut child);
-        let pipes_stopped = terminate_deepseek_harness_process_tree(&mut piped);
+        let stopped = terminate_deepseek_harness_process_tree(&mut piped);
         let eof = receiver.recv_timeout(Duration::from_secs(3));
-        let sibling_alive = sibling.try_wait().unwrap().is_none();
-        let _ = sibling.kill();
-        let _ = sibling.wait();
         if eof.is_err() {
             let _ = crate::process_signal::signal_group(piped.id(), libc::SIGKILL);
         }
         reader.join().unwrap();
         stopped.unwrap();
-        pipes_stopped.unwrap();
         assert!(eof.unwrap().is_ok(), "descendant retained the output pipe");
-        assert!(sibling_alive, "unrelated sibling was signalled");
     }
 
     #[test]
