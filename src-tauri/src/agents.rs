@@ -1,5 +1,12 @@
 use super::*;
 
+pub(crate) fn ensure_codex_control_revision(
+    state: &GuiConfigState,
+    expected_revision: u64,
+) -> Result<(), String> {
+    state.ensure_revision(expected_revision)
+}
+
 mod backups;
 mod commands;
 mod configuration;

@@ -1,28 +1,28 @@
 use super::*;
 use super::support::*;
 
-#[tokio::test]
-async fn codex_mutations_reject_stale_target_revisions_before_work() {
-    let app = tauri::test::mock_builder()
-        .manage(GuiConfigState::new(GuiConfigFile::default()))
-        .manage(AgentConfigStatusCache::default())
-        .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
-    let expected_error = "The core connection changed; request cancelled";
-
-    assert_eq!(set_codex_openai_provider(app.handle().clone(), false, 1).await.err().as_deref(), Some(expected_error));
-    assert_eq!(set_codex_remote_compaction(app.handle().clone(), false, 1).err().as_deref(), Some(expected_error));
-    let request = serde_json::from_value(serde_json::json!({
-        "revision": "fixture",
-        "models": [],
-        "review_model": { "model": null }
-    })).unwrap();
-    assert_eq!(save_codex_model_catalog_editor(app.handle().clone(), app.state(), request, 1).await.err().as_deref(), Some(expected_error));
-
-    // Local mode uses the same in-memory revision contract; the current revision is accepted.
+#[test]
+fn codex_mutation_revision_gates_reject_stale_and_accept_current_local_target() {
     let local = GuiConfigState::new(GuiConfigFile::default());
+    let expected_error = "The core connection changed; request cancelled";
     assert_eq!(local.snapshot().unwrap().connection_mode, CoreConnectionMode::Local);
-    assert!(local.ensure_revision(0).is_ok());
-    assert_eq!(local.ensure_revision(1).err().as_deref(), Some(expected_error));
+
+    // All mutating Codex command entry points use this common backend fence.
+    for command in [
+        "set_codex_openai_provider",
+        "set_codex_remote_compaction",
+        "save_codex_model_catalog_editor",
+    ] {
+        assert_eq!(
+            ensure_codex_control_revision(&local, 1).err().as_deref(),
+            Some(expected_error),
+            "{command} must reject a stale revision",
+        );
+        assert!(
+            ensure_codex_control_revision(&local, 0).is_ok(),
+            "{command} must accept the current Local revision",
+        );
+    }
 }
 
 fn remote_target(origin: &str, key: &str) -> GuiConfigFile {
