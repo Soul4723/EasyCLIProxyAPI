@@ -568,6 +568,20 @@ fn arguments_parse_flags_with_both_value_styles() {
     assert!(parse_args(&args(&["-h"])).unwrap().help);
     assert!(parse_args(&args(&["--provider"])).unwrap_err().contains("needs a value"));
     assert!(parse_args(&args(&["--bogus"])).unwrap_err().contains("unknown option"));
+    for value in ["has space", "a&b", "a^b", "a%b", "a\"b", "☃"] {
+        assert!(parse_args(&args(&["--model", value])).unwrap_err().contains("--model value may contain only"), "{value:?}");
+        assert!(parse_args(&args(&["--provider", value])).unwrap_err().contains("--provider value may contain only"), "{value:?}");
+    }
+    assert!(parse_args(&args(&["--model", "claude-sonnet-5.5:latest/v2"])).is_ok());
+}
+
+#[test]
+fn missing_or_unresolvable_saved_config_fails_before_cache_use() {
+    assert!(super::cli::resolve_saved_target(Err("missing config".into())).is_err());
+    assert!(super::cli::resolve_saved_target(Ok(crate::GuiConfigFile {
+        connection_mode: crate::CoreConnectionMode::Remote,
+        ..Default::default()
+    })).is_err());
 }
 
 #[cfg(unix)]

@@ -50,13 +50,21 @@ pub(crate) fn parse_args(args: &[OsString]) -> Result<Args, String> {
         match flag.as_str() {
             "--json" => parsed.json = true,
             "--accounts" => parsed.filters.accounts = true,
-            "--provider" => parsed.filters.provider = Some(value("--provider")?),
-            "--model" => parsed.filters.model = Some(value("--model")?),
+            "--provider" => parsed.filters.provider = Some(filter_value("--provider", value("--provider")?)?),
+            "--model" => parsed.filters.model = Some(filter_value("--model", value("--model")?)?),
             "--help" | "-h" => parsed.help = true,
             other => return Err(format!("unknown option {other}")),
         }
     }
     Ok(parsed)
+}
+
+fn filter_value(flag: &str, value: String) -> Result<String, String> {
+    if value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._:/-".contains(&byte)) {
+        Ok(value)
+    } else {
+        Err(format!("{flag} value may contain only letters, digits, '.', '_', ':', '/', and '-'"))
+    }
 }
 
 fn read_part<T: DeserializeOwned>(dir: &Path, file: &str) -> Option<T> {
@@ -206,6 +214,13 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
         print(USAGE);
         return 0;
     }
+    let (config, origin, mode) = match resolve_saved_target(load_config()) {
+        Ok(target) => target,
+        Err(()) => {
+            eprintln!("cpa-brief: no briefing data yet (saved settings are unavailable). Start EasyCLIProxyAPI and open Overview or Quota once so it can read the quota.");
+            return 1;
+        }
+    };
     let dir = match super::agent_dir() {
         Ok(dir) => dir,
         Err(_) => {
@@ -213,31 +228,16 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
             return 1;
         }
     };
-    let config = load_config();
-    let origin = config
-        .as_ref()
-        .ok()
-        .and_then(|config| crate::core_connection::connection_from_config(config).ok())
-        .map(|connection| connection.management_origin);
-    let mode = match config.as_ref().map(|config| config.connection_mode) {
-        Ok(CoreConnectionMode::Remote) => "remote",
-        Ok(CoreConnectionMode::Local) => "local",
-        Err(_) => "unknown",
-    };
-    let for_origin = |part: Option<QuotaPart>| part.filter(|part| origin.as_ref().map_or(true, |o| *o == part.origin));
+    let for_origin = |part: Option<QuotaPart>| part.filter(|part| origin == part.origin);
     let quota = for_origin(read_part::<QuotaPart>(&dir, QUOTA_FILE));
     let mut core = read_part::<CorePart>(&dir, CORE_FILE)
-        .filter(|part| origin.as_ref().map_or(true, |o| *o == part.origin));
-    if let (Ok(config), Some(origin)) = (&config, &origin) {
-        if !core.as_ref().is_some_and(|part| is_fresh(part, now_ms())) {
-            core = refresh_core(config, &dir, origin, core);
-        }
+        .filter(|part| origin == part.origin);
+    if !core.as_ref().is_some_and(|part| is_fresh(part, now_ms())) {
+        core = refresh_core(&config, &dir, &origin, core);
     }
     if quota.is_none() && !core.as_ref().is_some_and(|part| part.ok_at_ms > 0) {
-        let reason = if config.is_err() { "saved settings are unavailable" } else { "core could not be refreshed" };
-        let detail = if reason.is_empty() { String::new() } else { format!(" ({reason})") };
         eprintln!(
-            "cpa-brief: no briefing data yet{detail}. Start EasyCLIProxyAPI and open Overview or Quota once so it can read the quota."
+            "cpa-brief: no briefing data yet (core could not be refreshed). Start EasyCLIProxyAPI and open Overview or Quota once so it can read the quota."
         );
         return 1;
     }
@@ -248,4 +248,14 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
         print(&render::text(&briefing));
     }
     0
+}
+
+fn resolve_saved_target(config: Result<GuiConfigFile, String>) -> Result<(GuiConfigFile, String, &'static str), ()> {
+    let config = config.map_err(|_| ())?;
+    let connection = crate::core_connection::connection_from_config(&config).map_err(|_| ())?;
+    let mode = match config.connection_mode {
+        CoreConnectionMode::Remote => "remote",
+        CoreConnectionMode::Local => "local",
+    };
+    Ok((config, connection.management_origin, mode))
 }

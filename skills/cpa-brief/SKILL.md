@@ -16,14 +16,14 @@ Run before planning or delegating, then again before a long run. It is a briefin
 | Windows PowerShell | `& "$env:APPDATA\com.cpa.gui\agent\cpa-brief.cmd"` |
 | Windows cmd.exe | `"%APPDATA%\com.cpa.gui\agent\cpa-brief.cmd"` |
 
-The app writes the launcher at startup. Options: `--provider P`, `--model TEXT` (case-insensitive substring; lists every match), `--accounts` (masked per-account lines), `--json`.
+The app writes the launcher at startup. Options: `--provider P`, `--model TEXT` (case-insensitive substring; lists every match), `--accounts` (masked per-account lines), `--json`. Filter values must be plain words using only letters, digits, `-`, `.`, and `_` (the CLI also permits `:`, and `/`).
 
 ## Read it
 
 - Header: `local|remote|unknown`; `core=up` means core data was refreshed within 60 s. `core=down cached=<age>` means unreachable; `core=stale cached=<age>` means refresh failed otherwise. Old core data is never marked up. `quota_age` is the oldest quota read among displayed accounts; `stale` means over 30 min.
 - Provider line: `status usable/enabled`, windows, optional balance and models. Window figures come from the selected headroom account, so status and guide agree. `5h=62%~1h12m` means 62% remains and resets in 1h12m; `<1%` means exhausted. `back=?` means exhausted with no known reset.
 - Status is `ok`, `low` (best account below 20% on its tightest window), `out`, `cool`, `err` (unavailable without retry time), or `off` (all disabled); `quota=n/a` means usable but no quota numbers.
-- After `|`, default text samples up to four newest routable models, one per family, ordered by newest version; image models are omitted. `+N` means more routable models. `cool:m~4m` means no account can serve `m` for 4 more minutes. Use `--model <part>` to check a specific model.
+- After `|`, default text samples up to four newest routable models, one per family, ordered by newest version; image models are omitted. `+N` means more non-image routable models. `cool:m~4m` means no account can serve `m` for 4 more minutes. Use `--model <part>` to check a specific model.
 - `guide:` summarizes headroom: `swarm` = at least 50% on the tightest window; `light` = under 50% or `low`; `wait` = unavailable and back within 30 min; `avoid` = unavailable longer or reset unknown. Providers without quota numbers are omitted.
 
 ```text
