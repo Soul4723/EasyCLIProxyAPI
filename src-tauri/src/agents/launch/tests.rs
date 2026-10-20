@@ -176,6 +176,60 @@
         fs::remove_dir_all(directory.parent().unwrap()).unwrap();
     }
 
+    /// A launcher whose path holds `%VAR%` or other cmd.exe metacharacters must not be
+    /// expanded or run by any terminal; Windows Terminal refuses it before looking for wt.exe.
+    #[cfg(windows)]
+    #[test]
+    fn windows_terminals_do_not_expand_or_run_launcher_paths() {
+        use std::os::windows::process::CommandExt;
+
+        let root = env::temp_dir().join(format!(
+            "cpa-terminal-path-{}-{}", std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let directory = root.join("work");
+        fs::create_dir_all(&directory).unwrap();
+        let marker = directory.join("pwned.txt");
+        for (name, expect_refused) in [("100%USERNAME%", true), ("a&calc", true), ("a^b", true), ("plain", false)] {
+            let launcher_directory = root.join(name);
+            fs::create_dir_all(&launcher_directory).unwrap();
+            let shim = launcher_directory.join("shim.cmd");
+            fs::write(&shim, format!("@echo off\r\necho ran> \"{}\"\r\n", directory.join("ran.txt").display())).unwrap();
+            let refused = windows_cli_launch_command(&shim, "test client", &directory, &[], "windows-terminal");
+            if expect_refused {
+                let error = refused.unwrap_err();
+                assert!(error.contains("Windows Terminal") && error.contains("path"), "{name}: {error}");
+            } else if let Err(error) = refused {
+                assert!(error.contains("not found"), "{name}: {error}");
+            }
+            for terminal in ["auto", "cmd"] {
+                let _ = fs::remove_file(directory.join("ran.txt"));
+                let launch = windows_cli_launch_command(&shim, "test client", &directory, &[], terminal).unwrap();
+                let mut command = Command::new(launch.get_program());
+                for argument in launch.get_args() {
+                    let text = argument.to_string_lossy();
+                    if text == "-NoExit" {
+                        continue;
+                    }
+                    match text.strip_prefix("/D /E:ON /V:OFF /S /K ") {
+                        Some(line) => command.raw_arg(format!("/D /E:ON /V:OFF /S /C {line}")),
+                        None => command.arg(argument),
+                    };
+                }
+                command.current_dir(&directory);
+                configure_background_command(&mut command);
+                let output = match command_output_with_timeout(&mut command, Duration::from_secs(30)).unwrap() {
+                    CommandOutputOutcome::Completed(output) => output,
+                    CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("launcher path fixture")),
+                };
+                assert!(output.status.success(), "{terminal} {name}: {}", String::from_utf8_lossy(&output.stderr));
+                assert!(directory.join("ran.txt").is_file(), "{terminal} {name}: launcher did not run");
+                assert!(!marker.exists() && !root.join("calc").exists(), "{terminal} {name}: path ran as a command");
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     /// The PowerShell and Command Prompt terminals run a `.cmd` shim with text a user typed.
     /// Runs both for real and checks that the text arrives unchanged and nothing in it ran.
     #[cfg(windows)]

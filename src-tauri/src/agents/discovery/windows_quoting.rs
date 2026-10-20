@@ -123,6 +123,11 @@ pub(crate) fn windows_cmd_command_line<S: AsRef<str>>(
     ))
 }
 
+fn windows_terminal_batch_unsafe_character(text: &str) -> Option<char> {
+    text.chars()
+        .find(|character| WINDOWS_TERMINAL_BATCH_UNSAFE.contains(*character) || character.is_control())
+}
+
 /// Windows Terminal splits the text after `--` itself and re-quotes it with MSVC rules,
 /// which `cmd.exe` does not honour, so a batch file can only receive arguments that need
 /// no `cmd.exe` quoting at all.
@@ -131,17 +136,32 @@ pub(crate) fn validate_windows_terminal_batch_arguments<S: AsRef<str>>(
     arguments: &[S],
 ) -> Result<(), String> {
     for argument in arguments {
-        let argument = argument.as_ref();
-        if let Some(character) = argument
-            .chars()
-            .find(|character| WINDOWS_TERMINAL_BATCH_UNSAFE.contains(*character) || character.is_control())
-        {
+        if let Some(character) = windows_terminal_batch_unsafe_character(argument.as_ref()) {
             return Err(format!(
                 "Windows Terminal cannot safely pass {character:?} to a .cmd launcher. Use the PowerShell or Command Prompt terminal, or remove the character"
             ));
         }
     }
     Ok(())
+}
+
+/// The same rule for the launcher path itself: it is on the same re-quoted command line,
+/// and `cmd.exe` would expand `%VAR%` in it (twice, because of `call`).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn validate_windows_terminal_batch_path(executable: &str) -> Result<(), String> {
+    match windows_terminal_batch_unsafe_character(executable) {
+        Some(character) => Err(format!(
+            "Windows Terminal cannot safely start the .cmd launcher {executable} because its path contains {character:?}. Use the PowerShell or Command Prompt terminal, or move the launcher"
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Whether a batch file path holds anything `cmd.exe` would act on. PowerShell then starts
+/// it through an explicit `cmd.exe` line instead of running the path directly.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn windows_batch_path_has_cmd_metacharacters(executable: &str) -> bool {
+    windows_terminal_batch_unsafe_character(executable).is_some()
 }
 
 #[cfg(test)]
@@ -316,6 +336,37 @@ mod tests {
         for hostile in ["& calc", "a\"b", "%PATH%", "^", "x|y", "a>b", "a<b", "(x)", "!x", "a;b", "a\nb", "a\tb"] {
             let error = validate_windows_terminal_batch_arguments(&["ok", hostile]).unwrap_err();
             assert!(error.contains("Windows Terminal"), "{hostile:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn windows_terminal_refuses_launcher_paths_that_cmd_would_expand() {
+        for good in [
+            r"C:\Users\Test User\AppData\Roaming\npm\deepseek.cmd",
+            r"C:\工具 目录\opencode.cmd",
+            r"C:\tools\agent-1.2_x+y.bat",
+        ] {
+            assert!(validate_windows_terminal_batch_path(good).is_ok(), "{good}");
+            assert!(!windows_batch_path_has_cmd_metacharacters(good), "{good}");
+        }
+        for hostile in [
+            r"C:\%USERPROFILE%\agent.cmd",
+            r"C:\100%\agent.cmd",
+            r"C:\%COMSPEC%\agent.cmd",
+            r"C:\a&calc\agent.cmd",
+            r"C:\a^b\agent.cmd",
+            r"C:\a|b\agent.cmd",
+            r"C:\a<b\agent.cmd",
+            r"C:\a>b\agent.cmd",
+            r"C:\a!b\agent.cmd",
+            r"C:\a;b\agent.cmd",
+            r"C:\Program Files (x86)\Tool\agent.cmd",
+            "C:\\a\"b\\agent.cmd",
+            "C:\\a\nb\\agent.cmd",
+        ] {
+            let error = validate_windows_terminal_batch_path(hostile).unwrap_err();
+            assert!(error.contains("Windows Terminal") && error.contains("path"), "{hostile}: {error}");
+            assert!(windows_batch_path_has_cmd_metacharacters(hostile), "{hostile}");
         }
     }
 

@@ -160,7 +160,10 @@ pub(super) fn windows_powershell_cli_script(
             .collect::<Vec<_>>()
             .join(" ");
         Some((executable_literal.clone(), arguments))
-    } else if is_windows_batch_script(executable) && !arguments.is_empty() {
+    } else if is_windows_batch_script(executable)
+        && (!arguments.is_empty()
+            || windows_batch_path_has_cmd_metacharacters(&path_to_string(executable)))
+    {
         Some((
             windows_powershell_single_quoted_literal(&path_to_string(&windows_command_processor())),
             windows_cmd_command_line(None, &path_to_string(executable), arguments, false)?,
@@ -207,20 +210,26 @@ pub(super) fn windows_cli_launch_command(
 
     let command = match terminal {
         "windows-terminal" => {
+            // Windows Terminal re-quotes this text itself, so cmd.exe quoting cannot
+            // be applied; refuse what cmd.exe would act on, in the path as well as
+            // the arguments. `call` stays only so a quoted launcher path is not
+            // mangled by cmd's /K quote stripping; it expands `%` and `^` a second
+            // time, which is harmless because neither can occur in what is passed.
+            if is_batch_script {
+                validate_windows_terminal_batch_path(&path_to_string(executable))
+                    .and_then(|()| validate_windows_terminal_batch_arguments(arguments))
+                    .map_err(|error| format!("Failed to start {label}: {error}"))?;
+            }
             let terminal_executable = program_on_path("wt.exe")
                 .ok_or_else(|| format!("Failed to start {label}: Windows Terminal not found"))?;
             let directory = path_to_string(working_directory);
             let mut command = Command::new(terminal_executable);
             command.args(["-d", &directory, "--"]);
             if is_batch_script {
-                // Windows Terminal re-quotes this text itself, so cmd.exe quoting cannot
-                // be applied; refuse what it would run.
-                validate_windows_terminal_batch_arguments(arguments)
-                    .map_err(|error| format!("Failed to start {label}: {error}"))?;
                 command
                     .arg(windows_command_processor())
                     .args(["/D", "/K", "call"])
-                    .arg(format!("\"{}\"", path_to_string(executable)))
+                    .arg(executable)
                     .args(arguments);
             } else {
                 command.arg(executable).args(arguments);
