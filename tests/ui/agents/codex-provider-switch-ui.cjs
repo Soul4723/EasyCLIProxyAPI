@@ -37,7 +37,7 @@ runUi(async ({ base }) => {
       await page.waitForFunction(() => document.querySelector('[data-row="codex-provider"] [role="switch"]').getAttribute('aria-checked') === 'true');
       assert.equal((await calls()).filter(c => c.cmd === 'repair_codex_session_metadata').length, 0);
       await toggle().click();
-      await sync().check();
+      await sync().check({ force: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await confirm();
       await page.waitForFunction(() => document.querySelector('[data-row="codex-provider"] [role="switch"]').getAttribute('aria-checked') === 'false');
@@ -57,13 +57,13 @@ runUi(async ({ base }) => {
 
     await open('fail-provider-sync');
     await toggle().click();
-    await sync().check();
+    await sync().check({ force: true });
     await confirm();
     await page.getByText(/提供商已切换，但会话同步失败/).waitFor();
     assert.equal(await on(), true);
     await open('fail-provider');
     await toggle().click();
-    await sync().check();
+    await sync().check({ force: true });
     await confirm();
     await page.getByText(/CPA 未接受当前 Codex OAuth 凭证/).waitFor();
     assert.equal(await on(), false);
