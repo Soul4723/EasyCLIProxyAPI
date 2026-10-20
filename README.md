@@ -40,6 +40,11 @@ product. What the fork changed or removed is listed in
   database, so history stays visible while the core is stopped. It includes a request list with
   detail and export, model prices, and a **Routing** view with the candidates and the policy used for
   each request.
+- **An agent briefing.** `cpa-brief` prints, in about a hundred tokens, how much quota headroom each
+  provider has, when its windows reset and which models are routable now, so a coding agent can decide
+  how hard to fan out before it delegates. It reads cached data and never calls a provider. See
+  [docs/agent-briefing.md](docs/agent-briefing.md) and the agent skill in
+  [skills/cpa-brief/SKILL.md](skills/cpa-brief/SKILL.md).
 - **A browser mock and a headless observation path** so the UI can be developed and tested without
   Tauri, and the real app can be observed without a desktop session.
 
