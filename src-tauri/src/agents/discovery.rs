@@ -2980,11 +2980,15 @@ pub(crate) fn command_output_with_timeout(
     let mut child = AgentProbeChild::new(child);
     let mut stdout = child
         .child
+        .as_mut()
+        .expect("probe child is present before reader startup")
         .stdout
         .take()
         .ok_or_else(|| io::Error::other("Unable to read agent detection standard output"))?;
     let mut stderr = child
         .child
+        .as_mut()
+        .expect("probe child is present before reader startup")
         .stderr
         .take()
         .ok_or_else(|| io::Error::other("Unable to read agent detection error output"))?;
@@ -3039,7 +3043,7 @@ pub(crate) fn command_output_with_timeout(
 }
 
 struct AgentProbeChild {
-    child: Child,
+    child: Option<Child>,
     reaped: bool,
     status: Option<std::process::ExitStatus>,
     cleanup_attempted: bool,
@@ -3048,7 +3052,7 @@ struct AgentProbeChild {
 impl AgentProbeChild {
     fn new(child: Child) -> Self {
         Self {
-            child,
+            child: Some(child),
             reaped: false,
             status: None,
             cleanup_attempted: false,
@@ -3058,11 +3062,19 @@ impl AgentProbeChild {
     fn has_exited(&mut self) -> io::Result<bool> {
         #[cfg(unix)]
         {
-            command_child_exited(&self.child)
+            command_child_exited(
+                self.child
+                    .as_ref()
+                    .ok_or_else(|| io::Error::other("probe child was handed to reaper"))?,
+            )
         }
         #[cfg(not(unix))]
         {
-            if let Some(status) = self.child.try_wait()? {
+            let child = self
+                .child
+                .as_mut()
+                .ok_or_else(|| io::Error::other("probe child was handed to reaper"))?;
+            if let Some(status) = child.try_wait()? {
                 self.status = Some(status);
                 self.reaped = true;
                 Ok(true)
@@ -3076,7 +3088,11 @@ impl AgentProbeChild {
         if let Some(status) = self.status.take() {
             return Ok(status);
         }
-        let status = self.child.wait()?;
+        let status = self
+            .child
+            .as_mut()
+            .ok_or_else(|| io::Error::other("probe child was handed to reaper"))?
+            .wait()?;
         self.reaped = true;
         Ok(status)
     }
@@ -3159,10 +3175,14 @@ fn command_child_exited(child: &Child) -> io::Result<bool> {
     }
 }
 
-fn terminate_agent_probe_process(child: &mut Child, reaped: &mut bool) -> Option<String> {
+fn terminate_agent_probe_process(child: &mut Option<Child>, reaped: &mut bool) -> Option<String> {
     #[cfg(target_os = "windows")]
     {
-        let process_id = child.id().to_string();
+        let process_id = child
+            .as_ref()
+            .expect("probe child is present before taskkill")
+            .id()
+            .to_string();
         let mut command = Command::new("taskkill");
         command
             .args(["/PID", &process_id, "/T", "/F"])
@@ -3179,6 +3199,7 @@ fn terminate_agent_probe_process(child: &mut Child, reaped: &mut bool) -> Option
                         errors.push(
                             "taskkill did not exit after its termination request".to_owned(),
                         );
+                        detach_probe_child_reaper(taskkill);
                     }
                 }
             }
@@ -3187,11 +3208,19 @@ fn terminate_agent_probe_process(child: &mut Child, reaped: &mut bool) -> Option
         // taskkill /T may not find descendants after the parent has exited.
         // A Windows Job Object would close that gap; this bounded fallback is
         // retained to keep the main-branch backport small.
-        let _ = child.kill();
-        if wait_for_child_bounded(child, Duration::from_millis(500)) {
+        let probe_exited = if let Some(probe_child) = child.as_mut() {
+            let _ = probe_child.kill();
+            wait_for_child_bounded(probe_child, Duration::from_millis(500))
+        } else {
+            false
+        };
+        if probe_exited {
             *reaped = true;
         } else {
             errors.push("probe process did not exit after its termination request".to_owned());
+            if let Some(probe_child) = child.take() {
+                detach_probe_child_reaper(probe_child);
+            }
         }
         return (!errors.is_empty()).then(|| errors.join("; "));
     }
@@ -3199,29 +3228,59 @@ fn terminate_agent_probe_process(child: &mut Child, reaped: &mut bool) -> Option
     {
         // The child owns the private group assigned when it was spawned.
         // Use #95's validated signal helper so only that group can be targeted.
+        let mut group_signal_error = None;
         let status = signal_then_reap(reaped, |step| match step {
             ProbeCleanupStep::Signal => {
-                let _ = crate::process_signal::signal_group(child.id(), libc::SIGKILL);
-                let _ = child.kill();
+                let probe_child = child
+                    .as_mut()
+                    .expect("probe child is present before signal/reap cleanup");
+                group_signal_error =
+                    crate::process_signal::signal_group(probe_child.id(), libc::SIGKILL).err();
+                let _ = probe_child.kill();
                 Ok(None)
             }
-            ProbeCleanupStep::Reap => child.wait().map(Some),
+            ProbeCleanupStep::Reap => {
+                if let Some(error) = group_signal_error.take() {
+                    Err(error)
+                } else {
+                    // SIGKILL cannot be ignored, so waiting for this child to exit is bounded.
+                    child
+                        .as_mut()
+                        .expect("probe child remains owned until reap")
+                        .wait()
+                        .map(Some)
+                }
+            }
         });
         match status {
             Ok(_) => {}
-            Err(error) => return Some(format!("could not reap probe process: {error}")),
+            Err(error) => {
+                if let Some(probe_child) = child.take() {
+                    detach_probe_child_reaper(probe_child);
+                }
+                return Some(format!(
+                    "probe process reaping was handed to a background thread: {error}"
+                ));
+            }
         }
         return None;
     }
     #[cfg(not(any(unix, target_os = "windows")))]
     {
-        let _ = child.kill();
-        match child.wait() {
+        let probe_child = child.as_mut().expect("probe child is present during cleanup");
+        let _ = probe_child.kill();
+        match probe_child.wait() {
             Ok(_) => *reaped = true,
             Err(error) => return Some(format!("could not reap probe process: {error}")),
         }
         None
     }
+}
+
+fn detach_probe_child_reaper(child: Child) {
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
 }
 
 pub(crate) enum ProbeCleanupStep {
