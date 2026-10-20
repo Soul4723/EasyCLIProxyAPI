@@ -72,6 +72,7 @@ const endpointByProvider: Record<QuotaProvider, string> = {
 
 const CLAUDE_PROFILE_URL = 'https://api.anthropic.com/api/oauth/profile';
 const XAI_WEEKLY_URL = 'https://cli-chat-proxy.grok.com/v1/billing?format=credits';
+const XAI_PROFILE_URL = 'https://api.x.ai/v1/me';
 const CODEX_RESET_CREDITS_URL =
   'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits';
 const CODEX_RESET_CREDITS_CONSUME_URL =
@@ -534,11 +535,10 @@ export const quotaRowsFor = (provider: QuotaProvider, payload: unknown): QuotaRo
   }
 
   if (provider === 'xai') {
-    if (value.mode === 'paid-health' || value.mode === 'paid-info') return [{
+    if (value.mode === 'paid-info') return [{
       label: quotaText('quota.service.xaiPaidAccount'),
       remainingPercent: null,
-      detail: quotaText(value.mode === 'paid-health'
-        ? 'quota.service.xaiPaidHealth' : 'quota.service.xaiPaidQuotaUnavailable'),
+      detail: quotaText('quota.service.xaiPaidQuotaUnavailable'),
     }];
     const build = (payload: unknown) => {
       if (!isRecord(payload)) return null;
@@ -707,23 +707,13 @@ const requestQuotaPayload = async (operation: QuotaOperation,
   return parseBody(response.body ?? response.bodyText);
 };
 
-const callXaiPaidHealth = async (operation: QuotaOperation, authIndex: string): Promise<unknown> => {
+// Quota refreshes must never spend inference; xAI exposes no quota for paid API keys, so read the profile only.
+const callXaiPaidProfile = async (operation: QuotaOperation, authIndex: string): Promise<unknown> => {
   const header = { Authorization: 'Bearer $TOKEN$', accept: 'application/json' };
-  const [profile, chat] = await Promise.allSettled([
-    requestQuotaPayload(operation, authIndex, 'https://api.x.ai/v1/me', header, 'GET', undefined, 15_000),
-    requestQuotaPayload(operation, authIndex, 'https://api.x.ai/v1/chat/completions', {
-      ...header, 'Content-Type': 'application/json',
-    }, 'POST', JSON.stringify({
-      model: 'grok-4.5',
-      messages: [{ role: 'user', content: 'ping' }],
-      max_tokens: 1,
-      stream: false,
-    }), 15_000),
-  ]);
-  if (chat.status === 'rejected') throw chat.reason;
-  const record = profile.status === 'fulfilled' && isRecord(profile.value) ? profile.value : {};
+  const profile = await requestQuotaPayload(operation, authIndex, XAI_PROFILE_URL, header, 'GET', undefined, 15_000);
+  const record = isRecord(profile) ? profile : {};
   return {
-    mode: 'paid-health', plan_type: 'Paid',
+    mode: 'paid-info', plan_type: 'Paid',
     userId: readString(record, 'user_id', 'userId') || undefined,
     teamId: readString(record, 'team_id', 'teamId') || undefined,
   };
@@ -731,7 +721,7 @@ const callXaiPaidHealth = async (operation: QuotaOperation, authIndex: string): 
 const callXaiQuota = async (operation: QuotaOperation, file: AuthFile): Promise<unknown> => {
   const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
   if (!authIndex) throw new Error(quotaText('quota.service.error.missingAuthIndex'));
-  if (isPaidXaiFile(file)) return callXaiPaidHealth(operation, authIndex);
+  if (isPaidXaiFile(file)) return callXaiPaidProfile(operation, authIndex);
   const header = { ...headersByProvider.xai };
   const userId = await resolveXaiUserId(file);
   if (userId) header['x-userid'] = userId;
@@ -747,7 +737,7 @@ const callXaiQuota = async (operation: QuotaOperation, file: AuthFile): Promise<
   const billingError = weekly.status === 'rejected' && monthly.status === 'rejected'
     ? weekly.reason : new Error(quotaText('quota.service.error.unrecognized'));
   try {
-    return await callXaiPaidHealth(operation, authIndex);
+    return await callXaiPaidProfile(operation, authIndex);
   } catch {
     throw billingError;
   }

@@ -404,7 +404,6 @@ export const jaOverrides = {
   'quota.refreshAll': 'クォータを更新',
   'common.confirm': '確認',
   'quota.service.xaiPaidAccount': '有料 API アカウント',
-  'quota.service.xaiPaidHealth': '有料 API の会話が利用可能です。xAI は現在、この OAuth 認証情報の総クォータを提供していません。',
   'quota.service.xaiPaidQuotaUnavailable': 'このアカウントの残りクォータは提供されていません。',
   'quota.claude.confirm': '「{name}」の Claude クォータをリセットしますか？',
   'quota.claude.warning': 'Claude のリセット権利を 1 回消費し、対象の使用量制限を解除します。',
