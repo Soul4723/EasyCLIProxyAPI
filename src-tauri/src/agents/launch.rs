@@ -2339,7 +2339,8 @@ class GuiHelper {
             let _ = sender.send(output.read_to_end(&mut rest));
         });
         let stopped = terminate_deepseek_harness_process_tree(&mut piped);
-        let eof = receiver.recv_timeout(Duration::from_secs(3));
+        // Returns as soon as the pipe closes; the margin only matters on a loaded host.
+        let eof = receiver.recv_timeout(Duration::from_secs(10));
         if eof.is_err() {
             let _ = crate::process_signal::signal_group(piped.id(), libc::SIGKILL);
         }
