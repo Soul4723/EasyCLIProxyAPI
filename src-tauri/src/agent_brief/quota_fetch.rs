@@ -89,8 +89,8 @@ fn refresh_shared(
                 .unwrap_or_default();
             let now = now_ms();
             let part = tauri::async_runtime::block_on(async {
-                let reads = tokio::time::timeout(REFRESH_DEADLINE, read_accounts(config, &wanted, &plans, now)).await;
-                apply(origin, fetched, &wanted, reads.unwrap_or_else(|_| Err("quota refresh timed out".to_string())), now)
+                let reads = read_accounts(config, &wanted, &plans, now).await;
+                apply(origin, fetched, &wanted, reads, now)
             });
             if let Ok(bytes) = serde_json::to_vec(&part) {
                 // Failing to cache costs the next caller a refresh; without the file there is no backoff, so it is rare by design.
@@ -168,15 +168,27 @@ pub(crate) fn apply(origin: &str, previous: Option<FetchedPart>, wanted: &[Strin
 
 /// One credentials listing (labels, Codex account ids), then one usage read per wanted account.
 pub(crate) async fn read_accounts(config: &GuiConfigFile, wanted: &[String], plans: &BTreeMap<String, String>, now_ms: i64) -> Reads {
+    read_accounts_until(config, wanted, plans, now_ms, tokio::time::Instant::now() + REFRESH_DEADLINE).await
+}
+
+async fn read_accounts_until(
+    config: &GuiConfigFile,
+    wanted: &[String],
+    plans: &BTreeMap<String, String>,
+    now_ms: i64,
+    deadline: tokio::time::Instant,
+) -> Reads {
     let client = management_http_client_for(config)?;
-    let listing = get_json(&client, config, "credentials", &[]).await?;
+    let listing = tokio::time::timeout_at(deadline, get_json(&client, config, "credentials", &[]))
+        .await
+        .map_err(|_| "quota refresh timed out".to_string())??;
     let files = listing["files"].as_array().or_else(|| listing.as_array()).cloned().unwrap_or_default();
     let reads = wanted.iter().filter_map(|index| {
         let file = files.iter().find(|file| file["auth_index"].as_str().or_else(|| file["id"].as_str()).map(str::trim) == Some(index.as_str()))?;
         let provider = normalize_provider(&read_string(file, &["provider", "type", "account_type"]));
         Some((index.clone(), provider, file))
     });
-    Ok(futures_util::stream::iter(reads)
+    let reads = futures_util::stream::iter(reads)
         .map(|(index, provider, file)| {
             let client = &client;
             async move {
@@ -185,8 +197,10 @@ pub(crate) async fn read_accounts(config: &GuiConfigFile, wanted: &[String], pla
             }
         })
         .buffer_unordered(FETCH_CONCURRENCY)
+        .take_until(tokio::time::sleep_until(deadline))
         .collect()
-        .await)
+        .await;
+    Ok(reads)
 }
 
 async fn read_account(
@@ -546,7 +560,7 @@ pub(crate) fn devin_rows(value: &Value) -> Vec<Row> {
             Value::String(text) if !text.trim().is_empty() && text.trim().bytes().all(|b| b.is_ascii_digit()) => text.trim().parse().ok(),
             _ => None,
         };
-        seconds.filter(|s| *s > 0 && *s < (1 << 53) / 1000).map(|s| s * 1000)
+        seconds.filter(|s| *s > 0 && *s <= 8_640_000_000_000).map(|s| s * 1000)
     };
     let rows: Vec<Row> = [("daily", "Daily quota"), ("weekly", "Weekly quota")]
         .into_iter()

@@ -72,6 +72,10 @@ fn devin_rows_match_the_app() {
         Row { label: "Daily quota".into(), remaining: Some(40.0), reset_at_ms: Some(1_800_003_600_000) },
         Row { label: "Weekly quota".into(), remaining: None, reset_at_ms: Some(1_800_300_000_000) },
     ]);
+    let invalid_reset = devin_rows(&json!({ "userStatus": { "planStatus": {
+        "dailyQuotaRemainingPercent": 40, "dailyQuotaResetAtUnix": "8640000000001"
+    } } }));
+    assert_eq!(invalid_reset[0].reset_at_ms, None);
     assert!(devin_rows(&json!({ "userStatus": {} })).is_empty());
 }
 
@@ -203,6 +207,10 @@ fn provider_reply(url: &str) -> Value {
 
 /// A throwaway core that records each request line and body, and answers usage reads with fixtures.
 async fn fake_core(log: std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>) -> String {
+    fake_core_with_hang(log, None).await
+}
+
+async fn fake_core_with_hang(log: std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>, hang: Option<&'static str>) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -230,8 +238,15 @@ async fn fake_core(log: std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>) 
                 assert!(head.to_ascii_lowercase().contains("authorization: bearer test-management-key-0123456789"));
                 let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
                 log.lock().unwrap().push((line.clone(), body.clone()));
+                if hang == body["authIndex"].as_str() {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
                 let reply = if line.starts_with("GET /v8/management/credentials ") {
-                    listing()
+                    let mut listing = listing();
+                    listing["files"].as_array_mut().unwrap().push(json!({
+                        "auth_index": "c2", "name": "claude-slow.json", "provider": "claude", "email": "slow@example.org", "access_token": SECRET_TOKEN
+                    }));
+                    listing
                 } else if line.starts_with("POST /v8/management/requests/api-call ") {
                     provider_reply(body["url"].as_str().unwrap_or(""))
                 } else {
@@ -306,6 +321,19 @@ async fn reads_use_only_allowlisted_usage_urls_through_the_core() {
     for secret in [SECRET_EMAIL, SECRET_TOKEN, "alice", "example.org", "claude-alice.json", "acct-123", "bob@"] {
         assert!(!saved.contains(secret), "leaked {secret:?} in {saved}");
     }
+}
+
+#[tokio::test]
+async fn deadline_keeps_completed_reads_and_backs_off_unfinished_reads() {
+    let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let origin = fake_core_with_hang(log, Some("c2")).await;
+    let wanted = ["c1".to_string(), "c2".to_string()];
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(100);
+    let reads = read_accounts_until(&remote_config(&origin), &wanted, &BTreeMap::new(), NOW, deadline).await.unwrap();
+    let part = apply(&origin, None, &wanted, Ok(reads), NOW);
+
+    assert_eq!(part.accounts.iter().map(|account| account.auth_index.as_str()).collect::<Vec<_>>(), ["c1"]);
+    assert_eq!(part.failed_at_ms, [("c2".to_string(), NOW)].into());
 }
 
 #[test]
