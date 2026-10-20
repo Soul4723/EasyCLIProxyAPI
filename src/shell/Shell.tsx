@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ServerCog } from 'lucide-react';
 import { useCoreRuntime } from '../coreRuntime';
 import { useI18n } from '../i18n';
 import { canOpenAppPage, isAlwaysAvailablePage } from '../navigation';
 import { Button } from '../ui/Button';
+import { Skeleton } from '../ui/Skeleton';
 import { EmptyState, ErrorState } from '../ui/EmptyState';
 import { AppUpdateDialog } from '../appUpdate';
 import { closePluginWebview } from '../services/pluginWebview';
@@ -82,7 +83,10 @@ export function Shell() {
     body = <CoreLocked title={t(current.labelKey)} />;
   } else {
     const Page = current.Page;
-    body = <Page sub={sub} params={route.params} />;
+    body = <Suspense fallback={<div className="ec-page-body" role="status" aria-busy="true">
+      <span className="ec-sr-only">{t('common.loading')}</span>
+      <Skeleton lines={3} height={18} />
+    </div>}><Page sub={sub} params={route.params} /></Suspense>;
   }
 
   return (
