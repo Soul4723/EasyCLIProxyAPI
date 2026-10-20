@@ -230,5 +230,6 @@ pub(crate) async fn save_remote_alias_changes(
         match value { Some(value) => { object.insert((*last).to_string(), value); }, None => { object.remove(*last); } }
     }
     let desired = serde_norway::to_string(&desired).map_err(|_| "Invalid alias update".to_string())?;
-    crate::core_connection::write_remote_yaml(state, config, &native_before, &desired).await
+    // `native_before` was just read and validated above; it is the batch's preflight.
+    crate::core_connection::write_remote_yaml_after_fresh_read(state, config, &native_before, &desired).await
 }
