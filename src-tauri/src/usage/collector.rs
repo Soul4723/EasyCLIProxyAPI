@@ -272,9 +272,11 @@ pub(super) fn next_empty_remote_poll_seconds(current: u64) -> u64 {
     (current * 2).min(REMOTE_EMPTY_POLL_MAX_SECONDS)
 }
 
-// Leave two seconds of headroom for scheduling/HTTP response time so recovery
-// remains within roughly 30 seconds even at the cap.
-const READINESS_RETRY_MAX_SECONDS: u64 = 28;
+// Keep outage probes bounded but frequent enough to notice an externally started
+// core within a few seconds. Lifecycle notifications still trigger an immediate
+// probe, while a healthy collector only needs an occasional safety re-check.
+const READINESS_RETRY_MAX_SECONDS: u64 = 4;
+const READINESS_HEALTHY_RECHECK_SECONDS: u64 = 30;
 
 // Readiness failures are not queue failures: keep their retry budget independent
 // of successful inbox processing and the healthy empty-queue polling schedule.
@@ -294,11 +296,10 @@ impl ReadinessBackoff {
     pub(super) fn checked(&mut self, ready: bool) -> Duration {
         if ready {
             self.retry_seconds = 2;
+            return Duration::from_secs(READINESS_HEALTHY_RECHECK_SECONDS);
         }
         let delay = Duration::from_secs(self.retry_seconds);
-        if !ready {
-            self.retry_seconds = (self.retry_seconds * 2).min(READINESS_RETRY_MAX_SECONDS);
-        }
+        self.retry_seconds = (self.retry_seconds * 2).min(READINESS_RETRY_MAX_SECONDS);
         delay
     }
 }
@@ -306,23 +307,36 @@ impl ReadinessBackoff {
 #[test]
 pub(super) fn readiness_backoff_is_bounded_and_success_resets_it() {
     let mut backoff = ReadinessBackoff::new();
-    for seconds in [2, 4, 8, 16, 28, 28, 28] {
+    for seconds in [2, 4, 4, 4] {
         assert_eq!(backoff.checked(false), Duration::from_secs(seconds));
     }
-    assert_eq!(backoff.checked(true), Duration::from_secs(2));
+    assert_eq!(backoff.checked(true), Duration::from_secs(30));
     assert_eq!(backoff.checked(false), Duration::from_secs(2));
 }
 
 #[test]
-pub(super) fn readiness_target_or_lifecycle_reset_restarts_retry_budget() {
+pub(super) fn readiness_recovery_is_bounded_to_a_few_seconds() {
     let mut backoff = ReadinessBackoff::new();
-    for _ in 0..8 { backoff.checked(false); }
+    for _ in 0..8 {
+        backoff.checked(false);
+    }
+    assert_eq!(backoff.retry_seconds, READINESS_RETRY_MAX_SECONDS);
+    assert!(READINESS_RETRY_MAX_SECONDS <= 4);
+}
+
+#[test]
+pub(super) fn readiness_request_is_consumed_once_and_restarts_retry_budget() {
+    let mut backoff = ReadinessBackoff::new();
+    for _ in 0..8 {
+        backoff.checked(false);
+    }
     let state = UsageCollectorState::default();
     state.request_readiness_check();
     assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
     assert!(!state.readiness_requested.swap(false, Ordering::AcqRel));
     backoff.reset();
     assert_eq!(backoff.checked(false), Duration::from_secs(2));
+    assert_eq!(backoff.checked(true), Duration::from_secs(30));
 }
 
 pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
