@@ -3277,7 +3277,7 @@ fn terminate_agent_probe_process(child: &mut Option<Child>, reaped: &mut bool) -
     }
 }
 
-fn detach_probe_child_reaper(child: Child) {
+fn detach_probe_child_reaper(mut child: Child) {
     thread::spawn(move || {
         let _ = child.wait();
     });
