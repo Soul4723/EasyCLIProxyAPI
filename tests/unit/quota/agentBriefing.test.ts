@@ -226,33 +226,34 @@ describe('startAgentBriefing over the real quota cache', () => {
     else Reflect.deleteProperty(globalThis, 'window');
   });
 
-  test('refreshing 8 accounts costs one fenced IPC carrying masked data', async () => {
+  test('refreshing accounts publishes last-good rows during loading and commits the batch once', async () => {
     const files = Array.from({ length: 8 }, (_, n) => file(`idx${n}`, { name: `acct-${n}.json`, email: `user${n}@example.test` }));
     credentialsSource.mutate(() => ({ files, receivedAtMs: NOW }));
+    updateQuotaCache(Object.fromEntries(files.map((f) => [quotaKey(f), success({ fetchedAt: NOW - 60_000 })])));
     const stop = startAgentBriefing({ debounceMs: 80, maxWaitMs: 2_000 });
-    // Four at a time, as the batch refresh does: loading flips and commits all hit the cache.
-    for (const batch of [files.slice(0, 4), files.slice(4)]) {
-      updateQuotaCache((cache) => ({ ...cache, ...Object.fromEntries(batch.map((f) => [quotaKey(f), { status: 'loading', rows: [] } as QuotaState])) }));
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      for (const f of batch) {
-        updateQuotaCache((cache) => ({ ...cache, [quotaKey(f)]: success({ fetchedAt: Date.now() }) }));
-        await new Promise((resolve) => setTimeout(resolve, 2));
-      }
-    }
+    // refreshQuotaBatch first marks every target loading while retaining its old rows/fetchedAt.
+    updateQuotaCache((cache) => ({ ...cache, ...Object.fromEntries(files.map((f) => [quotaKey(f), { ...cache[quotaKey(f)], status: 'loading' } as QuotaState])) }));
     await new Promise((resolve) => setTimeout(resolve, 300));
-    const publishes = calls.filter((c) => c.command === 'agent_briefing_publish');
+    let publishes = calls.filter((c) => c.command === 'agent_briefing_publish');
     expect(publishes).toHaveLength(1);
     expect(publishes[0].args.expectedRevision).toBe(4);
     const accounts = publishes[0].args.accounts as BriefingAccount[];
     expect(accounts).toHaveLength(8);
     expect(JSON.stringify(accounts)).not.toContain('example.test');
+    expect(accounts.every((account) => account.fetchedAtMs === NOW - 60_000)).toBe(true);
+    // refreshQuotaBatch commits all fetched results together, not one account at a time.
+    updateQuotaCache((cache) => ({ ...cache, ...Object.fromEntries(files.map((f) => [quotaKey(f), success({ fetchedAt: Date.now() })])) }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    publishes = calls.filter((c) => c.command === 'agent_briefing_publish');
+    expect(publishes).toHaveLength(2);
+    expect((publishes[1].args.accounts as BriefingAccount[]).every((account) => account.fetchedAtMs !== NOW - 60_000)).toBe(true);
     // Re-reading the same state (a no-op cache update) publishes nothing more.
     updateQuotaCache((cache) => ({ ...cache }));
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(calls.filter((c) => c.command === 'agent_briefing_publish')).toHaveLength(1);
+    expect(calls.filter((c) => c.command === 'agent_briefing_publish')).toHaveLength(2);
     stop();
     updateQuotaCache((cache) => ({ ...cache, extra: { status: 'idle', rows: [] } }));
     await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(calls.filter((c) => c.command === 'agent_briefing_publish')).toHaveLength(1);
+    expect(calls.filter((c) => c.command === 'agent_briefing_publish')).toHaveLength(2);
   });
 });

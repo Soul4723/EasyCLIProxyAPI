@@ -55,7 +55,7 @@ function windowsOf(quota: QuotaState, now: number, locale: AppLocale): BriefingW
   });
 }
 
-/** Pure: sanitised, masked accounts that have a successful quota read. Raw identities, file names and keys never leave here. */
+/** Pure: sanitised, masked accounts with a successful or retained last-good quota read. Raw identities, file names and keys never leave here. */
 export function buildBriefingAccounts(
   files: readonly AuthFile[],
   quotas: Readonly<Record<string, QuotaState>>,
@@ -66,7 +66,9 @@ export function buildBriefingAccounts(
     const provider = providerForFile(file);
     const quota = quotas[quotaKey(file)];
     const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
-    if (!provider || !authIndex || !quota || quota.status !== 'success') return [];
+    const hasLastGoodRead = quota?.status === 'success'
+      || ((quota?.status === 'loading' || quota?.status === 'error') && quota.rows.length > 0 && Boolean(quota.fetchedAt));
+    if (!provider || !authIndex || !quota || !hasLastGoodRead) return [];
     const windows = windowsOf(quota, now, locale);
     const identity = readString(file, 'email', 'account', 'label');
     const balance = quota.creditBalance?.trim();
