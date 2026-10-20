@@ -488,36 +488,36 @@ jobs:
           if text.count(old_actions) != 1:
               raise SystemExit('Could not uniquely add Local restart observer scenario')
           restart_check = r'''  if (args.includes('--restart-check')) {
-    const managementRead = async which => {
-      const marker = `RESTART_CHECK management read ${which} restart`;
-      send(`window.__TAURI_INTERNALS__.invoke('get_management_target_revision').then(r=>window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'credentials',expectedRevision:r}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
-      const result = await waitReport(marker, 5000);
-      if (result.includes('ERROR')) throw Error(result);
-    };
-    await managementRead('before');
-    const restartStarted = Date.now();
-    await invoke('restart_core_process', 0);
-    let recovered = false;
-    while (Date.now() - restartStarted < 10000) {
-      const probeId = Date.now();
-      send(`window.__TAURI_INTERNALS__.invoke('get_core_status').then(s=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:'RESTART_STATUS ${probeId} '+JSON.stringify(s)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:'RESTART_STATUS ${probeId} ERROR '+String(e)}));`);
-      const statusReport = await waitReport(`RESTART_STATUS ${probeId} `, 2000);
-      if (!statusReport.includes('ERROR')) {
-        try {
-          const status = JSON.parse(statusReport.slice(`RESTART_STATUS ${probeId} `.length));
-          if (status.running && status.ready) {
-            recovered = true;
-            send(report(`RESTART_CHECK ready after ${Date.now() - restartStarted}ms`));
-            await waitReport('RESTART_CHECK ready after ');
-            break;
+          const managementRead = async which => {
+            const marker = `RESTART_CHECK management read ${which} restart`;
+            send(`window.__TAURI_INTERNALS__.invoke('get_management_target_revision').then(r=>window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'credentials',expectedRevision:r}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
+            const result = await waitReport(marker, 5000);
+            if (result.includes('ERROR')) throw Error(result);
+          };
+          await managementRead('before');
+          const restartStarted = Date.now();
+          await invoke('restart_core_process', 0);
+          let recovered = false;
+          while (Date.now() - restartStarted < 10000) {
+            const probeId = Date.now();
+            send(`window.__TAURI_INTERNALS__.invoke('get_core_status').then(s=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:'RESTART_STATUS ${probeId} '+JSON.stringify(s)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:'RESTART_STATUS ${probeId} ERROR '+String(e)}));`);
+            const statusReport = await waitReport(`RESTART_STATUS ${probeId} `, 2000);
+            if (!statusReport.includes('ERROR')) {
+              try {
+                const status = JSON.parse(statusReport.slice(`RESTART_STATUS ${probeId} `.length));
+                if (status.running && status.ready) {
+                  recovered = true;
+                  send(report(`RESTART_CHECK ready after ${Date.now() - restartStarted}ms`));
+                  await waitReport('RESTART_CHECK ready after ');
+                  break;
+                }
+              } catch {}
+            }
+            await sleep(250);
           }
-        } catch {}
-      }
-      await sleep(250);
-    }
-    if (!recovered) throw Error('Local core did not report running and ready within 10000ms after app restart');
-    await managementRead('after');
-  } else if (args.includes('--actions')) {'''
+          if (!recovered) throw Error('Local core did not report running and ready within 10000ms after app restart');
+          await managementRead('after');
+          } else if (args.includes('--actions')) {'''
           text = text.replace(old_actions, restart_check)
           script.write_text(text)
           PY
