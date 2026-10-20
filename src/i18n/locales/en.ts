@@ -1571,6 +1571,7 @@ export const en: Record<MessageKey, string> = {
   'agents.cliVersion': 'CLI Version',
   'agents.appVersion': 'App Version',
   'agents.pluginVersion': 'Plugin Version',
+  'agents.copilotPluginVersion': 'GitHub Copilot Chat · Plugin Version',
   'agents.notFetched': 'Not available',
   'agents.useModel': 'Model',
   'agents.pending': 'Not Applied',
