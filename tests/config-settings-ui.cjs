@@ -129,12 +129,12 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
         const hasDirtyMarker = async id => page.locator(`#config-subpage-tab-${id}`).evaluate(element =>
           Boolean(element.querySelector('.config-nav-dirty, .config-settings-dirty, [data-dirty="true"]'))
           || /未保存|unsaved/i.test([element.getAttribute('aria-label'), element.getAttribute('title'), element.textContent].join(' ')));
-        const waitForDirtyMarker = async (id, expected = true) => page.waitForFunction((key, wantDirty) => {
+        const waitForDirtyMarker = async (id, expected = true) => page.waitForFunction(({ key, wantDirty }) => {
           const element = document.querySelector(`#config-subpage-tab-${key}`);
           const dirty = Boolean(element?.querySelector('.config-nav-dirty, .config-settings-dirty, [data-dirty="true"]'))
             || /未保存|unsaved/i.test([element?.getAttribute('aria-label'), element?.getAttribute('title'), element?.textContent].join(' '));
           return dirty === wantDirty;
-        }, [id, expected]);
+        }, { key: id, wantDirty: expected });
         const search = page.getByLabel(locale === 'en' ? 'Search settings' : '搜索设置', { exact: true });
         const retrySection = page.locator('#config-retry-section-title').locator('xpath=ancestor::section[1]');
         const exerciseHelp = async (trigger, context) => {
