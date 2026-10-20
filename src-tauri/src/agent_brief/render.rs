@@ -13,8 +13,8 @@ pub(crate) const STALE_AFTER_MS: i64 = 30 * 60_000;
 pub(crate) const HIGH_PCT: f64 = 50.0;
 pub(crate) const LOW_PCT: f64 = 20.0;
 pub(crate) const SOON_MS: i64 = 30 * 60_000;
-/// Models listed per provider in the default text (`--model` and `--json` list all).
-const TEXT_MODEL_CAP: usize = 6;
+/// Model families listed per provider in the default text (`--model` and `--json` list all).
+const TEXT_MODEL_CAP: usize = 4;
 const TEXT_COOL_CAP: usize = 4;
 const PROVIDER_ORDER: [&str; 6] = ["claude", "codex", "antigravity", "xai", "kimi", "devin"];
 
@@ -290,6 +290,46 @@ fn bottleneck(acct: &Acct) -> Option<f64> {
     primary(acct).map(|view| view.pct as f64).reduce(f64::min)
 }
 
+/// Natural order: digit runs compare as numbers, so `opus-5-10` sorts after `opus-5-9`.
+fn natural_key(id: &str) -> Vec<(u8, u64, String)> {
+    let mut key = Vec::new();
+    let mut chars = id.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        let digits = c.is_ascii_digit();
+        let mut run = String::new();
+        while let Some(&n) = chars.peek() {
+            if n.is_ascii_digit() != digits {
+                break;
+            }
+            run.push(n);
+            chars.next();
+        }
+        key.push(if digits { (0, run.parse().unwrap_or(u64::MAX), String::new()) } else { (1, 0, run) });
+    }
+    key
+}
+
+/// A model family is its id without version and date tokens: `claude-sonnet-5-5` and
+/// `claude-3-7-sonnet-20250219` are both `claude-sonnet`, while `gpt-6-luna` and `gpt-6-sol` stay apart.
+fn family(id: &str) -> String {
+    let words: Vec<&str> = id.split('-').filter(|t| !t.chars().all(|c| c.is_ascii_digit() || c == '.')).collect();
+    if words.is_empty() { id.to_string() } else { words.join("-") }
+}
+
+/// The default text has room for a few models: the newest of each family, families in name order,
+/// so a long catalogue still shows what is current. `--model` and `--json` list everything.
+fn featured(models: &[String], cap: usize) -> Vec<&String> {
+    let mut best: std::collections::BTreeMap<String, &String> = Default::default();
+    // Image-generation models are never what a coding agent delegates to; `--model image` still lists them.
+    for model in models.iter().filter(|m| !m.to_ascii_lowercase().contains("image")) {
+        let slot = best.entry(family(model)).or_insert(model);
+        if natural_key(model) > natural_key(slot) {
+            *slot = model;
+        }
+    }
+    best.into_values().take(cap).collect()
+}
+
 fn provider_rank(id: &str) -> (usize, String) {
     (PROVIDER_ORDER.iter().position(|p| *p == id).unwrap_or(PROVIDER_ORDER.len()), id.to_string())
 }
@@ -391,12 +431,19 @@ pub(crate) fn build(inputs: &Inputs, filters: &Filters) -> Briefing {
                 models_cool.push((model.clone(), wait));
             }
         }
+        models_ok.sort_by_key(|model| natural_key(model));
+        models_cool.sort_by_key(|(model, _)| natural_key(model));
         if usable.is_empty() && model_filter.is_none() {
             // The provider line already says nothing is usable and when it returns; naming every model adds noise.
             models_cool.clear();
         }
         if model_filter.is_some() && models_ok.is_empty() && models_cool.is_empty() {
             continue;
+        }
+        if inputs.core.is_some_and(|core| !core.up) {
+            // Nothing routes while the core is unreachable, so the cached model list would mislead.
+            models_ok.clear();
+            models_cool.clear();
         }
 
         let account_views = if filters.accounts {
@@ -442,7 +489,11 @@ pub(crate) fn build(inputs: &Inputs, filters: &Filters) -> Briefing {
         Some(core) if core.up => ("up", Some((now_ms - core.ok_at_ms).max(0)), String::new()),
         Some(core) => ("down", (core.ok_at_ms > 0).then(|| (now_ms - core.ok_at_ms).max(0)), core.error.clone()),
     };
-    let guide = guide_line(&providers);
+    let guide = if core_state == "down" {
+        Some("guide: core unreachable, nothing routes now; numbers are cached".to_string())
+    } else {
+        guide_line(&providers)
+    };
     Briefing {
         mode: inputs.mode.to_string(),
         core_state,
@@ -554,8 +605,11 @@ pub(crate) fn text(briefing: &Briefing) -> String {
             line.push_str(" quota=n/a");
         }
         let capped = briefing.model_filter.is_none();
-        let shown: Vec<&String> =
-            provider.models_ok.iter().take(if capped { TEXT_MODEL_CAP } else { usize::MAX }).collect();
+        let shown: Vec<&String> = if capped {
+            featured(&provider.models_ok, TEXT_MODEL_CAP)
+        } else {
+            provider.models_ok.iter().collect()
+        };
         let hidden = provider.models_ok.len() - shown.len();
         let mut models: Vec<String> = shown.iter().map(|m| m.to_string()).collect();
         if hidden > 0 {

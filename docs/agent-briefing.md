@@ -8,10 +8,13 @@ slow, cheap one. It is a briefing, not a dashboard. The agent-facing instruction
 
 ```
 cpa local core=up quota_age=6m
-claude ok 2/2 5h=62%~1h12m wk=81%~3d4h | haiku-5-5 opus-5-5 sonnet-5-5
-codex low 1/2 5h=8%~22m wk=40%~2d | gpt-6-luna gpt-6-sol
-guide: swarm=claude light=codex(5h=8%~22m)
+claude ok 2/2 5h=62%~1h11m wk=81%~3d3h | claude-fable-5-1 claude-haiku-5-5 claude-opus-5-5 claude-sonnet-5-5 +15
+codex low 1/1 5h=8%~21m wk=40%~1d23h | codex-auto-review gpt-6-astra gpt-6-luna gpt-6.1-sol +9
+guide: swarm=claude light=codex(5h=8%~21m)
 ```
+
+(`5h=62%~1h11m`: 62% left, resets in 1h11m. The quota numbers in this example are fixtures; the model lists
+are from a real v8.0.32 test core.)
 
 ## How it works
 
@@ -46,7 +49,9 @@ Both are `0600`, keyed by the core's management origin; a cache from another cor
 - **Models** come from `GET /v8/management/credentials/models?name=` for each enabled credential,
   cached for 15 minutes per credential. A model is routable when an account that can route now serves it
   without a model cooldown; otherwise it is listed as `cool:` with the time the first serving account
-  recovers. This is exact per credential, which `GET /v1/models` is not: that list has no provider and
+  recovers. The default text shows the newest model of each family (the id without its version and date
+  tokens), at most four, with image models hidden and the rest counted as `+N`; `--model` and `--json`
+  list every model. This is exact per credential, which `GET /v1/models` is not: that list has no provider and
   keeps quota-cooled models listed.
 - The core's own quota `signals` (raw rate-limit response headers for Claude, Codex and Devin) are not
   used: they are provider-specific strings, present only after real traffic, with no stable window shape.
@@ -60,7 +65,15 @@ Both are `0600`, keyed by the core's management origin; a cache from another cor
 - **Quota is only as fresh as the last time the app read it** (opening Overview or Quota, or a manual
   refresh). The command deliberately does not ask providers. With the app closed, the last read is served
   with its age.
-- When the core cannot be reached the last core state is served and marked `core=down cached=<age>`.
+- When the core cannot be reached the last core state is served and marked `core=down cached=<age>`; no
+  models are listed then (nothing routes) and the guide line says so.
+
+## Guidance line
+
+Arithmetic on the numbers, with fixed thresholds in `render.rs`: a provider whose best usable account has at
+least 50% left on its tightest 5h/weekly window and status `ok` is `swarm`; a lower one, or `low` (under 20%),
+is `light` (tightest window shown); a provider with no usable account is `wait` if it recovers within 30 minutes,
+otherwise `avoid`. A provider with no quota numbers is left out.
 
 ## Privacy
 
@@ -74,7 +87,7 @@ Rust tests assert this against a fixture that contains such values.
 
 - A query reads two small files. When `core.json` is older than the TTL it makes one `GET /credentials`
   (plus a model request per credential whose list is older than 15 minutes), bounded to 4 s each and
-  32 model reads. Concurrent callers wait on a lock file and share one refresh.
+  32 model reads. Concurrent callers wait on a lock file and share one refresh (checked again under the lock).
 - Nothing runs when nobody asks: there is no timer or listener in the app or the command. The only
   frontend work is one debounced IPC per quota cache change.
 - A query never calls a provider and never starts or stops a core.

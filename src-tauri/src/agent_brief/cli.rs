@@ -68,10 +68,10 @@ fn load_config() -> Result<GuiConfigFile, String> {
 }
 
 /// One CLI refreshes at a time; the others wait briefly and then read the fresh file.
-struct RefreshLock(PathBuf);
+pub(super) struct RefreshLock(PathBuf);
 
 impl RefreshLock {
-    fn acquire(dir: &Path) -> Option<Self> {
+    pub(super) fn acquire(dir: &Path) -> Option<Self> {
         let path = dir.join(LOCK_FILE);
         for _ in 0..2 {
             match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -97,12 +97,16 @@ impl Drop for RefreshLock {
     }
 }
 
-fn refresh_core(config: &GuiConfigFile, dir: &Path, origin: &str, cached: Option<CorePart>) -> Option<CorePart> {
+pub(super) fn refresh_core(config: &GuiConfigFile, dir: &Path, origin: &str, cached: Option<CorePart>) -> Option<CorePart> {
     if std::fs::create_dir_all(dir).is_err() {
         return cached;
     }
     match RefreshLock::acquire(dir) {
         Some(_lock) => {
+            // A caller that read the cache just before another finished its refresh must not ask the core again.
+            if let Some(fresh) = read_part::<CorePart>(dir, CORE_FILE).filter(|p| p.origin == origin && is_fresh(p, now_ms())) {
+                return Some(fresh);
+            }
             let now = now_ms();
             let part = tauri::async_runtime::block_on(refresh::refresh(config, origin, cached.as_ref(), now));
             if let Ok(bytes) = serde_json::to_vec(&part) {
@@ -203,7 +207,7 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
             core = refresh_core(config, &dir, origin, core);
         }
     }
-    if quota.is_none() && core.as_ref().map_or(true, |part| part.accounts.is_empty()) {
+    if quota.is_none() && !core.as_ref().is_some_and(|part| part.ok_at_ms > 0) {
         let reason = match &config {
             Err(error) => error.clone(),
             Ok(_) => core.as_ref().map(|part| part.error.clone()).filter(|e| !e.is_empty()).unwrap_or_default(),

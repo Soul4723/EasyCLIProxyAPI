@@ -186,7 +186,37 @@ fn core_down_serves_cached_state_and_says_so() {
     core.error = "could not connect to the core".into();
     let out = text(&quota, &core, &Filters::default());
     assert!(out.starts_with("cpa local core=down cached=12m quota_age=6m\ncore error: could not connect to the core\n"), "{out}");
-    assert!(out.contains("claude ok 2/2"), "{out}");
+    assert!(out.contains("claude ok 2/2 5h=62%~1h12m"), "{out}");
+    assert!(!out.contains("opus-5-5"), "no model is routable while the core is unreachable: {out}");
+    assert!(out.ends_with("guide: core unreachable, nothing routes now; numbers are cached\n"), "{out}");
+    let json = render::json(&briefing(&quota, &core, &Filters::default()));
+    assert_eq!(json["providers"][0]["models"], json!([]));
+}
+
+#[test]
+fn default_text_features_the_newest_model_of_each_family() {
+    let (quota, mut core) = fixture();
+    let catalogue = [
+        "claude-3-5-haiku-20241022", "claude-3-7-sonnet-20250219", "claude-haiku-4-5-20251001", "claude-haiku-5-5",
+        "claude-opus-4-1-20250805", "claude-opus-5-5", "claude-opus-5-10", "claude-sonnet-4-6", "claude-sonnet-5-5",
+    ];
+    core.accounts[0].models = catalogue.iter().map(|m| m.to_string()).collect();
+    core.accounts[1].models = core.accounts[0].models.clone();
+    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
+    assert!(out.contains("| claude-haiku-5-5 claude-opus-5-10 claude-sonnet-5-5 +6\n"), "{out}");
+    core.accounts[0].models.push("claude-image-9".into());
+    core.accounts[1].models = core.accounts[0].models.clone();
+    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
+    assert!(out.contains("| claude-haiku-5-5 claude-opus-5-10 claude-sonnet-5-5 +7\n"), "images are hidden from the default list but counted: {out}");
+    let all = text(&quota, &core, &Filters { provider: Some("claude".into()), model: Some("opus".into()), ..Default::default() });
+    assert!(all.contains("| claude-opus-4-1-20250805 claude-opus-5-5 claude-opus-5-10\n"), "{all}");
+}
+
+#[test]
+fn a_core_that_answered_with_no_accounts_is_a_normal_empty_briefing() {
+    let empty = core(vec![]);
+    let b = render::build(&Inputs { mode: "local", quota: None, core: Some(&empty), now_ms: NOW }, &Filters::default());
+    assert_eq!(render::text(&b), "cpa local core=up quota=none\nno accounts known yet\n");
 }
 
 #[test]
@@ -227,11 +257,12 @@ fn filters_narrow_by_provider_and_model_and_accounts_adds_lines() {
 #[test]
 fn model_lists_are_capped_in_text_but_complete_in_json() {
     let (quota, mut core) = fixture();
-    let many: Vec<String> = (0..10).map(|n| format!("model-{n}")).collect();
+    let many: Vec<String> =
+        ["amber", "birch", "cedar", "dune", "ember", "fjord", "grove", "hazel", "iris", "juniper"].iter().map(|m| m.to_string()).collect();
     core.accounts[0].models = many.clone();
     core.accounts[1].models = many.clone();
     let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.contains("| model-0 model-1 model-2 model-3 model-4 model-5 +4\n"), "{out}");
+    assert!(out.contains("| amber birch cedar dune +6\n"), "{out}");
     let json = render::json(&briefing(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() }));
     assert_eq!(json["providers"][0]["models"].as_array().unwrap().len(), 10);
 }
@@ -502,4 +533,51 @@ async fn refresh_reads_only_the_core_management_api_and_reuses_fresh_model_lists
     assert_eq!(dead.error, "could not connect to the core");
     assert_eq!(dead.accounts, second.accounts);
     assert_eq!(dead.ok_at_ms, second.ok_at_ms);
+}
+
+#[test]
+fn the_refresh_lock_is_exclusive_released_on_drop_and_reclaimed_when_stale() {
+    let dir = crate::unique_test_temp_path("cpa-brief-lock");
+    std::fs::create_dir_all(&dir).unwrap();
+    let first = super::cli::RefreshLock::acquire(&dir).expect("first caller gets the lock");
+    assert!(super::cli::RefreshLock::acquire(&dir).is_none(), "second caller must wait");
+    drop(first);
+    let again = super::cli::RefreshLock::acquire(&dir).expect("released on drop");
+    drop(again);
+    // A crashed holder leaves a lock behind; it is reclaimed once it is older than the stale limit.
+    let lock = dir.join("refresh.lock");
+    std::fs::write(&lock, b"").unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    std::fs::File::options().write(true).open(&lock).unwrap().set_modified(old).unwrap();
+    assert!(super::cli::RefreshLock::acquire(&dir).is_some());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn concurrent_queries_share_one_core_refresh() {
+    let paths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let server_paths = paths.clone();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            tx.send(fake_core(server_paths).await).unwrap();
+            std::future::pending::<()>().await;
+        });
+    });
+    let origin = rx.recv().unwrap();
+    let config = std::sync::Arc::new(remote_config(&origin));
+    let dir = crate::unique_test_temp_path("cpa-brief-stampede");
+    let handles: Vec<_> = (0..8)
+        .map(|_| {
+            let (config, dir, origin) = (config.clone(), dir.clone(), origin.clone());
+            std::thread::spawn(move || super::cli::refresh_core(&config, &dir, &origin, None))
+        })
+        .collect();
+    for handle in handles {
+        let part = handle.join().unwrap().expect("every caller gets a core part");
+        assert!(part.up && part.accounts.len() == 1);
+    }
+    assert_eq!(paths.lock().unwrap().len(), 2, "8 callers, one credentials read and one model read: {:?}", paths.lock().unwrap());
+    std::fs::remove_dir_all(dir).unwrap();
 }
