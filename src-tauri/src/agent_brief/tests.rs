@@ -701,6 +701,23 @@ fn the_refresh_lock_is_exclusive_released_on_drop_and_reclaimed_when_stale() {
 }
 
 #[test]
+fn future_mtime_is_reclaimed_and_old_owner_does_not_remove_replacement() {
+    let dir = crate::unique_test_temp_path("cpa-brief-lock-future");
+    std::fs::create_dir_all(&dir).unwrap();
+    let lock = dir.join("refresh.lock");
+    std::fs::write(&lock, b"clock-skew").unwrap();
+    std::fs::File::options().write(true).open(&lock).unwrap()
+        .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(30)).unwrap();
+    let owner = super::cli::RefreshLock::acquire(&dir).expect("far-future timestamp is stale");
+    let replacement = b"successor-owner-token";
+    std::fs::remove_file(&lock).unwrap();
+    std::fs::write(&lock, replacement).unwrap();
+    drop(owner);
+    assert_eq!(std::fs::read(&lock).unwrap(), replacement);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_lock_directory_that_cannot_be_created_is_not_mistaken_for_an_active_lock() {
     let parent = crate::unique_test_temp_path("cpa-brief-lock-unavailable");
     std::fs::write(&parent, b"not a directory").unwrap();

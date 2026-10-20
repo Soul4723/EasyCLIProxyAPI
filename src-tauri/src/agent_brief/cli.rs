@@ -22,6 +22,7 @@ Reads cached data; reads the core's management API at most once a minute; never 
 
 const LOCK_FILE: &str = "refresh.lock";
 const LOCK_STALE: Duration = Duration::from_secs(60);
+const FUTURE_LOCK_SLACK: Duration = Duration::from_secs(5);
 const LOCK_WAIT: Duration = Duration::from_secs(5);
 const REFRESH_DEADLINE: Duration = Duration::from_secs(25);
 
@@ -78,17 +79,33 @@ fn load_config() -> Result<GuiConfigFile, String> {
 
 /// One CLI refreshes at a time; the others wait briefly and then read the fresh file.
 #[derive(Debug)]
-pub(super) struct RefreshLock(PathBuf);
+pub(super) struct RefreshLock {
+    path: PathBuf,
+    owner: String,
+}
 
 impl RefreshLock {
     pub(super) fn acquire(dir: &Path) -> Result<Self, LockAcquireError> {
         let path = dir.join(LOCK_FILE);
         for _ in 0..2 {
             match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(_) => return Ok(Self(path)),
+                Ok(mut file) => {
+                    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+                    let owner = format!("{}-{nanos}", std::process::id());
+                    if file.write_all(owner.as_bytes()).is_err() {
+                        let _ = std::fs::remove_file(&path);
+                        return Err(LockAcquireError::Unavailable);
+                    }
+                    return Ok(Self { path, owner });
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let age = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
-                    if age.is_some_and(|age| age > LOCK_STALE) {
+                    let stale = std::fs::metadata(&path).and_then(|m| m.modified()).ok().is_some_and(|modified| {
+                        match modified.duration_since(SystemTime::now()) {
+                            Ok(ahead) => ahead > FUTURE_LOCK_SLACK,
+                            Err(_) => modified.elapsed().is_ok_and(|age| age > LOCK_STALE),
+                        }
+                    });
+                    if stale {
                         let _ = std::fs::remove_file(&path);
                         continue;
                     }
@@ -106,7 +123,9 @@ pub(super) enum LockAcquireError { Held, Unavailable }
 
 impl Drop for RefreshLock {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        if std::fs::read(&self.path).ok().as_deref() == Some(self.owner.as_bytes()) {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
