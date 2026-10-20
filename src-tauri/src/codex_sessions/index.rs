@@ -17,36 +17,129 @@ pub(super) fn preview_session_index_cleanup_from_home(
     })
 }
 
-fn collect_live_thread_ids(codex_home: &Path) -> Result<HashSet<String>, String> {
-    let mut ids = HashSet::new();
-    for path in collect_rollout_files(codex_home)? {
-        if let Some(id) = rollout_thread_id_from_file_name(&path) {
-            ids.insert(id);
+/// What the last rollout scan of a Codex home found: the identity of every rollout it looked at
+/// and the ids beyond the file-name ones. Preview and apply run back to back, so apply reuses it
+/// when no rollout changed in between and rereads everything otherwise.
+struct RolloutIdScan {
+    signature: String,
+    extra_ids: HashSet<String>,
+}
+
+static ROLLOUT_ID_SCANS: Mutex<Option<HashMap<PathBuf, RolloutIdScan>>> = Mutex::new(None);
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static ROLLOUT_CONTENT_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Size and modification time of every rollout, hashed. Rollouts are append-only, so any new
+/// session record changes the size; `None` means no usable signature, so nothing is reused.
+fn rollout_signature(paths: &[PathBuf]) -> Option<String> {
+    let mut hasher = Sha256::new();
+    for path in paths {
+        let metadata = fs::metadata(path).ok()?;
+        let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+        hasher.update(path.to_string_lossy().as_bytes());
+        hasher.update(metadata.len().to_le_bytes());
+        hasher.update(modified.as_nanos().to_le_bytes());
+    }
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+/// Streams a rollout and returns the ids of its `session_meta` records.
+fn read_rollout_session_ids(path: &Path) -> std::io::Result<Vec<String>> {
+    #[cfg(test)]
+    ROLLOUT_CONTENT_SCANS.with(|scans| scans.set(scans.get() + 1));
+    let mut reader = BufReader::with_capacity(256 * 1024, fs::File::open(path)?);
+    let mut bytes = Vec::new();
+    let mut ids = Vec::new();
+    loop {
+        bytes.clear();
+        if reader.read_until(b'\n', &mut bytes)? == 0 {
+            return Ok(ids);
         }
-        let text = match fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(error) if is_locked_io_error(&error) => continue,
-            Err(error) => return Err(format!("Failed to read rollout {}: {error}", path.display())),
+        let line = std::str::from_utf8(&bytes).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "stream did not contain valid UTF-8",
+            )
+        })?;
+        if !may_be_session_meta(line) {
+            continue;
+        }
+        let Ok(record) = serde_json::from_str::<Value>(line) else {
+            continue;
         };
-        for line in text.lines() {
-            let Ok(record) = serde_json::from_str::<Value>(line) else {
-                continue;
-            };
-            if record.get("type").and_then(Value::as_str) != Some("session_meta") {
-                continue;
-            }
-            if let Some(id) = record
-                .get("payload")
-                .and_then(Value::as_object)
-                .and_then(|payload| payload.get("id"))
-                .and_then(Value::as_str)
-                .filter(|id| !id.trim().is_empty())
-            {
-                ids.insert(id.to_string());
-                ids.insert(normalize_thread_id(id));
-            }
+        if record.get("type").and_then(Value::as_str) != Some("session_meta") {
+            continue;
+        }
+        if let Some(id) = record
+            .get("payload")
+            .and_then(Value::as_object)
+            .and_then(|payload| payload.get("id"))
+            .and_then(Value::as_str)
+            .filter(|id| !id.trim().is_empty())
+        {
+            ids.push(id.to_string());
         }
     }
+}
+
+pub(super) fn collect_rollout_thread_ids(codex_home: &Path) -> Result<HashSet<String>, String> {
+    let paths = collect_rollout_files(codex_home)?;
+    let mut ids = paths
+        .iter()
+        .filter_map(|path| rollout_thread_id_from_file_name(path))
+        .collect::<HashSet<_>>();
+    let signature = rollout_signature(&paths);
+    let cached = ROLLOUT_ID_SCANS
+        .lock()
+        .ok()
+        .and_then(|mut scans| scans.as_mut()?.remove(codex_home));
+    if let (Some(signature), Some(cached)) = (&signature, cached) {
+        if cached.signature == *signature {
+            ids.extend(cached.extra_ids.iter().cloned());
+            if let Ok(mut scans) = ROLLOUT_ID_SCANS.lock() {
+                scans
+                    .get_or_insert_with(HashMap::new)
+                    .insert(codex_home.to_path_buf(), cached);
+            }
+            return Ok(ids);
+        }
+    }
+    let file_name_ids = ids.clone();
+    let mut skipped_locked_file = false;
+    for path in &paths {
+        let found = match read_rollout_session_ids(path) {
+            Ok(found) => found,
+            Err(error) if is_locked_io_error(&error) => {
+                skipped_locked_file = true;
+                continue;
+            }
+            Err(error) => return Err(format!("Failed to read rollout {}: {error}", path.display())),
+        };
+        for id in found {
+            ids.insert(normalize_thread_id(&id));
+            ids.insert(id);
+        }
+    }
+    // A skipped (locked) file may have ids this scan did not see, so it is never reused.
+    if let (Some(signature), false) = (signature, skipped_locked_file) {
+        if let Ok(mut scans) = ROLLOUT_ID_SCANS.lock() {
+            scans.get_or_insert_with(HashMap::new).insert(
+                codex_home.to_path_buf(),
+                RolloutIdScan {
+                    signature,
+                    extra_ids: ids.difference(&file_name_ids).cloned().collect(),
+                },
+            );
+        }
+    }
+    Ok(ids)
+}
+
+fn collect_live_thread_ids(codex_home: &Path) -> Result<HashSet<String>, String> {
+    let mut ids = collect_rollout_thread_ids(codex_home)?;
     let (database_paths, database_warnings) = discover_database_paths(codex_home, true);
     if !database_warnings.is_empty() {
         return Err(format!(

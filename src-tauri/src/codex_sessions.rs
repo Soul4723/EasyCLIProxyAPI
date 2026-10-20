@@ -174,8 +174,7 @@ struct DatabaseDeletePlan {
 #[derive(Debug, Clone)]
 struct RolloutRepair {
     path: PathBuf,
-    original: Vec<u8>,
-    next: Vec<u8>,
+    original_len: u64,
     original_mtime: Option<SystemTime>,
     thread_id: Option<String>,
     cwd: Option<String>,
@@ -338,3 +337,5 @@ use process::*;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod streaming_tests;

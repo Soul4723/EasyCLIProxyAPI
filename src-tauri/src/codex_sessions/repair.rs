@@ -99,24 +99,21 @@ where
         processed: 0,
         total: changed_repairs.len(),
     });
-    let mut written = Vec::new();
+    // Each rollout is rebuilt from disk and written on its own, so only one file's rewritten
+    // bytes are in memory at a time. Rollback restores from the backup copies for the same reason.
+    let mut written: Vec<(usize, &RolloutRepair)> = Vec::new();
     for (index, repair) in changed_repairs.iter().enumerate() {
-        match crate::write_bytes_atomically(&repair.path, &repair.next) {
-            Ok(()) => {
-                restore_modified_time(&repair.path, repair.original_mtime);
-                written.push(repair.clone());
-            }
-            Err(error) if is_locked_error_message(&error) => {
+        match rewrite_rollout(repair, target_provider) {
+            Ok(RewriteOutcome::Written) => written.push((index, repair)),
+            Ok(RewriteOutcome::Locked) => {
                 let path = repair.path.to_string_lossy().to_string();
                 if !skipped_locked_files.contains(&path) {
                     skipped_locked_files.push(path);
                 }
             }
+            Ok(RewriteOutcome::Skipped(warning)) => warnings.push(warning),
             Err(error) => {
-                for previous in written.iter().rev() {
-                    let _ = crate::write_bytes_atomically(&previous.path, &previous.original);
-                    restore_modified_time(&previous.path, previous.original_mtime);
-                }
+                rollback_rollouts(&written, backup_path.as_deref());
                 return Err(format!("Failed to write historical session; rollback attempted: {error}"));
             }
         }
@@ -140,10 +137,7 @@ where
                 updated
             }
             Err(error) => {
-                for previous in written.iter().rev() {
-                    let _ = crate::write_bytes_atomically(&previous.path, &previous.original);
-                    restore_modified_time(&previous.path, previous.original_mtime);
-                }
+                rollback_rollouts(&written, backup_path.as_deref());
                 return Err(format!(
                     "Failed to update session database; rollout rollback attempted and backup retained: {error}"
                 ));
@@ -203,84 +197,213 @@ fn collect_rollout_files_recursive(root: &Path, files: &mut Vec<PathBuf>) -> Res
     Ok(())
 }
 
-fn build_rollout_repair(
+/// Cheap pre-filter for rollout lines: false means the line cannot be a top-level
+/// `{"type":"session_meta"}` record, so it is neither parsed nor rewritten.
+///
+/// The parser accepts a record only when it decodes to a `type` string equal to
+/// `session_meta`. A JSON string can reach that value only by spelling the literal
+/// `session_meta` or by escaping at least one of its characters, and every character of
+/// `session_meta` (and of `type`) is ASCII in 0x50..=0x7f, so an escaped spelling needs a
+/// `\u005x`..`\u007x` escape (JSON has no short escape for them). A line with neither
+/// is never a match; any false positive is simply parsed and rejected as before.
+pub(super) fn may_be_session_meta(line: &str) -> bool {
+    line.contains("session_meta")
+        || line
+            .match_indices("\\u00")
+            .any(|(index, _)| matches!(line.as_bytes().get(index + 4), Some(b'5'..=b'7')))
+}
+
+pub(super) struct RolloutScan {
+    original_len: u64,
+    original_mtime: Option<SystemTime>,
+    session_meta_count: usize,
+    thread_id: Option<String>,
+    cwd: Option<String>,
+    providers: Vec<String>,
+    has_user_event: bool,
+    encrypted_content: bool,
+    changed: bool,
+}
+
+/// Streams one rollout line by line (memory is bounded by the longest line). When `output` is
+/// given the rewritten bytes are appended to it, otherwise only the metadata is collected.
+pub(super) fn scan_rollout(
     path: &Path,
     target_provider: &str,
-) -> Result<Option<RolloutRepair>, String> {
-    let original =
-        fs::read(path).map_err(|error| format!("Failed to read rollout {}: {error}", path.display()))?;
-    let text = String::from_utf8(original.clone())
-        .map_err(|error| format!("Rollout is not UTF-8 {}: {error}", path.display()))?;
-    let mut next = String::with_capacity(text.len());
-    let mut changed = false;
-    let mut session_meta_count = 0usize;
-    let mut thread_id = None;
-    let mut cwd = None;
-    let mut providers = Vec::new();
-    for segment in text.split_inclusive('\n') {
+    mut output: Option<&mut Vec<u8>>,
+) -> Result<RolloutScan, String> {
+    let read_error = |error: std::io::Error| format!("Failed to read rollout {}: {error}", path.display());
+    let file = fs::File::open(path).map_err(read_error)?;
+    let metadata = file.metadata().map_err(read_error)?;
+    let mut scan = RolloutScan {
+        original_len: metadata.len(),
+        original_mtime: metadata.modified().ok(),
+        session_meta_count: 0,
+        thread_id: None,
+        cwd: None,
+        providers: Vec::new(),
+        has_user_event: false,
+        encrypted_content: false,
+        changed: false,
+    };
+    let mut reader = BufReader::with_capacity(256 * 1024, file);
+    let mut bytes = Vec::new();
+    loop {
+        bytes.clear();
+        if reader.read_until(b'\n', &mut bytes).map_err(read_error)? == 0 {
+            break;
+        }
+        let segment = std::str::from_utf8(&bytes)
+            .map_err(|error| format!("Rollout is not UTF-8 {}: {error}", path.display()))?;
         let (body_with_cr, newline) = segment
             .strip_suffix('\n')
             .map_or((segment, ""), |body| (body, "\n"));
         let (body, carriage) = body_with_cr
             .strip_suffix('\r')
             .map_or((body_with_cr, ""), |body| (body, "\r"));
-        let mut output = body.to_string();
-        if let Ok(mut record) = serde_json::from_str::<Value>(body) {
-            if record.get("type").and_then(Value::as_str) == Some("session_meta") {
-                if let Some(payload) = record.get_mut("payload").and_then(Value::as_object_mut) {
-                    session_meta_count += 1;
-                    if thread_id.is_none() {
-                        thread_id = payload
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .filter(|value| !value.trim().is_empty())
-                            .map(ToString::to_string);
-                    }
-                    if cwd.is_none() {
-                        cwd = payload
-                            .get("cwd")
-                            .and_then(Value::as_str)
-                            .and_then(normalize_workspace_path);
-                    }
-                    if let Some(provider) = payload.get("model_provider").and_then(Value::as_str) {
-                        providers.push(provider.to_string());
-                    }
-                    if payload.get("model_provider").and_then(Value::as_str)
-                        != Some(target_provider)
-                    {
-                        payload.insert("model_provider".to_string(), json!(target_provider));
-                        output = serde_json::to_string(&record)
-                            .map_err(|error| format!("Failed to serialize session_meta: {error}"))?;
-                        changed = true;
+        scan.has_user_event |= body.contains("\"user_message\"") || body.contains("\"user_input\"");
+        scan.encrypted_content |= body.contains("encrypted_content");
+        let mut rewritten = None;
+        if may_be_session_meta(body) {
+            if let Ok(mut record) = serde_json::from_str::<Value>(body) {
+                if record.get("type").and_then(Value::as_str) == Some("session_meta") {
+                    if let Some(payload) = record.get_mut("payload").and_then(Value::as_object_mut) {
+                        scan.session_meta_count += 1;
+                        if scan.thread_id.is_none() {
+                            scan.thread_id = payload
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .filter(|value| !value.trim().is_empty())
+                                .map(ToString::to_string);
+                        }
+                        if scan.cwd.is_none() {
+                            scan.cwd = payload
+                                .get("cwd")
+                                .and_then(Value::as_str)
+                                .and_then(normalize_workspace_path);
+                        }
+                        if let Some(provider) = payload.get("model_provider").and_then(Value::as_str) {
+                            scan.providers.push(provider.to_string());
+                        }
+                        if payload.get("model_provider").and_then(Value::as_str)
+                            != Some(target_provider)
+                        {
+                            payload.insert("model_provider".to_string(), json!(target_provider));
+                            rewritten = Some(
+                                serde_json::to_string(&record)
+                                    .map_err(|error| format!("Failed to serialize session_meta: {error}"))?,
+                            );
+                            scan.changed = true;
+                        }
                     }
                 }
             }
         }
-        next.push_str(&output);
-        next.push_str(carriage);
-        next.push_str(newline);
+        if let Some(output) = output.as_mut() {
+            output.extend_from_slice(rewritten.as_deref().unwrap_or(body).as_bytes());
+            output.extend_from_slice(carriage.as_bytes());
+            output.extend_from_slice(newline.as_bytes());
+        }
     }
-    if session_meta_count == 0 {
+    Ok(scan)
+}
+
+/// Metadata-only pass: a changed rollout's rewritten bytes are rebuilt from disk right before
+/// it is written, so nothing proportional to the file sizes is kept between files.
+pub(super) fn build_rollout_repair(
+    path: &Path,
+    target_provider: &str,
+) -> Result<Option<RolloutRepair>, String> {
+    let scan = scan_rollout(path, target_provider, None)?;
+    if scan.session_meta_count == 0 {
         return Ok(None);
     }
-    let has_user_event = text.contains("\"user_message\"") || text.contains("\"user_input\"");
     Ok(Some(RolloutRepair {
         path: path.to_path_buf(),
-        original,
-        next: next.into_bytes(),
-        original_mtime: fs::metadata(path)
-            .and_then(|metadata| metadata.modified())
-            .ok(),
-        thread_id,
-        cwd,
-        has_user_event,
-        providers,
-        encrypted_content: text.contains("encrypted_content"),
-        changed,
+        original_len: scan.original_len,
+        original_mtime: scan.original_mtime,
+        thread_id: scan.thread_id,
+        cwd: scan.cwd,
+        has_user_event: scan.has_user_event,
+        providers: scan.providers,
+        encrypted_content: scan.encrypted_content,
+        changed: scan.changed,
     }))
 }
 
-fn normalize_workspace_path(value: &str) -> Option<String> {
+pub(super) enum RewriteOutcome {
+    Written,
+    Locked,
+    Skipped(String),
+}
+
+fn rollout_matches_scan(path: &Path, repair: &RolloutRepair) -> bool {
+    fs::metadata(path).is_ok_and(|metadata| {
+        metadata.len() == repair.original_len && metadata.modified().ok() == repair.original_mtime
+    })
+}
+
+/// Rebuilds one changed rollout and writes it atomically. A file that no longer matches what the
+/// scan (and therefore the backup) saw is skipped rather than overwritten. `Err` is only a failed
+/// write, which the caller answers with a rollback.
+pub(super) fn rewrite_rollout(repair: &RolloutRepair, target_provider: &str) -> Result<RewriteOutcome, String> {
+    let path = repair.path.as_path();
+    let stale = || {
+        RewriteOutcome::Skipped(format!(
+            "Rollout changed during repair; left untouched {}",
+            path.display()
+        ))
+    };
+    if !rollout_matches_scan(path, repair) {
+        return Ok(stale());
+    }
+    let mut next = Vec::with_capacity(repair.original_len as usize);
+    match scan_rollout(path, target_provider, Some(&mut next)) {
+        Ok(_) => {}
+        Err(error) if is_locked_error_message(&error) => return Ok(RewriteOutcome::Locked),
+        Err(error) => return Ok(RewriteOutcome::Skipped(error)),
+    }
+    if !rollout_matches_scan(path, repair) {
+        return Ok(stale());
+    }
+    match crate::write_bytes_atomically(path, &next) {
+        Ok(()) => {
+            restore_modified_time(path, repair.original_mtime);
+            Ok(RewriteOutcome::Written)
+        }
+        Err(error) if is_locked_error_message(&error) => Ok(RewriteOutcome::Locked),
+        Err(error) => Err(error),
+    }
+}
+
+fn backup_rollout_file_name(index: usize, path: &Path) -> String {
+    format!(
+        "{index}-{}",
+        path.file_name().and_then(OsStr::to_str).unwrap_or("rollout.jsonl")
+    )
+}
+
+/// Puts back the original bytes of already written rollouts from the backup copies.
+pub(super) fn rollback_rollouts(written: &[(usize, &RolloutRepair)], backup_directory: Option<&Path>) {
+    let Some(backup_directory) = backup_directory else {
+        return;
+    };
+    for (index, repair) in written.iter().rev() {
+        let backup = backup_directory
+            .join("rollouts")
+            .join(backup_rollout_file_name(*index, &repair.path));
+        let Ok(original) = fs::read(&backup) else {
+            continue;
+        };
+        if original.len() as u64 != repair.original_len {
+            continue;
+        }
+        let _ = crate::write_bytes_atomically(&repair.path, &original);
+        restore_modified_time(&repair.path, repair.original_mtime);
+    }
+}
+
+pub(super) fn normalize_workspace_path(value: &str) -> Option<String> {
     let value = value.trim();
     if value.is_empty() {
         return None;
@@ -513,20 +636,13 @@ pub(super) fn create_repair_backup(
     }
     let mut rollout_files = Vec::new();
     for (index, repair) in repairs.iter().enumerate() {
-        let file_name = format!(
-            "{index}-{}",
-            repair
-                .path
-                .file_name()
-                .and_then(OsStr::to_str)
-                .unwrap_or("rollout.jsonl")
-        );
+        let file_name = backup_rollout_file_name(index, &repair.path);
         let target = directory.join("rollouts").join(&file_name);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| format!("Failed to create rollout backup directory: {error}"))?;
         }
-        fs::write(&target, &repair.original)
+        fs::copy(&repair.path, &target)
             .map_err(|error| format!("Failed to back up rollout {}: {error}", repair.path.display()))?;
         rollout_files.push(json!({
             "originalPath": repair.path.to_string_lossy(),
