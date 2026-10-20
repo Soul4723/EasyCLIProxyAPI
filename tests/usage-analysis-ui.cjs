@@ -58,7 +58,7 @@ fs.mkdirSync(screenshots, { recursive: true });
 
     await open();
     assert.equal(await page.locator('#usage-tab-analysis').getAttribute('aria-selected'), 'true');
-    assert.equal(await page.locator('.usage-filter-item > button').count(), 5, 'Analysis keeps the shared filter controls');
+    assert.equal(await page.locator('.usage-filter-item .select-menu-trigger').count(), 5, 'Analysis keeps the shared filter controls');
     assert.equal(await page.locator('.usage-filter-panel button').count(), 5, 'Analysis does not restore the removed reset button');
     let rows = await modelRows();
     assert.deepEqual(rows.map(row => row.key), ['model-a', 'model-b', 'model-c', 'model-d', 'model-f', 'other']);
