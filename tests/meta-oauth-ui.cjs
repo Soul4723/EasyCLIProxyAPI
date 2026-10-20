@@ -33,10 +33,24 @@ const base = process.env.META_OAUTH_TEST_BASE_URL || process.env.DEVIN_TEST_BASE
       await card.getByText('META-CODE-1', { exact: true }).waitFor();
     };
 
-    // Management view: Meta is a seventh OAuth provider, with device code and no callback input.
+    // Management view: assert the complete built-in card set so added cards cannot silently
+    // invalidate this integration test's assumptions.
     await open('locale=en');
     const card = managementCard();
-    assert.equal(await page.locator('.oauth-card').count(), 7, 'Meta should add a seventh OAuth card');
+    assert.deepEqual(
+      (await page.locator('.oauth-card h2').allTextContents()).map(name => name.trim()).sort(),
+      [
+        'Antigravity OAuth',
+        'Claude OAuth',
+        'Codex OAuth',
+        'Devin OAuth',
+        'Kimi OAuth',
+        'Muse (Meta) OAuth',
+        'Vertex JSON Login',
+        'xAI OAuth',
+      ].sort(),
+      'management view should render exactly the expected built-in OAuth cards',
+    );
     assert.equal(await card.count(), 1, 'the Muse (Meta) card should be unique');
     assert.equal(await card.getByRole('textbox').count(), 0, 'Meta must not render a callback textbox');
     await installClipboard();
