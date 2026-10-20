@@ -5,7 +5,7 @@ import { useI18n } from '../i18n';
 import { pluginText } from '../i18n/plugins';
 import { findPluginEntryForPage, type PluginNavEntry } from '../services/pluginNavigation';
 import {
-  EMPTY_BOUNDS, effectiveBounds, hidePluginWebview, newWebviewToken, roundBounds, setPluginWebviewBounds, showPluginWebview,
+  EMPTY_BOUNDS, effectiveBounds, hidePluginWebview, newWebviewToken, roundBounds, sameBounds, setPluginWebviewBounds, showPluginWebview,
   type WebviewBounds,
 } from '../services/pluginWebview';
 import { Button, Skeleton } from '../ui';
@@ -27,6 +27,7 @@ function PluginWebviewPage({ entry, reloadToken }: { entry: PluginNavEntry; relo
   const host = useRef<HTMLDivElement>(null);
   const overlay = useOverlayOpen();
   const [bounds, setBounds] = useState<WebviewBounds>(EMPTY_BOUNDS);
+  const [forcedBoundsRevision, setForcedBoundsRevision] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
@@ -35,32 +36,38 @@ function PluginWebviewPage({ entry, reloadToken }: { entry: PluginNavEntry; relo
   wantedRef.current = wanted;
   const token = useRef(0);
   const handledReload = useRef(reloadToken);
+  const forceBoundsUpdate = useRef(false);
 
-  const measure = useCallback(() => {
-    if (!host.current) return;
+  const measure = useCallback((force = false) => {
+    if (!host.current) return EMPTY_BOUNDS;
     const next = roundBounds(host.current.getBoundingClientRect(), window.innerHeight);
-    // Reapply even when CSS bounds are unchanged: the native DPI may have changed.
-    setBounds(next);
+    setBounds((previous) => sameBounds(previous, next) ? previous : next);
+    if (force) {
+      forceBoundsUpdate.current = true;
+      setForcedBoundsRevision((revision) => revision + 1);
+    }
+    return next;
   }, []);
 
   useLayoutEffect(() => {
     measure();
-    const observer = new ResizeObserver(measure);
+    const measureCurrentBounds = () => measure();
+    const observer = new ResizeObserver(measureCurrentBounds);
     if (host.current) observer.observe(host.current);
     observer.observe(document.documentElement);
-    window.addEventListener('resize', measure);
+    window.addEventListener('resize', measureCurrentBounds);
     // A DPI change (moving between monitors) fires only the resolution query, and each query matches one ratio.
     let resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
     const onResolutionChange = () => {
       resolution.removeEventListener('change', onResolutionChange);
       resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
       resolution.addEventListener('change', onResolutionChange);
-      measure();
+      measure(true);
     };
     resolution.addEventListener('change', onResolutionChange);
     return () => {
       observer.disconnect();
-      window.removeEventListener('resize', measure);
+      window.removeEventListener('resize', measureCurrentBounds);
       resolution.removeEventListener('change', onResolutionChange);
     };
   }, [measure]);
@@ -77,16 +84,22 @@ function PluginWebviewPage({ entry, reloadToken }: { entry: PluginNavEntry; relo
     let cancelled = false;
     setReady(false);
     setError('');
+    const initialBounds = measure();
+    const initialWanted = effectiveBounds({ active: true, overlay, bounds: initialBounds });
+    wantedRef.current = initialWanted;
     const labels = { back: pt('pageBack'), reload: pt('pageReload'), openExternal: pt('openExternal'), move: pt('pageMove') };
-    showPluginWebview({ pluginId: entry.pluginID, menuIndex: entry.menuIndex, bounds: wantedRef.current, labels, reload, token: mine })
+    showPluginWebview({ pluginId: entry.pluginID, menuIndex: entry.menuIndex, bounds: initialWanted, labels, reload, token: mine })
       .then(() => { if (!cancelled) setReady(true); })
       .catch((reason) => { if (!cancelled) setError(message(reason)); });
     return () => { cancelled = true; };
   }, [entry.pluginID, entry.menuIndex, reloadToken, attempt, locale]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    void setPluginWebviewBounds(wanted, token.current).catch((reason) => setError(message(reason)));
-  }, [ready, wanted]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!ready) return;
+    const force = forceBoundsUpdate.current;
+    forceBoundsUpdate.current = false;
+    void setPluginWebviewBounds(wanted, token.current, force).catch((reason) => setError(message(reason)));
+  }, [ready, wanted, forcedBoundsRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className="ec-plugin-page" data-plugin-route={entry.route} aria-label={entry.label}>

@@ -60,5 +60,10 @@ describe('plugin webview bounds', () => {
     await frame();
     await Promise.all(rapid);
     expect(sent).toEqual([{ bounds: first, token: 7 }, { bounds: third, token: 7 }]);
+
+    const dpiRefresh = updater.update(third, 7, true);
+    await frame();
+    await dpiRefresh;
+    expect(sent).toEqual([{ bounds: first, token: 7 }, { bounds: third, token: 7 }, { bounds: third, token: 7 }]);
   });
 });

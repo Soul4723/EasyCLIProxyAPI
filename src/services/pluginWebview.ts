@@ -34,7 +34,7 @@ type FrameScheduler = (callback: FrameRequestCallback) => number;
 
 export function createBoundsUpdater(send: BoundsSender, scheduleFrame: FrameScheduler) {
   let lastSent: { bounds: WebviewBounds; token: number } | undefined;
-  let pending: { bounds: WebviewBounds; token: number } | undefined;
+  let pending: { bounds: WebviewBounds; token: number; force: boolean } | undefined;
   let waiters: Array<{ resolve: () => void; reject: (reason: unknown) => void }> = [];
   let scheduled = false;
   let sending = false;
@@ -50,7 +50,7 @@ export function createBoundsUpdater(send: BoundsSender, scheduleFrame: FrameSche
       currentWaiters.forEach(({ resolve }) => resolve());
       return;
     }
-    if (lastSent?.token === next.token && sameBounds(lastSent.bounds, next.bounds)) {
+    if (!next.force && lastSent?.token === next.token && sameBounds(lastSent.bounds, next.bounds)) {
       currentWaiters.forEach(({ resolve }) => resolve());
       return;
     }
@@ -68,8 +68,8 @@ export function createBoundsUpdater(send: BoundsSender, scheduleFrame: FrameSche
   };
 
   return {
-    update(bounds: WebviewBounds, token: number): Promise<void> {
-      pending = { bounds, token };
+    update(bounds: WebviewBounds, token: number, force = false): Promise<void> {
+      pending = { bounds, token, force: force || (pending?.token === token && pending.force) };
       const result = new Promise<void>((resolve, reject) => waiters.push({ resolve, reject }));
       if (!scheduled) {
         scheduled = true;
@@ -93,7 +93,7 @@ export const showPluginWebview = (args: { pluginId: string; menuIndex: number; b
     boundsUpdater.markApplied(args.bounds, args.token);
     return url;
   });
-export const setPluginWebviewBounds = (bounds: WebviewBounds, token: number) => boundsUpdater.update(bounds, token);
+export const setPluginWebviewBounds = (bounds: WebviewBounds, token: number, force = false) => boundsUpdater.update(bounds, token, force);
 export const hidePluginWebview = async (token: number) => {
   await invoke('hide_plugin_webview', { token });
   await invoke('close_plugin_webview', { token });

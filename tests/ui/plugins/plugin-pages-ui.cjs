@@ -106,10 +106,15 @@ runUiTest('plugin pages', async ({ base, newPage }) => {
       if (name === 'resize') window.dispatchEvent(new Event('resize'));
       else window.__resolutionQuery.dispatchEvent(new Event('change'));
     }, event);
-    await page.waitForFunction((count) => window.__boundsUpdates > count, previous);
+    if (event === 'resize') {
+      await frames(page);
+      assert.equal(await page.evaluate(() => window.__boundsUpdates), previous, 'unchanged CSS bounds do not send an IPC on resize');
+    } else {
+      await page.waitForFunction((count) => window.__boundsUpdates > count, previous);
+    }
     await aligned();
   }
-  console.log('resize and repeated resolution notifications reapply unchanged CSS bounds');
+  console.log('unchanged CSS bounds are skipped on resize and re-applied for DPI changes');
 
   // --- overlays hide the native view; closing restores it
   for (const [label, open, close] of [
