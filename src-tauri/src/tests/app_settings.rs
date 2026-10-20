@@ -103,7 +103,7 @@ fn gui_config_save_follows_symlinks_and_keeps_the_link() {
     home_entries.sort();
     assert_eq!(
         home_entries,
-        vec!["config.toml", "links", "target"].map(std::ffi::OsString::from)
+        ["config.toml", "links", "target"].map(std::ffi::OsString::from)
     );
     let link_entries: Vec<_> = fs::read_dir(&link_dir)
         .unwrap()
