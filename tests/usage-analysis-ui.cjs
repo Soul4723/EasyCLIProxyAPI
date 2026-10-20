@@ -119,13 +119,13 @@ fs.mkdirSync(screenshots, { recursive: true });
     assert.equal(await tooltip.count(), 0, 'Hover details clear when the pointer leaves the chart');
 
     const details = page.locator('.usage-context-detail');
-    assert.equal(await details.count(), 3);
-    for (let index = 0; index < 3; index += 1) {
+    assert.equal(await details.count(), 2, 'Current analysis shows upstream and API key context');
+    for (let index = 0; index < 2; index += 1) {
       const detail = details.nth(index);
       assert.equal(await detail.evaluate(element => element.open), false);
       await detail.locator('summary').click();
-      assert.equal(await detail.evaluate(element => element.open), true, 'Provider, source, and key breakdowns expand independently');
-      assert.equal(await detail.locator('li').count(), [2, 3, 4][index]);
+      assert.equal(await detail.evaluate(element => element.open), true, 'Upstream and API key breakdowns expand independently');
+      assert.equal(await detail.locator('li').count(), [3, 4][index]);
       assert.equal(await detail.locator('li > strong').evaluateAll(items => items.reduce((total, item) => total + Number(item.title), 0)), 60);
       await detail.locator('summary').click();
     }

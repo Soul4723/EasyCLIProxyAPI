@@ -55,6 +55,8 @@ const analysis = {
   models: groups(record => [record.model, record.label]),
   providers: groups((_, index) => [`provider-${index % 2}`, ['OpenAI', 'Anthropic'][index % 2]]),
   sources: groups((_, index) => [`source-${index % 3}`, ['CLI workspace', 'Desktop assistant', 'long-source-name-for-development@example.com'][index % 3]]),
+  upstreams: groups((_, index) => [`source-${index % 3}`, ['CLI workspace', 'Desktop assistant', 'long-source-name-for-development@example.com'][index % 3]])
+    .map(item => ({ ...item, provider: 'fixture' })),
   apiKeys: groups((_, index) => [`key-${index % 4}`, ['Development', 'Personal', 'Team workspace', 'Long API key description for layout verification'][index % 4]]),
 };
 const timeline: UsageTimelinePoint[] = Array.from({ length: records.length ? 36 : 0 }, (_, hour) => {
