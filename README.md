@@ -77,7 +77,21 @@ Remote mode requires a v8 management API (core 8.0.29 or later).
 
 Plugins can contribute their own pages, which appear in the sidebar under Plugins. The interface is
 available in English, Simplified Chinese, Traditional Chinese and Japanese, with several themes.
-Screenshots from the real app are pending; see [docs/screenshots](docs/screenshots/README.md).
+
+### Screenshots
+
+These are renders of the real debug app (Tauri/WebKitGTK with the production frontend) in Local mode,
+captured against a fresh test core with no accounts or usage, so lists are empty. How they were made
+is described in [docs/screenshots](docs/screenshots/README.md).
+
+| | |
+| --- | --- |
+| ![Overview](docs/screenshots/overview.png) | ![Providers](docs/screenshots/providers.png) |
+| **Overview**: core runtime, connect-a-client and the Get started checklist. | **Providers**: subscription and API-key providers with sign-in and add-key actions. |
+| ![Agents](docs/screenshots/agents.png) | ![Usage prices](docs/screenshots/usage-prices.png) |
+| **Agents**: detection and setup for agent clients. | **Usage → Prices**: model prices behind the cost estimates. |
+| ![Settings, Connection](docs/screenshots/settings-connection.png) | ![Settings, Routing](docs/screenshots/settings-routing.png) |
+| **Settings → Connection**: choose This computer or a Remote core. | **Settings → Routing**: credential selection, retries and cooldowns. |
 
 ## Quick start (release packages)
 
