@@ -2358,6 +2358,12 @@ pub(crate) fn gui_config_path() -> Result<PathBuf, String> {
     Ok(core_base_dir()?.join(GUI_CONFIG_FILE))
 }
 
+/// The saved GUI config as the `--brief` CLI sees it: never created, migrated or rewritten.
+pub(crate) fn load_saved_gui_config_read_only() -> Result<GuiConfigFile, String> {
+    let (config, ..) = read_saved_gui_config(&gui_config_path()?, &legacy_gui_config_path()?)?;
+    Ok(config)
+}
+
 pub(crate) fn legacy_gui_config_path() -> Result<PathBuf, String> {
     Ok(core_base_dir()?.join(LEGACY_GUI_CONFIG_FILE))
 }

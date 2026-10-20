@@ -14,6 +14,7 @@ use agent_types::*;
 mod window_state;
 use window_state::*;
 
+mod agent_brief;
 mod agents;
 mod app_settings;
 mod app_update;
@@ -165,6 +166,10 @@ fn main() {
             1
         });
         std::process::exit(code);
+    }
+    // Agent briefing: before the instance lock, GTK and the webview, so it is quick and never opens a second GUI.
+    if helper_args.get(1).is_some_and(|a| a == "--brief") {
+        std::process::exit(agent_brief::run_cli(&helper_args[2..]));
     }
     let mut args = env::args_os();
     while let Some(argument) = args.next() {
@@ -335,6 +340,11 @@ fn main() {
             }
 
             lighting::start(app.handle())?;
+            tauri::async_runtime::spawn_blocking(|| {
+                if let Err(error) = agent_brief::write_launcher() {
+                    eprintln!("Failed to write the agent briefing launcher: {error}");
+                }
+            });
             network_proxy::start_monitor(app.handle().clone());
             let connection_app = app.handle().clone();
             app.listen("core-connection-changed", move |_| {
@@ -461,6 +471,7 @@ fn main() {
                 lighting::lighting_set_enabled,
                 lighting::lighting_run_now,
                 lighting::lighting_report_reset,
+                agent_brief::agent_briefing_publish,
                 lighting::lighting_history,
                 lighting::lighting_capabilities,
                 lighting::lighting_status,
