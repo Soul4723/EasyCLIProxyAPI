@@ -58,7 +58,9 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     assert.equal(await h.currentRoute(page), route, `${route}: URL is not rewritten`);
     assert.equal(await page.locator('.ec-app').getAttribute('data-page'), id, `${route}: data-page`);
     await waitForTitle(page, TITLES[id]);
-    if (['providers', 'quota', 'usage'].includes(id)) {
+    const sectionContent = { providers: '.ec-sec-providers', quota: '.ec-sec-quota', usage: '.ec-sec-usage' }[id];
+    if (sectionContent) await page.locator(sectionContent).waitFor();
+    if (['providers', 'usage'].includes(id)) {
       await page.locator('.ec-page-header').getByRole('tab').first().waitFor();
     }
     assert.equal(await h.pageTitle(page), TITLES[id], `${route}: header title`);
