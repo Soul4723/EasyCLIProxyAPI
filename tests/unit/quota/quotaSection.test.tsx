@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { classifyWindow, deriveStatus, groupAccounts, matchesSearch } from '../../../src/sections/quota/model';
+import { classifyWindow, deriveStatus, groupAccounts, matchesSearch, windowsOf } from '../../../src/sections/quota/model';
 import { accountFor, renderCard, renderRow, stubLighting } from '../../helpers/quotaAccount';
-import type { QuotaState } from '../../../src/services/quotaService';
+import { quotaRowsFor, type QuotaState } from '../../../src/services/quotaService';
 
 const NOW = Date.parse('2030-01-01T12:00:00Z');
 const ok = (rows: QuotaState['rows'], extra: Partial<QuotaState> = {}): QuotaState => ({ status: 'success', rows, fetchedAt: NOW - 60_000, ...extra });
@@ -14,6 +14,23 @@ describe('quota section model', () => {
     expect(classifyWindow({ label: 'Mystery', remainingPercent: 50, resetAtMs: NOW + 3 * 3_600_000 }, NOW, 'en').kind).toBe('5h');
     expect(classifyWindow({ label: 'Mystery', remainingPercent: 50, resetAtMs: NOW + 3 * 86_400_000 }, NOW, 'en').kind).toBe('weekly');
     expect(classifyWindow({ label: 'Mystery', remainingPercent: 50 }, NOW, 'en').kind).toBe('other');
+  });
+
+  it('keeps the model group of each Antigravity window for the grouped account panel', () => {
+    const rows = quotaRowsFor('antigravity', { groups: [
+      { displayName: 'Gemini Models', description: 'Models within this group: Gemini Flash, Gemini Pro', buckets: [
+        { displayName: 'Five Hour Limit Remaining', remainingFraction: 1 },
+        { displayName: 'Weekly Limit Remaining', remainingFraction: 0.98 },
+      ] },
+      { displayName: 'Claude and GPT Models', buckets: [{ displayName: 'Weekly Limit Remaining', remainingFraction: 1 }] },
+    ] });
+    const windows = windowsOf(ok(rows), NOW, 'en');
+    expect(windows.map(window => window.groupLabel)).toEqual(['Gemini models', 'Gemini models', 'Claude and GPT models']);
+    expect(windows[0].groupDescription).toContain('Gemini Flash');
+    expect(windows.every(window => Boolean(window.windowLabel))).toBe(true);
+    // Providers without model groups carry no group fields.
+    const plain = windowsOf(ok([{ label: '5-hour window', remainingPercent: 50 }]), NOW, 'en');
+    expect(plain[0].groupLabel).toBeUndefined();
   });
 
   it('derives one status from health, cooldown and windows', () => {
