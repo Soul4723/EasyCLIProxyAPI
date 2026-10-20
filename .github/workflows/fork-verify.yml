@@ -26,13 +26,31 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Typecheck
+        id: typecheck
         run: |
           set -o pipefail
           bun run check 2>&1 | tee typecheck.log
       - name: Unit tests
+        id: unit_tests
         run: |
           set -o pipefail
           bun test --isolate 2>&1 | tee unit-tests.log
+      - name: Summarize frontend results
+        if: always()
+        env:
+          TYPECHECK_RESULT: ${{ steps.typecheck.outcome }}
+          UNIT_TEST_RESULT: ${{ steps.unit_tests.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import re
+          from pathlib import Path
+
+          text = Path('unit-tests.log').read_text() if Path('unit-tests.log').exists() else ''
+          count = lambda label: int(re.search(rf'^\s*(\d+) {label}$', text, re.M).group(1)) if re.search(rf'^\s*(\d+) {label}$', text, re.M) else 0
+          print('### Frontend and unit tests')
+          print(f"- Typecheck: **{__import__('os').environ['TYPECHECK_RESULT']}**")
+          print(f"- Unit tests: {count('pass')} passed, {count('skip')} skipped, {count('fail')} failed (step: **{__import__('os').environ['UNIT_TEST_RESULT']}**)")
+          PY
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -64,11 +82,28 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/playwright" playwright
           "$RUNNER_TEMP/playwright/node_modules/.bin/playwright" install --with-deps chromium
       - name: Run complete UI suite
+        id: ui_tests
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/playwright/node_modules/playwright
         run: |
           set -o pipefail
           node tests/run-ui.cjs 2>&1 | tee ui-tests.log
+      - name: Summarize UI results
+        if: always()
+        env:
+          UI_TEST_RESULT: ${{ steps.ui_tests.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import os
+          import re
+          from pathlib import Path
+
+          text = Path('ui-tests.log').read_text() if Path('ui-tests.log').exists() else ''
+          match = re.search(r'(\d+)/(\d+) UI tests passed', text)
+          passed, total = (map(int, match.groups()) if match else (0, 0))
+          print('### Playwright UI suite')
+          print(f"- UI tests: {passed} passed, {total - passed} failed (step: **{os.environ['UI_TEST_RESULT']}**)")
+          PY
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -109,11 +144,13 @@ jobs:
           bun install --frozen-lockfile
           bun run build 2>&1 | tee frontend-build.log
       - name: Cargo tests
+        id: cargo_tests
         working-directory: src-tauri
         run: |
           set -o pipefail
-          env -u XDG_CONFIG_HOME cargo test --bin cpa-gui 2>&1 | tee cargo-tests.log
+          env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_DATA_DIRS cargo test --bin cpa-gui 2>&1 | tee cargo-tests.log
       - name: Clippy (warnings are reported, not treated as errors)
+        id: clippy
         working-directory: src-tauri
         run: |
           set -o pipefail
@@ -131,6 +168,36 @@ jobs:
               if item.get('reason') == 'compiler-message' and item.get('message', {}).get('level') == 'warning':
                   count += 1
           print(f'Clippy warning count: {count}')
+          PY
+      - name: Summarize Rust results
+        if: always()
+        env:
+          CARGO_TEST_RESULT: ${{ steps.cargo_tests.outcome }}
+          CLIPPY_RESULT: ${{ steps.clippy.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          test_log = Path('src-tauri/cargo-tests.log')
+          text = test_log.read_text() if test_log.exists() else ''
+          matches = re.findall(r'test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored', text)
+          passed, failed, ignored = map(int, matches[-1]) if matches else (0, 0, 0)
+          warnings = 0
+          clippy_log = Path('src-tauri/clippy.jsonl')
+          if clippy_log.exists():
+              for line in clippy_log.read_text().splitlines():
+                  try:
+                      item = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if item.get('reason') == 'compiler-message' and item.get('message', {}).get('level') == 'warning':
+                      warnings += 1
+          print('### Rust tests and Clippy')
+          print(f"- Cargo tests: {passed} passed, {failed} failed, {ignored} ignored (step: **{os.environ['CARGO_TEST_RESULT']}**)")
+          print(f"- Clippy: step **{os.environ['CLIPPY_RESULT']}**, {warnings} warnings")
           PY
       - name: Upload logs
         if: always()
@@ -171,10 +238,12 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
       - name: Build debug app
+        id: app_build
         run: |
           set -o pipefail
           bun run tauri build --debug --no-bundle 2>&1 | tee app-build.log
       - name: Start app against isolated test data under Xvfb
+        id: app_start
         run: |
           set -euo pipefail
           smoke_home="$RUNNER_TEMP/app-smoke-home"
@@ -196,6 +265,22 @@ jobs:
             done
             echo 'App remained alive for 30 seconds with isolated HOME and no managed core.'
           '
+      - name: Summarize smoke results
+        if: always()
+        env:
+          APP_BUILD_RESULT: ${{ steps.app_build.outcome }}
+          APP_START_RESULT: ${{ steps.app_start.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import os
+
+          results = [os.environ['APP_BUILD_RESULT'], os.environ['APP_START_RESULT']]
+          passed = results.count('success')
+          failed = len(results) - passed
+          print('### Tauri headless smoke')
+          print(f"- Smoke checks: {passed} passed, {failed} failed")
+          print(f"- Debug build: **{results[0]}**; isolated Xvfb startup: **{results[1]}**")
+          PY
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
