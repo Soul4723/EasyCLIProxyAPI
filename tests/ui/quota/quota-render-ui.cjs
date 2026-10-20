@@ -78,20 +78,33 @@ h.runUiTest('quota-render-ui', async ({ base, newPage }) => {
   assert.equal(after.length, before.length, 'same countdowns remain after five minutes');
   assert.ok(after.some((text, index) => text !== before[index]), `countdown text moved on: ${before.join(',')} -> ${after.join(',')}`);
 
-  console.log('data change');
+  console.log('selection change');
   const candidate = (await info()).find((account) => account.status !== 'cooldown' && account.toggleable);
   assert.ok(candidate, 'an account whose enable switch can be used');
-  const card = page.locator(`.ec-sec-quota .qt-card[data-account="${candidate.key}"]`);
+  const cardOf = (key) => page.locator(`.ec-sec-quota .qt-card[data-account="${key}"]`);
   await settle();
   await reset();
-  const toggle = card.getByRole('switch').first();
+  await cardOf(candidate.key).locator('.qt-identity').click();
+  await page.waitForFunction((key) => document.querySelector(`.ec-sec-quota .qt-card[data-account="${key}"].is-selected`), candidate.key);
+  await settle();
+  const afterSelect = await counts();
+  console.log(`  ${total(afterSelect)} card renders after selecting ${candidate.key}: ${JSON.stringify(afterSelect)}`);
+  assert.equal(afterSelect[candidate.key], 1, 'the selected card renders once');
+  assert.equal(total(afterSelect), 1, 'no other card renders when one is selected');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('.ec-sec-quota .qt-card.is-selected'));
+
+  console.log('data change');
+  await settle();
+  await reset();
+  const toggle = cardOf(candidate.key).getByRole('switch').first();
   const was = await toggle.getAttribute('aria-checked');
   await toggle.click();
-  await page.waitForFunction(({ key, was }) => document.querySelector(`.ec-sec-quota .qt-card[data-account="${key}"] [role=switch]`)?.getAttribute('aria-checked') !== was,
+  await page.waitForFunction(({ key, was }) => document.querySelector(`.ec-sec-quota .qt-card[data-account="${key}"] [role=switch]`)?.getAttribute('aria-checked') === (was === 'true' ? 'false' : 'true'),
     { key: candidate.key, was });
   await settle();
   const afterChange = await counts();
-  console.log(`  ${total(afterChange)} card renders after toggling ${candidate.key}`);
+  console.log(`  was ${was}, card class "${await cardOf(candidate.key).getAttribute('class')}", renders ${JSON.stringify(afterChange)}`);
   assert.ok((afterChange[candidate.key] ?? 0) >= 1, 'the toggled card renders');
   for (const { key } of steady.filter((account) => account.key !== candidate.key)) {
     assert.equal(afterChange[key] ?? 0, 0, `card ${key} did not render when another account changed`);
