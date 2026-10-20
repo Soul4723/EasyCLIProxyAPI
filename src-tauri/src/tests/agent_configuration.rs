@@ -2821,12 +2821,15 @@ fn agent_probe_cleanup_signals_before_reaping_the_group_leader() {
     let mut reaped = false;
     let mut steps = Vec::new();
 
-    crate::agents::signal_then_reap(&mut reaped, |step| {
-        match step {
-            crate::agents::ProbeCleanupStep::Signal => steps.push("signal"),
-            crate::agents::ProbeCleanupStep::Reap => steps.push("reap"),
+    crate::agents::signal_then_reap(&mut reaped, |step| match step {
+        crate::agents::ProbeCleanupStep::Signal => {
+            steps.push("signal");
+            Ok(None)
         }
-        Ok(None::<()>)
+        crate::agents::ProbeCleanupStep::Reap => {
+            steps.push("reap");
+            Ok(Some(()))
+        }
     })
     .unwrap();
 
