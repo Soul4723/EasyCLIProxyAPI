@@ -801,7 +801,10 @@ pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Res
 
 // Replacing a file with identical bytes only produces change notifications.
 fn config_already_current(path: &Path, content: &[u8], private: bool) -> bool {
-    if !fs::read(path).is_ok_and(|current| current == content) {
+    // Compare sizes first: session files written through here can be large.
+    if !fs::metadata(path).is_ok_and(|metadata| metadata.len() == content.len() as u64)
+        || !fs::read(path).is_ok_and(|current| current == content)
+    {
         return false;
     }
     #[cfg(unix)]
@@ -966,22 +969,34 @@ pub(crate) fn remember_software_write(path: &Path, content: &[u8]) {
 // or saw. Repeat or metadata-only notifications then change nothing, while any other
 // content, including a missing file, is a real change.
 pub(crate) fn record_config_content(path: &Path) -> bool {
+    let Ok(content) = fs::read(path) else {
+        forget_config_content(path);
+        return false;
+    };
+    let hash = sha256_bytes(&content);
     let key = normalized_config_path(path);
     let Ok(mut seen) = CONFIG_SEEN_HASHES.lock() else {
         return false;
     };
-    match fs::read(path) {
-        Ok(content) => {
-            let hash = sha256_bytes(&content);
-            seen.insert(key, hash.clone()).is_some_and(|previous| previous == hash)
-        }
-        Err(_) => {
-            // A missing file is not canonicalised, so also drop the key its parent resolves to.
+    seen.insert(key, hash.clone()).is_some_and(|previous| previous == hash)
+}
+
+// Drops what we remember of a file so its next notification is reported again. Keys are
+// canonical, so a missing file or dangling symlink needs its aliases and target resolved.
+pub(crate) fn forget_config_content(path: &Path) {
+    fn leaf_key(path: &Path) -> PathBuf {
+        fs::canonicalize(path).unwrap_or_else(|_| match (path.parent(), path.file_name()) {
+            (Some(parent), Some(name)) => normalized_config_path(parent).join(name),
+            _ => path.to_path_buf(),
+        })
+    }
+    let mut keys = vec![normalized_config_path(path), leaf_key(path)];
+    if let Ok(link) = fs::read_link(path) {
+        keys.push(leaf_key(&path.parent().unwrap_or_else(|| Path::new(".")).join(link)));
+    }
+    if let Ok(mut seen) = CONFIG_SEEN_HASHES.lock() {
+        for key in keys {
             seen.remove(&key);
-            if let (Some(parent), Some(name)) = (path.parent(), path.file_name()) {
-                seen.remove(&normalized_config_path(parent).join(name));
-            }
-            false
         }
     }
 }

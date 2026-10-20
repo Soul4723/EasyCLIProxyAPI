@@ -1,8 +1,9 @@
 use super::{
     agent_managed_paths, apply_gui_managed_settings, consume_software_write,
-    core_config_settings_from_value, core_install_dir, gui_config_path, is_loopback_host,
-    lock_core_config_file, normalized_config_path, path_to_string, record_config_content,
-    refresh_agent_config_status_cache, request_codex_model_catalog_refresh, validate_gui_config,
+    core_config_settings_from_value, core_install_dir, forget_config_content, gui_config_path,
+    is_loopback_host, lock_core_config_file, normalized_config_path, path_to_string,
+    record_config_content, refresh_agent_config_status_cache, request_codex_model_catalog_refresh,
+    validate_gui_config,
     write_core_config_if_changed, AgentClient, AgentConfigStatusCache, ConfigFilesChangedPayload,
     CoreConfigSettings, GuiConfigFile, GuiConfigState, CONFIG_FILES_CHANGED_EVENT,
     CORE_CONFIG_FILE,
@@ -175,6 +176,7 @@ fn handle_configuration_file_changes(
                 })();
                 if let Err(error) = result {
                     errors.push(error);
+                    forget_config_content(tracked_path);
                 }
                 break;
             }
@@ -207,6 +209,7 @@ fn handle_configuration_file_changes(
                 })();
                 if let Err(error) = result {
                     errors.push(error);
+                    forget_config_content(tracked_path);
                 }
                 break;
             }
@@ -223,6 +226,10 @@ fn handle_configuration_file_changes(
         if let Err(error) = refresh_agent_config_status_cache(app, gui_state.inner(), cache.inner())
         {
             errors.push(error);
+            // Not a parse error: let a later notification retry these files.
+            for path in &tracked_changes {
+                forget_config_content(path);
+            }
         }
     }
     if !payload_paths.is_empty() || !errors.is_empty() {

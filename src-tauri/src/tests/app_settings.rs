@@ -266,6 +266,28 @@ fn repeat_notifications_for_unchanged_content_are_ignored_but_real_edits_are_not
     fs::remove_dir_all(home).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn symlinked_config_is_reported_again_after_its_target_is_deleted_and_recreated() {
+    let home = agent_test_home("seen-content-symlink");
+    let target = home.join("real.toml");
+    let link = home.join("config.toml");
+    fs::write(&target, b"port = 8317\n").unwrap();
+    std::os::unix::fs::symlink("real.toml", &link).unwrap();
+    assert!(!record_config_content(&link));
+    assert!(record_config_content(&link));
+    // The dangling link clears the target's record, so identical bytes still count.
+    fs::remove_file(&target).unwrap();
+    assert!(!record_config_content(&link));
+    fs::write(&target, b"port = 8317\n").unwrap();
+    assert!(!record_config_content(&link));
+    assert!(record_config_content(&link));
+    // Forgetting a file, as after a failed reload, makes its next notification count.
+    forget_config_content(&link);
+    assert!(!record_config_content(&link));
+    fs::remove_dir_all(home).unwrap();
+}
+
 #[test]
 fn atomic_config_write_of_identical_content_leaves_the_file_untouched() {
     let root = agent_test_home("config-write-identical");
