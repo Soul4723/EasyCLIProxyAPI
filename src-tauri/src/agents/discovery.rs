@@ -3277,10 +3277,29 @@ fn terminate_agent_probe_process(child: &mut Option<Child>, reaped: &mut bool) -
     }
 }
 
-fn detach_probe_child_reaper(mut child: Child) {
-    thread::spawn(move || {
-        let _ = child.wait();
-    });
+fn detach_probe_child_reaper(child: Child) {
+    let child = std::sync::Arc::new(std::sync::Mutex::new(Some(child)));
+    let reaper_child = std::sync::Arc::clone(&child);
+    if thread::Builder::new()
+        .spawn(move || {
+            if let Some(mut child) = reaper_child
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take()
+            {
+                let _ = child.wait();
+            }
+        })
+        .is_err()
+    {
+        if let Some(mut child) = child
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            let _ = child.wait();
+        }
+    }
 }
 
 pub(crate) enum ProbeCleanupStep {
