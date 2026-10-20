@@ -15,12 +15,13 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { useI18n } from '../i18n';
 import { formatDurationParts } from '../services/format';
+import { countdownIntervalMs } from '../services/relativeTimeClock';
+import { startVisibleInterval } from '../services/refreshTiming';
 import { cx } from './cx';
 import { useUiText } from './uiText';
 import './RelativeTime.css';
 
 const MINUTE_MS = 60_000;
-const HOUR_MS = 3_600_000;
 
 export type TimeInput = Date | number | string | null | undefined;
 
@@ -30,13 +31,13 @@ export function toTimestamp(value: TimeInput): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-type TickEntry = { now: number; listeners: Set<() => void>; timer: ReturnType<typeof setInterval> | null };
+type TickEntry = { now: number; listeners: Set<() => void>; stop: (() => void) | null };
 const tickEntries = new Map<number, TickEntry>();
 
 function entryFor(intervalMs: number): TickEntry {
   let entry = tickEntries.get(intervalMs);
   if (!entry) {
-    entry = { now: Date.now(), listeners: new Set(), timer: null };
+    entry = { now: Date.now(), listeners: new Set(), stop: null };
     tickEntries.set(intervalMs, entry);
   }
   return entry;
@@ -44,19 +45,21 @@ function entryFor(intervalMs: number): TickEntry {
 
 function subscribeTick(intervalMs: number, listener: () => void): () => void {
   const entry = entryFor(intervalMs);
-  if (entry.listeners.size === 0) {
+  const isFirstListener = entry.listeners.size === 0;
+  entry.listeners.add(listener);
+  if (isFirstListener) {
     entry.now = Date.now();
-    entry.timer = setInterval(() => {
+    const tick = () => {
       entry.now = Date.now();
       entry.listeners.forEach((notify) => notify());
-    }, intervalMs);
+    };
+    entry.stop = startVisibleInterval(tick, intervalMs, tick);
   }
-  entry.listeners.add(listener);
   return () => {
     entry.listeners.delete(listener);
-    if (entry.listeners.size === 0 && entry.timer !== null) {
-      clearInterval(entry.timer);
-      entry.timer = null;
+    if (entry.listeners.size === 0 && entry.stop !== null) {
+      entry.stop();
+      entry.stop = null;
     }
   };
 }
@@ -114,7 +117,7 @@ export function Countdown({ to, compact = false, onDone, className }: CountdownP
   const coarse = useNow(30_000);
   const remainingEstimate = target === null ? Infinity : target - coarse;
   // Fine ticks only while the target is under an hour away; once it has passed, fall back to the coarse clock.
-  const fine = useNow(remainingEstimate > 0 && remainingEstimate < HOUR_MS ? 1_000 : 30_000);
+  const fine = useNow(countdownIntervalMs(remainingEstimate));
   const tu = useUiText();
   const onDoneRef = useRef(onDone);
 

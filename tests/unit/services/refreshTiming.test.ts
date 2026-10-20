@@ -3,6 +3,27 @@ import { startStaleFocusRefresh, startVisibleInterval, subscribeFixedWindowEvent
 import type { listen } from '../../../src/services/platform';
 
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+function fakeIntervals() {
+  let nextId = 0;
+  let created = 0;
+  const intervals = new Map<number, { callback: () => void; delay: number }>();
+  const set = spyOn(globalThis, 'setInterval').mockImplementation(((callback: TimerHandler, delay?: number) => {
+    const id = ++nextId;
+    created++;
+    if (typeof callback === 'function') intervals.set(id, { callback: callback as () => void, delay: delay ?? 0 });
+    return id as ReturnType<typeof setInterval>;
+  }) as typeof setInterval);
+  const clear = spyOn(globalThis, 'clearInterval').mockImplementation(((id: ReturnType<typeof setInterval>) => {
+    intervals.delete(id as number);
+  }) as typeof clearInterval);
+  return {
+    active: () => [...intervals.values()],
+    created: () => created,
+    tick() { [...intervals.values()].forEach(({ callback }) => callback()); },
+    restore() { set.mockRestore(); clear.mockRestore(); },
+  };
+}
+
 function browser() {
   const descriptors = ['window', 'document'].map(key => Object.getOwnPropertyDescriptor(globalThis, key));
   const win = new EventTarget();
@@ -59,22 +80,54 @@ test('late event subscription is disposed after unmount and cannot schedule work
   expect(calls).toBe(0);
 });
 
-test('visible interval has no initial/catch-up tick and stops on disposal', async () => {
+test('visible interval pauses, refreshes immediately on return, and cleans up on cadence changes', () => {
+  const timers = fakeIntervals();
   const env = browser();
   let ticks = 0;
-  const stop = startVisibleInterval(() => { ticks++; }, 30);
+  let refreshes = 0;
+  const stopFine = startVisibleInterval(() => { ticks++; }, 1_000, () => { refreshes++; });
+  let stopCoarse: (() => void) | undefined;
   try {
+    expect(timers.active()).toHaveLength(1);
+    expect(timers.active()[0]?.delay).toBe(1_000);
+    expect(refreshes).toBe(0);
     expect(ticks).toBe(0);
-    await pause(40); expect(ticks).toBeGreaterThan(0);
-    const beforeHide = ticks;
     env.doc.hidden = true; env.doc.dispatchEvent(new Event('visibilitychange'));
-    await pause(70); expect(ticks).toBe(beforeHide);
+    expect(timers.active()).toHaveLength(0);
+    timers.tick(); expect(ticks).toBe(0);
     env.doc.hidden = false; env.doc.dispatchEvent(new Event('visibilitychange'));
-    expect(ticks).toBe(beforeHide);
-    await pause(40); expect(ticks).toBeGreaterThan(beforeHide);
-    stop(); const stoppedAt = ticks;
-    await pause(40); expect(ticks).toBe(stoppedAt);
-  } finally { stop(); env.restore(); }
+    expect(refreshes).toBe(1);
+    expect(timers.active()).toHaveLength(1);
+    expect(timers.created()).toBe(2);
+    timers.tick(); expect(ticks).toBe(1);
+
+    stopFine(); expect(timers.active()).toHaveLength(0);
+    stopCoarse = startVisibleInterval(() => { ticks++; }, 30_000);
+    expect(timers.active()).toHaveLength(1);
+    expect(timers.active()[0]?.delay).toBe(30_000);
+    timers.tick(); expect(ticks).toBe(2);
+    stopCoarse(); stopCoarse = undefined; expect(timers.active()).toHaveLength(0);
+  } finally { stopCoarse?.(); stopFine(); timers.restore(); env.restore(); }
+});
+
+test('visible interval falls back to a plain interval without document', () => {
+  const timers = fakeIntervals();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Reflect.deleteProperty(globalThis, 'document');
+  let ticks = 0;
+  let stop: (() => void) | undefined;
+  try {
+    expect(typeof document).toBe('undefined');
+    stop = startVisibleInterval(() => { ticks++; }, 1_000);
+    expect(timers.active()).toHaveLength(1);
+    expect(timers.active()[0]?.delay).toBe(1_000);
+    timers.tick(); expect(ticks).toBe(1);
+    stop(); stop = undefined; expect(timers.active()).toHaveLength(0);
+  } finally {
+    stop?.();
+    if (descriptor) Object.defineProperty(globalThis, 'document', descriptor);
+    timers.restore();
+  }
 });
 
 test('focus refresh is strictly stale, visible, not event-pending, and query/manual freshness resets it', () => {
