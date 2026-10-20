@@ -33,16 +33,8 @@ export type BriefingAccount = {
   windows: BriefingWindow[];
 };
 
-const MAX_TEXT = 40;
-const MAX_WINDOWS = 12;
-const BALANCE = /^[A-Za-z0-9$€£¥.,\- ]{1,24}$/;
-const AUTH_INDEX = /^[A-Za-z0-9_-]{1,64}$/;
-
-const printable = (char: string) => char.charCodeAt(0) > 31 && char.charCodeAt(0) !== 127;
-const clip = (value: string, max = MAX_TEXT) => [...value].filter(printable).join('').trim().slice(0, max);
-
 function windowsOf(quota: QuotaState, now: number, locale: AppLocale): BriefingWindow[] {
-  return quota.rows.slice(0, MAX_WINDOWS).flatMap((row) => {
+  return quota.rows.flatMap((row) => {
     const available = row.quotaAvailable === true;
     const percent = typeof row.remainingPercent === 'number' && Number.isFinite(row.remainingPercent)
       ? Math.max(0, Math.min(100, row.remainingPercent)) : null;
@@ -50,13 +42,16 @@ function windowsOf(quota: QuotaState, now: number, locale: AppLocale): BriefingW
     const { kind, prefix } = classifyWindow(row, now, locale);
     // Special pools ("Extra usage", "7-day Opus window", "Code review 5h") must not decide whether the account is exhausted.
     const plain = kind !== 'other' && prefix === '' && isPlainWindowLabel(row.label, locale);
-    const group = clip(maskSensitiveText(plain ? '' : prefix || row.label));
+    const group = plain ? '' : maskSensitiveText(prefix || row.label);
     const reset = typeof row.resetAtMs === 'number' && Number.isFinite(row.resetAtMs) ? Math.round(row.resetAtMs) : undefined;
     return [{ kind, group, remainingPercent: percent, ...(reset === undefined ? {} : { resetAtMs: reset }), ...(available ? { available } : {}) }];
   });
 }
 
-/** Pure: sanitised, masked accounts with a successful or retained last-good quota read. Raw identities, file names and keys never leave here. */
+/**
+ * Pure: masked accounts with a successful or retained last-good quota read. Raw identities, file names and keys
+ * never leave here; the Rust command bounds and re-validates everything else (auth index, lengths, balance).
+ */
 export function buildBriefingAccounts(
   files: readonly AuthFile[],
   quotas: Readonly<Record<string, QuotaState>>,
@@ -69,18 +64,17 @@ export function buildBriefingAccounts(
     const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
     const hasLastGoodRead = quota?.status === 'success'
       || ((quota?.status === 'loading' || quota?.status === 'error') && quota.rows.length > 0 && Boolean(quota.fetchedAt));
-    if (!provider || !AUTH_INDEX.test(authIndex) || !quota || !hasLastGoodRead) return [];
+    if (!provider || !authIndex || !quota || !hasLastGoodRead) return [];
     const windows = windowsOf(quota, now, locale);
     const identity = readString(file, 'email', 'account', 'label');
-    const balance = quota.creditBalance?.trim();
     return [{
       authIndex,
       provider,
-      label: identity ? clip(maskIdentifier(identity)) : '',
-      plan: clip(quota.plan || readString(file, 'plan_type', 'plan'), 24),
+      label: identity ? maskIdentifier(identity) : '',
+      plan: quota.plan || readString(file, 'plan_type', 'plan'),
       disabled: authFileHealth(file).disabled,
       ...(quota.fetchedAt ? { fetchedAtMs: quota.fetchedAt } : {}),
-      ...(balance && BALANCE.test(balance) ? { creditBalance: balance } : {}),
+      ...(quota.creditBalance ? { creditBalance: quota.creditBalance } : {}),
       ...(quota.creditsUnlimited ? { creditsUnlimited: true } : {}),
       windows,
     }];
@@ -144,11 +138,6 @@ export function createBriefingPublisher(deps: PublisherDeps) {
       if (timer !== undefined) clearTimer(timer);
       const wait = Math.max(0, Math.min(debounceMs, firstChangeAt + maxWaitMs - at));
       timer = setTimer(() => { void drain(); }, wait);
-    },
-    /** Publishes now if anything changed (tests, shutdown). */
-    flush() {
-      if (timer !== undefined) { clearTimer(timer); timer = undefined; }
-      return drain();
     },
     dispose() {
       if (timer !== undefined) clearTimer(timer);

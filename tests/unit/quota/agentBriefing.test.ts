@@ -32,9 +32,10 @@ const success = (extra: Partial<QuotaState> = {}): QuotaState => ({
 
 describe('briefing snapshot', () => {
   test('keeps availability and drops every identity, file name, path and key', () => {
-    const files = [file('c1')];
-    const accounts = buildBriefingAccounts(files, { [quotaKey(files[0])]: success() }, NOW, 'en');
-    expect(accounts).toEqual([{
+    const files = [file('c1'), file('c2', { email: undefined, name: 'claude-bob.json' })];
+    const accounts = buildBriefingAccounts(files, Object.fromEntries(files.map((f) => [quotaKey(f), success()])), NOW, 'en');
+    expect(accounts[1].label).toBe('');
+    expect(accounts.slice(0, 1)).toEqual([{
       authIndex: 'c1', provider: 'claude', label: 'al***@e***.test', plan: 'max', disabled: false, fetchedAtMs: NOW - 60_000,
       windows: [
         { kind: '5h', group: '', remainingPercent: 62, resetAtMs: NOW + HOUR },
@@ -42,26 +43,16 @@ describe('briefing snapshot', () => {
       ],
     }]);
     const text = JSON.stringify(accounts);
-    for (const secret of [SECRET_EMAIL, 'alice', SECRET_TOKEN, '/home/someone', 'access_token', 'example.test.json']) {
+    for (const secret of [SECRET_EMAIL, 'alice', 'bob', SECRET_TOKEN, '/home/someone', 'access_token', 'example.test.json']) {
       expect(text).not.toContain(secret);
     }
   });
 
-  test('only successful reads with an auth index are published', () => {
+  test('only successful or last-good reads with an auth index and known provider are published', () => {
     const files = [file('a'), file('b'), file('', { name: 'no-index.json' }), file('c', { provider: 'unknown' })];
     const quotas = Object.fromEntries(files.map((f) => [quotaKey(f), success()]));
     quotas[quotaKey(files[1])] = { status: 'error', rows: [], error: 'boom' };
     expect(buildBriefingAccounts(files, quotas, NOW, 'en').map((a) => a.authIndex)).toEqual(['a']);
-  });
-
-  test('drops email-, filename-, and JWT-shaped auth indexes before publishing', () => {
-    const indexes = ['alice@example.test', 'claude-alice.json', 'eyJhbGciOiJub25l.eyJzdWIiOiJhbGljZSJ9.sig'];
-    const files = indexes.map((index) => file(index));
-    const quotas = Object.fromEntries(files.map((f) => [quotaKey(f), success()]));
-    const accounts = buildBriefingAccounts(files, quotas, NOW, 'en');
-    expect(accounts).toEqual([]);
-    const serialized = JSON.stringify(accounts);
-    for (const index of indexes) expect(serialized).not.toContain(index);
   });
 
   test('special pools carry a group so they never decide exhaustion', () => {
@@ -80,25 +71,6 @@ describe('briefing snapshot', () => {
       ['5h', ''], ['weekly', '7-day Opus window'], ['other', 'Extra usage'], ['other', 'Untouched bucket'],
     ]);
     expect(windows[3]).toMatchObject({ remainingPercent: null, available: true });
-  });
-
-  test('balance must look like money, credits are passed as a flag, bounds are applied', () => {
-    const files = [file('c1')];
-    const key = quotaKey(files[0]);
-    const clean = (state: Partial<QuotaState>) => buildBriefingAccounts(files, { [key]: success(state) }, NOW, 'en')[0];
-    expect(clean({ creditBalance: '$12.40' }).creditBalance).toBe('$12.40');
-    expect(clean({ creditBalance: '<b>$1</b>' }).creditBalance).toBeUndefined();
-    expect(clean({ creditsUnlimited: true }).creditsUnlimited).toBe(true);
-    expect(clean({ plan: 'x'.repeat(100) }).plan).toHaveLength(24);
-    const rows = Array.from({ length: 30 }, (_, n) => ({ label: `Pool ${n}`, remainingPercent: n }));
-    expect(clean({ rows }).windows).toHaveLength(12);
-    expect(clean({ rows: [{ label: 'Weekly limit', remainingPercent: 250 }] }).windows[0].remainingPercent).toBe(100);
-  });
-
-  test('accounts without a readable identity get an empty label, not the file name', () => {
-    const files = [file('c1', { email: undefined, name: 'claude-bob.json' })];
-    const [account] = buildBriefingAccounts(files, { [quotaKey(files[0])]: success() }, NOW, 'en');
-    expect(account.label).toBe('');
   });
 });
 
