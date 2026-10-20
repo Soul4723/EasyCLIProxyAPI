@@ -305,23 +305,13 @@ impl ReadinessBackoff {
 }
 
 #[test]
-pub(super) fn readiness_backoff_is_bounded_and_success_resets_it() {
+pub(super) fn readiness_backoff_grows_and_caps_prompt_recovery_delay() {
     let mut backoff = ReadinessBackoff::new();
     for seconds in [2, 4, 4, 4] {
         assert_eq!(backoff.checked(false), Duration::from_secs(seconds));
     }
     assert_eq!(backoff.checked(true), Duration::from_secs(30));
     assert_eq!(backoff.checked(false), Duration::from_secs(2));
-}
-
-#[test]
-pub(super) fn readiness_recovery_is_bounded_to_a_few_seconds() {
-    let mut backoff = ReadinessBackoff::new();
-    for _ in 0..8 {
-        backoff.checked(false);
-    }
-    assert_eq!(backoff.retry_seconds, READINESS_RETRY_MAX_SECONDS);
-    assert!(READINESS_RETRY_MAX_SECONDS <= 4);
 }
 
 #[test]
