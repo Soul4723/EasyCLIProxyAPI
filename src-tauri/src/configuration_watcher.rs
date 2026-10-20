@@ -506,8 +506,8 @@ mod tests {
         assert!(config_change_scopes(&[], is_gui, is_core).is_empty());
         assert_eq!(config_change_scopes(&[codex.clone(), kimi.clone()], is_gui, is_core), ["agent"]);
         assert_eq!(config_change_scopes(&[core.clone()], is_gui, is_core), ["core"]);
-        assert_eq!(config_change_scopes(&[codex, gui.clone(), core, kimi], is_gui, is_core), ["agent", "gui", "core"]);
-        assert_eq!(config_change_scopes(&[gui], is_gui, is_core), ["gui"]);
+        assert_eq!(config_change_scopes(&[codex, gui.clone(), core.clone(), kimi], is_gui, is_core), ["agent", "gui", "core"]);
+        assert_eq!(config_change_scopes(&[gui.clone()], is_gui, is_core), ["gui"]);
     }
 
     #[test]

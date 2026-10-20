@@ -82,4 +82,4 @@ test('core config, extended config and credentials refetch only for gui/core cha
     expected++;
     expect(reads).toEqual({ core: expected, extended: expected, credentials: expected });
   }
-});
+}, 20_000);

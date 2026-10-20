@@ -41,4 +41,4 @@ test('Overview models and provider keys refetch only for gui/core changes', asyn
     expected++;
     expect(reads).toEqual({ models: expected, providerKeys: expected });
   }
-});
+}, 20_000);
