@@ -5,39 +5,36 @@ const h = require('../../helpers/shell.cjs');
 // serves the React development build, which reports every commit to it). Runs inside the page, before the app.
 function installRenderCounter() {
   const counts = {};
-  const debug = { commits: 0, visited: 0, memos: 0 };
-  const PERFORMED_WORK = 1;
+  const lastProps = new Map();
+  const debug = { commits: 0, names: [] };
   const MEMO_COMPONENT = 14;
   const NAMES = ['AccountCard', 'AccountRow'];
-  // The component function (plain, or inside React.memo) or the memo wrapper, whichever the fiber is.
-  const nameOf = (fiber) => (fiber.tag === MEMO_COMPONENT ? fiber.type?.type?.name : fiber.type?.name);
-  // A fiber rendered when it is new, carries PerformedWork or got new props; a subtree whose child pointer is unchanged bailed out.
-  const rendered = (fiber, previous) => !previous || (fiber.flags & PERFORMED_WORK) !== 0 || fiber.memoizedProps !== previous.memoizedProps;
-  const walk = (parent, seen) => {
-    for (let fiber = parent.child; fiber; fiber = fiber.sibling) {
-      const previous = fiber.alternate;
-      const name = nameOf(fiber);
-      if (NAMES.includes(name)) {
-        debug.visited += 1;
-        if (fiber.tag === MEMO_COMPONENT) debug.memos += 1;
-        const key = fiber.memoizedProps?.account?.key;
-        if (key && rendered(fiber, previous)) seen.add(key);
-      }
-      if (!previous || fiber.child !== previous.child) walk(fiber, seen);
-    }
-  };
   const noop = () => {};
   window.__qtRenders = {
     counts, debug,
-    reset: () => { Object.keys(counts).forEach((key) => delete counts[key]); Object.assign(debug, { commits: 0, visited: 0, memos: 0 }); },
+    reset: () => { Object.keys(counts).forEach((key) => delete counts[key]); debug.commits = 0; },
   };
+  // A card renders again exactly when React hands its function new props (a React.memo bail-out keeps the old object),
+  // so each commit walks the whole committed tree and compares the props of every card with the last ones seen.
   window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     supportsFiber: true, isDisabled: false, renderers: new Map(),
     inject(renderer) { const id = this.renderers.size + 1; this.renderers.set(id, renderer); return id; },
     onCommitFiberRoot(_id, root) {
-      const seen = new Set();
       debug.commits += 1;
-      walk(root.current, seen);
+      const seen = new Set();
+      const stack = [root.current];
+      while (stack.length) {
+        const fiber = stack.pop();
+        const name = fiber.tag === MEMO_COMPONENT ? undefined : fiber.type?.name;
+        if (typeof name === 'string' && name.includes('Account') && !debug.names.includes(`${fiber.tag}:${name}`)) debug.names.push(`${fiber.tag}:${name}`);
+        if (NAMES.includes(name)) {
+          const props = fiber.memoizedProps;
+          const key = props?.account?.key;
+          if (key && lastProps.get(key) !== props) { lastProps.set(key, props); seen.add(key); }
+        }
+        if (fiber.sibling) stack.push(fiber.sibling);
+        if (fiber.child) stack.push(fiber.child);
+      }
       seen.forEach((key) => { counts[key] = (counts[key] ?? 0) + 1; });
     },
     onCommitFiberUnmount: noop, onPostCommitFiberRoot: noop, onScheduleFiberRoot: noop, checkDCE: noop,
