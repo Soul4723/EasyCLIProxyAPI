@@ -2,6 +2,19 @@ use super::*;
 use std::sync::Arc;
 use crate::core_connection::{test_core_connection, CoreConnection};
 
+#[test]
+fn target_invalidation_clears_usage_source_metadata_cache() {
+    let app = tauri::test::mock_builder()
+        .manage(GuiConfigState::new(GuiConfigFile::default()))
+        .manage(AgentConfigStatusCache::default())
+        .manage(CoreProcessState::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let before = crate::usage::sources_cache_generation_for_test();
+    crate::core_connection::invalidate_target(app.handle(), 0).unwrap();
+    assert!(crate::usage::sources_cache_generation_for_test() > before);
+}
+
 #[tokio::test]
 async fn connection_test_authenticates_only_the_candidate_management_target() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

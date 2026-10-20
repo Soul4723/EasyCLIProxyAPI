@@ -302,7 +302,7 @@ pub(crate) fn start_core_process_inner(
     let child = start_once().map_err(|failure| failure.message(&log_path))?;
 
     process_state.store_child(child)?;
-    crate::usage::invalidate_sources_cache();
+    crate::usage::invalidate_sources_cache_after_success(Ok(()))?;
     Ok(())
 }
 
@@ -434,7 +434,7 @@ pub(crate) fn stop_core_process_inner(process_state: &CoreProcessState) -> Resul
     if !errors.is_empty() {
         Err(errors.join("；"))
     } else if stopped_any {
-        crate::usage::invalidate_sources_cache();
+        crate::usage::invalidate_sources_cache_after_success(Ok(()))?;
         Ok(())
     } else {
         Err("CPA kernel is not currently running".to_string())

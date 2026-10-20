@@ -1,6 +1,20 @@
     use super::*;
 
     #[test]
+    fn successful_mutations_invalidate_source_metadata_but_errors_do_not() {
+        let invalidations = std::sync::atomic::AtomicUsize::new(0);
+        assert_eq!(after_success(Ok(()), || {
+            invalidations.fetch_add(1, Ordering::SeqCst);
+        }), Ok(()));
+        assert_eq!(invalidations.load(Ordering::SeqCst), 1);
+
+        assert!(after_success::<()>(Err("mutation failed".into()), || {
+            invalidations.fetch_add(1, Ordering::SeqCst);
+        }).is_err());
+        assert_eq!(invalidations.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn empty_remote_queue_polling_backs_off_to_a_cap() {
         let mut seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
         let mut waits = Vec::new();
