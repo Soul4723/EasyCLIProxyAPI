@@ -26,9 +26,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Typecheck
-        run: bun run check 2>&1 | tee typecheck.log
+        run: |
+          set -o pipefail
+          bun run check 2>&1 | tee typecheck.log
       - name: Unit tests
-        run: bun test --isolate 2>&1 | tee unit-tests.log
+        run: |
+          set -o pipefail
+          bun test --isolate 2>&1 | tee unit-tests.log
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,7 +66,9 @@ jobs:
       - name: Run complete UI suite
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/playwright/node_modules/playwright
-        run: node tests/run-ui.cjs 2>&1 | tee ui-tests.log
+        run: |
+          set -o pipefail
+          node tests/run-ui.cjs 2>&1 | tee ui-tests.log
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,11 +105,14 @@ jobs:
           restore-keys: cargo-${{ runner.os }}-
       - name: Install frontend dependencies and build assets
         run: |
+          set -o pipefail
           bun install --frozen-lockfile
           bun run build 2>&1 | tee frontend-build.log
       - name: Cargo tests
         working-directory: src-tauri
-        run: cargo test --bin cpa-gui 2>&1 | tee cargo-tests.log
+        run: |
+          set -o pipefail
+          env -u XDG_CONFIG_HOME cargo test --bin cpa-gui 2>&1 | tee cargo-tests.log
       - name: Clippy (warnings are reported, not treated as errors)
         working-directory: src-tauri
         run: |
@@ -162,7 +171,9 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
       - name: Build debug app
-        run: bun run tauri build --debug --no-bundle 2>&1 | tee app-build.log
+        run: |
+          set -o pipefail
+          bun run tauri build --debug --no-bundle 2>&1 | tee app-build.log
       - name: Start app against isolated test data under Xvfb
         run: |
           set -euo pipefail
