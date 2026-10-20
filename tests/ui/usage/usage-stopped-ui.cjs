@@ -9,7 +9,7 @@ let checks = 0;
 const assert = new Proxy(realAssert, {
   get: (target, key) => (typeof target[key] === 'function' ? (...args) => { checks += 1; return target[key](...args); } : target[key]),
 });
-const SHOTS = path.join(os.homedir(), '.cache', 'proxy-work', 'ui-shots');
+const SHOTS = process.env.UI_SHOT_DIR || path.join(os.tmpdir(), 'easycli-ui-shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
 const chip = (page) => page.locator('.usage-collector');

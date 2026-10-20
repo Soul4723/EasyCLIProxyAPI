@@ -5,7 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { openApp } = require('../../helpers/shell.cjs');
 
-const SHOTS = process.env.UI_SHOT_DIR || path.join(os.homedir(), '.cache', 'proxy-work', 'ui-shots');
+const SHOTS = process.env.UI_SHOT_DIR || path.join(os.tmpdir(), 'easycli-ui-shots');
 
 (async () => {
   let server;

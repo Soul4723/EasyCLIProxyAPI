@@ -18,7 +18,7 @@ Intentional removals and replacements relative to router-for-me/EasyCLIProxyAPI:
 - `LegacyHost`: removed in #65; section routes own the application UI.
 - Unused native commands `get_lan_ipv4`, `restart_codex_app`, `restart_opencode_app`, and `set_prefer_gitcode_downloads`: removed in #65.
 
-- README screenshots, the browser-mock screenshot script (`scripts/capture-readme-screenshots.cjs`) and upstream's sponsor images (`assets/apimart-*.png`): removed in #67. The README describes this fork; screenshots will come from real-app renders. The zh-CN and ja READMEs are marked as describing upstream.
+- README screenshots, the browser-mock screenshot script (`scripts/capture-readme-screenshots.cjs`) and upstream's sponsor images (`assets/apimart-*.png`): removed in #67. The README describes this fork; the screenshots in `docs/screenshots/` (added in #93) are renders of the real debug Tauri app under Xvfb against a test core, not of the browser mock. The zh-CN and ja READMEs are marked as describing upstream.
 - Rust module layout (#69–#71): `src-tauri/src/main.rs`, `usage.rs` and `codex_sessions/context.rs` were split into modules without behaviour change. Upstream edits to those files must be applied to the new module files (`git diff --color-moved` on the split PRs shows where each block went).
 
   - `agents/configuration.rs`: configuration builders, managed removal, restoration, and client-specific formats now live in `agents/configuration/`; parent orchestration and shared format helpers remain in place.

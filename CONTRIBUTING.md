@@ -86,6 +86,11 @@ so the UI still runs without Tauri, and keep it faithful to the real command's b
 | Observing the real debug app | [docs/dev-observe.md](docs/dev-observe.md) |
 | What differs from upstream | [docs/upstream-divergence.md](docs/upstream-divergence.md) |
 | Browser mock | [src/mocks/README.md](src/mocks/README.md) |
+| Test layout, how to run each suite | [tests/README.md](tests/README.md) |
+| Frontend service layer | [src/services/README.md](src/services/README.md) |
+| Translations and locale files | [src/i18n/README.md](src/i18n/README.md) |
+| Lint status and unfixed warnings | [docs/lint.md](docs/lint.md) |
+| README screenshots and how they are made | [docs/screenshots/README.md](docs/screenshots/README.md) |
 | Release notes (per version, four languages) | [docs/release-notes/README.md](docs/release-notes/README.md) |
 
 The Simplified Chinese and Japanese READMEs describe upstream and are outdated; update `README.md`.
