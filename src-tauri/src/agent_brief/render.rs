@@ -311,6 +311,10 @@ fn featured(models: &[String], cap: usize) -> Vec<&String> {
     featured
 }
 
+fn non_image_models(models: &[String]) -> impl Iterator<Item = &String> {
+    models.iter().filter(|model| !model.to_ascii_lowercase().contains("image"))
+}
+
 fn provider_rank(id: &str) -> (usize, String) {
     (PROVIDER_ORDER.iter().position(|p| *p == id).unwrap_or(PROVIDER_ORDER.len()), id.to_string())
 }
@@ -606,7 +610,7 @@ pub(crate) fn text(briefing: &Briefing) -> String {
         } else {
             provider.models_ok.iter().collect()
         };
-        let hidden = provider.models_ok.len() - shown.len();
+        let hidden = if capped { non_image_models(&provider.models_ok).count() - shown.len() } else { 0 };
         let mut models: Vec<String> = shown.iter().map(|m| m.to_string()).collect();
         if hidden > 0 {
             models.push(format!("+{hidden}"));

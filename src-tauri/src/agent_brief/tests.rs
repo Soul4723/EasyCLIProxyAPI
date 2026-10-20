@@ -260,9 +260,19 @@ fn default_text_features_the_newest_model_of_each_family() {
     core.accounts[0].models.push("claude-image-9".into());
     core.accounts[1].models = core.accounts[0].models.clone();
     let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.contains("| claude-opus-5-10 claude-haiku-5-5 claude-sonnet-5-5 +7\n"), "images are hidden from the default list but counted: {out}");
+    assert!(out.contains("| claude-opus-5-10 claude-haiku-5-5 claude-sonnet-5-5 +6\n"), "images are omitted from both list and hidden count: {out}");
     let all = text(&quota, &core, &Filters { provider: Some("claude".into()), model: Some("opus".into()), ..Default::default() });
     assert!(all.contains("| claude-opus-4-1-20250805 claude-opus-5-5 claude-opus-5-10\n"), "{all}");
+}
+
+#[test]
+fn image_only_catalogue_has_no_hidden_model_count() {
+    let (quota, mut core) = fixture();
+    core.accounts[0].models = vec!["claude-image-9".into(), "claude-image-10".into()];
+    core.accounts[1].models = core.accounts[0].models.clone();
+    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
+    assert!(out.contains("claude ok 2/2 5h=62%~1h12m wk=81%~3d4h\n"), "{out}");
+    assert!(!out.contains("+"), "{out}");
 }
 
 #[test]

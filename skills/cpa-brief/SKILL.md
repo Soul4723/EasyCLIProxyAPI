@@ -50,6 +50,6 @@ guide: swarm=claude light=codex(5h=8%~20m)
 
 ## Failure modes
 
-- Missing launcher or `no briefing data yet`: start EasyCLIProxyAPI and open Overview or Quota once. Do not invent numbers.
+- Missing launcher or `no briefing data yet`: restore valid saved connection settings, then start EasyCLIProxyAPI and open Overview or Quota once. Do not invent numbers.
 - If you know the core is up but the command says `core=down`, the sandbox may block loopback; treat core-dependent numbers as unknown, not an outage. `core=down` lists no models; `core=stale` means routing is unknown.
 - Stale quota is only refreshed when Overview or Quota loads or the user refreshes it. Treat it as potentially outdated; a recent run may have used more. `remote` uses the remote core; quota is cached per core address. Exit 1 means no data; exit 2 means a bad option.
