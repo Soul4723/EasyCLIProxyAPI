@@ -480,10 +480,12 @@ mod tests {
         let paths = vec![PathBuf::from("/config/gui.toml")];
         let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (state_ref, paths_ref) = (&state, &paths);
         std::thread::scope(|scope| {
-            let watcher = scope.spawn(|| {
+            let watcher = scope.spawn(move || {
+                let (state, paths) = (state_ref, paths_ref);
                 let mut waits = 0;
-                let guard = lock_target_when_settled(&state, &paths, |_| {
+                let guard = lock_target_when_settled(state, paths, |_| {
                     waits += 1;
                     waiting_tx.send(()).unwrap();
                     release_rx.recv().unwrap();
