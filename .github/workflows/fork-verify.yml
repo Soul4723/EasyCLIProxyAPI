@@ -484,6 +484,7 @@ jobs:
           export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
           export CPA_TEST_MANAGEMENT_KEY CPA_TEST_CLIENT_KEY EASYCLI_OBSERVE_CACHE="$root/cache"
           node "$root/observe/dev-observe.mjs" --mode local --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
+            --core "$CPA_TEST_CORE" --core-config "$CPA_TEST_TEMPLATE" \
             --name core-local --out "$root/logs/local/observe" \
             --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/local/scenario.log"
           cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local/core.log" 2>/dev/null || true
