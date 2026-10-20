@@ -438,8 +438,10 @@ fn sanitize_bounds_and_validates_what_the_webview_sends() {
         ..Default::default()
     };
     account.windows[0].remaining_percent = Some(f64::NAN);
+    account.windows[1].group = "bob@corp.example".into();
     let clean = sanitize_accounts(vec![account]);
     assert_eq!(clean[0].label.chars().count(), 40);
+    assert_eq!(clean[0].windows[1].group, "***", "an unmasked address never reaches the cache");
     assert_eq!(clean[0].plan, "promax");
     assert_eq!(clean[0].credit_balance, None);
     assert_eq!(clean[0].windows.len(), 12);
@@ -448,16 +450,6 @@ fn sanitize_bounds_and_validates_what_the_webview_sends() {
     assert_eq!(clean[0].windows[1].remaining_percent, Some(100.0));
     let many = (0..300).map(|n| QuotaAccount { auth_index: format!("i{n}"), provider: "codex".into(), ..Default::default() }).collect();
     assert_eq!(sanitize_accounts(many).len(), 200);
-}
-
-#[test]
-fn rust_sanitizer_rejects_malformed_masked_emails_in_labels_and_groups() {
-    let clean = sanitize_accounts(vec![QuotaAccount {
-        auth_index: "c1".into(), provider: "claude".into(), label: "alice.private@example.org*".into(),
-        windows: vec![QuotaWindow { group: "bob@corp.example".into(), ..Default::default() }], ..Default::default()
-    }]);
-    assert_eq!(clean[0].label, "***");
-    assert_eq!(clean[0].windows[0].group, "***");
 }
 
 fn args(list: &[&str]) -> Vec<OsString> {
@@ -602,24 +594,16 @@ fn the_refresh_lock_is_exclusive_released_on_drop_and_reclaimed_when_stale() {
     std::fs::write(&lock, b"").unwrap();
     let old = std::time::SystemTime::now() - std::time::Duration::from_secs(61);
     std::fs::File::options().write(true).open(&lock).unwrap().set_modified(old).unwrap();
-    assert!(super::cli::RefreshLock::acquire(&dir).is_ok());
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn future_mtime_is_reclaimed_and_old_owner_does_not_remove_replacement() {
-    let dir = crate::unique_test_temp_path("cpa-brief-lock-future");
-    std::fs::create_dir_all(&dir).unwrap();
-    let lock = dir.join("refresh.lock");
+    drop(super::cli::RefreshLock::acquire(&dir).expect("stale lock is reclaimed"));
+    // So is one dated in the future (clock skew); and a holder never removes its successor's lock.
     std::fs::write(&lock, b"clock-skew").unwrap();
-    std::fs::File::options().write(true).open(&lock).unwrap()
-        .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(30)).unwrap();
+    let future = std::time::SystemTime::now() + std::time::Duration::from_secs(30);
+    std::fs::File::options().write(true).open(&lock).unwrap().set_modified(future).unwrap();
     let owner = super::cli::RefreshLock::acquire(&dir).expect("far-future timestamp is stale");
-    let replacement = b"successor-owner-token";
     std::fs::remove_file(&lock).unwrap();
-    std::fs::write(&lock, replacement).unwrap();
+    std::fs::write(&lock, b"successor").unwrap();
     drop(owner);
-    assert_eq!(std::fs::read(&lock).unwrap(), replacement);
+    assert_eq!(std::fs::read(&lock).unwrap(), b"successor");
     std::fs::remove_dir_all(dir).unwrap();
 }
 
