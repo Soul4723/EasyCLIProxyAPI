@@ -26,6 +26,7 @@ pub(crate) struct GuiConfigState {
 }
 
 const MAX_OAUTH_SESSIONS: usize = 256;
+pub(crate) const MAX_OAUTH_SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 struct OAuthSession {
     target_revision: u64,
@@ -34,51 +35,6 @@ struct OAuthSession {
 
 pub(crate) struct OAuthSessions {
     entries: HashMap<String, OAuthSession>,
-}
-
-#[cfg(test)]
-mod oauth_session_tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn expires_are_pruned_on_insert_and_lookup_but_live_sessions_survive() {
-        let mut sessions = OAuthSessions::new();
-        sessions.insert("expired".into(), 1, Duration::from_millis(1)).unwrap();
-        std::thread::sleep(Duration::from_millis(5));
-        assert!(!sessions.contains_for_revision("expired", 1));
-
-        sessions.insert("expired-before-insert".into(), 1, Duration::from_millis(1)).unwrap();
-        std::thread::sleep(Duration::from_millis(5));
-        sessions.insert("insert-trigger".into(), 1, Duration::from_secs(900)).unwrap();
-        assert!(!sessions.contains_for_revision("expired-before-insert", 1));
-
-        sessions.insert("active".into(), 1, Duration::from_secs(900)).unwrap();
-        assert!(sessions.contains_for_revision("active", 1));
-        sessions.insert("new".into(), 1, Duration::from_secs(900)).unwrap();
-        assert_eq!(sessions.len(), 3);
-    }
-
-    #[test]
-    fn many_abandoned_sessions_cannot_grow_the_map_without_bound() {
-        let mut sessions = OAuthSessions::new();
-        for index in 0..MAX_OAUTH_SESSIONS {
-            sessions.insert(format!("state-{index}"), 1, Duration::from_secs(900)).unwrap();
-        }
-        assert!(sessions.insert("overflow".into(), 1, Duration::from_secs(900)).is_err());
-        assert_eq!(sessions.len(), MAX_OAUTH_SESSIONS);
-        assert!(sessions.contains_for_revision("state-0", 1));
-    }
-
-    #[test]
-    fn terminal_oauth_outcomes_remove_sessions() {
-        for outcome in ["completed", "cancelled", "failed"] {
-            let mut sessions = OAuthSessions::new();
-            sessions.insert("state".into(), 1, Duration::from_secs(900)).unwrap();
-            sessions.remove("state");
-            assert!(!sessions.contains_for_revision("state", 1), "{outcome} session remained");
-        }
-    }
 }
 
 impl OAuthSessions {
@@ -93,28 +49,66 @@ impl OAuthSessions {
         state: String,
         target_revision: u64,
         ttl: std::time::Duration,
+        now: std::time::Instant,
     ) -> Result<(), String> {
-        let now = std::time::Instant::now();
         self.prune_expired(now);
         if !self.entries.contains_key(&state) && self.entries.len() >= MAX_OAUTH_SESSIONS {
             return Err("Too many OAuth sessions are pending; finish or cancel one before starting another".to_string());
         }
-        let expires_at = now.checked_add(ttl).unwrap_or(now);
+        let expires_at = now.checked_add(ttl.min(MAX_OAUTH_SESSION_TTL)).unwrap_or(now);
         self.entries.insert(state, OAuthSession { target_revision, expires_at });
         Ok(())
     }
 
-    pub(crate) fn contains_for_revision(&mut self, state: &str, target_revision: u64) -> bool {
-        self.prune_expired(std::time::Instant::now());
+    pub(crate) fn contains_for_revision(
+        &mut self,
+        state: &str,
+        target_revision: u64,
+        now: std::time::Instant,
+    ) -> bool {
+        self.prune_expired(now);
         self.entries.get(state).is_some_and(|session| session.target_revision == target_revision)
     }
 
     pub(crate) fn remove(&mut self, state: &str) { self.entries.remove(state); }
 
     #[cfg(test)]
-    fn len(&mut self) -> usize {
-        self.prune_expired(std::time::Instant::now());
+    fn len(&mut self, now: std::time::Instant) -> usize {
+        self.prune_expired(now);
         self.entries.len()
+    }
+}
+
+#[cfg(test)]
+mod oauth_session_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn expired_sessions_are_pruned_on_lookup_and_insert_but_live_sessions_survive() {
+        let start = std::time::Instant::now();
+        let expired_at = start + Duration::from_secs(2);
+        let mut sessions = OAuthSessions::new();
+        sessions.insert("lookup-expired".into(), 1, Duration::from_secs(1), start).unwrap();
+        assert!(!sessions.contains_for_revision("lookup-expired", 1, expired_at));
+
+        sessions.insert("insert-expired".into(), 1, Duration::from_secs(1), start).unwrap();
+        sessions.insert("active".into(), 1, Duration::from_secs(900), expired_at).unwrap();
+        assert!(!sessions.contains_for_revision("insert-expired", 1, expired_at));
+        assert!(sessions.contains_for_revision("active", 1, expired_at));
+        assert_eq!(sessions.len(expired_at), 1);
+    }
+
+    #[test]
+    fn many_abandoned_sessions_cannot_grow_the_map_without_bound() {
+        let now = std::time::Instant::now();
+        let mut sessions = OAuthSessions::new();
+        for index in 0..MAX_OAUTH_SESSIONS {
+            sessions.insert(format!("state-{index}"), 1, Duration::from_secs(900), now).unwrap();
+        }
+        assert!(sessions.insert("overflow".into(), 1, Duration::from_secs(900), now).is_err());
+        assert_eq!(sessions.len(now), MAX_OAUTH_SESSIONS);
+        assert!(sessions.contains_for_revision("state-0", 1, now));
     }
 }
 

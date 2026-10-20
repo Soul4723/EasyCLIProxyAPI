@@ -3,7 +3,7 @@ use super::windows_explorer_executable;
 use super::{
     auth_dir_path_for_core, configure_background_command, core_install_dir, core_logs_dir_path,
     core_origin, current_core_tls_settings, is_hashed_management_secret_key, open_oauth_url_inner,
-    path_to_string, GuiConfigFile, GuiConfigState,
+    path_to_string, GuiConfigFile, GuiConfigState, MAX_OAUTH_SESSION_TTL,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -30,7 +30,8 @@ static RUNTIME_TOKENS: LazyLock<Mutex<HashMap<tokio::runtime::Id, Weak<RuntimeTo
 static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
 static NEXT_CLIENT_ACCESS: AtomicU64 = AtomicU64::new(1);
 const MAX_MANAGEMENT_CLIENTS: usize = 8;
-const DEFAULT_OAUTH_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
+// Keep this aligned with PLUGIN_SESSION_MAX_MS and MAX_SESSION_MS (30 minutes).
+const DEFAULT_OAUTH_SESSION_TTL: Duration = Duration::from_secs(30 * 60);
 
 struct RuntimeToken {
     generation: u64,
@@ -267,7 +268,7 @@ async fn management_request_inner(
     let value = value?;
     if terminal_oauth_request && value.get("status").and_then(serde_json::Value::as_str) == Some("ok") {
         if let Some(state) = oauth_state {
-            gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?.remove(&state);
+            forget_oauth_session(gui_config_state, &state)?;
         }
     }
     Ok(value)
@@ -482,9 +483,9 @@ pub(crate) async fn start_oauth_login(
     gui_config_state.ensure_target(&config)?;
     let mut result = normalize_oauth_start_response(payload)?;
     if let Some(state) = &result.state {
-        let ttl = result.expires_in.map(Duration::from_secs).unwrap_or(DEFAULT_OAUTH_SESSION_TTL);
+        let ttl = oauth_session_ttl(result.expires_in);
         gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?
-            .insert(state.clone(), config.target_revision, ttl)?;
+            .insert(state.clone(), config.target_revision, ttl, std::time::Instant::now())?;
     }
     match open_oauth_url_inner(&app, &result.url, browser.as_deref()) {
         Ok(()) => result.opened = true,
@@ -555,14 +556,14 @@ pub(crate) async fn get_oauth_status(
     let response = match request.send().await {
         Ok(response) => response,
         Err(err) => {
-            gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?.remove(&state);
+            forget_oauth_session(&gui_config_state, &state)?;
             return Err(format_management_request_error("Failed to query OAuth status", &err));
         }
     };
     let payload = match read_management_json::<OAuthStatusApiResponse>(response).await {
         Ok(payload) => payload,
         Err(error) => {
-            gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?.remove(&state);
+            forget_oauth_session(&gui_config_state, &state)?;
             return Err(error);
         }
     };
@@ -573,7 +574,7 @@ pub(crate) async fn get_oauth_status(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "wait".to_string());
     if status != "wait" || payload.error.is_some() || payload.error_message.is_some() {
-        gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?.remove(&state);
+        forget_oauth_session(&gui_config_state, &state)?;
     }
     Ok(OAuthStatusResult {
         status,
@@ -604,7 +605,7 @@ pub(crate) async fn submit_oauth_callback(
     let callback_state = oauth_callback_state(&redirect_url)?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
-    ensure_oauth_target(&gui_config_state, &config, &oauth_callback_state(&redirect_url)?)?;
+    ensure_oauth_target(&gui_config_state, &config, &callback_state)?;
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
     let client = management_http_client_for(&config)?;
     let body = serde_json::json!({
@@ -619,7 +620,6 @@ pub(crate) async fn submit_oauth_callback(
         .await {
         Ok(response) => response,
         Err(err) => {
-            gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?.remove(&callback_state);
             return Err(format_management_request_error("Failed to submit OAuth callback", &err));
         }
     };
@@ -627,13 +627,12 @@ pub(crate) async fn submit_oauth_callback(
     let text = match response.text().await {
         Ok(text) => text,
         Err(err) => {
-            gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?.remove(&callback_state);
             return Err(format_management_request_error("Failed to read OAuth callback response", &err));
         }
     };
     gui_config_state.ensure_target(&config)?;
+    forget_oauth_callback_if_terminal(&gui_config_state, &callback_state, status)?;
     if !status.is_success() {
-        gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?.remove(&callback_state);
         return Err(format_management_error(status.as_u16(), &text));
     }
     Ok(())
@@ -786,8 +785,35 @@ fn oauth_callback_state(redirect_url: &str) -> Result<String, String> {
 
 fn ensure_oauth_target(state: &GuiConfigState, config: &GuiConfigFile, oauth_state: &str) -> Result<(), String> {
     let mut sessions = state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?;
-    if !sessions.contains_for_revision(oauth_state, config.target_revision) {
+    if !sessions.contains_for_revision(oauth_state, config.target_revision, std::time::Instant::now()) {
         return Err("OAuth session belongs to a different or expired core connection; start login again".to_string());
+    }
+    Ok(())
+}
+
+fn oauth_session_ttl(expires_in: Option<u64>) -> Duration {
+    Duration::from_secs(
+        expires_in
+            .filter(|seconds| *seconds > 0)
+            .unwrap_or(DEFAULT_OAUTH_SESSION_TTL.as_secs())
+            .min(MAX_OAUTH_SESSION_TTL.as_secs()),
+    )
+}
+
+fn forget_oauth_session(state: &GuiConfigState, oauth_state: &str) -> Result<(), String> {
+    state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?.remove(oauth_state);
+    Ok(())
+}
+
+fn forget_oauth_callback_if_terminal(
+    state: &GuiConfigState,
+    oauth_state: &str,
+    status: reqwest::StatusCode,
+) -> Result<(), String> {
+    if status.is_success()
+        || matches!(status, reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::CONFLICT | reqwest::StatusCode::GONE)
+    {
+        forget_oauth_session(state, oauth_state)?;
     }
     Ok(())
 }
@@ -1249,6 +1275,29 @@ server.serve_forever()
     }
 
     #[test]
+    fn oauth_session_ttl_uses_expiry_with_fallback_and_cap() {
+        assert_eq!(oauth_session_ttl(Some(900)), Duration::from_secs(900));
+        assert_eq!(oauth_session_ttl(Some(0)), Duration::from_secs(30 * 60));
+        assert_eq!(oauth_session_ttl(None), Duration::from_secs(30 * 60));
+        assert_eq!(oauth_session_ttl(Some(u64::MAX)), Duration::from_secs(24 * 60 * 60));
+    }
+
+    #[test]
+    fn failed_nonterminal_callback_response_keeps_session_for_retry() {
+        let config = GuiConfigFile::default();
+        let state = GuiConfigState::new(config.clone());
+        let now = std::time::Instant::now();
+        state.oauth_sessions.lock().unwrap()
+            .insert("state-A".into(), config.target_revision, Duration::from_secs(900), now).unwrap();
+
+        forget_oauth_callback_if_terminal(&state, "state-A", reqwest::StatusCode::BAD_REQUEST).unwrap();
+        assert!(ensure_oauth_target(&state, &config, "state-A").is_ok());
+
+        forget_oauth_callback_if_terminal(&state, "state-A", reqwest::StatusCode::CONFLICT).unwrap();
+        assert!(ensure_oauth_target(&state, &config, "state-A").is_err());
+    }
+
+    #[test]
     fn oauth_states_remain_bound_to_start_revision_in_both_modes() {
         for mode in [super::super::CoreConnectionMode::Local, super::super::CoreConnectionMode::Remote] {
             let config = GuiConfigFile {
@@ -1256,7 +1305,7 @@ server.serve_forever()
                 ..Default::default()
             };
             let state = GuiConfigState::new(config.clone());
-            state.oauth_sessions.lock().unwrap().insert("state-A".into(), config.target_revision, Duration::from_secs(900)).unwrap();
+            state.oauth_sessions.lock().unwrap().insert("state-A".into(), config.target_revision, Duration::from_secs(900), std::time::Instant::now()).unwrap();
             assert!(ensure_oauth_target(&state, &config, "state-A").is_ok());
             assert!(ensure_oauth_target(&state, &config, "unknown").is_err());
             let mut changed = config.clone();
@@ -1274,7 +1323,7 @@ server.serve_forever()
     #[tokio::test]
     async fn oauth_cancellation_rejects_unknown_or_old_state_before_dispatch() {
         let state = GuiConfigState::new(GuiConfigFile::default());
-        state.oauth_sessions.lock().unwrap().insert("state-A".into(), 0, Duration::from_secs(900)).unwrap();
+        state.oauth_sessions.lock().unwrap().insert("state-A".into(), 0, Duration::from_secs(900), std::time::Instant::now()).unwrap();
         let mut changed = state.snapshot().unwrap();
         changed.management_secret_key.push_str("-changed");
         changed.remote_management_key.push_str("-changed");
