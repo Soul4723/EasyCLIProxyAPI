@@ -1174,7 +1174,20 @@
         fallback.provider = "codex".into();
         insert_usage_records(&mut connection, &[fallback]).unwrap();
         let events = load_usage_events_with_notes(&connection, &query, &config, &notes).unwrap();
-        assert_eq!(events.items.iter().find(|event| event.source == "retired-client-key").unwrap().source_display, "codex");
+        let safe_source = usage_source_api_value(
+            "retired-client-key",
+            &hash_text("retired-client-key"),
+            &config,
+        );
+        assert_eq!(
+            events
+                .items
+                .iter()
+                .find(|event| event.source == safe_source)
+                .unwrap()
+                .source_display,
+            "codex"
+        );
     }
 
     #[test]
@@ -1238,8 +1251,8 @@
 
         let stored: String = connection
             .query_row(
-                "SELECT source FROM usage_events WHERE event_key = 'source-key-1'",
-                [],
+                "SELECT source FROM usage_events WHERE source = ?1 LIMIT 1",
+                [key],
                 |row| row.get(0),
             )
             .unwrap();
