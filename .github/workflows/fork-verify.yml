@@ -438,7 +438,7 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit('Could not uniquely patch observer config for CI core integration')
           text = text.replace(old, new)
-          manual_start = "    if (mode === 'local') await invoke('start_core_process');\\n"
+          manual_start = "    if (mode === 'local') await invoke('start_core_process');\n"
           if text.count(manual_start) != 1:
               raise SystemExit('Could not uniquely remove observer manual Local start')
           text = text.replace(manual_start, '')
