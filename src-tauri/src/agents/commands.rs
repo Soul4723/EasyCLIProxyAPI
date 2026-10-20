@@ -232,8 +232,6 @@ pub(crate) async fn resolve_pi_default_model(
 pub(crate) async fn check_pi_provider_update(
     app: tauri::AppHandle,
 ) -> Result<PiProviderUpdateStatus, String> {
-    let _target_state = app.state::<GuiConfigState>();
-    let _target_operation = _target_state.target_operation.lock().await;
     let home = app
         .path()
         .home_dir()
@@ -399,8 +397,6 @@ pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), Strin
 pub(crate) async fn update_codex_model_catalog_inner(
     app: &tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
-    let _target_state = app.state::<GuiConfigState>();
-    let _target_operation = _target_state.target_operation.lock().await;
     let _update_guard = CODEX_CATALOG_UPDATE_LOCK.lock().await;
     let config = app.state::<GuiConfigState>().snapshot()?;
     let proxy_url = config.proxy_url;
@@ -604,6 +600,25 @@ pub(crate) async fn get_codex_model_catalog_editor(
 /// Capture the current target under the fence, fetch without it, then recheck
 /// before applying target-derived data. `None` means the target changed while
 /// the fetch was in flight, so callers can discard the stale result.
+pub(crate) async fn target_read_only<T, Fetch, FetchFuture>(
+    state: &GuiConfigState,
+    expected_revision: u64,
+    fetch: Fetch,
+) -> Result<T, String>
+where
+    Fetch: FnOnce(GuiConfigFile) -> FetchFuture,
+    FetchFuture: Future<Output = Result<T, String>>,
+{
+    target_read_then_apply(
+        state,
+        Some(expected_revision),
+        fetch,
+        |_config, value, _target_operation| async move { Ok(value) },
+    )
+    .await?
+    .ok_or_else(|| "The core connection changed; request cancelled".to_string())
+}
+
 pub(crate) async fn target_read_then_apply<T, R, Fetch, FetchFuture, Apply, ApplyFuture>(
     state: &GuiConfigState,
     expected_revision: Option<u64>,
@@ -707,12 +722,10 @@ pub(crate) async fn get_thinking_aliases(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     expected_revision: u64,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
-    let config = gui_config_state.snapshot()?;
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    gui_config_state.ensure_target(&config)?;
-    gui_config_state.ensure_revision(expected_revision)?;
-    let content = fetch_management_config_yaml(&config).await?;
-    thinking_aliases_from_yaml(&content)
+    target_read_only(&gui_config_state, expected_revision, |config| async move {
+        let content = fetch_management_config_yaml(&config).await?;
+        thinking_aliases_from_yaml(&content)
+    }).await
 }
 
 #[tauri::command]
@@ -720,23 +733,13 @@ pub(crate) async fn get_model_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     expected_revision: u64,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
-    let config = gui_config_state.snapshot()?;
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    gui_config_state.ensure_target(&config)?;
-    gui_config_state.ensure_revision(expected_revision)?;
-    let content = fetch_management_config_yaml(&config).await?;
-    let available_models =
-        fetch_alias_models(&config).await?;
-    let definitions = fetch_oauth_model_definitions(&config).await;
-    Ok(resolved_oauth_alias_sources(
-        &content,
-        &definitions,
-        &available_models,
-        AliasSourceCapability::Base,
-    )?
-    .into_iter()
-    .map(|resolved| resolved.source)
-    .collect())
+    target_read_only(&gui_config_state, expected_revision, |config| async move {
+        let content = fetch_management_config_yaml(&config).await?;
+        let available_models = fetch_alias_models(&config).await?;
+        let definitions = fetch_oauth_model_definitions(&config).await;
+        Ok(resolved_oauth_alias_sources(&content, &definitions, &available_models, AliasSourceCapability::Base)?
+            .into_iter().map(|resolved| resolved.source).collect())
+    }).await
 }
 
 #[tauri::command]
@@ -744,23 +747,13 @@ pub(crate) async fn get_thinking_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     expected_revision: u64,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
-    let config = gui_config_state.snapshot()?;
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    gui_config_state.ensure_target(&config)?;
-    gui_config_state.ensure_revision(expected_revision)?;
-    let content = fetch_management_config_yaml(&config).await?;
-    let available_models =
-        fetch_alias_models(&config).await?;
-    let definitions = fetch_oauth_model_definitions(&config).await;
-    Ok(resolved_oauth_alias_sources(
-        &content,
-        &definitions,
-        &available_models,
-        AliasSourceCapability::Reasoning,
-    )?
-    .into_iter()
-    .map(|resolved| resolved.source)
-    .collect())
+    target_read_only(&gui_config_state, expected_revision, |config| async move {
+        let content = fetch_management_config_yaml(&config).await?;
+        let available_models = fetch_alias_models(&config).await?;
+        let definitions = fetch_oauth_model_definitions(&config).await;
+        Ok(resolved_oauth_alias_sources(&content, &definitions, &available_models, AliasSourceCapability::Reasoning)?
+            .into_iter().map(|resolved| resolved.source).collect())
+    }).await
 }
 
 #[tauri::command]
@@ -770,14 +763,12 @@ pub(crate) async fn get_model_alias_edit_source(
     alias: String,
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<ModelAliasEditContext, String> {
-    let config = gui_config_state.snapshot()?;
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    gui_config_state.ensure_target(&config)?;
-    gui_config_state.ensure_revision(expected_revision)?;
-    let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
-    let content = fetch_management_config_yaml(&config).await?;
-    let definitions = fetch_oauth_model_definitions(&config).await;
-    model_alias_edit_context_for_mapping(&content, &alias, &definitions, entry.as_ref())
+    target_read_only(&gui_config_state, expected_revision, |config| async move {
+        let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
+        let content = fetch_management_config_yaml(&config).await?;
+        let definitions = fetch_oauth_model_definitions(&config).await;
+        model_alias_edit_context_for_mapping(&content, &alias, &definitions, entry.as_ref())
+    }).await
 }
 
 #[tauri::command]
@@ -901,12 +892,10 @@ pub(crate) async fn get_speed_aliases(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     expected_revision: u64,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
-    let config = gui_config_state.snapshot()?;
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    gui_config_state.ensure_target(&config)?;
-    gui_config_state.ensure_revision(expected_revision)?;
-    let content = fetch_management_config_yaml(&config).await?;
-    speed_aliases_from_yaml(&content)
+    target_read_only(&gui_config_state, expected_revision, |config| async move {
+        let content = fetch_management_config_yaml(&config).await?;
+        speed_aliases_from_yaml(&content)
+    }).await
 }
 
 #[tauri::command]
@@ -914,23 +903,13 @@ pub(crate) async fn get_speed_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     expected_revision: u64,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
-    let config = gui_config_state.snapshot()?;
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    gui_config_state.ensure_target(&config)?;
-    gui_config_state.ensure_revision(expected_revision)?;
-    let content = fetch_management_config_yaml(&config).await?;
-    let available_models =
-        fetch_alias_models(&config).await?;
-    let definitions = fetch_oauth_model_definitions(&config).await;
-    Ok(resolved_oauth_alias_sources(
-        &content,
-        &definitions,
-        &available_models,
-        AliasSourceCapability::Fast,
-    )?
-    .into_iter()
-    .map(|resolved| resolved.source)
-    .collect())
+    target_read_only(&gui_config_state, expected_revision, |config| async move {
+        let content = fetch_management_config_yaml(&config).await?;
+        let available_models = fetch_alias_models(&config).await?;
+        let definitions = fetch_oauth_model_definitions(&config).await;
+        Ok(resolved_oauth_alias_sources(&content, &definitions, &available_models, AliasSourceCapability::Fast)?
+            .into_iter().map(|resolved| resolved.source).collect())
+    }).await
 }
 
 #[tauri::command]
@@ -2027,6 +2006,16 @@ mod target_read_tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    struct TempFileGuard(Vec<PathBuf>);
+
+    impl Drop for TempFileGuard {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+
     #[tokio::test]
     async fn target_read_is_unfenced_and_discards_files_after_a_to_b_to_a_switch() {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -2039,6 +2028,7 @@ mod target_read_tests {
             "cpa-target-read-catalog-{}-{suffix}",
             std::process::id()
         ));
+        let _temp_files = TempFileGuard(vec![config_path.clone(), catalog_path.clone()]);
         fs::write(&config_path, b"target-A agent config").unwrap();
         fs::write(&catalog_path, b"target-A model catalog").unwrap();
 
@@ -2085,8 +2075,6 @@ mod target_read_tests {
         assert_eq!(call.await.unwrap().unwrap(), None);
         assert_eq!(fs::read(&config_path).unwrap(), b"target-A agent config");
         assert_eq!(fs::read(&catalog_path).unwrap(), b"target-A model catalog");
-        fs::remove_file(config_path).unwrap();
-        fs::remove_file(catalog_path).unwrap();
     }
 
     #[tokio::test]
@@ -2107,5 +2095,31 @@ mod target_read_tests {
 
         assert_eq!(result, Some(vec!["local-model"]));
         assert_eq!(state.snapshot().unwrap().target_revision, expected_revision);
+    }
+
+    #[tokio::test]
+    async fn user_facing_read_reports_cancelled_when_remote_target_changes_during_fetch() {
+        let mut config = GuiConfigFile::default();
+        config.connection_mode = CoreConnectionMode::Remote;
+        let state = std::sync::Arc::new(GuiConfigState::new(config));
+        let expected_revision = state.snapshot().unwrap().target_revision;
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let task_state = state.clone();
+        let call = tokio::spawn(async move {
+            target_read_only(&task_state, expected_revision, |_config| async move {
+                started_tx.send(()).unwrap();
+                release_rx.await.unwrap();
+                Ok(vec!["stale remote result"])
+            }).await
+        });
+        started_rx.await.unwrap();
+        assert!(state.target_operation.try_lock().is_ok(), "target fence was held during the fetch");
+        let mut switched = state.snapshot().unwrap();
+        switched.remote_management_origin = "http://target-b.invalid".into();
+        switched.remote_management_key = "target-b-key".into();
+        state.replace_external(switched).unwrap();
+        release_tx.send(()).unwrap();
+        assert!(call.await.unwrap().unwrap_err().contains("request cancelled"));
     }
 }

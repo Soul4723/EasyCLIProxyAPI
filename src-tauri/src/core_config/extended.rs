@@ -1088,6 +1088,13 @@ pub(crate) async fn get_extended_core_config(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     expected_revision: u64,
 ) -> Result<Json, String> {
+    if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
+        return crate::agents::target_read_only(&gui_config_state, expected_revision, |config| async move {
+            let content = crate::core_connection::read_remote_yaml(&config).await?;
+            let document = serde_norway::from_str(&content).map_err(|_| "Invalid remote kernel YAML".to_string())?;
+            extended_config_view(&document)
+        }).await;
+    }
     let config = gui_config_state.snapshot()?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;

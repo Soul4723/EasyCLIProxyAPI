@@ -331,20 +331,16 @@ pub(crate) async fn preview_agent_config_template(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
 ) -> Result<TemplatePreview, String> {
     let _target_state = app.state::<GuiConfigState>();
-    let _target_operation = _target_state.target_operation.lock().await;
-    let config = app.state::<GuiConfigState>().snapshot()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
-    Ok(prepare_template_plan(
-        &config,
-        &home,
-        &client,
-        &model,
-        oauth_configuration,
-        claude_code_model_mappings,
-        claude_desktop_model_mappings,
-    )
-    .await?
-    .preview)
+    super::target_read_then_apply(
+        &_target_state,
+        None,
+        move |config| async move {
+            prepare_template_plan(&config, &home, &client, &model, oauth_configuration,
+                claude_code_model_mappings, claude_desktop_model_mappings).await
+        },
+        |_config, plan, _target_operation| async move { Ok(plan.preview) },
+    ).await?.ok_or_else(|| "The core connection changed; request cancelled".to_string())
 }
 
 #[tauri::command]
