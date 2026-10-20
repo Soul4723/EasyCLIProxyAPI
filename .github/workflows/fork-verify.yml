@@ -378,7 +378,7 @@ jobs:
           sudo apt-get install --yes \
             build-essential curl file libssl-dev libayatana-appindicator3-dev \
             librsvg2-dev libxdo-dev libwebkit2gtk-4.1-dev pkg-config \
-            dbus-x11 xvfb fuse3
+            dbus-x11 xvfb fuse3 x11-apps
       - uses: actions/cache@v4
         if: steps.observer.outputs.supported == 'true'
         with:
