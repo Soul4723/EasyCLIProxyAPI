@@ -11,8 +11,14 @@ pub(crate) fn clear_agent_managed_configuration(
     let paths = config_paths(client.id(), home)?;
     let before = config_images(&paths)?;
     validate_client_config_images(client.id(), &before)?;
-    let after = if let Some(after) = prepare_recorded_integration_restore(client, &paths, &before)? {
+    let recorded_restore = prepare_recorded_integration_restore(client, &paths, &before)?;
+    let after = if let Some(after) = recorded_restore {
         after
+    } else if !port.local_client() {
+        return Err(
+            "Remote agent configuration has no app-owned restore record; refusing to modify it"
+                .to_string(),
+        );
     } else {
         let mut after = before.clone();
         for (path, bytes) in prepare_agent_managed_removal(client, &paths, port)? {
