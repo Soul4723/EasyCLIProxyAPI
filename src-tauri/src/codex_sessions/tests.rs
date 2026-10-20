@@ -615,7 +615,7 @@
         let backup = create_repair_backup(
             &root,
             std::slice::from_ref(&database),
-            &[],
+            &mut [],
             "provider-repair",
             "cpa-gui",
         )

@@ -113,11 +113,11 @@ export function QuotaSection(_props: SectionPageProps) {
     consume: (account) => { void data.resetQuota(account); },
     clearCooldown: (account) => { void data.clearCooldown(account); },
     openLighting: (account, anchor) => { lightingAnchor.current = anchor; setLightingKey(account.key); },
-  // data's action callbacks are stable except where they read busyKeys; rebuild when those change.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [data.refreshOne, data.setEnabled, data.resetQuota, data.clearCooldown]);
 
-  const ctx: ControlsContext = { now, lighting, actions, busyKeys: data.busyKeys };
+  const { busyKeys } = data;
+  const ctx: ControlsContext = useMemo(() => ({ now, lighting, actions, busyKeys }), [now, lighting, actions, busyKeys]);
 
   const providerOptions = [
     { value: 'all', label: t('sec.quota.filter.all'), count: accounts.length },

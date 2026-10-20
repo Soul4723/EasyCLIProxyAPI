@@ -1,4 +1,5 @@
 // An account as a C1 card or as a compact one-line row with fixed window columns.
+import { memo } from 'react';
 import { AlertCircle, Clock, LogIn } from 'lucide-react';
 import {
   Button, Chip, Countdown, Masked, ProviderLogo, ProviderName, QuotaBar, RelativeTime, Skeleton, StatusPill,
@@ -118,7 +119,29 @@ function CardBody({ account, ctx }: { account: QuotaAccount; ctx: ControlsContex
   );
 }
 
-export function AccountCard({ account, ctx, selected, grouped }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean; grouped?: boolean }) {
+type ItemProps = { account: QuotaAccount; ctx: ControlsContext; selected: boolean; grouped?: boolean };
+
+/**
+ * What a card or row derives from `ctx.now`: which reset times have passed and the lighting state/countdown.
+ * Countdown and RelativeTime text tick on their own clock, so a tick that leaves these unchanged needs no render.
+ */
+function timeFacts({ account, ctx }: ItemProps): string {
+  const schedule = ctx.lighting.scheduleFor(account);
+  const state = lightingStateOf(schedule, ctx.lighting.status?.runningIds ?? [], ctx.now);
+  const passed = (ms: number | undefined) => (ms !== undefined && ms <= ctx.now ? 1 : 0);
+  return [passed(account.nextResetMs), ...account.windows.map((window) => passed(window.resetAtMs)),
+    state, (schedule?.nextRun ?? 0) > ctx.now ? 'next' : ''].join();
+}
+
+/** Memo comparison: re-render for a new account, selection, lighting, actions, own busy flag or a crossed time boundary. */
+export function sameItemProps(prev: ItemProps, next: ItemProps): boolean {
+  return prev.account === next.account && prev.selected === next.selected && prev.grouped === next.grouped
+    && prev.ctx.lighting === next.ctx.lighting && prev.ctx.actions === next.ctx.actions
+    && prev.ctx.busyKeys.has(prev.account.key) === next.ctx.busyKeys.has(next.account.key)
+    && (prev.ctx.now === next.ctx.now || timeFacts(prev) === timeFacts(next));
+}
+
+export const AccountCard = memo(function AccountCard({ account, ctx, selected, grouped }: ItemProps) {
   const open = (event: React.MouseEvent) => {
     if ((event.target as HTMLElement).closest('button,a,input,[role=switch]')) return;
     ctx.actions.open(account);
@@ -150,7 +173,7 @@ export function AccountCard({ account, ctx, selected, grouped }: { account: Quot
       </footer>
     </article>
   );
-}
+}, sameItemProps);
 
 function WindowCount({ account }: { account: QuotaAccount }) {
   const { t } = useI18n();
@@ -172,7 +195,7 @@ function RowMeter({ account, kind, ctx }: { account: QuotaAccount; kind: '5h' | 
   );
 }
 
-export function AccountRow({ account, ctx, selected, grouped }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean; grouped?: boolean }) {
+export const AccountRow = memo(function AccountRow({ account, ctx, selected, grouped }: ItemProps) {
   const { t } = useI18n();
   const extra = account.windows.filter((window) => window !== tightest(account.windows, '5h') && window !== tightest(account.windows, 'weekly')).length;
   const open = (event: React.MouseEvent) => {
@@ -197,7 +220,7 @@ export function AccountRow({ account, ctx, selected, grouped }: { account: Quota
       <AccountControls account={account} ctx={ctx} />
     </div>
   );
-}
+}, sameItemProps);
 
 export function RowsHeader() {
   const { t } = useI18n();

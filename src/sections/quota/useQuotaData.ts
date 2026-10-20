@@ -20,7 +20,7 @@ import {
   idleQuota, providerForFile, quotaKey, type AuthFile, type QuotaState,
 } from '../../services/quotaService';
 import { useNow } from '../../ui';
-import { buildAccount, sortAccounts, type QuotaAccount } from './model';
+import { buildAccount, sortAccounts, stabilizeAccounts, type QuotaAccount } from './model';
 
 const NOW_TICK_MS = 30_000;
 
@@ -60,12 +60,17 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
     pruneQuotaCache(new Set(source.data.files.map(quotaKey)));
   }, [source.data]);
 
+  // `now` feeds the derived fields (stale, cooldown, window kind), but most ticks change none of them: keep the
+  // previous account objects (and array) when the content is the same so memoised cards skip the render.
+  const previousAccounts = useRef<QuotaAccount[]>([]);
   const accounts = useMemo(() => {
     const list = snapshot.files.flatMap((file) => {
       const account = buildAccount(file, quotas[quotaKey(file)] ?? idleQuota(), now, locale, snapshot);
       return account ? [account] : [];
     });
-    return sortAccounts(list);
+    const stable = stabilizeAccounts(previousAccounts.current, sortAccounts(list));
+    previousAccounts.current = stable;
+    return stable;
   }, [snapshot, quotas, now, locale]);
 
   // Forward every newly committed successful snapshot (lighting observes reset times from it).
@@ -103,8 +108,12 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
   const consumeReset = useQuotaReset(askConfirmation, setActionError);
   const resetQuota = useCallback((account: QuotaAccount) => consumeReset(account.file, account.quota), [consumeReset]);
 
+  // Read through a ref so the actions below keep their identity when another account goes busy.
+  const busyRef = useRef(busyKeys);
+  busyRef.current = busyKeys;
+
   const setEnabled = useCallback(async (account: QuotaAccount, enabled: boolean) => {
-    if (busyKeys.has(account.key)) return;
+    if (busyRef.current.has(account.key)) return;
     markBusy(account.key, true);
     setActionError('');
     try {
@@ -122,11 +131,11 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
     } finally {
       markBusy(account.key, false);
     }
-  }, [busyKeys, loadFiles, markBusy]);
+  }, [loadFiles, markBusy]);
 
   const clearCooldown = useCallback(async (account: QuotaAccount) => {
     const authIndex = authFileCooldownResetIndex(account.file);
-    if (!authIndex || busyKeys.has(account.key)) return;
+    if (!authIndex || busyRef.current.has(account.key)) return;
     const confirmed = await askConfirmation({
       title: t('authFiles.cooldown.resetTitle'),
       message: t('authFiles.cooldown.resetConfirm', { name: account.fileName }),
@@ -148,7 +157,7 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
     } finally {
       markBusy(account.key, false);
     }
-  }, [askConfirmation, busyKeys, loadFiles, markBusy, t]);
+  }, [askConfirmation, loadFiles, markBusy, t]);
 
   const anyLoading = refreshingAll || Object.values(quotas).some((quota) => quota.status === 'loading');
   const canToggle = useCallback((account: QuotaAccount) =>
