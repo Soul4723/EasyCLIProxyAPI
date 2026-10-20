@@ -32,6 +32,7 @@ runUi(async ({ base }) => {
     await dialog().getByRole('button', { name: 'Confirm', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('[data-row="codex-provider"] [role="switch"]').getAttribute('aria-checked') === 'true');
     assert.equal((await calls('set_codex_openai_provider')).length, 1);
+    assert.equal(typeof (await calls('set_codex_openai_provider'))[0]?.args?.expectedRevision, 'number');
     assert.equal((await calls('repair_codex_session_metadata')).length, 0, 'Remote never touches local session files');
 
     // Local keeps the option.

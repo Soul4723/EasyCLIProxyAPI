@@ -36,10 +36,13 @@ runUi(async ({ base }) => {
       await settled();
       const calls = await page.evaluate(() => window.fixtureCalls.filter(c => c.cmd === 'set_codex_remote_compaction'));
       assert.deepEqual(calls.map(c => c.args.enabled), [true, false]);
+      assert.ok(calls.every(c => Number.isSafeInteger(c.args.expectedRevision)));
       await page.getByRole('switch', { name: '使用 openai 提供商标识', exact: true }).click();
       await page.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
       await page.waitForFunction(() => document.querySelector('[data-row="codex-remote-compaction"] [role="switch"]').disabled);
       assert.equal(await checked(), true, 'the openai identity already enables remote compaction');
+      const providerCalls = await page.evaluate(() => window.fixtureCalls.filter(c => c.cmd === 'set_codex_openai_provider'));
+      assert.ok(providerCalls.every(c => Number.isSafeInteger(c.args.expectedRevision)));
     }
     // The approval-model row sits beside it; nothing to save until the selection changes.
     await open();

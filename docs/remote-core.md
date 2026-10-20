@@ -266,7 +266,7 @@ changes made outside this window.
   fenced command through an unfenced `invoke`, and checks the browser mock's list of fenced
   commands against the Rust signatures.
 
-**Fenced commands.** `management_request` carries the revision inside its request. These 42
+**Fenced commands.** `management_request` carries the revision inside its request. These 45
 commands take `expectedRevision` as a top-level argument:
 
 `add_core_api_key`, `clear_core_management_secret_key`, `create_speed_alias`,
@@ -276,12 +276,14 @@ commands take `expectedRevision` as a top-level argument:
 `get_oauth_status`, `get_speed_alias_sources`, `get_speed_aliases`,
 `get_thinking_alias_sources`, `get_thinking_aliases`, `import_vertex_credential`,
 `lighting_report_reset`, `lighting_save`, `resume_usage_collection`,
-`save_core_logging_settings`, `save_core_sensitive_words_settings`, `save_core_tls_settings`,
+`save_codex_model_catalog_editor`, `save_core_logging_settings`, `save_core_sensitive_words_settings`,
+`save_core_tls_settings`,
 `save_extended_core_config`, `save_gui_settings`, `save_network_endpoint_settings`,
 `save_network_routing_settings`, `save_retry_settings`, `save_session_routing_settings`,
 `set_core_management_secret_key`, `set_core_plugins_enabled`, `set_core_proxy_url`,
 `set_core_request_log`, `set_core_routing_strategy`, `set_core_session_affinity`,
-`set_core_session_affinity_ttl`, `start_oauth_login`, `submit_oauth_callback`,
+`set_core_session_affinity_ttl`, `set_codex_openai_provider`, `set_codex_remote_compaction`,
+`start_oauth_login`, `submit_oauth_callback`,
 `update_core_api_key`, `upload_auth_file`.
 
 ## Transport policy

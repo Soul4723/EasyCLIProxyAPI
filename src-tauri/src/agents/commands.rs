@@ -606,11 +606,17 @@ pub(crate) async fn save_codex_model_catalog_editor(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: codex_catalog::CatalogEditorRequest,
+    expected_revision: u64,
 ) -> Result<CodexCatalogEditorSaveResult, String> {
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
-    let config = gui_config_state.snapshot()?;
+    let config = {
+        let _target_operation = gui_config_state.target_operation.lock().await;
+        gui_config_state.ensure_revision(expected_revision)?;
+        gui_config_state.snapshot()?
+    };
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_revision(expected_revision)?;
+    let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     reload_changed_codex_catalog_files(&app);
     let customizations_path = codex_model_customizations_path(&app)?;
     let snapshot =
