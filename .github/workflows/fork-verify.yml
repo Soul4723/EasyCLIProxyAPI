@@ -441,7 +441,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - "$RUNNER_TEMP/core-integration/observe" <<'PY'
-          import shutil, sys
+          import re, shutil, sys
           from pathlib import Path
           target = Path(sys.argv[1])
           target.mkdir(parents=True)
@@ -480,10 +480,10 @@ jobs:
           if text.count(old_invoke) != 1:
               raise SystemExit('Could not uniquely patch observer invocation helper')
           text = text.replace(old_invoke, "  const invoke = async (command, settleMs = 5000) => {")
-          old_settle = "    await sleep(5000);\n    const burst = lines().slice(start);"
-          if text.count(old_settle) != 1:
+          settle_pattern = re.compile(r"(?m)^(\s*)await sleep\(5000\);\n(\s*)const burst = lines\(\)\.slice\(start\);$")
+          if len(settle_pattern.findall(text)) != 1:
               raise SystemExit('Could not uniquely patch observer action settling')
-          text = text.replace(old_settle, "    await sleep(settleMs);\n    const burst = lines().slice(start);")
+          text = settle_pattern.sub(lambda match: f"{match.group(1)}await sleep(settleMs);\n{match.group(2)}const burst = lines().slice(start);", text)
           old_actions = "  if (args.includes('--actions')) {"
           if text.count(old_actions) != 1:
               raise SystemExit('Could not uniquely add Local restart observer scenario')
