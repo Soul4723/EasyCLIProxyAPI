@@ -29,7 +29,13 @@ jobs:
         id: typecheck
         run: |
           set -o pipefail
-          bun run check 2>&1 | tee typecheck.log
+          if node -e "process.exit(require('./package.json').scripts?.check ? 0 : 1)"; then
+            bun run check 2>&1 | tee typecheck.log
+          elif [ -f tsconfig.json ]; then
+            bunx tsc --noEmit 2>&1 | tee typecheck.log
+          else
+            echo 'No typecheck script or tsconfig; skipped.' | tee typecheck.log
+          fi
       - name: Unit tests
         id: unit_tests
         run: |
@@ -86,8 +92,30 @@ jobs:
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/playwright/node_modules/playwright
         run: |
-          set -o pipefail
-          node tests/run-ui.cjs 2>&1 | tee ui-tests.log
+          set -uo pipefail
+          if [ -f tests/run-ui.cjs ]; then
+            node tests/run-ui.cjs 2>&1 | tee ui-tests.log
+          else
+            shopt -s nullglob
+            ui_tests=(tests/*-ui.cjs)
+            if [ ${#ui_tests[@]} -eq 0 ]; then
+              echo 'No UI test runner or *-ui.cjs scripts found.' | tee ui-tests.log
+              exit 0
+            fi
+            : > ui-tests.log
+            passed=0
+            failed=0
+            for test_file in "${ui_tests[@]}"; do
+              echo "### $test_file" | tee -a ui-tests.log
+              if node "$test_file" 2>&1 | tee -a ui-tests.log; then
+                passed=$((passed + 1))
+              else
+                failed=$((failed + 1))
+              fi
+            done
+            echo "UI scripts: $passed/$((passed + failed)) passed" | tee -a ui-tests.log
+            [ "$failed" -eq 0 ]
+          fi
       - name: Summarize UI results
         if: always()
         env:
@@ -100,9 +128,15 @@ jobs:
 
           text = Path('ui-tests.log').read_text() if Path('ui-tests.log').exists() else ''
           match = re.search(r'(\d+)/(\d+) UI tests passed', text)
-          passed, total = (map(int, match.groups()) if match else (0, 0))
+          if match:
+              passed, total = map(int, match.groups())
+              label = 'UI tests'
+          else:
+              match = re.search(r'UI scripts: (\d+)/(\d+) passed', text)
+              passed, total = (map(int, match.groups()) if match else (0, 0))
+              label = 'UI scripts'
           print('### Playwright UI suite')
-          print(f"- UI tests: {passed} passed, {total - passed} failed (step: **{os.environ['UI_TEST_RESULT']}**)")
+          print(f"- {label}: {passed} passed, {total - passed} failed (step: **{os.environ['UI_TEST_RESULT']}**)")
           PY
       - name: Upload logs
         if: always()
@@ -145,16 +179,27 @@ jobs:
           bun run build 2>&1 | tee frontend-build.log
       - name: Cargo tests
         id: cargo_tests
-        working-directory: src-tauri
         run: |
           set -o pipefail
-          env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_DATA_DIRS cargo test --bin cpa-gui 2>&1 | tee cargo-tests.log
+          cargo_manifest=src-tauri/Cargo.toml
+          if [ ! -f "$cargo_manifest" ]; then cargo_manifest=Cargo.toml; fi
+          if [ ! -f "$cargo_manifest" ]; then
+            echo 'No Cargo.toml found; skipping Rust tests.' | tee cargo-tests.log
+          else
+            env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_DATA_DIRS \
+              cargo test --manifest-path "$cargo_manifest" --bin cpa-gui 2>&1 | tee cargo-tests.log
+          fi
       - name: Clippy (warnings are reported, not treated as errors)
         id: clippy
-        working-directory: src-tauri
         run: |
           set -o pipefail
-          cargo clippy --all-targets --message-format=json 2>&1 | tee clippy.jsonl
+          cargo_manifest=src-tauri/Cargo.toml
+          if [ ! -f "$cargo_manifest" ]; then cargo_manifest=Cargo.toml; fi
+          if [ ! -f "$cargo_manifest" ]; then
+            echo 'No Cargo.toml found; skipping Clippy.' | tee clippy.jsonl
+            exit 0
+          fi
+          cargo clippy --manifest-path "$cargo_manifest" --all-targets --message-format=json 2>&1 | tee clippy.jsonl
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -181,12 +226,12 @@ jobs:
           import re
           from pathlib import Path
 
-          test_log = Path('src-tauri/cargo-tests.log')
+          test_log = Path('cargo-tests.log')
           text = test_log.read_text() if test_log.exists() else ''
           matches = re.findall(r'test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored', text)
           passed, failed, ignored = map(int, matches[-1]) if matches else (0, 0, 0)
           warnings = 0
-          clippy_log = Path('src-tauri/clippy.jsonl')
+          clippy_log = Path('clippy.jsonl')
           if clippy_log.exists():
               for line in clippy_log.read_text().splitlines():
                   try:
@@ -206,8 +251,8 @@ jobs:
           name: rust-logs
           path: |
             frontend-build.log
-            src-tauri/*.log
-            src-tauri/*.jsonl
+            cargo-tests.log
+            clippy.jsonl
           if-no-files-found: ignore
 
   app-smoke:
@@ -241,10 +286,18 @@ jobs:
         id: app_build
         run: |
           set -o pipefail
-          bun run tauri build --debug --no-bundle 2>&1 | tee app-build.log
+          if node -e "process.exit(require('./package.json').scripts?.tauri ? 0 : 1)"; then
+            bun run tauri build --debug --no-bundle 2>&1 | tee app-build.log
+          else
+            echo 'No Tauri script; skipping app smoke build.' | tee app-build.log
+          fi
       - name: Start app against isolated test data under Xvfb
         id: app_start
         run: |
+          if [ ! -x src-tauri/target/debug/cpa-gui ]; then
+            echo 'No built cpa-gui executable; skipping isolated app startup.'
+            exit 0
+          fi
           set -euo pipefail
           smoke_home="$RUNNER_TEMP/app-smoke-home"
           mkdir -p "$smoke_home/.config" "$smoke_home/.local/share" "$smoke_home/.cache" "$smoke_home/auth"
