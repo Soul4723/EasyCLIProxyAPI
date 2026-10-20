@@ -7,9 +7,10 @@ pub(crate) async fn fetch_release(
     custom_mirrors: &[String],
 ) -> Result<(GithubRelease, VersionDownloadCandidate), String> {
     if let Some(version) = version {
+        let tag = validate_core_version(version)?;
         return Ok((
             release_from_tag_for_repositories(
-                version,
+                &tag,
                 configured_gitcode_core_repository(),
                 &source,
             ),

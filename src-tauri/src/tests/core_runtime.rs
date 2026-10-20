@@ -1823,3 +1823,73 @@ fn stop_start_invalidates_a_pending_recovery_generation() {
     assert!(!state.poll_unexpected_child_exit(CORE_CRASH_STABLE_UPTIME));
     state.take_child();
 }
+
+#[test]
+fn core_version_validation_accepts_semver_and_canonicalizes_the_tag() {
+    assert_eq!(validate_core_version("8.0.35").unwrap(), "v8.0.35");
+    assert_eq!(validate_core_version("v8.0.35").unwrap(), "v8.0.35");
+    assert_eq!(validate_core_version("8.0.35-rc.1").unwrap(), "v8.0.35-rc.1");
+    assert_eq!(validate_core_version("v10.20.30-beta").unwrap(), "v10.20.30-beta");
+}
+
+#[test]
+fn core_version_validation_rejects_hostile_and_malformed_input() {
+    let hostile = [
+        "",
+        " ",
+        "v",
+        "8.0",
+        "8.0.35 ",
+        " 8.0.35",
+        "8.0.35\n",
+        "../8.0.35",
+        "1/../../../../evil/repo/releases/download/v1/x.tar.gz#",
+        "8.0.35/../../evil/repo",
+        "8.0.35?x=1",
+        "8.0.35#frag",
+        "8.0.35%2F..%2Fevil",
+        "%2e%2e",
+        "..",
+        "8.0.35-..",
+        "8.0.35-rc/1",
+        "8.0.35-rc\\1",
+        "8.0.35+build",
+        "https://evil.example/CLIProxyAPI/releases/download/v1.0.0",
+        "//evil.example/x",
+        "vv8.0.35",
+        "V8.0.35",
+        "8.0.35\0",
+    ];
+    for input in hostile {
+        assert!(
+            validate_core_version(input).is_err(),
+            "{input:?} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn fetch_release_rejects_a_hostile_version_before_building_any_url() {
+    let client = reqwest::Client::new();
+    for version in ["../../evil/repo", "1/../../evil/repo/releases/download/v1/x#", ""] {
+        let error = tauri::async_runtime::block_on(fetch_release(
+            &client,
+            Some(version),
+            VersionDownloadCandidate::builtin(VersionDownloadSource::Github),
+            &[],
+        ))
+        .unwrap_err();
+        assert!(error.contains("Invalid kernel version"), "{error}");
+    }
+    let (release, _) = tauri::async_runtime::block_on(fetch_release(
+        &client,
+        Some("8.0.35"),
+        VersionDownloadCandidate::builtin(VersionDownloadSource::Github),
+        &[],
+    ))
+    .unwrap();
+    assert_eq!(release.tag_name, "v8.0.35");
+    assert!(release.assets.iter().all(|asset| asset
+        .browser_download_url
+        .starts_with("https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.0.35/")));
+}
