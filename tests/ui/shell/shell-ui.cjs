@@ -96,6 +96,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
       await h.clickNav(page, id);
       await page.waitForFunction((route) => location.hash.startsWith(`#/${route}`), id);
       assert.deepEqual(await activeNav(page), [id], `${id}: aria-current follows the click`);
+      await page.locator('.ec-page-header h1').getByText(title, { exact: true }).waitFor();
       assert.equal(await h.pageTitle(page), title, `${id}: title follows the click`);
       assert.equal(await page.locator('.ec-nav-item.is-active').count(), 1, `${id}: one active style`);
     }
