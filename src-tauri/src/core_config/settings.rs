@@ -799,6 +799,22 @@ pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Res
     write_bytes_atomically_with_mode(path, content, true)
 }
 
+// Replacing a file with identical bytes only produces change notifications.
+fn config_already_current(path: &Path, content: &[u8], private: bool) -> bool {
+    if !fs::read(path).is_ok_and(|current| current == content) {
+        return false;
+    }
+    #[cfg(unix)]
+    if private {
+        use std::os::unix::fs::PermissionsExt;
+        return fs::metadata(path)
+            .is_ok_and(|metadata| metadata.permissions().mode() & 0o777 == 0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = private;
+    true
+}
+
 fn write_bytes_atomically_with_mode(
     path: &Path,
     content: &[u8],
@@ -836,6 +852,9 @@ fn write_bytes_atomically_with_mode(
             ));
         }
     };
+    if config_already_current(&destination_path, content, private) {
+        return Ok(());
+    }
     let directory = destination_path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
@@ -933,8 +952,37 @@ pub(crate) fn normalized_config_path(path: &Path) -> PathBuf {
 }
 
 pub(crate) fn remember_software_write(path: &Path, content: &[u8]) {
+    let key = normalized_config_path(path);
+    let hash = sha256_bytes(content);
+    if let Ok(mut seen) = CONFIG_SEEN_HASHES.lock() {
+        seen.insert(key.clone(), hash.clone());
+    }
     if let Ok(mut hashes) = CONFIG_WRITE_HASHES.lock() {
-        hashes.insert(normalized_config_path(path), sha256_bytes(content));
+        hashes.insert(key, hash);
+    }
+}
+
+// Records the file's current content and reports whether it equals what we last wrote
+// or saw. Repeat or metadata-only notifications then change nothing, while any other
+// content, including a missing file, is a real change.
+pub(crate) fn record_config_content(path: &Path) -> bool {
+    let key = normalized_config_path(path);
+    let Ok(mut seen) = CONFIG_SEEN_HASHES.lock() else {
+        return false;
+    };
+    match fs::read(path) {
+        Ok(content) => {
+            let hash = sha256_bytes(&content);
+            seen.insert(key, hash.clone()).is_some_and(|previous| previous == hash)
+        }
+        Err(_) => {
+            // A missing file is not canonicalised, so also drop the key its parent resolves to.
+            seen.remove(&key);
+            if let (Some(parent), Some(name)) = (path.parent(), path.file_name()) {
+                seen.remove(&normalized_config_path(parent).join(name));
+            }
+            false
+        }
     }
 }
 

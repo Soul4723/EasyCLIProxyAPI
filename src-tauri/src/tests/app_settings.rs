@@ -236,6 +236,72 @@ fn software_write_hash_suppresses_only_the_matching_file_content() {
 }
 
 #[test]
+fn repeat_notifications_for_unchanged_content_are_ignored_but_real_edits_are_not() {
+    let home = agent_test_home("seen-content");
+    let path = home.join("config.toml");
+    // An unseen file is conservatively treated as changed, then settles.
+    fs::write(&path, b"port = 8317\n").unwrap();
+    assert!(!record_config_content(&path));
+    assert!(record_config_content(&path));
+    // Rewriting identical bytes (or touching metadata) is not a change.
+    fs::write(&path, b"port = 8317\n").unwrap();
+    assert!(record_config_content(&path));
+    // An external edit after our own write is reported once, even if it races the
+    // notification for that write, and then settles.
+    write_bytes_directly(&path, b"port = 8318\n").unwrap();
+    fs::write(&path, b"port = 9000\n").unwrap();
+    assert!(!record_config_content(&path));
+    assert!(record_config_content(&path));
+    // Our write followed by its notifications is not an external edit.
+    write_bytes_directly(&path, b"port = 8319\n").unwrap();
+    assert!(record_config_content(&path));
+    assert!(record_config_content(&path));
+    // Reverting to older content and deleting then recreating are both changes.
+    fs::write(&path, b"port = 8317\n").unwrap();
+    assert!(!record_config_content(&path));
+    fs::remove_file(&path).unwrap();
+    assert!(!record_config_content(&path));
+    fs::write(&path, b"port = 8317\n").unwrap();
+    assert!(!record_config_content(&path));
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn atomic_config_write_of_identical_content_leaves_the_file_untouched() {
+    let root = agent_test_home("config-write-identical");
+    let target = root.join("config.yaml");
+    write_bytes_atomically(&target, b"port: 8317\n").unwrap();
+    assert!(consume_software_write(&target));
+
+    // Nothing is replaced or recorded, so no notification follows.
+    write_bytes_atomically(&target, b"port: 8317\n").unwrap();
+    assert!(!consume_software_write(&target));
+    assert_eq!(fs::read(&target).unwrap(), b"port: 8317\n");
+
+    write_bytes_atomically(&target, b"port: 8318\n").unwrap();
+    assert!(consume_software_write(&target));
+    assert_eq!(fs::read(&target).unwrap(), b"port: 8318\n");
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn private_config_write_of_identical_content_still_restricts_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = agent_test_home("config-write-identical-private");
+    let target = root.join("gui.toml");
+    fs::write(&target, b"port = 8317\n").unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+
+    write_private_bytes_atomically(&target, b"port = 8317\n").unwrap();
+    assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(fs::read(&target).unwrap(), b"port = 8317\n");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn configuration_watcher_uses_the_nearest_existing_parent() {
     let home = agent_test_home("watch-parent");
     let target = home.join("nested/client/config.json");

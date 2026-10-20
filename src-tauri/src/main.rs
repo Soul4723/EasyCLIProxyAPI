@@ -259,6 +259,8 @@ static CODEX_APPLIED_STATES: LazyLock<
 > = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 static CONFIG_WRITE_HASHES: LazyLock<Mutex<std::collections::HashMap<PathBuf, String>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static CONFIG_SEEN_HASHES: LazyLock<Mutex<std::collections::HashMap<PathBuf, String>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 fn normalize_app_locale(locale: &str) -> &'static str {
     let normalized = locale.trim().to_ascii_lowercase();
