@@ -477,7 +477,13 @@ pub(super) fn read_linux_opencode_package_version() -> Option<String> {
 #[cfg(target_os = "linux")]
 pub(super) fn linux_package_version_from_output(command: &mut Command, separator: char) -> Option<String> {
     configure_background_command(command);
-    let output = command_output_with_timeout(command, AGENT_VERSION_PROBE_TIMEOUT).ok()??;
+    let output = match command_output_with_timeout(command, AGENT_VERSION_PROBE_TIMEOUT).ok()? {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => {
+            log_probe_timeout("Agent package version", &timeout);
+            return None;
+        }
+    };
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .find_map(|line| {
@@ -624,8 +630,14 @@ pub(crate) fn read_macos_app_version(application: &Path) -> Option<String> {
         command
             .args(["-extract", key, "raw", "-o", "-"])
             .arg(&info_plist);
-        let output =
-            command_output_with_timeout(&mut command, AGENT_VERSION_PROBE_TIMEOUT).ok()??;
+        let outcome = command_output_with_timeout(&mut command, AGENT_VERSION_PROBE_TIMEOUT).ok()?;
+        let output = match outcome {
+            CommandOutputOutcome::Completed(output) => output,
+            CommandOutputOutcome::TimedOut(timeout) => {
+                log_probe_timeout("macOS app version", &timeout);
+                continue;
+            }
+        };
         if !output.status.success() {
             continue;
         }
