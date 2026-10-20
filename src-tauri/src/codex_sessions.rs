@@ -275,7 +275,7 @@ pub(crate) async fn repair_codex_session_metadata(
         if expected_provider.as_deref().is_some_and(|expected| expected != target_provider) {
             return Err("Codex provider changed before session synchronization. Refresh and try again".to_string());
         }
-        repair_codex_session_metadata_from_home(&codex_home, &target_provider, |progress| {
+        repair_codex_session_metadata_from_home(&codex_home, &target_provider, true, |progress| {
             let _ = progress_app.emit(REPAIR_PROGRESS_EVENT, progress);
         })
     })
@@ -347,3 +347,5 @@ use process::*;
 mod tests;
 #[cfg(test)]
 mod streaming_tests;
+#[cfg(test)]
+mod repair_safety_tests;

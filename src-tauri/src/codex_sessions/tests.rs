@@ -520,7 +520,7 @@
         .unwrap();
         create_threads_db(&root.join("state_5.sqlite"), &rollout);
 
-        let result = repair_codex_session_metadata_from_home(&root, "cpa-gui", |_| {}).unwrap();
+        let result = repair_codex_session_metadata_from_home(&root, "cpa-gui", false, |_| {}).unwrap();
         assert_eq!(result.changed_rollout_files, 1);
         assert_eq!(result.sqlite_rows_updated, 2);
         let backup = PathBuf::from(result.backup_path.as_ref().unwrap());
@@ -557,7 +557,7 @@
         )
         .unwrap();
 
-        let result = repair_codex_session_metadata_from_home(&root, "cpa-gui", |_| {}).unwrap();
+        let result = repair_codex_session_metadata_from_home(&root, "cpa-gui", false, |_| {}).unwrap();
         assert_eq!(result.changed_rollout_files, 0);
         assert_eq!(result.sqlite_rows_updated, 0);
         assert_eq!(result.backup_path, None);
@@ -585,7 +585,7 @@
             .unwrap();
         let before_mtime = fs::metadata(&rollout).unwrap().modified().unwrap();
 
-        let result = repair_codex_session_metadata_from_home(&root, "cpa-gui", |_| {}).unwrap();
+        let result = repair_codex_session_metadata_from_home(&root, "cpa-gui", false, |_| {}).unwrap();
         assert_eq!(result.changed_rollout_files, 1);
         assert!(result.encrypted_content_warning.is_some());
         let next = fs::read(&rollout).unwrap();

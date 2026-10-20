@@ -1,7 +1,22 @@
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    /// Stands in for the process table: `Some(ids)` makes those ids look like running Codex apps.
+    pub(super) static FAKE_CODEX_PROCESS_IDS: std::cell::RefCell<Option<Vec<u32>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn running_codex_app_process_ids() -> Result<Vec<u32>, String> {
+    #[cfg(test)]
+    if let Some(ids) = FAKE_CODEX_PROCESS_IDS.with(|fake| fake.borrow().clone()) {
+        return Ok(ids);
+    }
+    codex_app_process_ids()
+}
+
 pub(super) fn ensure_codex_apps_stopped() -> Result<(), String> {
-    let running = codex_app_process_ids()?;
+    let running = running_codex_app_process_ids()?;
     if running.is_empty() {
         return Ok(());
     }
