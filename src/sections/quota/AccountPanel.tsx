@@ -17,9 +17,9 @@ import { lightingStateOf } from './useLighting';
 import type { QuotaAccount, WindowView } from './model';
 import { ResetTime, windowLabel } from './WindowMeter';
 
-function BigWindow({ window, now, stale }: { window: WindowView; now: number; stale: boolean }) {
+export function BigWindow({ window, now, stale }: { window: WindowView; now: number; stale: boolean }) {
   const { t, formatNumber, locale } = useI18n();
-  const label = windowLabel(window, t);
+  const label = windowLabel(window, t, true);
   const absolute = window.resetAtMs
     ? formatShortDateTime(window.resetAtMs, locale) : '';
   return (

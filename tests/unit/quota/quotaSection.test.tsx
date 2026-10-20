@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { classifyWindow, deriveStatus, groupAccounts, matchesSearch, windowsOf } from '../../../src/sections/quota/model';
 import { accountFor, renderCard, renderRow, stubLighting } from '../../helpers/quotaAccount';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { I18nProvider } from '../../../src/i18n';
+import { BigWindow } from '../../../src/sections/quota/AccountPanel';
 import { quotaRowsFor, type QuotaState } from '../../../src/services/quotaService';
 
 const NOW = Date.parse('2030-01-01T12:00:00Z');
@@ -31,6 +34,24 @@ describe('quota section model', () => {
     // Providers without model groups carry no group fields.
     const plain = windowsOf(ok([{ label: '5-hour window', remainingPercent: 50 }]), NOW, 'en');
     expect(plain[0].groupLabel).toBeUndefined();
+  });
+
+  it('names the model group in flat meters but not under the panel heading', () => {
+    const rows = quotaRowsFor('antigravity', { groups: [
+      { displayName: 'Gemini Models', buckets: [
+        { displayName: 'Five Hour Limit Remaining', remainingFraction: 0.6 },
+        { displayName: 'Weekly Limit Remaining', remainingFraction: 0.98 },
+      ] },
+    ] });
+    const quota = ok(rows);
+    const file = { name: 'ag.json', provider: 'antigravity' };
+    expect(renderCard(file, quota)).toContain('<span class="qt-win__label">Gemini models · 5h</span>');
+    expect(renderRow(file, quota)).toContain('Gemini models · 5h');
+    const [five] = windowsOf(quota, NOW, 'en');
+    const panel = renderToStaticMarkup(<I18nProvider><BigWindow window={five} now={NOW} stale={false} /></I18nProvider>);
+    // The visible label and the bar name are just "5h"; the tooltip keeps the full raw label.
+    expect(panel).toContain('>5h</div>');
+    expect(panel).toContain('aria-label="5h"');
   });
 
   it('derives one status from health, cooldown and windows', () => {
