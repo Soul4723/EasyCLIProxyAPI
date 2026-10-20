@@ -1,6 +1,177 @@
 use super::*;
 use super::support::*;
 
+fn codex_test_home(name: &str) -> PathBuf {
+    let home = agent_test_home(name);
+    fs::create_dir_all(home.join(".codex")).unwrap();
+    home
+}
+
+fn codex_config_for_target(target: &GuiConfigFile) -> String {
+    build_codex_agent_config(None, &format!("{}/v1", target.client_origin()), "fixture-client", "gpt-5.6-sol").unwrap()
+}
+
+#[tokio::test]
+async fn set_codex_openai_provider_command_fences_write_and_keeps_local_behavior() {
+    let expected_error = "The core connection changed; request cancelled";
+    for (name, target, expected_revision, should_apply) in [
+        ("provider-stale", remote_target("http://client.example.test:9443", "fixture-client"), 1, false),
+        ("provider-current", remote_target("http://client.example.test:9443", "fixture-client"), 0, true),
+        ("provider-local", GuiConfigFile::default(), 0, true),
+    ] {
+        let home = codex_test_home(name);
+        let config = codex_config_for_target(&target);
+        let config_path = home.join(".codex/config.toml");
+        let auth_path = home.join(".codex/auth.json");
+        fs::write(&config_path, &config).unwrap();
+        fs::write(&auth_path, "{}").unwrap();
+        let paths = vec![config_path.clone(), auth_path];
+        let before = config_images(&paths).unwrap();
+        let state = GuiConfigState::new(target.clone());
+
+        let result = set_codex_openai_provider_for_target(
+            &state, &home, true, expected_revision, |_, _| async { Ok(()) },
+        ).await;
+        if should_apply {
+            result.unwrap();
+            let document = parse_codex_document(Some(&fs::read_to_string(&config_path).unwrap()), "Codex config.toml").unwrap();
+            assert!(codex_uses_openai_proxy(&document), "current target should apply the provider switch: {name}");
+        } else {
+            assert_eq!(result.unwrap_err(), expected_error);
+            assert_eq!(config_images(&paths).unwrap(), before, "stale target must not mutate files");
+        }
+        fs::remove_dir_all(home).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn set_codex_openai_provider_rechecks_revision_after_auth_validation() {
+    let expected_error = "The core connection changed; request cancelled";
+    let home = codex_test_home("provider-revision-changed-during-auth-validation");
+    let target = remote_target("http://client.example.test:9443", "fixture-client");
+    let config_path = home.join(".codex/config.toml");
+    let auth_path = home.join(".codex/auth.json");
+    fs::write(&config_path, codex_config_for_target(&target)).unwrap();
+    fs::write(&auth_path, "{}").unwrap();
+    let paths = vec![config_path, auth_path];
+    let before = config_images(&paths).unwrap();
+    let state = GuiConfigState::new(target);
+
+    let result = set_codex_openai_provider_for_target(
+        &state, &home, true, 0,
+        |_, _| {
+            // This closure stands in for the unlocked network auth validation.
+            let mut changed = state.snapshot().unwrap();
+            changed.remote_client_origin = "http://other-client.example.test:9443".into();
+            state.replace_external(changed).unwrap();
+            async { Ok(()) }
+        },
+    ).await;
+
+    assert_eq!(result.unwrap_err(), expected_error);
+    assert_eq!(config_images(&paths).unwrap(), before, "stale auth response must not mutate Codex files");
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn set_codex_remote_compaction_command_fences_write_and_keeps_local_behavior() {
+    let expected_error = "The core connection changed; request cancelled";
+    for (name, target, expected_revision, should_apply) in [
+        ("compaction-stale", remote_target("http://client.example.test:9443", "fixture-client"), 1, false),
+        ("compaction-current", remote_target("http://client.example.test:9443", "fixture-client"), 0, true),
+        ("compaction-local", GuiConfigFile::default(), 0, true),
+    ] {
+        let home = codex_test_home(name);
+        let path = home.join(".codex/config.toml");
+        let before_config = codex_config_for_target(&target);
+        fs::write(&path, &before_config).unwrap();
+        let state = GuiConfigState::new(target);
+
+        let result = set_codex_remote_compaction_for_target(&state, &home, true, expected_revision);
+        if should_apply {
+            result.unwrap();
+            assert!(codex_remote_compaction_enabled(&home).unwrap(), "current target should apply compaction: {name}");
+        } else {
+            assert_eq!(result.unwrap_err(), expected_error);
+            assert_eq!(fs::read_to_string(&path).unwrap(), before_config, "stale target must not mutate config");
+        }
+        fs::remove_dir_all(home).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn save_codex_model_catalog_editor_command_fences_write_and_keeps_local_behavior() {
+    let expected_error = "The core connection changed; request cancelled";
+    let runtime = codex_catalog::parse_runtime_models(&serde_json::json!({"models":[]})).unwrap();
+    for (name, target, expected_revision, should_apply) in [
+        ("catalog-stale", remote_target("http://client.example.test:9443", "fixture-client"), 1, false),
+        ("catalog-current", remote_target("http://client.example.test:9443", "fixture-client"), 0, true),
+        ("catalog-local", GuiConfigFile::default(), 0, true),
+    ] {
+        let home = codex_test_home(name);
+        let path = home.join("codex-model-customizations.json");
+        let state = GuiConfigState::new(target);
+        let result = codex_catalog_editor_target_snapshot(&state, expected_revision).await;
+        if should_apply {
+            let config = result.unwrap();
+            let snapshot = codex_catalog::editor_snapshot(&runtime).unwrap();
+            let request: codex_catalog::CatalogEditorRequest = serde_json::from_value(serde_json::json!({
+                "revision": serde_json::to_value(snapshot).unwrap()["revision"],
+                "models": []
+            })).unwrap();
+            save_codex_model_catalog_for_target(
+                &state, &runtime, request, config.target_revision,
+                |runtime, request| {
+                    let snapshot = codex_catalog::save_customizations(&path, runtime, request)?;
+                    Ok((snapshot, None))
+                },
+            ).await.unwrap();
+            assert!(path.is_file(), "current target should persist catalog customizations: {name}");
+        } else {
+            assert_eq!(result.err().unwrap(), expected_error);
+            assert!(!path.exists(), "stale target must not create customization file");
+        }
+        fs::remove_dir_all(home).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn save_codex_model_catalog_editor_rechecks_revision_after_catalog_read() {
+    let expected_error = "The core connection changed; request cancelled";
+    let home = codex_test_home("catalog-revision-changed-during-read");
+    let path = home.join("codex-model-customizations.json");
+    let target = remote_target("http://client.example.test:9443", "fixture-client");
+    let state = GuiConfigState::new(target);
+    let config = codex_catalog_editor_target_snapshot(&state, 0).await.unwrap();
+
+    // This is the unlocked catalog network-read interval between taking the
+    // target snapshot and saving the editor request.
+    let mut changed = state.snapshot().unwrap();
+    changed.remote_client_origin = "http://other-client.example.test:9443".into();
+    state.replace_external(changed).unwrap();
+
+    let runtime = codex_catalog::parse_runtime_models(&serde_json::json!({"models":[]})).unwrap();
+    let snapshot = codex_catalog::editor_snapshot(&runtime).unwrap();
+    let request: codex_catalog::CatalogEditorRequest = serde_json::from_value(serde_json::json!({
+        "revision": serde_json::to_value(snapshot).unwrap()["revision"],
+        "models": []
+    })).unwrap();
+    let mut applied = false;
+    let result = save_codex_model_catalog_for_target(
+        &state, &runtime, request, config.target_revision,
+        |runtime, request| {
+            applied = true;
+            let snapshot = codex_catalog::save_customizations(&path, runtime, request)?;
+            Ok((snapshot, None))
+        },
+    ).await;
+
+    assert_eq!(result.unwrap_err(), expected_error);
+    assert!(!applied, "stale catalog read must not reach the save callback");
+    assert!(!path.exists(), "stale catalog read must not create customization file");
+    fs::remove_dir_all(home).unwrap();
+}
+
 fn remote_target(origin: &str, key: &str) -> GuiConfigFile {
     GuiConfigFile {
         connection_mode: CoreConnectionMode::Remote,

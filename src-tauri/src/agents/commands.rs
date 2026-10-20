@@ -606,23 +606,54 @@ pub(crate) async fn save_codex_model_catalog_editor(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: codex_catalog::CatalogEditorRequest,
+    expected_revision: u64,
 ) -> Result<CodexCatalogEditorSaveResult, String> {
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
-    let config = gui_config_state.snapshot()?;
+    let config = codex_catalog_editor_target_snapshot(&gui_config_state, expected_revision).await?;
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
-    reload_changed_codex_catalog_files(&app);
-    let customizations_path = codex_model_customizations_path(&app)?;
-    let snapshot =
-        codex_catalog::save_customizations(&customizations_path, &runtime_models, request)?;
-    record_codex_catalog_file_signature(&customizations_path);
-    let synchronization_error = prepare_codex_agent_models(&runtime_models)
-        .and_then(|prepared| sync_prepared_codex_model_catalog(&app, &config, &prepared))
-        .err();
+    let (snapshot, synchronization_error) = save_codex_model_catalog_for_target(
+        &gui_config_state, &runtime_models, request, expected_revision, |runtime_models, request| {
+            reload_changed_codex_catalog_files(&app);
+            let customizations_path = codex_model_customizations_path(&app)?;
+            let snapshot = codex_catalog::save_customizations(&customizations_path, runtime_models, request)?;
+            record_codex_catalog_file_signature(&customizations_path);
+            let synchronization_error = prepare_codex_agent_models(runtime_models)
+                .and_then(|prepared| sync_prepared_codex_model_catalog(&app, &config, &prepared))
+                .err();
+            Ok((snapshot, synchronization_error))
+        },
+    ).await?;
     Ok(CodexCatalogEditorSaveResult {
         snapshot,
         synchronization_error,
     })
+}
+
+pub(crate) async fn codex_catalog_editor_target_snapshot(
+    state: &GuiConfigState,
+    expected_revision: u64,
+) -> Result<GuiConfigFile, String> {
+    let _target_operation = state.target_operation.lock().await;
+    ensure_codex_control_revision(state, expected_revision)?;
+    state.snapshot()
+}
+
+pub(crate) async fn save_codex_model_catalog_for_target<F>(
+    state: &GuiConfigState,
+    runtime_models: &[codex_catalog::CodexRuntimeModel],
+    request: codex_catalog::CatalogEditorRequest,
+    expected_revision: u64,
+    apply: F,
+) -> Result<(codex_catalog::CatalogEditorSnapshot, Option<String>), String>
+where
+    F: FnOnce(
+        &[codex_catalog::CodexRuntimeModel],
+        codex_catalog::CatalogEditorRequest,
+    ) -> Result<(codex_catalog::CatalogEditorSnapshot, Option<String>), String>,
+{
+    let _target_operation = state.target_operation.lock().await;
+    ensure_codex_control_revision(state, expected_revision)?;
+    let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
+    apply(runtime_models, request)
 }
 
 #[tauri::command]

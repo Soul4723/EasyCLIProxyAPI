@@ -32,6 +32,7 @@ runUi(async ({ base }) => {
     await dialog().getByRole('button', { name: 'Confirm', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('[data-row="codex-provider"] [role="switch"]').getAttribute('aria-checked') === 'true');
     assert.equal((await calls('set_codex_openai_provider')).length, 1);
+    assert.equal(typeof (await calls('set_codex_openai_provider'))[0]?.args?.expectedRevision, 'number');
     assert.equal((await calls('repair_codex_session_metadata')).length, 0, 'Remote never touches local session files');
 
     // Local keeps the option.
@@ -53,6 +54,17 @@ runUi(async ({ base }) => {
     const before = (await calls('get_codex_model_catalog_editor')).length;
     await page.waitForTimeout(300);
     assert.equal((await calls('get_codex_model_catalog_editor')).length, before);
+
+    // The catalog editor mutation is fenced with the revision rendered by this document.
+    await open('runtime=local');
+    const approval = page.locator('[data-row="codex-approval-model"]');
+    await approval.locator('.agent-model-picker button.agent-model-trigger').click();
+    await page.getByRole('option').filter({ has: page.getByText('gpt-5.6-sol', { exact: true }) }).click();
+    await approval.getByRole('button', { name: 'Save approval model', exact: true }).click();
+    await page.waitForFunction(() => window.fixtureCalls.some(c => c.cmd === 'save_codex_model_catalog_editor'));
+    const catalogSave = (await calls('save_codex_model_catalog_editor')).at(-1);
+    assert.equal(typeof catalogSave.args.expectedRevision, 'number');
+    assert.equal(catalogSave.args.request.revision, 'codex-fixture-revision');
 
     assert.deepEqual(errors, []);
     console.log('Codex controls runtime UI checks passed');
