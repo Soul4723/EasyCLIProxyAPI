@@ -200,6 +200,7 @@ jobs:
           fi
       - name: Clippy (warnings are reported, not treated as errors)
         id: clippy
+        if: ${{ !cancelled() }}
         run: |
           set -o pipefail
           cargo_manifest=src-tauri/Cargo.toml
@@ -441,7 +442,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - "$RUNNER_TEMP/core-integration/observe" <<'PY'
-          import shutil, sys
+          import re, shutil, sys
           from pathlib import Path
           target = Path(sys.argv[1])
           target.mkdir(parents=True)
@@ -449,33 +450,87 @@ jobs:
           shutil.copytree('scripts/dev-observe', target / 'dev-observe')
           script = target / 'dev-observe.mjs'
           text = script.read_text()
-          old = 'start-core-on-launch = false\\nrun-on-startup = false'
-          new = "start-core-on-launch = ${mode === 'local' ? 'true' : 'false'}\\nmanagement-secret-key = ${JSON.stringify(process.env.CPA_TEST_MANAGEMENT_KEY || '')}\\nrun-on-startup = false"
-          if text.count(old) != 1:
-              raise SystemExit('Could not uniquely patch observer config for CI core integration')
-          text = text.replace(old, new)
-          manual_start = "    if (mode === 'local') await invoke('start_core_process');\n"
-          if text.count(manual_start) != 1:
-              raise SystemExit('Could not uniquely remove observer manual Local start')
-          text = text.replace(manual_start, '')
-          old_port = """  const probe = net.createServer();
-            await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve));
-            const port = probe.address().port;
-            await new Promise(resolve => probe.close(resolve));"""
-          new_port = """  let port;
-            for (let attempt = 0; attempt < 100 && !port; attempt++) {
-              const candidate = Math.floor(Math.random() * (65535 - 49152 + 1)) + 49152;
-              const probe = net.createServer();
-              try {
-                await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(candidate, '127.0.0.1', resolve); });
-                await new Promise((resolve, reject) => probe.close(error => error ? reject(error) : resolve()));
-                port = candidate;
-              } catch { try { probe.close(); } catch {} }
+          # Patch the generated test config, not its source template. This tolerates
+          # formatting/template changes in dev-observe and is safe if already applied.
+          config_marker = 'CI_LOCAL_MANAGEMENT_CONFIG'
+          if config_marker not in text:
+              fifo_anchor = re.compile(r"(?m)^(?P<indent>[ \t]*)const fifo = path\.join\(sandbox, ['\"]control\.fifo['\"]\);")
+              match = fifo_anchor.search(text)
+              if not match:
+                  raise SystemExit('Observer hook has no control FIFO setup anchor')
+              indent = match.group('indent')
+              config_patch = f'''{indent}if (mode === 'local') {{
+          {indent}  // {config_marker}: inject the isolated Local management key after config creation.
+          {indent}const localConfigPath = path.join(sandbox, 'config.toml');
+          {indent}let localConfig = fs.readFileSync(localConfigPath, 'utf8');
+          {indent}const localManagementKey = JSON.stringify(process.env.CPA_TEST_MANAGEMENT_KEY || '');
+          {indent}if (/^management-secret-key\\s*=/m.test(localConfig)) {{
+          {indent}  localConfig = localConfig.replace(/^management-secret-key\\s*=.*$/m, `management-secret-key = ${{localManagementKey}}`);
+          {indent}}} else {{
+          {indent}  localConfig += `management-secret-key = ${{localManagementKey}}\\n`;
+          {indent}}}
+          {indent}fs.writeFileSync(localConfigPath, localConfig, {{ mode: 0o600 }});
+          {indent}}}
+          '''
+              text = text[:match.start()] + config_patch + text[match.start():]
+          # A previously-patched hook is left intact; otherwise insert the scenario
+          # before route observations, after initial app/core readiness setup.
+          restart_marker = "args.includes('--restart-check')"
+          if restart_marker not in text:
+              restart_check = r'''if (mode === 'local' && args.includes('--restart-check')) {
+          const managementRead = async which => {
+            const marker = `RESTART_CHECK management read ${which} restart`;
+            const revisionPrefix = `RESTART_REVISION ${which} `;
+            send(`window.__TAURI_INTERNALS__.invoke('get_management_target_revision').then(r=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(revisionPrefix)}+r})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(revisionPrefix + 'ERROR ')}+String(e)}));`);
+            const revisionReport = await waitReport(revisionPrefix, 5000);
+            if (revisionReport.includes('ERROR')) throw Error(revisionReport);
+            const revision = Number(revisionReport.slice(revisionPrefix.length));
+            if (!Number.isSafeInteger(revision) || revision < 0) throw Error('Invalid management target revision');
+            send(`window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'/credentials',expectedRevision:${revision}}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
+            const result = await waitReport(marker, 5000);
+            if (result.includes('ERROR')) throw Error(result);
+          };
+          await managementRead('before');
+          const restartStarted = Date.now();
+          const restartMarker = 'RESTART_CHECK restart command';
+          send(`window.__TAURI_INTERNALS__.invoke('restart_core_process').then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(restartMarker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(restartMarker + ' ERROR ')}+String(e)}));`);
+          const restartResult = await waitReport(restartMarker, 5000);
+          if (restartResult.includes('ERROR')) throw Error(restartResult);
+          const restartDeadline = restartStarted + 10000;
+          let recovered = false;
+          let statusProbe = 0;
+          while (Date.now() < restartDeadline) {
+            const probeId = ++statusProbe;
+            const prefix = `RESTART_STATUS ${probeId} `;
+            send(`window.__TAURI_INTERNALS__.invoke('get_core_status').then(s=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(prefix)}+JSON.stringify(s)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(prefix + 'ERROR ')}+String(e)}));`);
+            try {
+              const statusReport = await waitReport(prefix, Math.min(1500, Math.max(250, restartDeadline - Date.now())));
+              if (!statusReport.includes('ERROR')) {
+                const status = JSON.parse(statusReport.slice(prefix.length));
+                if (status.running && status.ready) {
+                  recovered = true;
+                  send(report(`RESTART_CHECK ready after ${Date.now() - restartStarted}ms`));
+                  await waitReport('RESTART_CHECK ready after ');
+                  break;
+                }
+              }
+            } catch (error) {
+              if (Date.now() >= restartDeadline) break;
             }
-            if (!port) throw Error('Could not reserve a free high localhost port');"""
-          if text.count(old_port) != 1:
-              raise SystemExit('Could not uniquely patch observer to choose a high app/core port')
-          script.write_text(text.replace(old_port, new_port))
+            await sleep(Math.min(250, Math.max(0, restartDeadline - Date.now())));
+          }
+          if (!recovered) throw Error('Local core did not report running and ready within 10000ms after app restart');
+          await managementRead('after');
+          }
+          '''
+              route_anchor = re.compile(r"(?m)^(?P<indent>[ \t]*)for\s*\(\s*const\s+\w+\s+of\s+routes\s*\)\s*\{")
+              match = route_anchor.search(text)
+              if not match:
+                  raise SystemExit('Observer hook has no route-observation insertion point')
+              indent = match.group('indent')
+              block = '\n'.join(indent + line if line else '' for line in restart_check.splitlines()) + '\n'
+              text = text[:match.start()] + block + text[match.start():]
+          script.write_text(text)
           PY
           management_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           client_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
@@ -513,6 +568,54 @@ jobs:
           statuses = [json.loads(line.split('REPORT CORE ', 1)[1]) for line in open(sys.argv[1]) if 'REPORT CORE ' in line]
           if not any(s.get('running') and s.get('ready') and s.get('managed') and s.get('connectionMode') == 'local' for s in statuses):
               raise SystemExit('In-app Local status did not report a running, ready, managed core')
+          PY
+      - name: Local app restarts core and reuses management connection
+        id: local_restart_integration
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-integration"
+          mkdir -p "$root/logs/local-restart"
+          export HOME="$root/local-restart-home"
+          mkdir -p "$HOME" "$root/local-restart-runtime"
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+          export XDG_RUNTIME_DIR="$root/local-restart-runtime"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          export CPA_TEST_MANAGEMENT_KEY CPA_TEST_CLIENT_KEY EASYCLI_OBSERVE_CACHE="$root/cache"
+          node "$root/observe/dev-observe.mjs" --mode local --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
+            --no-build --restart-check \
+            --core "$CPA_TEST_CORE" --core-config "$CPA_TEST_TEMPLATE" \
+            --name core-local-restart --out "$root/logs/local-restart/observe" \
+            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/local-restart/scenario.log"
+          cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local-restart/core.log" 2>/dev/null || true
+          python3 - "$root/logs/local-restart/observe/ipc.log" <<'PY'
+          import sys
+          lines = open(sys.argv[1]).read().splitlines()
+          positions = {marker: next((i for i, line in enumerate(lines) if marker in line), -1) for marker in (
+              'REPORT RESTART_REVISION before ',
+              'REPORT RESTART_CHECK management read before restart succeeded',
+              'REPORT RESTART_CHECK ready after ',
+              'REPORT RESTART_REVISION after ',
+              'REPORT RESTART_CHECK management read after restart succeeded',
+          )}
+          if any(position < 0 for position in positions.values()):
+              raise SystemExit(f'Missing restart assertion evidence: {positions}')
+          for start, end, label in (
+              ('REPORT RESTART_REVISION before ', 'REPORT RESTART_CHECK management read before restart succeeded', 'before restart'),
+              ('REPORT RESTART_REVISION after ', 'REPORT RESTART_CHECK management read after restart succeeded', 'after restart'),
+          ):
+              if not any('management_request GET /credentials' in line for line in lines[positions[start] + 1:positions[end]]):
+                  raise SystemExit(f'No authenticated GET /credentials was observed {label}')
+          if not positions['REPORT RESTART_CHECK management read before restart succeeded'] < positions['REPORT RESTART_CHECK ready after '] < positions['REPORT RESTART_REVISION after ']:
+              raise SystemExit('Expected readiness recovery between the two management reads')
+          for marker in (
+              'RESTART_CHECK management read before restart succeeded',
+              'RESTART_CHECK management read after restart succeeded',
+              'RESTART_CHECK ready after ',
+          ):
+              if marker not in text:
+                  raise SystemExit(f'Missing restart assertion evidence: {marker}')
           PY
       - name: Start standalone remote core with isolated test config
         id: remote_core
@@ -603,6 +706,7 @@ jobs:
           CORE_SETUP_RESULT: ${{ steps.core_setup.outcome }}
           OBSERVER_SUPPORTED: ${{ steps.observer.outputs.supported }}
           LOCAL_RESULT: ${{ steps.local_integration.outcome }}
+          LOCAL_RESTART_RESULT: ${{ steps.local_restart_integration.outcome }}
           REMOTE_CORE_RESULT: ${{ steps.remote_core.outcome }}
           REMOTE_RESULT: ${{ steps.remote_integration.outcome }}
         run: |
@@ -611,11 +715,14 @@ jobs:
           print('### Real CLIProxyAPI integration')
           if os.environ.get('OBSERVER_SUPPORTED') != 'true':
               print('- Local auto-start: **skipped: source has no dev-observe hook**')
+              print('- Local restart: **skipped: source has no dev-observe hook**')
               print('- Remote connection: **skipped: source has no dev-observe hook**')
           else:
               print(f"- Source-pinned core: **{os.environ.get('CPA_TEST_VERSION', 'unknown')}**; verified checksums.txt: **{os.environ['CORE_SETUP_RESULT']}**")
               print(f"- Debug app build: **{os.environ['APP_BUILD_RESULT']}**")
               print(f"- Local auto-start: **{os.environ['LOCAL_RESULT']}** — app starts the core on launch and its in-app status hook asserts running + ready.")
+              print(f"- Local restart: **{os.environ['LOCAL_RESTART_RESULT']}** — authenticated management reads before/after app restart; in-app running + ready within 10 seconds.")
+              print('- Usage collector readiness timing: **not asserted**; dev-observe exposes core status but not collector state.')
               print(f"- Remote connection: **{os.environ['REMOTE_RESULT']}** (standalone core startup: **{os.environ['REMOTE_CORE_RESULT']}**) — app status hook asserts authenticated management readiness.")
           PY
       - name: Upload integration logs
