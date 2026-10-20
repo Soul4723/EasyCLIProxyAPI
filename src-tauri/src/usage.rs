@@ -5140,33 +5140,40 @@ mod tests {
         assert_eq!(backoff.checked(false), Duration::from_secs(2));
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn readiness_request_ends_a_retry_wait_early() {
         let state = std::sync::Arc::new(UsageCollectorState::default());
         let token = CancellationToken::new();
+        let started = tokio::time::Instant::now();
         let waiter = {
             let state = state.clone();
             tokio::spawn(async move { state.wait_or_cancel(&token, 60).await })
         };
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
         assert!(!waiter.is_finished());
         state.request_readiness_check();
-        tokio::time::timeout(Duration::from_secs(5), waiter)
-            .await
-            .expect("a readiness request should end the retry wait")
-            .unwrap();
+        waiter.await.unwrap();
+        assert!(started.elapsed() < Duration::from_secs(60));
         // The wait leaves the request for the collector loop to consume.
         assert!(state.readiness_requested.load(Ordering::Acquire));
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn stale_readiness_notification_does_not_shorten_a_retry_wait() {
-        let state = UsageCollectorState::default();
+        let state = std::sync::Arc::new(UsageCollectorState::default());
         state.request_readiness_check();
         assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
-        let started = std::time::Instant::now();
-        state.wait_or_cancel(&CancellationToken::new(), 1).await;
-        assert!(started.elapsed() >= Duration::from_millis(900));
+        let token = CancellationToken::new();
+        let waiter = {
+            let state = state.clone();
+            tokio::spawn(async move { state.wait_or_cancel(&token, 10).await })
+        };
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(9)).await;
+        assert!(!waiter.is_finished());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        waiter.await.unwrap();
     }
 
     #[test]
