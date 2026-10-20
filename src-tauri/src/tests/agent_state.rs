@@ -1618,13 +1618,26 @@ fn claude_desktop_connection_evidence_matches_the_active_client_origin() {
     fs::create_dir_all(paths[2].parent().unwrap()).unwrap();
     fs::write(
         &paths[2],
-        r#"{"inferenceGatewayBaseUrl":"https://core.example.test:9443"}"#,
+        r#"{"inferenceGatewayBaseUrl":"http://localhost:8317"}"#,
     )
     .unwrap();
+
+    let local = GuiConfigFile::default();
+    assert!(agent_has_connection_evidence_for_target(
+        AgentClient::ClaudeDesktop,
+        &paths,
+        &local
+    )
+    .unwrap());
 
     let mut remote = GuiConfigFile::default();
     remote.connection_mode = CoreConnectionMode::Remote;
     remote.remote_client_origin = "https://core.example.test:9443".into();
+    fs::write(
+        &paths[2],
+        r#"{"inferenceGatewayBaseUrl":"https://core.example.test:9443"}"#,
+    )
+    .unwrap();
     assert!(agent_has_connection_evidence_for_target(
         AgentClient::ClaudeDesktop,
         &paths,
