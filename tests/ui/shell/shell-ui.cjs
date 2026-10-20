@@ -58,6 +58,9 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     assert.equal(await h.currentRoute(page), route, `${route}: URL is not rewritten`);
     assert.equal(await page.locator('.ec-app').getAttribute('data-page'), id, `${route}: data-page`);
     await waitForTitle(page, TITLES[id]);
+    if (['providers', 'quota', 'usage'].includes(id)) {
+      await page.locator('.ec-page-header').getByRole('tab').first().waitFor();
+    }
     assert.equal(await h.pageTitle(page), TITLES[id], `${route}: header title`);
     assert.deepEqual(await activeNav(page), [id], `${route}: exactly one nav item is current`);
     assert.equal(await page.locator('.ec-page-header h1').count(), 1, `${route}: one header h1`);
