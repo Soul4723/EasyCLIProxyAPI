@@ -497,7 +497,7 @@ jobs:
             if (revisionReport.includes('ERROR')) throw Error(revisionReport);
             const revision = Number(revisionReport.slice(revisionPrefix.length));
             if (!Number.isSafeInteger(revision) || revision < 0) throw Error('Invalid management target revision');
-            send(`window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'credentials',expectedRevision:${revision}}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
+            send(`window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'/credentials',expectedRevision:${revision}}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
             const result = await waitReport(marker, 5000);
             if (result.includes('ERROR')) throw Error(result);
           };
@@ -587,10 +587,24 @@ jobs:
           cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local-restart/core.log" 2>/dev/null || true
           python3 - "$root/logs/local-restart/observe/ipc.log" <<'PY'
           import sys
-          text = open(sys.argv[1]).read()
-          reads = [line for line in text.splitlines() if ' management_request ' in line]
-          if len(reads) < 2:
-              raise SystemExit(f'Expected management reads before and after restart; observed {len(reads)}')
+          lines = open(sys.argv[1]).read().splitlines()
+          positions = {marker: next((i for i, line in enumerate(lines) if marker in line), -1) for marker in (
+              'REPORT RESTART_REVISION before ',
+              'REPORT RESTART_CHECK management read before restart succeeded',
+              'REPORT RESTART_CHECK ready after ',
+              'REPORT RESTART_REVISION after ',
+              'REPORT RESTART_CHECK management read after restart succeeded',
+          )}
+          if any(position < 0 for position in positions.values()):
+              raise SystemExit(f'Missing restart assertion evidence: {positions}')
+          for start, end, label in (
+              ('REPORT RESTART_REVISION before ', 'REPORT RESTART_CHECK management read before restart succeeded', 'before restart'),
+              ('REPORT RESTART_REVISION after ', 'REPORT RESTART_CHECK management read after restart succeeded', 'after restart'),
+          ):
+              if not any('management_request GET /credentials' in line for line in lines[positions[start] + 1:positions[end]]):
+                  raise SystemExit(f'No authenticated GET /credentials was observed {label}')
+          if not positions['REPORT RESTART_CHECK management read before restart succeeded'] < positions['REPORT RESTART_CHECK ready after '] < positions['REPORT RESTART_REVISION after ']:
+              raise SystemExit('Expected readiness recovery between the two management reads')
           for marker in (
               'RESTART_CHECK management read before restart succeeded',
               'RESTART_CHECK management read after restart succeeded',
@@ -703,7 +717,7 @@ jobs:
               print(f"- Source-pinned core: **{os.environ.get('CPA_TEST_VERSION', 'unknown')}**; verified checksums.txt: **{os.environ['CORE_SETUP_RESULT']}**")
               print(f"- Debug app build: **{os.environ['APP_BUILD_RESULT']}**")
               print(f"- Local auto-start: **{os.environ['LOCAL_RESULT']}** — app starts the core on launch and its in-app status hook asserts running + ready.")
-              print(f"- Local restart: **{os.environ['LOCAL_RESTART_RESULT']}** — authenticated config reads before/after app restart; in-app running + ready within 10 seconds.")
+              print(f"- Local restart: **{os.environ['LOCAL_RESTART_RESULT']}** — authenticated management reads before/after app restart; in-app running + ready within 10 seconds.")
               print('- Usage collector readiness timing: **not asserted**; dev-observe exposes core status but not collector state.')
               print(f"- Remote connection: **{os.environ['REMOTE_RESULT']}** (standalone core startup: **{os.environ['REMOTE_CORE_RESULT']}**) — app status hook asserts authenticated management readiness.")
           PY
