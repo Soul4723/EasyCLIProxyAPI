@@ -23,7 +23,10 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Component, Path, PathBuf},
-    sync::{LazyLock, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        LazyLock, Mutex,
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, Manager};
@@ -97,6 +100,7 @@ where
 }
 
 pub(crate) struct UsageCollectorState {
+    readiness_requested: AtomicBool,
     inner: Mutex<UsageCollectorInner>,
 }
 
@@ -151,6 +155,7 @@ struct UsageMigrationSnapshot {
 impl Default for UsageCollectorState {
     fn default() -> Self {
         Self {
+            readiness_requested: AtomicBool::new(false),
             inner: Mutex::new(UsageCollectorInner {
                 token: None,
                 status: UsageCollectorStatus::waiting(),
@@ -528,6 +533,12 @@ struct UsageSqlFilter {
 }
 
 impl UsageCollectorState {
+    /// Asks the running collector to probe core readiness now and restart its
+    /// outage backoff. Called when a lifecycle status is emitted.
+    pub(crate) fn request_readiness_check(&self) {
+        self.readiness_requested.store(true, Ordering::Release);
+    }
+
     fn start(&self) -> Option<CancellationToken> {
         let mut inner = self.inner.lock().ok()?;
         if inner.token.is_some() {
@@ -1836,6 +1847,38 @@ pub(crate) fn stop_usage_collector(app: &tauri::AppHandle) {
     app.state::<UsageCollectorState>().stop();
 }
 
+// Keep outage probes bounded but frequent enough to notice an externally started
+// core within a few seconds. Lifecycle notifications trigger an immediate probe.
+const READINESS_HEALTHY_RECHECK_SECONDS: u64 = 2;
+const READINESS_RETRY_MAX_SECONDS: u64 = 4;
+
+// Readiness failures are not queue failures: keep their retry budget independent
+// of successful inbox processing and the healthy empty-queue polling schedule.
+struct ReadinessBackoff {
+    retry_seconds: u64,
+}
+
+impl ReadinessBackoff {
+    fn new() -> Self {
+        Self { retry_seconds: 2 }
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new();
+    }
+
+    /// Records a probe result and returns the delay before the next probe.
+    fn checked(&mut self, ready: bool) -> Duration {
+        if ready {
+            self.reset();
+            return Duration::from_secs(READINESS_HEALTHY_RECHECK_SECONDS);
+        }
+        let delay = Duration::from_secs(self.retry_seconds);
+        self.retry_seconds = (self.retry_seconds * 2).min(READINESS_RETRY_MAX_SECONDS);
+        delay
+    }
+}
+
 async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let root = match usage_root_dir() {
         Ok(root) => root,
@@ -1852,6 +1895,7 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
     let mut subscribe_retry_at = tokio::time::Instant::now();
     let mut next_inbox_cleanup_at = tokio::time::Instant::now() + Duration::from_secs(60 * 60);
     let mut next_inbox_recovery_at = tokio::time::Instant::now();
+    let mut readiness = ReadinessBackoff::new();
     let mut next_core_check_at = tokio::time::Instant::now();
     let mut core_ready = false;
     loop {
@@ -1913,12 +1957,22 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 }
             }
         }
+        // Lifecycle status is emitted by user actions and recovery attempts, not by
+        // unchanged status polls. While waiting we revisit this flag every second.
+        if app
+            .state::<UsageCollectorState>()
+            .readiness_requested
+            .swap(false, Ordering::AcqRel)
+        {
+            readiness.reset();
+            next_core_check_at = tokio::time::Instant::now();
+        }
         if tokio::time::Instant::now() >= next_core_check_at {
             let process_state = app.state::<CoreProcessState>();
             core_ready = current_core_status(Some(process_state.inner()), Some(config.port))
                 .map(|status| status.ready)
                 .unwrap_or(false);
-            next_core_check_at = tokio::time::Instant::now() + Duration::from_secs(2);
+            next_core_check_at = tokio::time::Instant::now() + readiness.checked(core_ready);
         }
         if !core_ready {
             subscription = None;
@@ -5035,6 +5089,34 @@ mod tests {
             assert_eq!(filtered.models[0].requests, expected);
             assert_eq!(load_usage_events(&connection, &query, &config).unwrap().total, expected as usize);
         }
+    }
+
+    #[test]
+    fn readiness_backoff_is_bounded_and_success_resets_it() {
+        let mut backoff = ReadinessBackoff::new();
+        for seconds in [2, 4, 4, 4, 4] {
+            assert_eq!(backoff.checked(false), Duration::from_secs(seconds));
+        }
+        assert_eq!(backoff.checked(true), Duration::from_secs(2));
+        assert_eq!(backoff.checked(false), Duration::from_secs(2));
+        assert!(READINESS_RETRY_MAX_SECONDS <= 4);
+    }
+
+    #[test]
+    fn readiness_request_is_consumed_once_and_restarts_retry_budget() {
+        let mut backoff = ReadinessBackoff::new();
+        for _ in 0..8 {
+            backoff.checked(false);
+        }
+        assert_eq!(backoff.retry_seconds, READINESS_RETRY_MAX_SECONDS);
+        let state = UsageCollectorState::default();
+        assert!(!state.readiness_requested.load(Ordering::Acquire));
+        state.request_readiness_check();
+        state.request_readiness_check();
+        assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
+        assert!(!state.readiness_requested.swap(false, Ordering::AcqRel));
+        backoff.reset();
+        assert_eq!(backoff.checked(false), Duration::from_secs(2));
     }
 
     #[test]
