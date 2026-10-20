@@ -1238,7 +1238,7 @@
 
         let stored: String = connection
             .query_row(
-                "SELECT source FROM usage_events WHERE id = 'source-key-1'",
+                "SELECT source FROM usage_events WHERE event_key = 'source-key-1'",
                 [],
                 |row| row.get(0),
             )
