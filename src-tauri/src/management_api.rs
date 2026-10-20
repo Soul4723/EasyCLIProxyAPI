@@ -723,11 +723,7 @@ fn runtime_token_for_id(
         return Ok((token, false));
     }
 
-    let generation = NEXT_RUNTIME_GENERATION
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            current.checked_add(1)
-        })
-        .map_err(|_| "Management runtime generation exhausted".to_string())?;
+    let generation = NEXT_RUNTIME_GENERATION.fetch_add(1, Ordering::Relaxed);
     let token = Arc::new(RuntimeToken { generation });
     tokens.insert(runtime_id, Arc::downgrade(&token));
     Ok((token, true))
@@ -760,21 +756,6 @@ fn ensure_oauth_target(state: &GuiConfigState, config: &GuiConfigFile, oauth_sta
         return Err("OAuth session belongs to a different or expired core connection; start login again".to_string());
     }
     Ok(())
-}
-
-pub(crate) fn management_http_client() -> Result<reqwest::Client, String> {
-    local_management_http_client(current_core_tls_settings()?.enabled)
-}
-
-fn local_management_http_client(local_tls: bool) -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
-        .danger_accept_invalid_certs(local_tls)
-        .build()
-        .map_err(|err| format_management_request_error("Failed to create management API client", &err))
 }
 
 pub(crate) fn format_management_request_error(
@@ -1157,7 +1138,7 @@ server.serve_forever()
         .get(&url)
         .send()
         .await;
-        let strict_local = local_management_http_client(false).unwrap().get(&url).send().await;
+        let strict_local = build_management_http_client(false).unwrap().get(&url).send().await;
         let config = GuiConfigFile {
             connection_mode: super::super::CoreConnectionMode::Remote,
             remote_management_origin: format!("https://127.0.0.1:{}", server.port),
@@ -1176,8 +1157,8 @@ server.serve_forever()
         assert!(strict_remote.unwrap().is_err());
     }
 
-    #[test]
-    fn partial_remote_target_can_still_construct_management_client() {
+    #[tokio::test]
+    async fn partial_remote_target_can_still_construct_management_client() {
         let config = GuiConfigFile {
             connection_mode: super::super::CoreConnectionMode::Remote,
             remote_management_origin: "https://management.example".into(),
@@ -1192,17 +1173,23 @@ server.serve_forever()
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/", listener.local_addr().unwrap());
-        let server = async {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = [0; 4096];
-            let _request_bytes = socket.read(&mut request).await.unwrap();
-            socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
-        };
-        let client = cached_management_http_client(&url, false, None, None).unwrap();
-        let (response, ()) = tokio::time::timeout(Duration::from_secs(5), async {
-            tokio::join!(client.get(url).bearer_auth("isolated-secret").send(), server)
-        }).await.unwrap();
-        assert_eq!(response.unwrap().status(), reqwest::StatusCode::FOUND);
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                let _request_bytes = socket.read(&mut request).await.unwrap();
+                socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+            }
+        });
+        for relaxed_tls in [false, true] {
+            let client = cached_management_http_client(&url, relaxed_tls, None, None).unwrap();
+            let response = tokio::time::timeout(
+                Duration::from_secs(5),
+                client.get(&url).bearer_auth("isolated-secret").send(),
+            ).await.unwrap();
+            assert_eq!(response.unwrap().status(), reqwest::StatusCode::FOUND);
+        }
+        tokio::time::timeout(Duration::from_secs(5), server).await.unwrap().unwrap();
     }
 
     #[tokio::test]
