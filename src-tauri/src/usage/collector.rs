@@ -275,6 +275,49 @@ pub(crate) fn stop_usage_collector(app: &tauri::AppHandle) {
     app.state::<UsageCollectorState>().stop();
 }
 
+/// The collector's own SQLite connection, kept across loop iterations instead of
+/// reopening the database on every inbox recovery tick. It is replaced when the
+/// storage root changes, when the database file is gone, and after any failed
+/// operation; dropping it (the loop returning when the collector stops) closes it.
+/// An idle connection holds no locks, so other usage paths are not blocked by it.
+#[derive(Default)]
+pub(super) struct CollectorDatabase {
+    pub(super) open: Option<(PathBuf, Connection)>,
+    #[cfg(test)]
+    pub(super) opens: usize,
+}
+
+impl CollectorDatabase {
+    pub(super) fn with<T>(
+        &mut self,
+        root: &Path,
+        operation: impl FnOnce(&mut Connection) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let reusable = self.open.as_ref().is_some_and(|(open_root, _)| open_root == root)
+            && root.join(USAGE_DATABASE_FILE).is_file();
+        if !reusable {
+            self.close();
+            self.open = Some((root.to_path_buf(), open_usage_database_at(root)?));
+            #[cfg(test)]
+            {
+                self.opens += 1;
+            }
+        }
+        let Some((_, connection)) = self.open.as_mut() else {
+            return Err("Usage records database connection is unavailable".to_string());
+        };
+        let result = operation(connection);
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
+    pub(super) fn close(&mut self) {
+        self.open = None;
+    }
+}
+
 // A successful HTTP pop cannot be repeated. Keep both the raw records and
 // their normalization/storage identity until local persistence succeeds.
 pub(super) struct PendingRemoteUsageBatch {
@@ -292,11 +335,21 @@ impl PendingRemoteUsageBatch {
         Self { root, source, config, messages, enqueued: false }
     }
 
-    pub(super) fn persist(pending: &mut Option<Self>) -> Result<UsagePersistOutcome, String> {
+    pub(super) fn persist(
+        pending: &mut Option<Self>,
+        database: &mut CollectorDatabase,
+    ) -> Result<UsagePersistOutcome, String> {
+        // The two steps run one after the other, so the shared handle is never borrowed twice.
+        let database = std::cell::RefCell::new(database);
         Self::persist_with(
             pending,
-            |root, source, messages| enqueue_usage_raw_messages(&mut open_usage_database_at(root)?, source, messages).map(|_| ()),
-            |root, config| process_usage_inbox(&mut open_usage_database_at(root)?, config),
+            |root, source, messages| {
+                database
+                    .borrow_mut()
+                    .with(root, |connection| enqueue_usage_raw_messages(connection, source, messages))
+                    .map(|_| ())
+            },
+            |root, config| database.borrow_mut().with(root, |connection| process_usage_inbox(connection, config)),
         )
     }
 
@@ -406,6 +459,8 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
     let mut remote_ready_error: Option<String> = None;
     let mut active_connection: Option<String> = None;
     let mut pending_remote_batch: Option<PendingRemoteUsageBatch> = None;
+    // Dropped with the loop, so every return path (the collector stopping) closes it.
+    let mut database = CollectorDatabase::default();
     // Newest readiness request generation that has cut a prerequisite retry wait
     // short, so a persistent failure backs off normally instead of spinning.
     let mut prerequisite_woken_for = 0_u64;
@@ -417,7 +472,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
         // further destructive read, even when the user switched to Local mode.
         if let Some(batch) = pending_remote_batch.as_ref() {
             let config = batch.config.clone();
-            match PendingRemoteUsageBatch::persist(&mut pending_remote_batch) {
+            match PendingRemoteUsageBatch::persist(&mut pending_remote_batch, &mut database) {
                 Ok(outcome) => {
                     if app.state::<GuiConfigState>().ensure_target(&config).is_ok() {
                         publish_collected_records(&app, outcome, "Saved retained remote usage batch");
@@ -480,16 +535,13 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
             active_connection = Some(connection_key);
         }
         if tokio::time::Instant::now() >= next_inbox_cleanup_at {
-            if let Err(error) = open_usage_database_at(&root)
-                .and_then(|connection| cleanup_usage_inbox(&connection, Local::now()))
-            {
+            if let Err(error) = database.with(&root, |connection| cleanup_usage_inbox(connection, Local::now())) {
                 eprintln!("Failed to clean up usage records inbox: {error}");
             }
             next_inbox_cleanup_at = tokio::time::Instant::now() + Duration::from_secs(60 * 60);
         }
         if tokio::time::Instant::now() >= next_inbox_recovery_at {
-            let recovered = open_usage_database_at(&root)
-                .and_then(|mut connection| process_usage_inbox(&mut connection, &config));
+            let recovered = database.with(&root, |connection| process_usage_inbox(connection, &config));
             match recovered {
                 Ok(outcome) if outcome.inserted > 0 || outcome.deleted > 0 => {
                     let saved = outcome.inserted;
@@ -673,12 +725,9 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
             };
             match message {
                 Ok(Ok(payload)) => {
-                    match persist_raw_usage_message_from_source(
-                        &root,
-                        "redis_subscribe:usage",
-                        payload,
-                        &config,
-                    ) {
+                    match database.with(&root, |connection| {
+                        persist_raw_usage_messages_on(connection, "redis_subscribe:usage", vec![payload], &config)
+                    }) {
                         Ok(outcome) => {
                             let saved = outcome.inserted;
                             publish_collected_records(
@@ -735,12 +784,9 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
             }
             Ok(batch) => {
                 let source_label = collector_source_label(&batch.source);
-                match persist_raw_usage_messages_from_source(
-                    &root,
-                    &batch.source,
-                    batch.messages,
-                    &config,
-                ) {
+                match database.with(&root, |connection| {
+                    persist_raw_usage_messages_on(connection, &batch.source, batch.messages, &config)
+                }) {
                     Ok(outcome) => {
                         let saved = outcome.inserted;
                         publish_collected_records(
