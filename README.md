@@ -43,8 +43,8 @@ product. What the fork changed or removed is listed in
 - **An agent briefing.** `cpa-brief` prints, in about a hundred tokens, how much quota headroom each
   provider has, when its windows reset and which models are routable now, so a coding agent can decide
   how hard to fan out before it delegates. It reads cached data and never calls a provider. See
-  [docs/agent-briefing.md](docs/agent-briefing.md) and the agent skill in
-  [skills/cpa-brief/SKILL.md](skills/cpa-brief/SKILL.md).
+  [docs/agent-briefing.md](docs/agent-briefing.md); `cpa-brief --skill` prints the agent skill
+  ([skills/cpa-brief/SKILL.md](skills/cpa-brief/SKILL.md)) for you to install where you keep skills.
 - **A browser mock and a headless observation path** so the UI can be developed and tested without
   Tauri, and the real app can be observed without a desktop session.
 
