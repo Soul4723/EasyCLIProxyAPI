@@ -48,7 +48,8 @@ describe('plugin Management API', () => {
     controller.abort();
     finish({ status: 'ok', id: 'sample' });
     expect(await rejected).toMatchObject({ name: 'AbortError' });
-    expect(cancellations).toContainEqual({ requestId: 'cancel-test' });
+    // The platform bridge adds the target revision to management commands.
+    expect(cancellations).toContainEqual(expect.objectContaining({ requestId: 'cancel-test' }));
   });
 
   it('releases a reservation cancelled before dispatch without sending an installation', async () => {
