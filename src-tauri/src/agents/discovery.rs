@@ -2926,6 +2926,11 @@ pub(crate) fn command_output_with_timeout(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let mut child = command.spawn()?;
     let mut stdout = child
         .stdout
@@ -2935,26 +2940,31 @@ pub(crate) fn command_output_with_timeout(
         .stderr
         .take()
         .ok_or_else(|| io::Error::other("Unable to read agent detection error output"))?;
-    thread::scope(|scope| {
-        let stdout_reader = scope.spawn(move || {
-            let mut output = Vec::new();
-            stdout.read_to_end(&mut output).map(|_| output)
-        });
-        let stderr_reader = scope.spawn(move || {
-            let mut output = Vec::new();
-            stderr.read_to_end(&mut output).map(|_| output)
-        });
-        let deadline = Instant::now() + timeout;
-        let status = loop {
-            if let Some(status) = child.try_wait()? {
-                break Some(status);
+    // Reader threads must not hold the caller past the deadline while a
+    // descendant keeps either inherited pipe open.
+    let stdout_reader = thread::spawn(move || {
+        let mut output = Vec::new();
+        stdout.read_to_end(&mut output).map(|_| output)
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut output = Vec::new();
+        stderr.read_to_end(&mut output).map(|_| output)
+    });
+    let deadline = Instant::now() + timeout;
+    let result = (|| {
+        let mut status = None;
+        loop {
+            if status.is_none() {
+                status = child.try_wait()?;
+            }
+            if status.is_some() && stdout_reader.is_finished() && stderr_reader.is_finished() {
+                break;
             }
             if Instant::now() >= deadline {
-                terminate_agent_probe_process(&mut child);
-                break None;
+                return Ok(None);
             }
             thread::sleep(AGENT_VERSION_PROBE_POLL_INTERVAL);
-        };
+        }
         let stdout = stdout_reader
             .join()
             .map_err(|_| io::Error::other("Agent detection output thread exited unexpectedly"))??;
@@ -2966,7 +2976,11 @@ pub(crate) fn command_output_with_timeout(
             stdout,
             stderr,
         }))
-    })
+    })();
+    if !matches!(&result, Ok(Some(_))) {
+        terminate_agent_probe_process(&mut child);
+    }
+    result
 }
 
 fn terminate_agent_probe_process(child: &mut Child) {
@@ -2981,6 +2995,12 @@ fn terminate_agent_probe_process(child: &mut Child) {
             .stderr(Stdio::null());
         configure_background_command(&mut command);
         let _ = command.status();
+    }
+    #[cfg(unix)]
+    {
+        // The child owns the private group assigned when it was spawned.
+        // Use #95's validated signal helper so only that group can be targeted.
+        let _ = crate::process_signal::signal_group(child.id(), libc::SIGKILL);
     }
     let _ = child.kill();
     let _ = child.wait();

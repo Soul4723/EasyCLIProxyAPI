@@ -2725,14 +2725,14 @@ fn agent_probe_command_captures_output_before_timeout() {
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut command = Command::new(windows_command_processor());
-        command.args(["/D", "/C", "echo agent 1.2.3"]);
+        command.args(["/D", "/C", "echo agent 1.2.3 & echo probe warning 1>&2"]);
         configure_background_command(&mut command);
         command
     };
     #[cfg(not(target_os = "windows"))]
     let mut command = {
         let mut command = Command::new("sh");
-        command.args(["-c", "printf 'agent 1.2.3\\n'"]);
+        command.args(["-c", "printf 'agent 1.2.3\\n'; printf 'probe warning\\n' >&2"]);
         command
     };
 
@@ -2744,6 +2744,10 @@ fn agent_probe_command_captures_output_before_timeout() {
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         "agent 1.2.3"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "probe warning"
     );
 }
 
@@ -2774,6 +2778,35 @@ fn agent_probe_command_stops_at_timeout() {
 
     assert!(output.is_none());
     assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_probe_command_times_out_when_exited_shell_leaves_descendant_pipes() {
+    let mut command = Command::new("sh");
+    // The shell exits successfully immediately; the background child retains both pipes.
+    command.args(["-c", "sleep 5 & exit 0"]);
+    let started = Instant::now();
+    let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
+
+    assert!(output.is_none());
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_probe_timeout_does_not_stop_an_unrelated_process() {
+    let mut unrelated = Command::new("sleep").arg("5").spawn().unwrap();
+    let mut command = Command::new("sh");
+    command.args(["-c", "sleep 5"]);
+
+    let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
+    let unrelated_is_running = unrelated.try_wait().unwrap().is_none();
+    let _ = unrelated.kill();
+    let _ = unrelated.wait();
+
+    assert!(output.is_none());
+    assert!(unrelated_is_running, "probe timeout stopped an unrelated process");
 }
 
 #[test]
