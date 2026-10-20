@@ -213,14 +213,10 @@ async fn read_account(
     now_ms: i64,
 ) -> Result<QuotaAccount, String> {
     let call = api_call(provider, file).ok_or("no quota read for this provider")?;
-    let mut body = json!({ "authIndex": index, "method": call.method, "url": call.url, "header": call.header });
-    if let Some(data) = call.data {
-        body["data"] = json!(data);
-    }
     let response = client
         .post(management_endpoint(config, "requests/api-call")?)
         .header("Authorization", management_authorization(config)?)
-        .json(&body)
+        .json(&api_call_body(index, call)?)
         .timeout(REQUEST_TIMEOUT)
         .send()
         .await
@@ -244,6 +240,18 @@ pub(crate) struct ApiCall {
     pub(crate) url: &'static str,
     pub(crate) header: Value,
     pub(crate) data: Option<&'static str>,
+}
+
+/// The `requests/api-call` body; refuses any URL outside `ALLOWED_URLS`.
+pub(crate) fn api_call_body(index: &str, call: ApiCall) -> Result<Value, String> {
+    if !ALLOWED_URLS.contains(&call.url) {
+        return Err("quota URL is not allowlisted".to_string());
+    }
+    let mut body = json!({ "authIndex": index, "method": call.method, "url": call.url, "header": call.header });
+    if let Some(data) = call.data {
+        body["data"] = json!(data);
+    }
+    Ok(body)
 }
 
 /// The same request `quotaService.ts` makes for the account; `None` for providers the CLI does not read.
@@ -320,8 +328,8 @@ pub(crate) fn build_account(
     Ok(QuotaAccount {
         auth_index: index.to_string(),
         provider: provider.to_string(),
-        label: if identity.is_empty() { String::new() } else { clip(&mask_identifier(&identity), 40) },
-        plan: clip(&plan, 24),
+        label: if identity.is_empty() { String::new() } else { mask_identifier(&identity) },
+        plan,
         disabled: false,
         fetched_at_ms: Some(now_ms),
         credit_balance: if provider == "codex" { balance } else { None },
@@ -389,7 +397,7 @@ pub(crate) fn windows(rows: &[Row], now_ms: i64) -> Vec<QuotaWindow> {
             let group = if plain { String::new() } else if prefix.is_empty() { row.label.clone() } else { prefix };
             Some(QuotaWindow {
                 kind: kind.to_string(),
-                group: clip(&mask_text(&group), 40),
+                group: mask_text(&group),
                 remaining_percent: Some(percent),
                 reset_at_ms: row.reset_at_ms,
                 available: false,
@@ -695,11 +703,6 @@ fn codex_records(file: &Value) -> Vec<Value> {
 
 fn first(records: &[Value], keys: &[&str]) -> String {
     records.iter().map(|record| read_string(record, keys)).find(|text| !text.is_empty()).unwrap_or_default()
-}
-
-fn clip(value: &str, max: usize) -> String {
-    let printable: String = value.chars().filter(|c| *c as u32 > 31 && *c as u32 != 127).collect();
-    printable.trim().chars().take(max).collect()
 }
 
 /// `maskEmail` / `maskIdentifier` in `privacyMask.ts`.

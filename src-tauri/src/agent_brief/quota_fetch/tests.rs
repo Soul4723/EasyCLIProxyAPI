@@ -308,6 +308,8 @@ async fn reads_use_only_allowlisted_usage_urls_through_the_core() {
     assert_eq!(claude.1["header"]["anthropic-beta"], "oauth-2025-04-20");
     assert_eq!(claude.1["method"], "GET");
     assert!(claude.1.get("data").is_none());
+    let inference = ApiCall { method: "POST", url: "https://api.anthropic.com/v1/messages", header: json!({}), data: None };
+    assert!(api_call_body("c1", inference).is_err(), "a URL outside the allowlist is refused before any request");
 
     let indices: Vec<_> = part.accounts.iter().map(|a| a.auth_index.as_str()).collect();
     assert_eq!(indices.len(), 3);
