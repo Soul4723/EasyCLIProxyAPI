@@ -7,13 +7,8 @@ pub(crate) async fn fetch_release(
     custom_mirrors: &[String],
 ) -> Result<(GithubRelease, VersionDownloadCandidate), String> {
     if let Some(version) = version {
-        let tag = validate_core_version(version)?;
         return Ok((
-            release_from_tag_for_repositories(
-                &tag,
-                configured_gitcode_core_repository(),
-                &source,
-            ),
+            release_from_discovered_tag(version, configured_gitcode_core_repository(), &source)?,
             source,
         ));
     }
@@ -75,8 +70,11 @@ pub(crate) async fn fetch_release_from_gitcode(
         .json::<GitcodeRelease>()
         .await
         .map_err(|error| format!("Failed to parse latest GitCode kernel release: {error}"))?;
-    validate_release_tag(&release.tag_name)?;
-    Ok(release_from_gitcode_tag(&release.tag_name, repository))
+    release_from_discovered_tag(
+        &release.tag_name,
+        Some(repository),
+        &VersionDownloadCandidate::builtin(VersionDownloadSource::Gitcode),
+    )
 }
 
 pub(crate) async fn fetch_release_from_page(
@@ -101,13 +99,17 @@ pub(crate) async fn fetch_release_from_page(
         return Err(format_github_error(status.as_u16(), &body));
     }
 
-    let tag = release_tag_from_url(&final_url)
+    release_from_page_url(&final_url, source)
+}
+
+/// Builds the release from the tag a GitHub release page redirected to.
+pub(crate) fn release_from_page_url(
+    final_url: &reqwest::Url,
+    source: &VersionDownloadCandidate,
+) -> Result<GithubRelease, String> {
+    let tag = release_tag_from_url(final_url)
         .ok_or_else(|| "GitHub release page did not return a version tag".to_string())?;
-    Ok(release_from_tag_for_repositories(
-        &tag,
-        configured_gitcode_core_repository(),
-        source,
-    ))
+    release_from_discovered_tag(&tag, configured_gitcode_core_repository(), source)
 }
 
 pub(crate) async fn fetch_release_from_atom(
@@ -133,13 +135,29 @@ pub(crate) async fn fetch_release_from_atom(
     if !status.is_success() {
         return Err(format_github_error(status.as_u16(), &body));
     }
-    let tag = release_tag_from_atom(&body)
+    release_from_atom_body(&body, source)
+}
+
+/// Builds the release from the newest entry of a GitHub releases Atom feed.
+pub(crate) fn release_from_atom_body(
+    xml: &str,
+    source: &VersionDownloadCandidate,
+) -> Result<GithubRelease, String> {
+    let tag = release_tag_from_atom(xml)
         .ok_or_else(|| "GitHub Atom feed did not return a version tag".to_string())?;
-    Ok(release_from_tag_for_repositories(
-        &tag,
-        configured_gitcode_core_repository(),
-        source,
-    ))
+    release_from_discovered_tag(&tag, configured_gitcode_core_repository(), source)
+}
+
+/// Every "latest" source (GitHub Atom, GitHub page, GitCode, and mirrors of the first two) hands
+/// back a tag controlled by a remote party. It must pass `validate_release_version` before it is
+/// used to build any release or mirror URL.
+pub(crate) fn release_from_discovered_tag(
+    tag: &str,
+    gitcode_repository: Option<&str>,
+    source: &VersionDownloadCandidate,
+) -> Result<GithubRelease, String> {
+    let tag = validate_release_version(tag)?;
+    Ok(release_from_tag_for_repositories(&tag, gitcode_repository, source))
 }
 
 pub(crate) fn release_tag_from_atom(xml: &str) -> Option<String> {
@@ -172,6 +190,7 @@ pub(crate) fn release_from_tag(tag: &str) -> GithubRelease {
     )
 }
 
+#[cfg(test)]
 pub(crate) fn release_from_gitcode_tag(tag: &str, repository: &str) -> GithubRelease {
     release_from_tag_for_repositories(
         tag,

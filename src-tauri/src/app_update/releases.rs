@@ -157,9 +157,8 @@ pub(crate) async fn fetch_portable_update_manifest_from_gitcode(
         .json::<GitcodeRelease>()
         .await
         .map_err(|error| format!("parse GitCode latest release: {error}"))?;
-    validate_release_tag(&release.tag_name)?;
-    let manifest_url =
-        gitcode_release_attachment_url(repository, &release.tag_name, APP_UPDATE_MANIFEST_NAME);
+    let tag = validate_release_version(&release.tag_name)?;
+    let manifest_url = gitcode_release_attachment_url(repository, &tag, APP_UPDATE_MANIFEST_NAME);
     fetch_portable_update_manifest_url(client, &manifest_url).await
 }
 
@@ -240,12 +239,6 @@ pub(crate) fn configured_gitcode_repository(
         }
         _ => None,
     }
-}
-
-pub(crate) fn validate_release_tag(tag: &str) -> Result<(), String> {
-    semver::Version::parse(tag.strip_prefix('v').unwrap_or(tag))
-        .map(|_| ())
-        .map_err(|error| format!("invalid release tag {tag}: {error}"))
 }
 
 pub(crate) fn gitcode_release_attachment_url(

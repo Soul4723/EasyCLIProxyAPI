@@ -196,7 +196,7 @@ pub(crate) async fn install_core_version(
     version: Option<String>,
 ) -> Result<CoreInstallResult, String> {
     crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
-    let version = version.as_deref().map(validate_core_version).transpose()?;
+    let version = version.as_deref().map(validate_release_version).transpose()?;
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
         let state = app.state::<CoreDownloadState>();

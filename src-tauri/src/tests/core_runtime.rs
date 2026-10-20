@@ -1826,10 +1826,10 @@ fn stop_start_invalidates_a_pending_recovery_generation() {
 
 #[test]
 fn core_version_validation_accepts_semver_and_canonicalizes_the_tag() {
-    assert_eq!(validate_core_version("8.0.35").unwrap(), "v8.0.35");
-    assert_eq!(validate_core_version("v8.0.35").unwrap(), "v8.0.35");
-    assert_eq!(validate_core_version("8.0.35-rc.1").unwrap(), "v8.0.35-rc.1");
-    assert_eq!(validate_core_version("v10.20.30-beta").unwrap(), "v10.20.30-beta");
+    assert_eq!(validate_release_version("8.0.35").unwrap(), "v8.0.35");
+    assert_eq!(validate_release_version("v8.0.35").unwrap(), "v8.0.35");
+    assert_eq!(validate_release_version("8.0.35-rc.1").unwrap(), "v8.0.35-rc.1");
+    assert_eq!(validate_release_version("v10.20.30-beta").unwrap(), "v10.20.30-beta");
 }
 
 #[test]
@@ -1862,7 +1862,7 @@ fn core_version_validation_rejects_hostile_and_malformed_input() {
     ];
     for input in hostile {
         assert!(
-            validate_core_version(input).is_err(),
+            validate_release_version(input).is_err(),
             "{input:?} must be rejected"
         );
     }
@@ -1880,7 +1880,7 @@ fn fetch_release_rejects_a_hostile_version_before_building_any_url() {
         ))
         .err()
         .expect("hostile version must be rejected");
-        assert!(error.contains("Invalid kernel version"), "{error}");
+        assert!(error.contains("Invalid release version"), "{error}");
     }
     let (release, _) = tauri::async_runtime::block_on(fetch_release(
         &client,
@@ -1893,4 +1893,84 @@ fn fetch_release_rejects_a_hostile_version_before_building_any_url() {
     assert!(release.assets.iter().all(|asset| asset
         .browser_download_url
         .starts_with("https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.0.35/")));
+}
+
+fn hostile_release_tags() -> [&'static str; 6] {
+    [
+        "1/../../../../evil/repo/releases/download/v1/x.tar.gz",
+        "../../evil/repo",
+        "v8.0.35%2F..%2Fevil",
+        "%2e%2e",
+        "v8.0.35+build.7",
+        "https://evil.example/x",
+    ]
+}
+
+fn release_sources() -> Vec<VersionDownloadCandidate> {
+    vec![
+        VersionDownloadCandidate::builtin(VersionDownloadSource::Github),
+        VersionDownloadCandidate::builtin(VersionDownloadSource::GhProxy),
+        VersionDownloadCandidate::builtin(VersionDownloadSource::GhFast),
+        VersionDownloadCandidate::custom("https://mirror.example/"),
+    ]
+}
+
+#[test]
+fn hostile_tag_from_the_github_atom_feed_is_rejected_for_every_source() {
+    for source in release_sources() {
+        for tag in hostile_release_tags() {
+            let link = format!(
+                "<feed><entry><link rel=\"alternate\" href=\"https://github.com/router-for-me/CLIProxyAPI/releases/tag/{tag}\"/></entry></feed>"
+            );
+            let title = format!("<feed><entry><title>{tag}</title></entry></feed>");
+            for xml in [link, title] {
+                let error = release_from_atom_body(&xml, &source)
+                    .err()
+                    .unwrap_or_else(|| panic!("atom tag {tag:?} must be rejected for {source:?}"));
+                assert!(error.contains("Invalid release version"), "{error}");
+            }
+        }
+        let release = release_from_atom_body(
+            "<feed><entry><link href=\"https://github.com/router-for-me/CLIProxyAPI/releases/tag/v8.0.35\"/></entry></feed>",
+            &source,
+        )
+        .unwrap();
+        assert_eq!(release.tag_name, "v8.0.35");
+    }
+}
+
+#[test]
+fn hostile_tag_from_the_github_release_page_is_rejected_for_every_source() {
+    for source in release_sources() {
+        for tag in hostile_release_tags() {
+            let url = reqwest::Url::parse(&format!(
+                "https://github.com/router-for-me/CLIProxyAPI/releases/tag/{}",
+                tag.replace('/', "%2F")
+            ))
+            .unwrap();
+            assert!(
+                release_from_page_url(&url, &source).is_err(),
+                "page tag {tag:?} must be rejected for {source:?}"
+            );
+        }
+        let url = reqwest::Url::parse(
+            "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v8.0.35",
+        )
+        .unwrap();
+        assert_eq!(release_from_page_url(&url, &source).unwrap().tag_name, "v8.0.35");
+    }
+}
+
+#[test]
+fn hostile_tag_from_gitcode_is_rejected_and_build_metadata_no_longer_passes() {
+    let source = VersionDownloadCandidate::builtin(VersionDownloadSource::Gitcode);
+    for tag in hostile_release_tags() {
+        assert!(
+            release_from_discovered_tag(tag, Some("lzt404/CLIProxyAPI"), &source).is_err(),
+            "gitcode tag {tag:?} must be rejected"
+        );
+    }
+    let release =
+        release_from_discovered_tag("8.0.35", Some("lzt404/CLIProxyAPI"), &source).unwrap();
+    assert_eq!(release.tag_name, "v8.0.35");
 }
