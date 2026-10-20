@@ -331,22 +331,17 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
     [applyDefaultCredentialPriority, clearPollingTimer, completeProviderAuth, loadAccounts, showNotice, t, updateProviderState],
   );
 
-  const cancelSession = useCallback((state?: string | null) => {
-    if (state) void managementApi.delete('/oauth/session', { query: { state } }).catch(() => {});
-  }, []);
-
   useEffect(() => {
     return () => {
-      // Leaving the page cancels pending sign-ins and fences starts still in flight.
+      // Leaving the page stops polling but leaves core sessions alone, so a sign-in finished in the
+      // browser still completes. Fence starts still in flight so they cannot restart polling.
       BUILTIN_OAUTH_PROVIDER_IDS.forEach((id) => { loginAttempts.current[id] = (loginAttempts.current[id] ?? 0) + 1; });
-      const sessions = new Set(Object.values(pollingSessions.current));
       pollingSessions.current = {};
       Object.values(pollingTimers.current).forEach((timer) => {
         if (timer !== undefined) window.clearInterval(timer);
       });
-      sessions.forEach(cancelSession);
     };
-  }, [cancelSession]);
+  }, []);
 
   const startLogin = async (provider: OAuthProviderId) => {
     const attempt = (loginAttempts.current[provider] ?? 0) + 1;
@@ -372,10 +367,7 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
         provider,
         browser: selectedBrowser,
       });
-      if (!isAttempt()) {
-        cancelSession(result.state);
-        return;
-      }
+      if (!isAttempt()) return;
       if (!result.state) {
         updateProviderState(provider, {
           url: result.url,

@@ -33,18 +33,18 @@ const path = require('node:path');
     };
 
     for (const view of views) {
-      // Leaving the page cancels the pending session and stops polling; a late success changes nothing.
+      // Leaving the page stops polling and fences a late success, but leaves the core session alone.
       await open(view);
       await page.evaluate(() => { window.metaFixture.holdStatus = true; });
       await view.signIn().click();
       await page.waitForFunction(() => window.metaFixture.releaseStatus !== null);
       await page.evaluate(() => window.metaUnmount());
-      await page.waitForFunction(() => window.metaFixture.cancelledStates.includes('meta-attempt-1'));
       const stoppedPolls = (await fixture()).statusCalls;
       await page.evaluate(() => window.metaFixture.releaseStatus());
       await page.waitForTimeout(150);
       assert.equal((await fixture()).statusCalls, stoppedPolls, `${view.name}: polling must stop on unmount`);
       assert.deepEqual((await fixture()).priorityPatches, [], `${view.name}: a late success must not apply credential priority`);
+      assert.deepEqual((await fixture()).cancelledStates, [], `${view.name}: leaving the page must not cancel the core session`);
 
       // Returning starts a clean flow, not the remembered one.
       await page.evaluate(() => window.metaMount());
@@ -54,19 +54,27 @@ const path = require('node:path');
       await page.getByText('META-CODE-2', { exact: true }).waitFor();
       assert.equal(await startCalls(), 2, `${view.name}: remount starts one new session`);
 
-      // A start answered after the page is gone is cancelled and never polled.
+      // A start answered after the page is gone must neither poll nor cancel anything.
       await open(view, '&holdStart=1');
       await view.signIn().click();
       await page.waitForFunction(() => window.metaFixture.releaseStart !== null);
       await page.evaluate(() => window.metaUnmount());
       await page.evaluate(() => window.metaFixture.releaseStart());
-      await page.waitForFunction(() => window.metaFixture.cancelledStates.includes('meta-attempt-1'));
       await page.waitForTimeout(150);
       assert.equal((await fixture()).statusCalls, 0, `${view.name}: a late start must never be polled`);
+      assert.deepEqual((await fixture()).cancelledStates, [], `${view.name}: a late start must not cancel the core session`);
     }
 
+    // The only explicit cancel on the page is Refresh Link: it cancels the old session and starts a new one.
+    await open(views[0]);
+    await views[0].signIn().click();
+    await managementCard().getByText('META-CODE-1', { exact: true }).waitFor();
+    await managementCard().getByRole('button', { name: 'Refresh Link', exact: true }).click();
+    await managementCard().getByText('META-CODE-2', { exact: true }).waitFor();
+    assert.deepEqual((await fixture()).cancelledStates, ['meta-attempt-1']);
+
     assert.deepEqual(errors, []);
-    console.log('OAuth page lifecycle UI passed: unmount cancellation, polling stop, late success and late start fencing, clean remount.');
+    console.log('OAuth page lifecycle UI passed: unmount stops polling without cancelling, late success and late start fencing, clean remount, explicit refresh cancel.');
   } catch (error) { console.error(error); process.exitCode = 1; }
   finally { await browser?.close(); await server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
