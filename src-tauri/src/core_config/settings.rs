@@ -837,9 +837,6 @@ pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Res
 }
 
 fn write_bytes_atomically_with_mode(path: &Path, content: &[u8], private: bool) -> Result<(), String> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     if fs::read(path).ok().as_deref() == Some(content) {
         if private {
             restrict_private_permissions(path)?;
@@ -853,15 +850,22 @@ fn write_bytes_atomically_with_mode(path: &Path, content: &[u8], private: bool) 
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("config.yaml");
+    let mut random_suffix = [0_u8; 16];
+    getrandom::fill(&mut random_suffix)
+        .map_err(|error| format!("Failed to create a temporary configuration name: {error}"))?;
+    let random_suffix = random_suffix
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     let temporary_path = directory.join(format!(
         ".{file_name}.tmp.{}.{}",
         std::process::id(),
-        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        random_suffix
     ));
 
     let write_result = (|| -> io::Result<()> {
         let mut options = fs::OpenOptions::new();
-        options.create(true).write(true).truncate(true);
+        options.create_new(true).write(true);
         #[cfg(unix)]
         if private {
             use std::os::unix::fs::OpenOptionsExt;
