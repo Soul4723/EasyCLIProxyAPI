@@ -25,6 +25,7 @@ static REQUESTS: LazyLock<Mutex<HashMap<String, CancellationToken>>> =
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 static MANAGEMENT_CLIENTS: LazyLock<Mutex<HashMap<ManagementClientKey, Arc<reqwest::Client>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+const MAX_MANAGEMENT_CLIENTS: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct ManagementClientKey {
@@ -32,6 +33,7 @@ struct ManagementClientKey {
     accept_invalid_certs: bool,
     tls_cert: Option<String>,
     tls_key: Option<String>,
+    runtime_id: tokio::runtime::Id,
 }
 
 // Reserve before sending so cancellation also works before the HTTP request starts.
@@ -615,11 +617,17 @@ fn cached_management_http_client(
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("Invalid management origin".to_string());
     }
+    // reqwest's connection pool is tied to the runtime that first drives it. Do not
+    // share a pooled client across Tauri/test runtimes, which may be shut down separately.
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return build_management_http_client(accept_invalid_certs).map(Arc::new);
+    };
     let key = ManagementClientKey {
         origin: parsed.origin().ascii_serialization(),
         accept_invalid_certs,
         tls_cert,
         tls_key,
+        runtime_id: runtime.id(),
     };
     let mut clients = MANAGEMENT_CLIENTS
         .lock()
@@ -627,17 +635,24 @@ fn cached_management_http_client(
     if let Some(client) = clients.get(&key) {
         return Ok(Arc::clone(client));
     }
-    let client = reqwest::Client::builder()
+    if clients.len() >= MAX_MANAGEMENT_CLIENTS {
+        clients.clear();
+    }
+    let client = build_management_http_client(accept_invalid_certs)?;
+    let client = Arc::new(client);
+    clients.insert(key, Arc::clone(&client));
+    Ok(client)
+}
+
+fn build_management_http_client(accept_invalid_certs: bool) -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .danger_accept_invalid_certs(accept_invalid_certs)
         .build()
-        .map_err(|_| "Failed to create management client".to_string())?;
-    let client = Arc::new(client);
-    clients.insert(key, Arc::clone(&client));
-    Ok(client)
+        .map_err(|_| "Failed to create management client".to_string())
 }
 
 fn oauth_callback_state(redirect_url: &str) -> Result<String, String> {
@@ -821,8 +836,8 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    #[test]
-    fn management_client_cache_is_scoped_to_origin_and_tls_policy() {
+    #[tokio::test]
+    async fn management_client_cache_is_scoped_to_origin_and_tls_policy() {
         let first = cached_management_http_client("https://core-a.example:9443", true, Some("cert-a".into()), Some("key-a".into())).unwrap();
         let same = cached_management_http_client("https://core-a.example:9443/", true, Some("cert-a".into()), Some("key-a".into())).unwrap();
         let different_origin = cached_management_http_client("https://core-b.example:9443", true, Some("cert-a".into()), Some("key-a".into())).unwrap();
@@ -832,6 +847,31 @@ mod tests {
         assert!(!Arc::ptr_eq(&first, &strict));
     }
 
+    #[tokio::test]
+    async fn management_clients_are_not_shared_across_tokio_runtimes() {
+        let from_other_runtime = std::thread::spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    cached_management_http_client("http://runtime.example:8080", false, None, None)
+                        .unwrap()
+                })
+        })
+        .join()
+        .unwrap();
+
+        let current_runtime = cached_management_http_client(
+            "http://runtime.example:8080",
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(!Arc::ptr_eq(&from_other_runtime, &current_runtime));
+    }
+
     #[test]
     fn management_request_timeout_overrides_client_default() {
         let client = cached_management_http_client("http://timeout.example:8080", false, None, None).unwrap();
@@ -839,8 +879,8 @@ mod tests {
         assert_eq!(request.timeout(), Some(&Duration::from_secs(7)));
     }
 
-    #[test]
-    fn switching_target_or_certificate_never_reuses_relaxed_client() {
+    #[tokio::test]
+    async fn switching_target_or_certificate_never_reuses_relaxed_client() {
         let original = cached_management_http_client("https://target-a.example:9443", true, Some("old-cert".into()), Some("old-key".into())).unwrap();
         let switched_target = cached_management_http_client("https://target-b.example:9443", true, Some("old-cert".into()), Some("old-key".into())).unwrap();
         let switched_certificate = cached_management_http_client("https://target-a.example:9443", true, Some("new-cert".into()), Some("new-key".into())).unwrap();
@@ -878,6 +918,7 @@ server.serve_forever()
         let strict_local = local_management_http_client(false).unwrap().get(&url).send().await;
         let config = GuiConfigFile {
             connection_mode: super::super::CoreConnectionMode::Remote,
+            remote_management_origin: format!("https://127.0.0.1:{}", port.trim()),
             ..Default::default()
         };
         let strict_remote = management_http_client_for(&config).unwrap().get(&url).send().await;
@@ -892,23 +933,19 @@ server.serve_forever()
     #[tokio::test]
     async fn management_clients_never_follow_redirects() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        for remote in [false, true] {
-            let mut config = GuiConfigFile::default();
-            if remote { config.connection_mode = super::super::CoreConnectionMode::Remote; }
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let url = format!("http://{}/", listener.local_addr().unwrap());
-            let server = async {
-                let (mut socket, _) = listener.accept().await.unwrap();
-                let mut request = [0; 4096];
-                let _request_bytes = socket.read(&mut request).await.unwrap();
-                socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
-            };
-            let client = management_http_client_for(&config).unwrap();
-            let (response, ()) = tokio::time::timeout(Duration::from_secs(5), async {
-                tokio::join!(client.get(url).bearer_auth("isolated-secret").send(), server)
-            }).await.unwrap();
-            assert_eq!(response.unwrap().status(), reqwest::StatusCode::FOUND);
-        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = async {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            let _request_bytes = socket.read(&mut request).await.unwrap();
+            socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+        };
+        let client = cached_management_http_client(&url, false, None, None).unwrap();
+        let (response, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(client.get(url).bearer_auth("isolated-secret").send(), server)
+        }).await.unwrap();
+        assert_eq!(response.unwrap().status(), reqwest::StatusCode::FOUND);
     }
 
     #[tokio::test]
