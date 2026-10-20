@@ -344,7 +344,7 @@ async fn preview_agent_config_template_cancels_after_switch_while_models_fetch_i
     );
     tokio::pin!(call);
     tokio::select! {
-        result = &mut call => panic!("template preview finished before the model server answered: {result:?}"),
+        result = &mut call => panic!("template preview finished before the model server answered: {}", if result.is_ok() { "success" } else { "error" }),
         arrived = arrived_rx => arrived.unwrap(),
     }
     assert!(state.target_operation.try_lock().is_ok(), "model fetch held the target fence");
@@ -353,7 +353,8 @@ async fn preview_agent_config_template_cancels_after_switch_while_models_fetch_i
     changed.remote_client_key = "target-b-client".into();
     state.replace_external(changed).unwrap();
     release_tx.send(()).unwrap();
-    let error = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap().unwrap_err();
+    let result = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap();
+    let error = match result { Ok(_) => panic!("template preview returned after the target changed"), Err(error) => error };
     assert!(error.contains("request cancelled"), "{error}");
     server.await.unwrap();
 }
