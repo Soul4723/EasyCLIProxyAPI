@@ -29,8 +29,73 @@ export const newWebviewToken = (): number => {
 
 export type PluginWebviewLabels = { back: string; reload: string; openExternal: string; move: string };
 
+type BoundsSender = (bounds: WebviewBounds, token: number) => Promise<unknown>;
+type FrameScheduler = (callback: FrameRequestCallback) => number;
+
+export function createBoundsUpdater(send: BoundsSender, scheduleFrame: FrameScheduler) {
+  let lastSent: { bounds: WebviewBounds; token: number } | undefined;
+  let pending: { bounds: WebviewBounds; token: number } | undefined;
+  let waiters: Array<{ resolve: () => void; reject: (reason: unknown) => void }> = [];
+  let scheduled = false;
+  let sending = false;
+
+  const flush = () => {
+    scheduled = false;
+    if (sending) return;
+    const next = pending;
+    const currentWaiters = waiters;
+    pending = undefined;
+    waiters = [];
+    if (!next) {
+      currentWaiters.forEach(({ resolve }) => resolve());
+      return;
+    }
+    if (lastSent?.token === next.token && sameBounds(lastSent.bounds, next.bounds)) {
+      currentWaiters.forEach(({ resolve }) => resolve());
+      return;
+    }
+    sending = true;
+    void send(next.bounds, next.token).then(() => {
+      lastSent = next;
+      currentWaiters.forEach(({ resolve }) => resolve());
+    }, (reason) => currentWaiters.forEach(({ reject }) => reject(reason))).finally(() => {
+      sending = false;
+      if (pending && !scheduled) {
+        scheduled = true;
+        scheduleFrame(flush);
+      }
+    });
+  };
+
+  return {
+    update(bounds: WebviewBounds, token: number): Promise<void> {
+      pending = { bounds, token };
+      const result = new Promise<void>((resolve, reject) => waiters.push({ resolve, reject }));
+      if (!scheduled) {
+        scheduled = true;
+        scheduleFrame(flush);
+      }
+      return result;
+    },
+    markApplied(bounds: WebviewBounds, token: number) {
+      lastSent = { bounds, token };
+    },
+  };
+}
+
+const boundsUpdater = createBoundsUpdater(
+  (bounds, token) => invoke('set_plugin_webview_bounds', { bounds, token }),
+  (callback) => requestAnimationFrame(callback),
+);
+
 export const showPluginWebview = (args: { pluginId: string; menuIndex: number; bounds: WebviewBounds; labels: PluginWebviewLabels; reload: boolean; token: number }) =>
-  invoke<string>('show_plugin_webview', args);
-export const setPluginWebviewBounds = (bounds: WebviewBounds, token: number) => invoke('set_plugin_webview_bounds', { bounds, token });
-export const hidePluginWebview = (token: number) => invoke('hide_plugin_webview', { token });
+  invoke<string>('show_plugin_webview', args).then((url) => {
+    boundsUpdater.markApplied(args.bounds, args.token);
+    return url;
+  });
+export const setPluginWebviewBounds = (bounds: WebviewBounds, token: number) => boundsUpdater.update(bounds, token);
+export const hidePluginWebview = async (token: number) => {
+  await invoke('hide_plugin_webview', { token });
+  await invoke('close_plugin_webview', { token });
+};
 export const closePluginWebview = () => invoke('close_plugin_webview');

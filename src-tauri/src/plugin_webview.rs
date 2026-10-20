@@ -56,6 +56,14 @@ impl Inner {
         self.owner = None;
         self.session = None;
     }
+
+    fn close_if_hidden(&mut self, token: Option<u64>) -> bool {
+        if token.is_some_and(|token| self.latest != token || self.owner.is_some()) {
+            return false;
+        }
+        self.clear();
+        true
+    }
 }
 
 impl PluginWebviewState {
@@ -345,10 +353,11 @@ async fn open_plugin_page(
     let config = gui_config_state.snapshot()?;
     let url = resolve_plugin_entry_url(&config, &plugin_id, menu_index).await?;
     // Fence the resolved URL and key as one target-bound webview update.
-    let _target_operation = gui_config_state.target_operation.lock().await;
+    let target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
     let key = management_plaintext_key(&config)?.to_string();
     let origin = url_origin(&url)?;
+    drop(target_operation);
     let mut inner = state.lock()?;
     if !inner.owns(token) {
         return Err(SUPERSEDED.to_string());
@@ -394,6 +403,13 @@ async fn open_plugin_page(
             let script = plugin_page_script(&origin, &key, &labels);
             build_webview(app, &url, script, placed)?;
         }
+    }
+    drop(inner);
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
+    let mut inner = state.lock()?;
+    if !inner.owns(token) {
+        return Err(SUPERSEDED.to_string());
     }
     inner.session = Some(Session {
         origin,
@@ -442,9 +458,12 @@ pub(crate) async fn hide_plugin_webview(
 pub(crate) async fn close_plugin_webview(
     app: AppHandle,
     state: State<'_, PluginWebviewState>,
+    token: Option<u64>,
 ) -> Result<(), String> {
     let mut inner = state.lock()?;
-    inner.clear();
+    if !inner.close_if_hidden(token) {
+        return Ok(());
+    }
     match plugin_webview(&app) {
         Some(webview) => webview.close().map_err(|error| error.to_string()),
         None => Ok(()),
@@ -585,6 +604,24 @@ mod tests {
         assert!(!inner.owns(8));
         assert!(!inner.begin(8, None), "tokens stay monotonic after close");
         assert!(inner.session.is_none());
+    }
+
+    #[test]
+    fn close_only_closes_the_same_hidden_webview() {
+        let mut inner = Inner::default();
+        assert!(inner.begin(10, None));
+        assert!(inner.release(10));
+        assert!(!inner.close_if_hidden(Some(9)));
+        assert!(inner.close_if_hidden(Some(10)));
+        assert!(inner.session.is_none());
+
+        assert!(inner.begin(11, None));
+        assert!(
+            !inner.close_if_hidden(Some(10)),
+            "an old hide must not close a reopened page"
+        );
+        assert!(inner.owns(11));
+        assert!(inner.close_if_hidden(None), "an explicit app shutdown may close any page");
     }
 
     #[test]

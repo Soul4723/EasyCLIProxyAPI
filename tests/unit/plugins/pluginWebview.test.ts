@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { EMPTY_BOUNDS, effectiveBounds, hasArea, newWebviewToken, roundBounds, sameBounds } from '../../../src/services/pluginWebview';
+import { createBoundsUpdater, EMPTY_BOUNDS, effectiveBounds, hasArea, newWebviewToken, roundBounds, sameBounds } from '../../../src/services/pluginWebview';
 
 describe('plugin webview bounds', () => {
   test('rounds measured rectangles and clamps negatives', () => {
@@ -29,5 +29,36 @@ describe('plugin webview bounds', () => {
     tokens.slice(1).forEach((token, index) => expect(token).toBeGreaterThan(tokens[index]));
     expect(tokens.every(Number.isSafeInteger)).toBe(true);
     expect(tokens[0]).toBeGreaterThanOrEqual(Date.now() * 1000 - 1_000_000);
+  });
+
+  test('skips unchanged bounds and coalesces rapid changes into one frame update', async () => {
+    const frames: FrameRequestCallback[] = [];
+    const sent: Array<{ bounds: typeof EMPTY_BOUNDS; token: number }> = [];
+    const updater = createBoundsUpdater(async (bounds, token) => { sent.push({ bounds, token }); }, (callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const frame = async () => {
+      frames.shift()?.(0);
+      await Promise.resolve();
+    };
+    const first = { x: 1, y: 2, width: 300, height: 200, viewportHeight: 768 };
+    const initial = updater.update(first, 7);
+    await frame();
+    await initial;
+    expect(sent).toEqual([{ bounds: first, token: 7 }]);
+
+    const unchanged = updater.update({ ...first }, 7);
+    await frame();
+    await unchanged;
+    expect(sent).toHaveLength(1);
+
+    const second = { ...first, x: 2 };
+    const third = { ...first, x: 3 };
+    const rapid = [updater.update(second, 7), updater.update(third, 7)];
+    expect(frames).toHaveLength(1);
+    await frame();
+    await Promise.all(rapid);
+    expect(sent).toEqual([{ bounds: first, token: 7 }, { bounds: third, token: 7 }]);
   });
 });
