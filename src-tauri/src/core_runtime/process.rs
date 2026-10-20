@@ -161,7 +161,7 @@ pub(crate) fn core_start_stdio(log_path: &Path) -> io::Result<(Stdio, Stdio)> {
     {
         use std::os::unix::fs::PermissionsExt;
         if header_file.metadata()?.permissions().mode() & 0o7777 != 0o600 {
-            header_file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            tolerate_chmod_refusal(header_file.set_permissions(fs::Permissions::from_mode(0o600)), log_path)?;
         }
     }
     writeln!(header_file, "\n===== CPA kernel startup {} =====", unix_now())?;
