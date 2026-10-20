@@ -27,6 +27,11 @@ export function subscribeFixedWindowEvent(
 
 /** No initial or catch-up interval tick. Hidden time does not count toward the next interval. */
 export function startVisibleInterval(tick: () => void, intervalMs: number, onVisible?: () => void) {
+  if (typeof document === 'undefined') {
+    const timer = setInterval(tick, intervalMs);
+    return () => clearInterval(timer);
+  }
+
   let timer: ReturnType<typeof setInterval> | undefined;
   let initialized = false;
   const onVisibility = () => {
