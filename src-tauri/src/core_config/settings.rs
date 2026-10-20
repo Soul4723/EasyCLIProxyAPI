@@ -792,6 +792,18 @@ pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), St
 }
 
 pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_atomically_with_mode(path, content, false)
+}
+
+pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_atomically_with_mode(path, content, true)
+}
+
+fn write_bytes_atomically_with_mode(
+    path: &Path,
+    content: &[u8],
+    private: bool,
+) -> Result<(), String> {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -807,17 +819,49 @@ pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), 
         std::process::id(),
         SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
+    #[cfg(unix)]
+    let existing_mode = if private {
+        Some(0o600)
+    } else {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path)
+            .ok()
+            .map(|metadata| metadata.permissions().mode() & 0o777)
+    };
 
+    let mut temporary_created = false;
     let write_result = (|| -> io::Result<()> {
-        let mut file = File::create(&temporary_path)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        if let Some(mode) = existing_mode {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(mode);
+        }
+        let mut file = options.open(&temporary_path)?;
+        temporary_created = true;
+        // Apply the exact mode before writing; OpenOptionsExt::mode is subject to umask.
+        #[cfg(unix)]
+        if let Some(mode) = existing_mode {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(mode))?;
+        }
+        #[cfg(not(unix))]
+        let _ = private;
         file.write_all(content)?;
         file.sync_all()?;
         drop(file);
-        replace_file_atomically(&temporary_path, path)
+        replace_file_atomically(&temporary_path, path)?;
+        // Persist the directory entry update where opening and syncing directories is supported.
+        #[cfg(unix)]
+        File::open(directory)?.sync_all()?;
+        Ok(())
     })();
 
     if let Err(error) = write_result {
-        let _ = fs::remove_file(&temporary_path);
+        if temporary_created {
+            let _ = fs::remove_file(&temporary_path);
+        }
         return Err(format!(
             "Failed to write configuration atomically {}: {error}",
             path_to_string(path)
@@ -2367,9 +2411,19 @@ pub(crate) fn write_gui_config_to_path(
     toml::from_str::<GuiConfigFile>(&content)
         .map_err(|error| format!("Failed to validate GUI configuration: {error}"))?;
     if existing.as_deref() == Some(content.as_str()) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if fs::metadata(config_path)
+                .is_ok_and(|metadata| metadata.permissions().mode() & 0o777 == 0o600)
+            {
+                return Ok(());
+            }
+        }
+        #[cfg(not(unix))]
         return Ok(());
     }
-    write_bytes_directly(config_path, content.as_bytes())
+    write_private_bytes_atomically(config_path, content.as_bytes())
 }
 
 pub(crate) fn validate_gui_config(config: &GuiConfigFile) -> Result<(), String> {
