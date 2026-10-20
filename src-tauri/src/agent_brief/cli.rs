@@ -1,6 +1,7 @@
 //! The `--brief` command line: runs before the instance lock and before any Tauri, GTK or webview
 //! initialisation, so it is fast and can never start a second GUI.
 use super::model::{CorePart, QuotaPart, CORE_FILE, QUOTA_FILE};
+use super::quota_fetch;
 use super::refresh::{self, is_fresh};
 use super::render::{self, Filters, Inputs};
 use crate::{CoreConnectionMode, GuiConfigFile};
@@ -13,7 +14,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const USAGE: &str = "Usage: cpa-brief [--json] [--accounts] [--provider NAME] [--model TEXT] | --skill
 
 Prints how much headroom each provider has and which models are routable now.
-Reads cached data; reads the core's management API at most once a minute; never calls a provider.
+Reads cached data; reads the core's management API at most once a minute and, through it, read-only
+quota usage at most every 5 minutes per account; never sends an inference request.
   --json            structured output
   --accounts        add one line per account (masked ids)
   --provider NAME   only this provider (claude, codex, xai, ...)
@@ -75,7 +77,7 @@ fn filter_value(flag: &str, value: String) -> Result<String, String> {
     }
 }
 
-fn read_part<T: DeserializeOwned>(dir: &Path, file: &str) -> Option<T> {
+pub(super) fn read_part<T: DeserializeOwned>(dir: &Path, file: &str) -> Option<T> {
     serde_json::from_slice(&std::fs::read(dir.join(file)).ok()?).ok()
 }
 
@@ -88,7 +90,11 @@ pub(super) struct RefreshLock {
 
 impl RefreshLock {
     pub(super) fn acquire(dir: &Path) -> Result<Self, LockAcquireError> {
-        let path = dir.join(LOCK_FILE);
+        Self::acquire_named(dir, LOCK_FILE)
+    }
+
+    pub(super) fn acquire_named(dir: &Path, name: &str) -> Result<Self, LockAcquireError> {
+        let path = dir.join(name);
         for _ in 0..2 {
             match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut file) => {
@@ -149,17 +155,21 @@ pub(super) fn refresh_core(config: &GuiConfigFile, dir: &Path, origin: &str, cac
             Some(part)
         }
         Err(LockAcquireError::Held) => {
-            // Someone else is refreshing: wait for their file instead of asking the core again.
-            let started = std::time::Instant::now();
-            while started.elapsed() < LOCK_WAIT && dir.join(LOCK_FILE).exists() {
-                std::thread::sleep(Duration::from_millis(100));
-            }
+            wait_for_lock(dir, LOCK_FILE);
             read_part::<CorePart>(dir, CORE_FILE).filter(|part| part.origin == origin).or(cached)
         }
         Err(LockAcquireError::Unavailable) => {
             // A read-only or otherwise unwritable cache must not silently pin stale core state.
             Some(refresh_without_cache(config, origin, cached.as_ref()))
         }
+    }
+}
+
+/// Someone else is refreshing: wait briefly for their file instead of asking again.
+pub(super) fn wait_for_lock(dir: &Path, name: &str) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < LOCK_WAIT && dir.join(name).exists() {
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -240,11 +250,12 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
             return 1;
         }
     };
-    let quota = read_part::<QuotaPart>(&dir, QUOTA_FILE).filter(|part| part.origin == origin);
+    let app_quota = read_part::<QuotaPart>(&dir, QUOTA_FILE).filter(|part| part.origin == origin);
     let mut core = read_part::<CorePart>(&dir, CORE_FILE).filter(|part| part.origin == origin);
     if !core.as_ref().is_some_and(|part| is_fresh(part, now_ms())) {
         core = refresh_core(&config, &dir, &origin, core);
     }
+    let quota = quota_fetch::current(&config, &dir, &origin, app_quota, core.as_ref());
     if quota.is_none() && !core.as_ref().is_some_and(|part| part.ok_at_ms > 0) {
         eprintln!("cpa-brief: no briefing data yet (core could not be refreshed). {START_HINT}");
         return 1;

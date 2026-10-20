@@ -4,9 +4,12 @@
 //!
 //! * The running app publishes its quota cache (already masked) through `agent_briefing_publish`.
 //! * The CLI reads the core's own management API when its copy is older than a TTL.
-//! * Nothing polls, and nothing ever calls a provider.
+//! * When no read of an enabled account is newer than 5 min, the CLI reads Claude, Codex and Devin
+//!   quota itself through the core's `requests/api-call` (read-only usage URLs only).
+//! * Nothing polls, and nothing ever sends an inference request.
 mod cli;
 mod model;
+mod quota_fetch;
 mod refresh;
 mod render;
 #[cfg(test)]

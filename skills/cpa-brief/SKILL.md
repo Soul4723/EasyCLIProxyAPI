@@ -1,12 +1,13 @@
 ---
 name: cpa-brief
-description: Get a cheap, cached briefing of provider headroom, reset times and routable models. Run BEFORE planning or delegating, and again before a long run. It makes no provider calls.
+description: Get a cheap, cached briefing of provider headroom, reset times and routable models. Run BEFORE planning or delegating, and again before a long run. It sends no inference requests.
 ---
 
 # cpa-brief: pre-delegation briefing
 
 Run it before planning or delegating, and again before a long run. It reads cached quota and core
-routing data and makes no provider calls; do not poll it.
+routing data, re-reads stale Claude, Codex and Devin quota from read-only usage endpoints, and never
+sends an inference request; do not poll it.
 
 ## Run
 
@@ -59,5 +60,6 @@ guide: swarm=claude light=codex(5h=8%~20m)
   settings and open Overview or Quota once. Do not invent numbers. Exit 2 is a bad option.
 - `core=down` although you know the core is up: your sandbox may block loopback; treat the numbers as
   unknown, not as an outage.
-- Quota is only as fresh as the app's last Overview/Quota load or refresh; recent runs may have used
-  more. `remote` means a remote core; quota is cached per core address.
+- While the core is up, Claude, Codex and Devin quota is at most about 5 minutes old; other providers
+  are only as fresh as the app's last Overview/Quota load. `quota_age` shows the oldest read. `remote`
+  means a remote core; quota is cached per core address.

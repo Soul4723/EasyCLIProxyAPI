@@ -1,6 +1,6 @@
 //! Core-state refresh done by the `--brief` CLI when its cached copy is older than the TTL.
 //! Only the core's own management API is read (`GET /credentials`, `GET /credentials/models`);
-//! no provider endpoint and no `requests/api-call` is ever used, so a query costs no provider quota.
+//! no provider endpoint and no `requests/api-call` is used here (quota reads are in `quota_fetch.rs`).
 use super::model::{valid_auth_index, Cooldown, CoreAccount, CorePart};
 use crate::management_api::{management_authorization, management_endpoint, management_http_client_for};
 use crate::GuiConfigFile;
@@ -124,7 +124,7 @@ fn failure_text(error: &reqwest::Error) -> String {
     }
 }
 
-async fn get_json(
+pub(super) async fn get_json(
     client: &reqwest::Client,
     config: &GuiConfigFile,
     path: &str,
