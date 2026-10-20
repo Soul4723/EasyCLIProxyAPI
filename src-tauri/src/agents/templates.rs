@@ -332,8 +332,28 @@ pub(crate) async fn preview_agent_config_template(
 ) -> Result<TemplatePreview, String> {
     let _target_state = app.state::<GuiConfigState>();
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
-    super::target_read_then_apply(
+    preview_agent_config_template_for_target(
         &_target_state,
+        home,
+        client,
+        model,
+        oauth_configuration,
+        claude_code_model_mappings,
+        claude_desktop_model_mappings,
+    ).await
+}
+
+pub(crate) async fn preview_agent_config_template_for_target(
+    target_state: &GuiConfigState,
+    home: PathBuf,
+    client: String,
+    model: String,
+    oauth_configuration: bool,
+    claude_code_model_mappings: Option<ClaudeDesktopModelMappings>,
+    claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
+) -> Result<TemplatePreview, String> {
+    super::target_read_then_apply(
+        target_state,
         None,
         move |config| async move {
             prepare_template_plan(&config, &home, &client, &model, oauth_configuration,
