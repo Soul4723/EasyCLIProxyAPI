@@ -33,7 +33,7 @@ import {
   updateQuotaCache,
   useQuotaCache,
 } from '../services/quotaCache';
-import { dedupeAuthFiles, sortAuthFilesByPriority } from '../services/authFiles';
+import { dedupeAuthFiles, parseAuthFilePriority, sortAuthFilesByPriority } from '../services/authFiles';
 import { useI18n } from '../i18n';
 import { usePrivacyMask } from '../privacy';
 import './QuotaPage.css';
@@ -207,6 +207,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset }: { file: AuthFile;
   const privacy = usePrivacyMask();
   const name = privacy.credentialName(file);
   const disabled = readBoolean(file, 'disabled');
+  const priority = parseAuthFilePriority(file.priority) ?? 0;
   const groups = quota.rows.reduce<{ label?: string; description?: string; rows: QuotaState['rows'] }[]>((result, row) => {
     const previous = result[result.length - 1];
     if (previous && previous.label === row.groupLabel) previous.rows.push(row);
@@ -226,7 +227,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset }: { file: AuthFile;
       <div className="real-quota-card-header">
         <div className="quota-identity">
           <img src={provider ? providerMeta[provider].icon : ''} alt="" className="quota-account-icon" />
-          <div><strong title={name}>{name}</strong></div>
+          <div><strong title={name}>{name}</strong><small>{t('authFiles.priority.button', { priority })}</small></div>
         </div>
         {quota.plan || quota.subscriptionActiveUntil ? <div className="quota-plan">
           {quota.plan ? <span>{t('quota.planLabel')} <strong>{quota.plan}</strong></span> : null}

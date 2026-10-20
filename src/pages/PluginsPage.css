@@ -70,7 +70,7 @@
 .plugin-install-repository span { min-width: 0; }
 .plugin-install-repository button { flex-shrink: 0; }
 .plugin-install-origin small { display: block; color: var(--text-tertiary); }
-.plugin-warning { display: flex; gap: 10px; padding: 14px 16px; background: var(--theme-fff7e9); border: 1px solid color-mix(in srgb, var(--amber-text) 22%, transparent); border-radius: 8px; color: var(--amber-text); font-weight: normal; line-height: 1.8; }
+.plugin-warning { display: flex; gap: 10px; padding: 14px 16px; background: color-mix(in srgb, var(--amber-text) 8%, var(--bg-card)); border: 1px solid color-mix(in srgb, var(--amber-text) 22%, transparent); border-radius: 8px; color: var(--amber-text); font-weight: normal; line-height: 1.8; }
 .plugin-warning svg { flex-shrink: 0; }
 .plugin-dialog-actions { display: flex; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; gap: 10px; padding: 18px 20px; border-top: 1px solid var(--border-color); }
 .plugins-page .primary-button, .plugins-page .secondary-button, .plugin-install-dialog .primary-button, .plugin-install-dialog .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }

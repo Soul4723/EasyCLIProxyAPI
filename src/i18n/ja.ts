@@ -1571,6 +1571,7 @@ export const jaOverrides = {
   'agents.cliVersion': 'CLI バージョン',
   'agents.appVersion': 'App バージョン',
   'agents.pluginVersion': 'プラグインバージョン',
+  'agents.copilotPluginVersion': 'GitHub Copilot Chat · プラグインバージョン',
   'agents.notFetched': '未取得',
   'agents.useModel': '使用モデル',
   'agents.pending': '未適用',
