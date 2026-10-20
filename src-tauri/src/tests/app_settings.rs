@@ -40,21 +40,55 @@ fn gui_config_save_replaces_the_file_atomically_and_keeps_secrets_private() {
     fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
     write_gui_config_to_path(&config, &path).unwrap();
     let secured_metadata = fs::metadata(&path).unwrap();
-    assert_ne!(secured_metadata.ino(), initial_inode, "an unchanged save repairs loose permissions");
+    assert_ne!(
+        secured_metadata.ino(),
+        initial_inode,
+        "an unchanged save repairs loose permissions"
+    );
     assert_eq!(secured_metadata.permissions().mode() & 0o777, 0o600);
 
     config.management_secret_key = "remote-management-secret".into();
     write_gui_config_to_path(&config, &path).unwrap();
 
     let metadata = fs::metadata(&path).unwrap();
-    assert_ne!(metadata.ino(), secured_metadata.ino(), "the save replaces the old file by rename");
+    assert_ne!(
+        metadata.ino(),
+        secured_metadata.ino(),
+        "the save replaces the old file by rename"
+    );
     assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
     let saved = fs::read(&path).unwrap();
     assert_ne!(saved, original);
     let restored: GuiConfigFile = toml::from_str(std::str::from_utf8(&saved).unwrap()).unwrap();
     assert_eq!(restored.management_secret_key, "remote-management-secret");
-    let entries: Vec<_> = fs::read_dir(&home).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+    let entries: Vec<_> = fs::read_dir(&home)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
     assert_eq!(entries, vec![std::ffi::OsString::from("config.toml")]);
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_config_save_follows_symlinks_and_keeps_the_link() {
+    use std::os::unix::fs::symlink;
+
+    let home = agent_test_home("gui-config-symlink");
+    let target_dir = home.join("target");
+    fs::create_dir_all(&target_dir).unwrap();
+    let target = target_dir.join("config.toml");
+    let link = home.join("config.toml");
+    let mut config = GuiConfigFile::default();
+    write_gui_config_to_path(&config, &target).unwrap();
+    symlink(&target, &link).unwrap();
+
+    config.management_secret_key = "symlink-target-secret".into();
+    write_gui_config_to_path(&config, &link).unwrap();
+
+    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    let saved: GuiConfigFile = toml::from_str(&fs::read_to_string(&target).unwrap()).unwrap();
+    assert_eq!(saved.management_secret_key, "symlink-target-secret");
     fs::remove_dir_all(home).unwrap();
 }
 

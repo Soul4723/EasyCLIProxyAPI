@@ -807,30 +807,43 @@ fn write_bytes_atomically_with_mode(
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-    let directory = path.parent().unwrap_or_else(|| Path::new("."));
+    let destination_path = match fs::symlink_metadata(path) {
+        Ok(_) => fs::canonicalize(path).map_err(|error| {
+            format!("Failed to resolve configuration path {}: {error}", path_to_string(path))
+        })?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_path_buf(),
+        Err(error) => {
+            return Err(format!(
+                "Failed to inspect configuration path {}: {error}",
+                path_to_string(path)
+            ));
+        }
+    };
+    let directory = destination_path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
-    let file_name = path
+    let file_name = destination_path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("config.yaml");
-    let temporary_path = directory.join(format!(
-        ".{file_name}.tmp.{}.{}",
-        std::process::id(),
-        SEQUENCE.fetch_add(1, Ordering::Relaxed)
-    ));
     #[cfg(unix)]
     let existing_mode = if private {
         Some(0o600)
     } else {
         use std::os::unix::fs::PermissionsExt;
-        fs::metadata(path)
+        fs::metadata(&destination_path)
             .ok()
             .map(|metadata| metadata.permissions().mode() & 0o777)
     };
 
-    let mut temporary_created = false;
-    let write_result = (|| -> io::Result<()> {
+    let mut temporary = None;
+    let mut last_collision = None;
+    for _ in 0..5 {
+        let temporary_path = directory.join(format!(
+            ".{file_name}.tmp.{}.{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -838,37 +851,62 @@ fn write_bytes_atomically_with_mode(
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(mode);
         }
-        let mut file = options.open(&temporary_path)?;
-        temporary_created = true;
+        match options.open(&temporary_path) {
+            Ok(file) => {
+                temporary = Some((temporary_path, file));
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                last_collision = Some(error);
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Failed to write configuration atomically {}: {error}",
+                    path_to_string(path)
+                ));
+            }
+        }
+    }
+    let Some((temporary_path, mut file)) = temporary else {
+        let error = last_collision.expect("five temporary-file creation attempts were made");
+        return Err(format!(
+            "Failed to create a temporary configuration file for {} after retries: {error}",
+            path_to_string(path)
+        ));
+    };
+
+    #[cfg(not(unix))]
+    let _ = private;
+    let write_result = (|| -> io::Result<()> {
         // Apply the exact mode before writing; OpenOptionsExt::mode is subject to umask.
         #[cfg(unix)]
         if let Some(mode) = existing_mode {
             use std::os::unix::fs::PermissionsExt;
             file.set_permissions(fs::Permissions::from_mode(mode))?;
         }
-        #[cfg(not(unix))]
-        let _ = private;
         file.write_all(content)?;
         file.sync_all()?;
         drop(file);
-        replace_file_atomically(&temporary_path, path)?;
-        // Persist the directory entry update where opening and syncing directories is supported.
+        replace_file_atomically(&temporary_path, &destination_path)?;
         #[cfg(unix)]
-        File::open(directory)?.sync_all()?;
+        if let Err(error) = File::open(directory).and_then(|directory| directory.sync_all()) {
+            eprintln!(
+                "Failed to sync configuration directory {} after atomic replacement: {error}",
+                path_to_string(directory)
+            );
+        }
         Ok(())
     })();
 
     if let Err(error) = write_result {
-        if temporary_created {
-            let _ = fs::remove_file(&temporary_path);
-        }
+        let _ = fs::remove_file(&temporary_path);
         return Err(format!(
             "Failed to write configuration atomically {}: {error}",
             path_to_string(path)
         ));
     }
 
-    remember_software_write(path, content);
+    remember_software_write(&destination_path, content);
 
     Ok(())
 }
