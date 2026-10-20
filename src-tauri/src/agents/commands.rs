@@ -587,22 +587,24 @@ pub(crate) async fn get_codex_model_catalog_editor(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<codex_catalog::CatalogEditorSnapshot, String> {
-    let config = {
-        let _target_operation = gui_config_state.target_operation.lock().await;
-        gui_config_state.snapshot()?
-    };
-    let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    gui_config_state.ensure_target(&config)?;
-    let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
-    reload_changed_codex_catalog_files(&app);
-    codex_catalog::editor_snapshot(&runtime_models)
+    target_read_then_apply(
+        &gui_config_state,
+        None,
+        |config| async move { fetch_codex_catalog_runtime_models(&config).await },
+        move |_config, runtime_models, _target_operation| async move {
+            let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
+            reload_changed_codex_catalog_files(&app);
+            codex_catalog::editor_snapshot(&runtime_models)
+        },
+    )
+    .await?
+    .ok_or_else(|| "The core connection changed; request cancelled".to_string())
 }
 
 /// Capture the current target under the fence, fetch without it, then recheck
 /// before applying target-derived data. `None` means the target changed while
 /// the fetch was in flight, so callers can discard the stale result.
-pub(crate) async fn target_read_then_apply<T, R, Fetch, FetchFuture, Apply>(
+pub(crate) async fn target_read_then_apply<T, R, Fetch, FetchFuture, Apply, ApplyFuture>(
     state: &GuiConfigState,
     expected_revision: Option<u64>,
     fetch: Fetch,
@@ -611,7 +613,12 @@ pub(crate) async fn target_read_then_apply<T, R, Fetch, FetchFuture, Apply>(
 where
     Fetch: FnOnce(GuiConfigFile) -> FetchFuture,
     FetchFuture: Future<Output = Result<T, String>>,
-    Apply: FnOnce(&GuiConfigFile, T) -> Result<R, String>,
+    Apply: FnOnce(
+        GuiConfigFile,
+        T,
+        std::sync::Arc<tokio::sync::OwnedMutexGuard<()>>,
+    ) -> ApplyFuture,
+    ApplyFuture: Future<Output = Result<R, String>>,
 {
     let config = {
         let _target_operation = state.target_operation.lock().await;
@@ -626,13 +633,9 @@ where
 
     let fetched = fetch(config.clone()).await?;
 
-    let _target_operation = state.target_operation.lock().await;
-    if state.snapshot()?.target_revision != config.target_revision {
-        return Ok(None);
-    }
+    let target_operation = std::sync::Arc::new(state.target_operation.clone().lock_owned().await);
     state.ensure_target(&config)?;
-    state.ensure_revision(config.target_revision)?;
-    apply(&config, fetched).map(Some)
+    apply(config, fetched, target_operation.clone()).await.map(Some)
 }
 
 #[derive(Serialize)]
@@ -1176,25 +1179,22 @@ pub(crate) async fn refresh_applied_codex_model_catalog(
     config: &GuiConfigFile,
 ) -> Result<bool, String> {
     let _target_state = app.state::<GuiConfigState>();
-    let expected_revision = config.target_revision;
-    let config = {
-        let _target_operation = _target_state.target_operation.lock().await;
-        let current = _target_state.snapshot()?;
-        if current.target_revision != expected_revision {
-            return Ok(false);
-        }
-        current
-    };
-    let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
-    let _target_operation = _target_state.target_operation.lock().await;
-    if _target_state.snapshot()?.target_revision != config.target_revision {
-        return Ok(false);
-    }
-    _target_state.ensure_target(&config)?;
-    let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
-    reload_changed_codex_catalog_files(app);
-    let prepared = prepare_codex_agent_models(&runtime_models)?;
-    sync_prepared_codex_model_catalog(app, &config, &prepared)
+    let app = (*app).clone();
+    Ok(target_read_then_apply(
+        &_target_state,
+        Some(config.target_revision),
+        |config| async move { fetch_codex_catalog_runtime_models(&config).await },
+        move |config, runtime_models, _target_operation| async move {
+            // A manual catalog save may finish after this fetch started but
+            // before this refresh applies. The next periodic tick self-corrects.
+            let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
+            reload_changed_codex_catalog_files(&app);
+            let prepared = prepare_codex_agent_models(&runtime_models)?;
+            sync_prepared_codex_model_catalog(&app, &config, &prepared)
+        },
+    )
+    .await?
+    .unwrap_or(false))
 }
 
 pub(crate) fn request_codex_model_catalog_refresh() {
@@ -1401,44 +1401,81 @@ pub(crate) async fn update_agent_config(
         validate_codex_oauth_login(&home)?;
     }
     validate_agent_can_enable(client, &home, &config, api_key, executable_overrides.as_ref())?;
-    let prepared = fetch_prepared_agent_models(client, &config).await?;
-    let target_operation = std::sync::Arc::new(gui_config_state.target_operation.clone().lock_owned().await);
-    gui_config_state.ensure_target(&config)?;
-    let model = resolve_agent_configuration_model(
-        client, &prepared.models, &model, claude_desktop_model_mappings.as_ref(),
-    )?;
-    let claude_code_model_mappings = resolve_claude_code_model_mappings(
-        client,
-        &prepared.models,
-        &model,
-        claude_code_model_mappings,
-    )?;
-    let claude_desktop_model_mappings = resolve_claude_desktop_model_mappings(
-        client,
-        &prepared.models,
-        &model,
-        claude_desktop_model_mappings,
-    )?;
-    prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref(), target_operation.clone()).await?;
-    commit_agent_with_selected_core(gui_config_state.inner(), &config, claude_desktop_model_mappings, &prepared.models, |claude_desktop_model_mappings| {
-        let _guard = AGENT_CONFIG_FILE_LOCK
-            .lock()
-            .map_err(|_| "Agent configuration file lock is poisoned".to_string())?;
-        apply_agent_configuration_with_oauth(
-            client,
-            &home,
-            &config,
-            api_key,
-            &model,
-            AgentConfigurationOptions {
-                models: &prepared.models,
-                codex_catalog: prepared.codex_catalog.as_deref(),
-                oauth_configuration,
-                claude_code_model_mappings: claude_code_model_mappings.as_ref(),
+    let state = gui_config_state.inner();
+    target_read_then_apply(
+        state,
+        Some(config.target_revision),
+        |config| async move { fetch_prepared_agent_models(client, &config).await },
+        move |config, prepared, target_operation| async move {
+            let api_key = effective_agent_api_key(&config);
+            // Repeat the early checks under the reacquired fence; these are the
+            // authoritative checks if local agent state changed during fetch.
+            if client == AgentClient::Codex && oauth_configuration {
+                validate_codex_oauth_login(&home)?;
+            }
+            validate_agent_can_enable(
+                client,
+                &home,
+                &config,
+                api_key,
+                executable_overrides.as_ref(),
+            )?;
+            let model = resolve_agent_configuration_model(
+                client,
+                &prepared.models,
+                &model,
+                claude_desktop_model_mappings.as_ref(),
+            )?;
+            let claude_code_model_mappings = resolve_claude_code_model_mappings(
+                client,
+                &prepared.models,
+                &model,
+                claude_code_model_mappings,
+            )?;
+            let claude_desktop_model_mappings = resolve_claude_desktop_model_mappings(
+                client,
+                &prepared.models,
+                &model,
                 claude_desktop_model_mappings,
-            },
-        )
-    }).await
+            )?;
+            prepare_vscode_copilot_connection(
+                client,
+                &home,
+                api_key,
+                executable_overrides.as_ref(),
+                target_operation,
+            )
+            .await?;
+            commit_agent_with_selected_core(
+                state,
+                &config,
+                claude_desktop_model_mappings,
+                &prepared.models,
+                |claude_desktop_model_mappings| {
+                    let _guard = AGENT_CONFIG_FILE_LOCK
+                        .lock()
+                        .map_err(|_| "Agent configuration file lock is poisoned".to_string())?;
+                    apply_agent_configuration_with_oauth(
+                        client,
+                        &home,
+                        &config,
+                        api_key,
+                        &model,
+                        AgentConfigurationOptions {
+                            models: &prepared.models,
+                            codex_catalog: prepared.codex_catalog.as_deref(),
+                            oauth_configuration,
+                            claude_code_model_mappings: claude_code_model_mappings.as_ref(),
+                            claude_desktop_model_mappings,
+                        },
+                    )
+                },
+            )
+            .await
+        },
+    )
+    .await?
+    .ok_or_else(|| "The core connection changed; request cancelled".to_string())
 }
 
 #[tauri::command]
@@ -1481,49 +1518,82 @@ pub(crate) async fn set_agent_config_enabled(
         let port = &config;
         let api_key = effective_agent_api_key(&config);
         validate_agent_can_enable(client, &home, port, api_key, executable_overrides.as_ref())?;
-        let prepared = fetch_prepared_agent_models(client, &config).await?;
-        let target_operation = std::sync::Arc::new(gui_config_state.target_operation.clone().lock_owned().await);
-        gui_config_state.ensure_target(&config)?;
-        let model = resolve_agent_configuration_model(
-            client, &prepared.models, &model, claude_desktop_model_mappings.as_ref(),
-        )?;
-        let claude_code_model_mappings = resolve_claude_code_model_mappings(
-            client,
-            &prepared.models,
-            &model,
-            claude_code_model_mappings,
-        )?;
-        let claude_desktop_model_mappings = resolve_claude_desktop_model_mappings(
-            client,
-            &prepared.models,
-            &model,
-            claude_desktop_model_mappings,
-        )?;
-        prepare_vscode_copilot_connection(client, &home, api_key, executable_overrides.as_ref(), target_operation.clone()).await?;
-        commit_agent_with_selected_core(gui_config_state.inner(), &config, claude_desktop_model_mappings, &prepared.models, |claude_desktop_model_mappings| {
-            let _guard = AGENT_CONFIG_FILE_LOCK
-                .lock()
-                .map_err(|_| "Agent configuration file lock is poisoned".to_string())?;
-            let oauth_configuration = if client == AgentClient::Codex {
-                current_codex_oauth_configuration(&home)?
-            } else {
-                false
-            };
-            apply_agent_configuration_with_oauth(
-                client,
-                &home,
-                port,
-                api_key,
-                &model,
-                AgentConfigurationOptions {
-                    models: &prepared.models,
-                    codex_catalog: prepared.codex_catalog.as_deref(),
-                    oauth_configuration,
-                    claude_code_model_mappings: claude_code_model_mappings.as_ref(),
+        let state = gui_config_state.inner();
+        target_read_then_apply(
+            state,
+            Some(config.target_revision),
+            |config| async move { fetch_prepared_agent_models(client, &config).await },
+            move |config, prepared, target_operation| async move {
+                let api_key = effective_agent_api_key(&config);
+                // Repeat validation after fetch while holding the target fence.
+                validate_agent_can_enable(
+                    client,
+                    &home,
+                    &config,
+                    api_key,
+                    executable_overrides.as_ref(),
+                )?;
+                let model = resolve_agent_configuration_model(
+                    client,
+                    &prepared.models,
+                    &model,
+                    claude_desktop_model_mappings.as_ref(),
+                )?;
+                let claude_code_model_mappings = resolve_claude_code_model_mappings(
+                    client,
+                    &prepared.models,
+                    &model,
+                    claude_code_model_mappings,
+                )?;
+                let claude_desktop_model_mappings = resolve_claude_desktop_model_mappings(
+                    client,
+                    &prepared.models,
+                    &model,
                     claude_desktop_model_mappings,
-                },
-            )
-        }).await
+                )?;
+                prepare_vscode_copilot_connection(
+                    client,
+                    &home,
+                    api_key,
+                    executable_overrides.as_ref(),
+                    target_operation,
+                )
+                .await?;
+                commit_agent_with_selected_core(
+                    state,
+                    &config,
+                    claude_desktop_model_mappings,
+                    &prepared.models,
+                    |claude_desktop_model_mappings| {
+                        let _guard = AGENT_CONFIG_FILE_LOCK
+                            .lock()
+                            .map_err(|_| "Agent configuration file lock is poisoned".to_string())?;
+                        let oauth_configuration = if client == AgentClient::Codex {
+                            current_codex_oauth_configuration(&home)?
+                        } else {
+                            false
+                        };
+                        apply_agent_configuration_with_oauth(
+                            client,
+                            &home,
+                            &config,
+                            api_key,
+                            &model,
+                            AgentConfigurationOptions {
+                                models: &prepared.models,
+                                codex_catalog: prepared.codex_catalog.as_deref(),
+                                oauth_configuration,
+                                claude_code_model_mappings: claude_code_model_mappings.as_ref(),
+                                claude_desktop_model_mappings,
+                            },
+                        )
+                    },
+                )
+                .await
+            },
+        )
+        .await?
+        .ok_or_else(|| "The core connection changed; request cancelled".to_string())
     } else {
         let _target_operation = gui_config_state.target_operation.lock().await;
         let config = gui_config_state.snapshot()?;
@@ -1953,18 +2023,31 @@ mod codex_catalog_file_tests {
 #[cfg(test)]
 mod target_read_tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     #[tokio::test]
-    async fn target_read_releases_fence_and_discards_result_after_revision_change() {
+    async fn target_read_is_unfenced_and_discards_files_after_a_to_b_to_a_switch() {
+        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        let suffix = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let config_path = std::env::temp_dir().join(format!(
+            "cpa-target-read-config-{}-{suffix}",
+            std::process::id()
+        ));
+        let catalog_path = std::env::temp_dir().join(format!(
+            "cpa-target-read-catalog-{}-{suffix}",
+            std::process::id()
+        ));
+        fs::write(&config_path, b"target-A agent config").unwrap();
+        fs::write(&catalog_path, b"target-A model catalog").unwrap();
+
         let mut config = GuiConfigFile::default();
         config.connection_mode = CoreConnectionMode::Remote;
         let state = std::sync::Arc::new(GuiConfigState::new(config));
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let (release_tx, release_rx) = tokio::sync::oneshot::channel();
-        let applied = std::sync::Arc::new(AtomicBool::new(false));
         let task_state = state.clone();
-        let task_applied = applied.clone();
+        let task_config_path = config_path.clone();
+        let task_catalog_path = catalog_path.clone();
         let call = tokio::spawn(async move {
             target_read_then_apply(
                 &task_state,
@@ -1974,8 +2057,9 @@ mod target_read_tests {
                     release_rx.await.unwrap();
                     Ok("target-A result")
                 },
-                move |_config, _result| {
-                    task_applied.store(true, Ordering::SeqCst);
+                move |_config, _result, _target_operation| async move {
+                    fs::write(task_config_path, b"stale target-A apply").unwrap();
+                    fs::write(task_catalog_path, b"stale target-A apply").unwrap();
                     Ok(())
                 },
             )
@@ -1983,20 +2067,24 @@ mod target_read_tests {
         });
 
         started_rx.await.unwrap();
-        // Agent launch, backup and native OAuth use try_lock and must remain
-        // available while this target-bound network fetch is in flight.
-        for action in ["agent launch", "backup", "native OAuth"] {
-            assert!(state.target_operation.try_lock().is_ok(), "{action} would be blocked");
-        }
+        assert!(
+            state.target_operation.try_lock().is_ok(),
+            "target_operation was held during the paused model fetch"
+        );
 
-        let mut switched = state.snapshot().unwrap();
+        let original = state.snapshot().unwrap();
+        let mut switched = original.clone();
         switched.remote_management_origin = "http://target-b.invalid".into();
         switched.remote_management_key = "target-b-key".into();
         state.replace_external(switched).unwrap();
+        state.replace_external(original).unwrap();
         release_tx.send(()).unwrap();
 
         assert_eq!(call.await.unwrap().unwrap(), None);
-        assert!(!applied.load(Ordering::SeqCst), "stale target-A data was applied");
+        assert_eq!(fs::read(&config_path).unwrap(), b"target-A agent config");
+        assert_eq!(fs::read(&catalog_path).unwrap(), b"target-A model catalog");
+        fs::remove_file(config_path).unwrap();
+        fs::remove_file(catalog_path).unwrap();
     }
 
     #[tokio::test]
@@ -2010,7 +2098,7 @@ mod target_read_tests {
                 assert_eq!(config.connection_mode, CoreConnectionMode::Local);
                 Ok(vec!["local-model"])
             },
-            |_config, models| Ok(models),
+            |_config, models, _target_operation| async move { Ok(models) },
         )
         .await
         .unwrap();
