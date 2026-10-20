@@ -277,14 +277,29 @@ pub(crate) fn stop_usage_collector(app: &tauri::AppHandle) {
 
 /// The collector's own SQLite connection, kept across loop iterations instead of
 /// reopening the database on every inbox recovery tick. It is replaced when the
-/// storage root changes, when the database file is gone, and after any failed
-/// operation; dropping it (the loop returning when the collector stops) closes it.
-/// An idle connection holds no locks, so other usage paths are not blocked by it.
+/// storage root changes, when the database file is gone or was replaced, and after
+/// any failed operation; dropping it (the loop returning when the collector stops)
+/// closes it. An idle connection holds no locks, so other usage paths are not
+/// blocked by it.
 #[derive(Default)]
 pub(super) struct CollectorDatabase {
-    pub(super) open: Option<(PathBuf, Connection)>,
+    // Root, identity of the database file at open time, connection.
+    pub(super) open: Option<(PathBuf, Option<(u64, u64)>, Connection)>,
     #[cfg(test)]
     pub(super) opens: usize,
+}
+
+#[cfg(unix)]
+fn usage_database_file_identity(root: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::metadata(root.join(USAGE_DATABASE_FILE)).ok()?;
+    Some((metadata.dev(), metadata.ino()))
+}
+
+// Other platforms cannot delete or replace a database file a connection has open.
+#[cfg(not(unix))]
+fn usage_database_file_identity(root: &Path) -> Option<(u64, u64)> {
+    fs::metadata(root.join(USAGE_DATABASE_FILE)).ok().map(|_| (0, 0))
 }
 
 impl CollectorDatabase {
@@ -293,17 +308,19 @@ impl CollectorDatabase {
         root: &Path,
         operation: impl FnOnce(&mut Connection) -> Result<T, String>,
     ) -> Result<T, String> {
-        let reusable = self.open.as_ref().is_some_and(|(open_root, _)| open_root == root)
-            && root.join(USAGE_DATABASE_FILE).is_file();
+        let reusable = self.open.as_ref().is_some_and(|(open_root, identity, _)| {
+            open_root == root && identity.is_some() && *identity == usage_database_file_identity(root)
+        });
         if !reusable {
             self.close();
-            self.open = Some((root.to_path_buf(), open_usage_database_at(root)?));
+            let connection = open_usage_database_at(root)?;
+            self.open = Some((root.to_path_buf(), usage_database_file_identity(root), connection));
             #[cfg(test)]
             {
                 self.opens += 1;
             }
         }
-        let Some((_, connection)) = self.open.as_mut() else {
+        let Some((_, _, connection)) = self.open.as_mut() else {
             return Err("Usage records database connection is unavailable".to_string());
         };
         let result = operation(connection);

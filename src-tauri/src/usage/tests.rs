@@ -3515,7 +3515,7 @@
         fs::remove_dir_all(root).unwrap();
     }
 
-    // Windows cannot delete a database file that a connection still has open.
+    // Windows cannot delete or replace a database file that a connection still has open.
     #[cfg(unix)]
     #[test]
     fn collector_database_reopens_when_the_database_file_was_replaced() {
