@@ -634,7 +634,9 @@ where
     let fetched = fetch(config.clone()).await?;
 
     let target_operation = std::sync::Arc::new(state.target_operation.clone().lock_owned().await);
-    state.ensure_target(&config)?;
+    if state.snapshot()?.target_revision != config.target_revision {
+        return Ok(None);
+    }
     apply(config, fetched, target_operation.clone()).await.map(Some)
 }
 
