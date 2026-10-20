@@ -550,7 +550,7 @@ pub(crate) async fn get_oauth_status(
         management_http_client_for(&config)?
             .get(management_endpoint(&config, "oauth/status")?)
             .header("Authorization", management_authorization(&config)?)
-            .query(&[("state", state)])
+            .query(&[("state", state.as_str())])
     };
     let response = match request.send().await {
         Ok(response) => response,
