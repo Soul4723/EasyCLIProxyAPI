@@ -8,7 +8,8 @@ function installRenderCounter() {
   const lastProps = new Map();
   const debug = { commits: 0, names: [] };
   const MEMO_COMPONENT = 14;
-  const NAMES = ['AccountCard', 'AccountRow'];
+  // The dev transform renames the function inside `const AccountCard = memo(function AccountCard…)` to AccountCard2.
+  const CARD_NAME = /^Account(Card|Row)\d*$/;
   const noop = () => {};
   window.__qtRenders = {
     counts, debug,
@@ -27,7 +28,7 @@ function installRenderCounter() {
         const fiber = stack.pop();
         const name = fiber.tag === MEMO_COMPONENT ? undefined : fiber.type?.name;
         if (typeof name === 'string' && name.includes('Account') && !debug.names.includes(`${fiber.tag}:${name}`)) debug.names.push(`${fiber.tag}:${name}`);
-        if (NAMES.includes(name)) {
+        if (typeof name === 'string' && CARD_NAME.test(name)) {
           const props = fiber.memoizedProps;
           const key = props?.account?.key;
           if (key && lastProps.get(key) !== props) { lastProps.set(key, props); seen.add(key); }
