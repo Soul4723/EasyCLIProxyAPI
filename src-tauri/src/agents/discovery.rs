@@ -2941,16 +2941,21 @@ pub(crate) struct CommandTimeout {
     pub(crate) timeout: Duration,
     pub(crate) stdout: Vec<u8>,
     pub(crate) stderr: Vec<u8>,
+    pub(crate) termination_error: Option<String>,
 }
 
 impl CommandTimeout {
     pub(crate) fn message(&self, probe: &str) -> String {
-        format!(
+        let mut message = format!(
             "{probe} probe timed out after {:.1}s (stdout: {:?}; stderr: {:?})",
             self.timeout.as_secs_f64(),
             String::from_utf8_lossy(&self.stdout),
             String::from_utf8_lossy(&self.stderr),
-        )
+        );
+        if let Some(error) = &self.termination_error {
+            message.push_str(&format!("; process termination incomplete: {error}"));
+        }
+        message
     }
 }
 
@@ -2971,12 +2976,15 @@ pub(crate) fn command_output_with_timeout(
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    let mut child = command.spawn()?;
+    let child = command.spawn()?;
+    let mut child = AgentProbeChild::new(child);
     let mut stdout = child
+        .child
         .stdout
         .take()
         .ok_or_else(|| io::Error::other("Unable to read agent detection standard output"))?;
     let mut stderr = child
+        .child
         .stderr
         .take()
         .ok_or_else(|| io::Error::other("Unable to read agent detection error output"))?;
@@ -2987,28 +2995,26 @@ pub(crate) fn command_output_with_timeout(
     // descendant keeps either inherited pipe open.
     let stdout_capture = std::sync::Arc::clone(&stdout_diagnostics);
     let stdout_timed_out = std::sync::Arc::clone(&timed_out);
-    let stdout_reader = thread::spawn(move || {
-        read_command_output(stdout, stdout_capture, stdout_timed_out)
-    });
+    let stdout_reader = thread::Builder::new()
+        .spawn(move || read_command_output(stdout, stdout_capture, stdout_timed_out))?;
     let stderr_capture = std::sync::Arc::clone(&stderr_diagnostics);
     let stderr_timed_out = std::sync::Arc::clone(&timed_out);
-    let stderr_reader = thread::spawn(move || {
-        read_command_output(stderr, stderr_capture, stderr_timed_out)
-    });
+    let stderr_reader = thread::Builder::new()
+        .spawn(move || read_command_output(stderr, stderr_capture, stderr_timed_out))?;
     let deadline = Instant::now() + timeout;
     let result = (|| {
         loop {
-            if command_child_exited(&mut child)?
+            if child.has_exited()?
                 && stdout_reader.is_finished()
                 && stderr_reader.is_finished()
             {
-                let status = child.wait()?;
                 let stdout = stdout_reader.join().map_err(|_| {
                     io::Error::other("Agent detection output thread exited unexpectedly")
                 })??;
                 let stderr = stderr_reader.join().map_err(|_| {
                     io::Error::other("Agent detection error thread exited unexpectedly")
                 })??;
+                let status = child.reap()?;
                 return Ok(CommandOutputOutcome::Completed(std::process::Output {
                     status,
                     stdout,
@@ -3017,21 +3023,83 @@ pub(crate) fn command_output_with_timeout(
             }
             if Instant::now() >= deadline {
                 timed_out.store(true, std::sync::atomic::Ordering::Release);
-                let timeout = CommandTimeout {
+                let mut timeout = CommandTimeout {
                     timeout,
                     stdout: read_diagnostic_snippet(&stdout_diagnostics),
                     stderr: read_diagnostic_snippet(&stderr_diagnostics),
+                    termination_error: None,
                 };
-                terminate_agent_probe_process(&mut child);
+                timeout.termination_error = child.terminate();
                 return Ok(CommandOutputOutcome::TimedOut(timeout));
             }
             thread::sleep(AGENT_VERSION_PROBE_POLL_INTERVAL);
         }
     })();
-    if result.is_err() {
-        terminate_agent_probe_process(&mut child);
-    }
     result
+}
+
+struct AgentProbeChild {
+    child: Child,
+    reaped: bool,
+    status: Option<std::process::ExitStatus>,
+    cleanup_attempted: bool,
+}
+
+impl AgentProbeChild {
+    fn new(child: Child) -> Self {
+        Self {
+            child,
+            reaped: false,
+            status: None,
+            cleanup_attempted: false,
+        }
+    }
+
+    fn has_exited(&mut self) -> io::Result<bool> {
+        #[cfg(unix)]
+        {
+            command_child_exited(&self.child)
+        }
+        #[cfg(not(unix))]
+        {
+            if let Some(status) = self.child.try_wait()? {
+                self.status = Some(status);
+                self.reaped = true;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+    }
+
+    fn reap(&mut self) -> io::Result<std::process::ExitStatus> {
+        if let Some(status) = self.status.take() {
+            return Ok(status);
+        }
+        let status = self.child.wait()?;
+        self.reaped = true;
+        Ok(status)
+    }
+
+    fn terminate(&mut self) -> Option<String> {
+        if self.reaped {
+            return Some(
+                "probe process exited before inherited pipes closed; descendants may remain"
+                    .to_owned(),
+            );
+        }
+        if self.cleanup_attempted {
+            return None;
+        }
+        self.cleanup_attempted = true;
+        terminate_agent_probe_process(&mut self.child, &mut self.reaped)
+    }
+}
+
+impl Drop for AgentProbeChild {
+    fn drop(&mut self) {
+        let _ = self.terminate();
+    }
 }
 
 fn read_command_output(
@@ -3068,29 +3136,30 @@ fn read_diagnostic_snippet(diagnostics: &std::sync::Mutex<Vec<u8>>) -> Vec<u8> {
 
 #[cfg(unix)]
 fn command_child_exited(child: &Child) -> io::Result<bool> {
-    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-    let result = unsafe {
-        libc::waitid(
-            libc::P_PID,
-            child.id() as _,
-            &mut info,
-            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
-        )
-    };
-    if result == -1 {
-        return Err(io::Error::last_os_error());
+    loop {
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                child.id() as _,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if result == -1 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        // SAFETY: waitid initialized the process ID field on success; WNOWAIT
+        // leaves an exited child waitable so its PID continues pinning its group.
+        return Ok(unsafe { info.si_pid() } != 0);
     }
-    // SAFETY: waitid initialized the process ID field on success; WNOWAIT
-    // leaves an exited child waitable so its PID continues pinning its group.
-    Ok(unsafe { info.si_pid() } != 0)
 }
 
-#[cfg(not(unix))]
-fn command_child_exited(child: &mut Child) -> io::Result<bool> {
-    Ok(child.try_wait()?.is_some())
-}
-
-fn terminate_agent_probe_process(child: &mut Child) {
+fn terminate_agent_probe_process(child: &mut Child, reaped: &mut bool) -> Option<String> {
     #[cfg(target_os = "windows")]
     {
         let process_id = child.id().to_string();
@@ -3101,34 +3170,88 @@ fn terminate_agent_probe_process(child: &mut Child) {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         configure_background_command(&mut command);
-        if let Ok(mut taskkill) = command.spawn() {
-            let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                match taskkill.try_wait() {
-                    Ok(Some(_)) => break,
-                    Ok(None) if Instant::now() < deadline => {
-                        thread::sleep(AGENT_VERSION_PROBE_POLL_INTERVAL);
-                    }
-                    Ok(None) | Err(_) => {
-                        let _ = taskkill.kill();
-                        let _ = taskkill.wait();
-                        break;
+        let mut errors = Vec::new();
+        match command.spawn() {
+            Ok(mut taskkill) => {
+                if !wait_for_child_bounded(&mut taskkill, Duration::from_secs(2)) {
+                    let _ = taskkill.kill();
+                    if !wait_for_child_bounded(&mut taskkill, Duration::from_millis(500)) {
+                        errors.push(
+                            "taskkill did not exit after its termination request".to_owned(),
+                        );
                     }
                 }
             }
+            Err(error) => errors.push(format!("could not start taskkill: {error}")),
         }
         // taskkill /T may not find descendants after the parent has exited.
         // A Windows Job Object would close that gap; this bounded fallback is
         // retained to keep the main-branch backport small.
+        let _ = child.kill();
+        if wait_for_child_bounded(child, Duration::from_millis(500)) {
+            *reaped = true;
+        } else {
+            errors.push("probe process did not exit after its termination request".to_owned());
+        }
+        return (!errors.is_empty()).then(|| errors.join("; "));
     }
     #[cfg(unix)]
     {
         // The child owns the private group assigned when it was spawned.
         // Use #95's validated signal helper so only that group can be targeted.
-        let _ = crate::process_signal::signal_group(child.id(), libc::SIGKILL);
+        let status = signal_then_reap(
+            reaped,
+            || {
+                let _ = crate::process_signal::signal_group(child.id(), libc::SIGKILL);
+                let _ = child.kill();
+            },
+            || child.wait(),
+        );
+        match status {
+            Ok(_) => {}
+            Err(error) => return Some(format!("could not reap probe process: {error}")),
+        }
+        return None;
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        let _ = child.kill();
+        match child.wait() {
+            Ok(_) => *reaped = true,
+            Err(error) => return Some(format!("could not reap probe process: {error}")),
+        }
+        None
+    }
+}
+
+pub(crate) fn signal_then_reap<T>(
+    reaped: &mut bool,
+    signal: impl FnOnce(),
+    reap: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    if *reaped {
+        return Err(io::Error::other("probe process was already reaped"));
+    }
+    signal();
+    let result = reap();
+    if result.is_ok() {
+        *reaped = true;
+    }
+    result
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_child_bounded(child: &mut Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) if Instant::now() < deadline => {
+                thread::sleep(AGENT_VERSION_PROBE_POLL_INTERVAL);
+            }
+            Ok(None) | Err(_) => return false,
+        }
+    }
 }
 
 pub(crate) fn read_agent_version(path: &Path, home: &Path) -> Option<String> {

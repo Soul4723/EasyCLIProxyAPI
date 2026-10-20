@@ -2817,6 +2817,26 @@ fn agent_probe_timeout_keeps_exited_group_leader_unreaped_while_descendant_escap
 
 #[cfg(unix)]
 #[test]
+fn agent_probe_cleanup_signals_before_reaping_the_group_leader() {
+    let mut reaped = false;
+    let mut steps = Vec::new();
+
+    crate::agents::discovery::signal_then_reap(
+        &mut reaped,
+        || steps.push("signal"),
+        || {
+            steps.push("reap");
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    assert_eq!(steps, ["signal", "reap"]);
+    assert!(reaped);
+}
+
+#[cfg(unix)]
+#[test]
 fn agent_probe_timeout_returns_bounded_diagnostics() {
     let mut command = Command::new("sh");
     command.args([
