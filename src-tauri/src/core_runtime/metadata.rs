@@ -20,6 +20,14 @@ pub(crate) fn validate_downloaded_asset(
     asset: &GithubAsset,
     downloaded: &DownloadedArchive,
 ) -> Result<(), String> {
+    // A core archive without an expected digest is never accepted.
+    if !asset
+        .digest
+        .as_deref()
+        .is_some_and(|digest| !digest.trim_start_matches("sha256:").is_empty())
+    {
+        return Err("Kernel archive has no official SHA-256 checksum, so it was not installed".to_string());
+    }
     validate_download_metadata(
         downloaded.size,
         asset.size,
@@ -49,7 +57,7 @@ pub(crate) fn validate_download_metadata(
             .to_ascii_lowercase();
 
         if !expected.is_empty() && sha256 != expected {
-            return Err("Downloaded file SHA-256 verification failed".to_string());
+            return Err("Downloaded kernel archive does not match the official SHA-256 checksum, so it was not installed".to_string());
         }
     }
 

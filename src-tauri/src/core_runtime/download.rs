@@ -6,9 +6,10 @@ pub(crate) async fn fetch_release_cancelable(
     token: &CancellationToken,
     source: VersionDownloadCandidate,
     custom_mirrors: &[String],
+    allow_mirror_fallback: bool,
 ) -> Result<(GithubRelease, VersionDownloadCandidate), String> {
     tokio::select! {
-        result = fetch_release(client, version, source, custom_mirrors) => result,
+        result = fetch_release(client, version, source, custom_mirrors, allow_mirror_fallback) => result,
         _ = token.cancelled() => Err("Download canceled".to_string()),
     }
 }

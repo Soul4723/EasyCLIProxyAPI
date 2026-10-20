@@ -1672,7 +1672,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     {
         changed = true;
     }
-    if presence.prefer_gitcode_downloads.is_none() {
+    if presence.prefer_gitcode_downloads.is_none() || presence.allow_mirror_fallback.is_none() {
         changed = true;
     }
     if presence.connection_mode.is_none()
@@ -2272,6 +2272,10 @@ pub(crate) fn write_gui_config_to_path(
         (
             "prefer-gitcode-downloads",
             value(config.prefer_gitcode_downloads),
+        ),
+        (
+            "allow-mirror-fallback",
+            value(config.allow_mirror_fallback),
         ),
         (
             "routing-session-affinity",

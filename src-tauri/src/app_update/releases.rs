@@ -14,7 +14,7 @@ pub(crate) async fn check_app_update(
             eprintln!("Failed to update Codex model catalog during version check; continuing with current catalog: {error}");
         }
     });
-    let (info, _) = resolve_app_update(&app, gui_config_state.inner()).await?;
+    let (info, _) = resolve_app_update(gui_config_state.inner()).await?;
     state.set_available(AppUpdateTask {
         phase: if info.update_available {
             "available".to_string()
@@ -29,7 +29,6 @@ pub(crate) async fn check_app_update(
 }
 
 pub(super) async fn resolve_app_update(
-    app: &tauri::AppHandle,
     gui_config_state: &GuiConfigState,
 ) -> Result<(AppUpdateInfo, Option<PendingAppUpdate>), String> {
     let _detection_guard = VERSION_SOURCE_DETECTION_LOCK.lock().await;
@@ -46,19 +45,14 @@ pub(super) async fn resolve_app_update(
         &proxy_url,
         "Failed to create version check client",
     )?;
-    let requested_source = config.selected_download_candidate();
-    let (manifest, resolved_source) = fetch_portable_update_manifest(
+    // A fallback source that answered is used for this check only and is not saved.
+    let (manifest, _resolved_source) = fetch_portable_update_manifest(
         &client,
-        requested_source.clone(),
+        config.selected_download_candidate(),
         &config.custom_download_mirrors,
+        config.allow_mirror_fallback,
     )
     .await?;
-    persist_automatic_download_source_switch(
-        app,
-        gui_config_state,
-        &requested_source,
-        &resolved_source,
-    )?;
     let latest_version = normalize_version(&manifest.version);
     let current_version = normalize_version(env!("CARGO_PKG_VERSION"));
     let update_available = is_app_update_available(&current_version, &latest_version)?;
@@ -105,15 +99,19 @@ pub(crate) async fn fetch_portable_update_manifest(
     client: &reqwest::Client,
     source: VersionDownloadCandidate,
     custom_mirrors: &[String],
+    allow_mirror_fallback: bool,
 ) -> Result<(PortableUpdateManifest, VersionDownloadCandidate), String> {
     if source.source == VersionDownloadSource::Gitcode && !gitcode_version_source_available() {
         return Err("GitCode application update source is not configured for this build".to_string());
     }
     let gitcode_repository = configured_gitcode_gui_repository();
     let mut failures = Vec::new();
-    for candidate in
-        version_download_source_candidates(source, gitcode_repository.is_some(), custom_mirrors)
-    {
+    for candidate in version_download_source_candidates(
+        source,
+        gitcode_repository.is_some(),
+        custom_mirrors,
+        allow_mirror_fallback,
+    ) {
         let result = match candidate.source {
             VersionDownloadSource::Gitcode => {
                 fetch_portable_update_manifest_from_gitcode(

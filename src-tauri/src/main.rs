@@ -588,6 +588,7 @@ fn main() {
                 // Downloads and updates
                 get_version_source_settings,
                 set_download_source,
+                set_mirror_fallback,
                 add_custom_download_mirror,
                 remove_custom_download_mirror,
                 check_app_update,

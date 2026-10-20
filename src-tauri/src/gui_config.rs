@@ -78,6 +78,8 @@ pub(crate) struct GuiConfigFile {
     pub(crate) custom_download_mirrors: Vec<String>,
     pub(crate) active_custom_download_mirror: String,
     pub(crate) prefer_gitcode_downloads: bool,
+    /// Explicit opt-in to fall back to mirrors when the selected source fails.
+    pub(crate) allow_mirror_fallback: bool,
     pub(crate) routing_session_affinity: bool,
     pub(crate) routing_session_affinity_ttl: String,
     pub(crate) disable_cooling: bool,
@@ -207,26 +209,33 @@ pub(crate) fn version_source_url(source: &VersionDownloadCandidate, github_url: 
         .unwrap_or_else(|| github_url.to_string())
 }
 
+/// Sources to try, in order: the one the user selected, then GitHub. Other mirrors
+/// are tried only when the user has opted in to mirror fallback.
 pub(crate) fn version_download_source_candidates(
     preferred: VersionDownloadCandidate,
     gitcode_available: bool,
     custom_mirrors: &[String],
+    allow_mirror_fallback: bool,
 ) -> Vec<VersionDownloadCandidate> {
     let mut candidates = vec![
         preferred,
         VersionDownloadCandidate::builtin(VersionDownloadSource::Github),
-        VersionDownloadCandidate::builtin(VersionDownloadSource::Gitcode),
-        VersionDownloadCandidate::builtin(VersionDownloadSource::GhProxy),
-        VersionDownloadCandidate::builtin(VersionDownloadSource::GhFast),
     ];
+    if allow_mirror_fallback {
+        candidates.extend([
+            VersionDownloadCandidate::builtin(VersionDownloadSource::Gitcode),
+            VersionDownloadCandidate::builtin(VersionDownloadSource::GhProxy),
+            VersionDownloadCandidate::builtin(VersionDownloadSource::GhFast),
+        ]);
+        candidates.extend(
+            custom_mirrors
+                .iter()
+                .map(|url| VersionDownloadCandidate::custom(url)),
+        );
+    }
     candidates.retain(|candidate| {
         gitcode_available || candidate.source != VersionDownloadSource::Gitcode
     });
-    candidates.extend(
-        custom_mirrors
-            .iter()
-            .map(|url| VersionDownloadCandidate::custom(url)),
-    );
     candidates
         .into_iter()
         .fold(Vec::new(), |mut sources, source| {
@@ -412,6 +421,7 @@ impl Default for GuiConfigFile {
             custom_download_mirrors: Vec::new(),
             active_custom_download_mirror: String::new(),
             prefer_gitcode_downloads: false,
+            allow_mirror_fallback: false,
             routing_session_affinity: false,
             routing_session_affinity_ttl: String::new(),
             disable_cooling: DEFAULT_DISABLE_COOLING,
@@ -459,6 +469,7 @@ pub(crate) struct GuiConfigPresence {
     pub(crate) custom_download_mirrors: Option<Vec<String>>,
     pub(crate) active_custom_download_mirror: Option<String>,
     pub(crate) prefer_gitcode_downloads: Option<bool>,
+    pub(crate) allow_mirror_fallback: Option<bool>,
     pub(crate) routing_session_affinity: Option<bool>,
     pub(crate) routing_session_affinity_ttl: Option<String>,
     pub(crate) disable_cooling: Option<bool>,
@@ -484,6 +495,7 @@ pub(crate) struct VersionSourceSettings {
     pub(crate) source: String,
     pub(crate) gitcode_available: bool,
     pub(crate) custom_mirrors: Vec<String>,
+    pub(crate) mirror_fallback: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -852,31 +864,11 @@ impl GuiConfigState {
         })
     }
 
-    pub(crate) fn switch_download_source_after_failure(
-        &self,
-        expected_source: &VersionDownloadCandidate,
-        fallback_source: &VersionDownloadCandidate,
-    ) -> Result<Option<GuiConfigFile>, String> {
-        let mut current = self
-            .inner
-            .lock()
-            .map_err(|_| "GUI configuration status lock is poisoned".to_string())?;
-        if current.selected_download_candidate() != *expected_source
-            || expected_source == fallback_source
-        {
-            return Ok(None);
-        }
-
-        let mut config = current.clone();
-        config.download_source = fallback_source.source;
-        if let Some(url) = &fallback_source.custom_url {
-            config.active_custom_download_mirror = url.clone();
-        }
-        config.prefer_gitcode_downloads = fallback_source.source == VersionDownloadSource::Gitcode;
-        sanitize_gui_config(&mut config)?;
-        write_gui_config(&config)?;
-        *current = config.clone();
-        Ok(Some(config))
+    pub(crate) fn set_mirror_fallback(&self, enabled: bool) -> Result<GuiConfigFile, String> {
+        self.update(|config| {
+            config.allow_mirror_fallback = enabled;
+            Ok(())
+        })
     }
 
     pub(crate) fn set_window_geometry(

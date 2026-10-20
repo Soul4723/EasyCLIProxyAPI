@@ -68,6 +68,16 @@ const invoke = (page, command, payload) => page.evaluate(([c, p]) => window.__TA
     const sources = page.locator('#updates-sources');
     const selectedSource = () => sources.locator('.ec-upd-source[data-selected="true"]').getAttribute('data-source');
     assert.equal(await selectedSource(), 'github');
+    // Mirror fallback: off by default; an explicit opt-in that never changes the selected source.
+    await sources.getByText(/checked against the checksum published on GitHub/).waitFor();
+    const fallback = sources.getByRole('switch', { name: 'Fall back to other mirrors' });
+    const fallbackChecked = (value) => page.waitForFunction((expected) => document.querySelector('#updates-sources [role="switch"]')?.getAttribute('aria-checked') === expected, value);
+    assert.equal(await fallback.getAttribute('aria-checked'), 'false');
+    await fallback.click();
+    await fallbackChecked('true');
+    assert.equal(await selectedSource(), 'github');
+    await fallback.click();
+    await fallbackChecked('false');
     await sources.locator('[data-source="gh-fast"]').getByRole('button', { name: 'Use' }).click();
     await sources.locator('[data-source="gh-fast"]').getByText('Selected').waitFor();
     assert.equal(await selectedSource(), 'gh-fast');

@@ -45,8 +45,7 @@ pub(crate) async fn start_app_update(
             let state = update_app.state::<AppUpdateState>();
             let gui_config_state = update_app.state::<GuiConfigState>();
             let pending = refresh_app_update_for_install(state.inner(), &token, async {
-                let (info, pending) =
-                    resolve_app_update(&update_app, gui_config_state.inner()).await?;
+                let (info, pending) = resolve_app_update(gui_config_state.inner()).await?;
                 pending.ok_or_else(|| {
                     if info.update_available {
                         info.unsupported_reason

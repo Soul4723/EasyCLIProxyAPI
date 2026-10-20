@@ -2,35 +2,44 @@ use super::*;
 
 #[allow(clippy::too_many_arguments)] // Preserve the existing command/helper interface in this behavior-neutral cleanup.
 pub(crate) async fn stage_core_version_inner(
-    app: &tauri::AppHandle,
     window: &tauri::Window,
     state: &CoreDownloadState,
-    gui_config_state: &GuiConfigState,
     token: CancellationToken,
     version: Option<String>,
     proxy_url: &str,
     download_source: VersionDownloadCandidate,
     custom_mirrors: Vec<String>,
+    allow_mirror_fallback: bool,
 ) -> Result<StagedCoreInstall, String> {
     let platform = current_core_platform()?;
     let client = http_client(proxy_url, &custom_mirrors)?;
     state.progress(window, "Check version", 0, None, true);
-    let requested_source = download_source.clone();
     let (release, resolved_source) = fetch_release_cancelable(
         &client,
         version.as_deref(),
         &token,
         download_source,
         &custom_mirrors,
+        allow_mirror_fallback,
     )
     .await?;
-    let asset = select_release_asset(&release, &platform)?;
+    let listed_asset = select_release_asset(&release, &platform)?;
+    // The checksum always comes from GitHub, even when the release listing or the
+    // archive come through a mirror. No checksum means no install.
+    state.progress(window, "Fetching official checksums", 0, None, true);
+    let checksums_client = official_checksums_client(proxy_url)?;
+    let official_checksums = tokio::select! {
+        result = fetch_official_core_checksums(&checksums_client, &release.tag_name) => result?,
+        _ = token.cancelled() => return Err("Download canceled".to_string()),
+    };
+    let asset = &asset_with_official_digest(listed_asset, &official_checksums)?;
     let download_candidates = core_download_candidates(
         &release.tag_name,
         asset,
         resolved_source,
         configured_gitcode_core_repository(),
         &custom_mirrors,
+        allow_mirror_fallback,
     );
 
     let install_dir = core_install_dir()?;
@@ -47,7 +56,9 @@ pub(crate) async fn stage_core_version_inner(
         .ok_or_else(|| format!("Invalid asset filename: {}", asset.name))?;
     let archive_path = download_dir.join(archive_file_name);
 
-    let (downloaded, successful_source) = download_asset(
+    // A fallback that succeeded is used for this download only; the saved
+    // download source is never changed behind the user's back.
+    let (downloaded, _successful_source) = download_asset(
         &client,
         asset,
         &download_candidates,
@@ -58,12 +69,6 @@ pub(crate) async fn stage_core_version_inner(
     )
     .await?;
     validate_downloaded_asset(asset, &downloaded)?;
-    persist_automatic_download_source_switch(
-        app,
-        gui_config_state,
-        &requested_source,
-        &successful_source,
-    )?;
 
     ensure_not_cancelled(&token, Some(&archive_path))?;
     state.progress(

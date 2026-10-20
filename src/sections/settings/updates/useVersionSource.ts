@@ -1,5 +1,6 @@
 // Download-source state for the Updates tab: selected source, built-in channels and custom HTTPS mirrors.
-// Same commands/events as the old Version page (get_version_source_settings, set_download_source, add/remove_custom_download_mirror).
+// Commands: get_version_source_settings, set_download_source, set_mirror_fallback, add/remove_custom_download_mirror.
+// The backend never changes the saved source on its own, so there is no auto-switch event.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke, listen } from '../../../services/platform';
 import { createSettingsRead } from '../../../services/settingsData';
@@ -27,7 +28,7 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
   const refreshRef = useRef(refreshStatus);
   refreshRef.current = refreshStatus;
 
-  // A save result or auto-switch event supersedes any load still in flight.
+  // A save result supersedes any load still in flight.
   const requests = useRequestGuard();
   const load = useCallback(async (fresh = false) => {
     const isCurrent = requests.begin();
@@ -44,7 +45,6 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
   useEffect(() => {
     let disposed = false;
     let stopConfig: (() => void) | null = null;
-    let stopSource: (() => void) | null = null;
     void listen('config-files-changed', () => {
       if (disposed) return;
       void load(true);
@@ -53,22 +53,10 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
       if (disposed) stop();
       else stopConfig = stop;
     });
-    void listen<VersionSourceSettings>('version-download-source-changed', (event) => {
-      if (disposed) return;
-      requests.invalidate();
-      versionSourceRead.publish(event.payload);
-      setSettings(event.payload);
-      setError('');
-      notifyRef.current({ key: 'kernel.versions.sourceAutoSwitched', variables: { source: downloadSourceLabel(event.payload.source, tRef.current) } }, 'info');
-    }).then((stop) => {
-      if (disposed) stop();
-      else stopSource = stop;
-    });
     void load();
     return () => {
       disposed = true;
       stopConfig?.();
-      stopSource?.();
     };
   }, [load, requests]);
 
@@ -85,6 +73,22 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     } catch (cause) {
       await load(true);
       setError(tRef.current('kernel.versions.gitcodeSaveFailed', { error: String(cause) }));
+    } finally {
+      setSaving(false);
+    }
+  }, [load, requests]);
+
+  const setMirrorFallback = useCallback(async (enabled: boolean) => {
+    setSaving(true);
+    setError('');
+    try {
+      const next = await invoke<VersionSourceSettings>('set_mirror_fallback', { enabled });
+      requests.invalidate();
+      versionSourceRead.publish(next);
+      setSettings(next);
+    } catch (cause) {
+      await load(true);
+      setError(tRef.current('sec.settings.updates.sources.fallbackSaveFailed', { error: String(cause) }));
     } finally {
       setSaving(false);
     }
@@ -129,5 +133,5 @@ export function useVersionSource(notify: Notify, onSourceChanged: () => void, re
     }
   }, [requests]);
 
-  return { settings, saving, error, addError, clearAddError: () => setAddError(''), clearError: () => setError(''), select, addMirror, removeMirror };
+  return { settings, saving, error, addError, clearAddError: () => setAddError(''), clearError: () => setError(''), select, setMirrorFallback, addMirror, removeMirror };
 }

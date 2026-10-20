@@ -5,6 +5,7 @@ pub(crate) async fn fetch_release(
     version: Option<&str>,
     source: VersionDownloadCandidate,
     custom_mirrors: &[String],
+    allow_mirror_fallback: bool,
 ) -> Result<(GithubRelease, VersionDownloadCandidate), String> {
     if let Some(version) = version {
         return Ok((
@@ -18,9 +19,12 @@ pub(crate) async fn fetch_release(
     }
     let gitcode_repository = configured_gitcode_core_repository();
     let mut failures = Vec::new();
-    for candidate in
-        version_download_source_candidates(source, gitcode_repository.is_some(), custom_mirrors)
-    {
+    for candidate in version_download_source_candidates(
+        source,
+        gitcode_repository.is_some(),
+        custom_mirrors,
+        allow_mirror_fallback,
+    ) {
         let result = match candidate.source {
             VersionDownloadSource::Gitcode => {
                 fetch_release_from_gitcode(
@@ -240,6 +244,7 @@ pub(crate) fn core_download_candidates(
     preferred: VersionDownloadCandidate,
     gitcode_repository: Option<&str>,
     custom_mirrors: &[String],
+    allow_mirror_fallback: bool,
 ) -> Vec<(VersionDownloadCandidate, String)> {
     let tag = normalize_version(tag);
     let generated_github_url = format!("{RELEASE_DOWNLOAD_PREFIX}{tag}/{}", asset.name);
@@ -259,19 +264,24 @@ pub(crate) fn core_download_candidates(
             gitcode_repository
                 .map(|repository| gitcode_release_attachment_url(repository, &tag, &asset.name))
         });
-    version_download_source_candidates(preferred, gitcode_url.is_some(), custom_mirrors)
-        .into_iter()
-        .filter_map(|candidate| {
-            let url = match candidate.source {
-                VersionDownloadSource::Github => github_url.clone(),
-                VersionDownloadSource::Gitcode => gitcode_url.clone()?,
-                VersionDownloadSource::GhProxy
-                | VersionDownloadSource::GhFast
-                | VersionDownloadSource::Custom => version_source_url(&candidate, &github_url),
-            };
-            Some((candidate, url))
-        })
-        .collect()
+    version_download_source_candidates(
+        preferred,
+        gitcode_url.is_some(),
+        custom_mirrors,
+        allow_mirror_fallback,
+    )
+    .into_iter()
+    .filter_map(|candidate| {
+        let url = match candidate.source {
+            VersionDownloadSource::Github => github_url.clone(),
+            VersionDownloadSource::Gitcode => gitcode_url.clone()?,
+            VersionDownloadSource::GhProxy
+            | VersionDownloadSource::GhFast
+            | VersionDownloadSource::Custom => version_source_url(&candidate, &github_url),
+        };
+        Some((candidate, url))
+    })
+    .collect()
 }
 
 pub(crate) fn release_tag_from_url(url: &reqwest::Url) -> Option<String> {

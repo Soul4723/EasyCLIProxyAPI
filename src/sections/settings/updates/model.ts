@@ -30,6 +30,8 @@ export type VersionSourceSettings = {
   source: VersionDownloadSource;
   gitcodeAvailable: boolean;
   customMirrors: string[];
+  /** Explicit opt-in to try other mirrors when the selected source fails. */
+  mirrorFallback: boolean;
 };
 
 export const DEFAULT_VERSION_DOWNLOAD_SOURCE = 'github';
@@ -64,6 +66,7 @@ export function downloadSourceLabel(source: VersionDownloadSource, t: Translate)
 
 export function localizeInstallPhase(phase: string, t: Translate) {
   const keys: Record<string, MessageKey> = {
+    'Fetching official checksums': 'kernel.phase.fetchingChecksums',
     'Preparing download': 'kernel.phase.preparingDownload',
     Downloading: 'kernel.phase.downloading',
     Extracting: 'kernel.phase.extracting',

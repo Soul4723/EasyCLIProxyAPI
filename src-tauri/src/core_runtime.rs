@@ -16,6 +16,8 @@ mod bundled;
 pub(crate) use bundled::*;
 mod metadata;
 pub(crate) use metadata::*;
+mod integrity;
+pub(crate) use integrity::*;
 mod process_control;
 pub(crate) use process_control::*;
 mod supervisor;

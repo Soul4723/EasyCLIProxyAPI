@@ -15,7 +15,6 @@ pub(crate) const PORTABLE_APP_BINARY: &str = "EasyCLIProxyAPI";
 pub(crate) const CORE_INSTALL_PROGRESS_EVENT: &str = "core-install-progress";
 pub(crate) const CORE_STATUS_EVENT: &str = "core-status-changed";
 pub(crate) const CONFIG_FILES_CHANGED_EVENT: &str = "config-files-changed";
-pub(crate) const VERSION_DOWNLOAD_SOURCE_CHANGED_EVENT: &str = "version-download-source-changed";
 pub(crate) static VERSION_SOURCE_DETECTION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub(crate) const WINDOWS_CLOSE_REQUEST_EVENT: &str = "windows-close-requested";

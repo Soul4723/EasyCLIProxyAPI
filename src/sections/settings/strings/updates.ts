@@ -35,6 +35,10 @@ export const updatesZhCN = {
   "sec.settings.updates.sources.addLabel": "添加自定义镜像",
   "sec.settings.updates.sources.addHint": "输入 GitHub 镜像代理的 HTTPS 前缀，下载时会附加原始 GitHub 地址",
   "sec.settings.updates.sources.invalid": "请输入 https:// 开头的地址",
+  "sec.settings.updates.sources.integrityNote": "无论从哪个下载源下载，内核都会与 GitHub 上发布的校验和比对，不一致时拒绝安装。因此安装内核时仍需能访问 GitHub。",
+  "sec.settings.updates.sources.fallbackLabel": "失败时改用其他镜像",
+  "sec.settings.updates.sources.fallbackHint": "默认关闭。开启后，所选下载源失败时会依次尝试 GitCode、gh-proxy.com、ghfast.top 和自定义镜像。只用于本次下载，不会更改所选下载源。",
+  "sec.settings.updates.sources.fallbackSaveFailed": "无法保存镜像回退设置：{error}",
 } as const;
 
 export const updatesEn: Record<keyof typeof updatesZhCN, string> = {
@@ -73,6 +77,10 @@ export const updatesEn: Record<keyof typeof updatesZhCN, string> = {
   "sec.settings.updates.sources.addLabel": "Add custom mirror",
   "sec.settings.updates.sources.addHint": "HTTPS prefix of a GitHub mirror proxy. The original GitHub URL is appended when downloading.",
   "sec.settings.updates.sources.invalid": "Enter an address starting with https://",
+  "sec.settings.updates.sources.integrityNote": "Whichever source serves it, the core is checked against the checksum published on GitHub and refused if it doesn't match. GitHub must still be reachable to install the core.",
+  "sec.settings.updates.sources.fallbackLabel": "Fall back to other mirrors",
+  "sec.settings.updates.sources.fallbackHint": "Off by default. When on and the selected source fails, GitCode, gh-proxy.com, ghfast.top and your custom mirrors are tried in turn. Used for that download only; the selected source is not changed.",
+  "sec.settings.updates.sources.fallbackSaveFailed": "Couldn't save the mirror fallback setting: {error}",
 };
 
 export const updatesJa: Record<keyof typeof updatesZhCN, string> = {
@@ -111,4 +119,8 @@ export const updatesJa: Record<keyof typeof updatesZhCN, string> = {
   "sec.settings.updates.sources.addLabel": "カスタムミラーを追加",
   "sec.settings.updates.sources.addHint": "GitHub ミラープロキシの HTTPS プレフィックス。ダウンロード時に元の GitHub URL が付加されます。",
   "sec.settings.updates.sources.invalid": "https:// で始まるアドレスを入力してください",
+  "sec.settings.updates.sources.integrityNote": "どのダウンロード元から取得しても、コアは GitHub で公開されたチェックサムと照合し、一致しなければインストールしません。そのためコアのインストールには GitHub への接続が必要です。",
+  "sec.settings.updates.sources.fallbackLabel": "失敗時は他のミラーを使う",
+  "sec.settings.updates.sources.fallbackHint": "既定ではオフです。オンにすると、選択したダウンロード元が失敗したときに GitCode、gh-proxy.com、ghfast.top、カスタムミラーを順に試します。そのダウンロードだけに使い、選択中のダウンロード元は変わりません。",
+  "sec.settings.updates.sources.fallbackSaveFailed": "ミラーのフォールバック設定を保存できませんでした：{error}",
 };

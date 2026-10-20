@@ -35,6 +35,7 @@ fn version_source_settings(config: &GuiConfigFile) -> VersionSourceSettings {
         source: config.selected_download_candidate().key(),
         gitcode_available: gitcode_version_source_available(),
         custom_mirrors: config.custom_download_mirrors.clone(),
+        mirror_fallback: config.allow_mirror_fallback,
     }
 }
 
@@ -56,6 +57,15 @@ pub(crate) fn set_download_source(
         return Err("This build does not include complete GitCode application and kernel mirror sources".to_string());
     }
     let config = gui_config_state.set_download_candidate(candidate)?;
+    Ok(version_source_settings(&config))
+}
+
+#[tauri::command]
+pub(crate) fn set_mirror_fallback(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+    enabled: bool,
+) -> Result<VersionSourceSettings, String> {
+    let config = gui_config_state.set_mirror_fallback(enabled)?;
     Ok(version_source_settings(&config))
 }
 
@@ -101,24 +111,6 @@ pub(crate) fn remove_custom_download_mirror(
 
 pub(crate) fn gitcode_version_source_available() -> bool {
     configured_gitcode_gui_repository().is_some() && configured_gitcode_core_repository().is_some()
-}
-
-pub(crate) fn persist_automatic_download_source_switch(
-    app: &tauri::AppHandle,
-    gui_config_state: &GuiConfigState,
-    requested_source: &VersionDownloadCandidate,
-    resolved_source: &VersionDownloadCandidate,
-) -> Result<(), String> {
-    let Some(config) =
-        gui_config_state.switch_download_source_after_failure(requested_source, resolved_source)?
-    else {
-        return Ok(());
-    };
-    app.emit(
-        VERSION_DOWNLOAD_SOURCE_CHANGED_EVENT,
-        version_source_settings(&config),
-    )
-    .map_err(|error| format!("Failed to notify automatic download source switch: {error}"))
 }
 
 #[tauri::command]

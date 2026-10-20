@@ -1,14 +1,15 @@
-// "Download sources" group: built-in channels + custom HTTPS mirrors, the selected one clearly marked.
+// "Download sources" group: built-in channels + custom HTTPS mirrors, the selected one clearly marked,
+// and the explicit opt-in for falling back to mirrors.
 import { useRef, useState } from 'react';
 import { Globe, Plus, Trash2 } from 'lucide-react';
 import { useI18n } from '../../../i18n';
-import { Button, Chip, IconButton, Masked } from '../../../ui';
+import { Button, Chip, IconButton, Masked, Toggle } from '../../../ui';
 import { SettingRow, SettingsGroup } from '../ui';
 import { BUILTIN_SOURCES, DEFAULT_VERSION_DOWNLOAD_SOURCE, downloadSourceLabel, type VersionDownloadSource, type VersionSourceSettings } from './model';
 
-export function DownloadSources({ settings, saving, locked, error, addError, onSelect, onAdd, onRemove, onClearAddError }: {
+export function DownloadSources({ settings, saving, locked, error, addError, onSelect, onMirrorFallback, onAdd, onRemove, onClearAddError }: {
   settings: VersionSourceSettings | null; saving: boolean; locked: boolean; error: string; addError: string;
-  onSelect: (source: VersionDownloadSource) => void; onAdd: (url: string) => Promise<boolean>;
+  onSelect: (source: VersionDownloadSource) => void; onMirrorFallback: (enabled: boolean) => void; onAdd: (url: string) => Promise<boolean>;
   onRemove: (url: string, wasSelected: boolean) => void; onClearAddError: () => void;
 }) {
   const { t } = useI18n();
@@ -46,6 +47,7 @@ export function DownloadSources({ settings, saving, locked, error, addError, onS
       status={<Chip size="sm" tone="outline">{downloadSourceLabel(selected, t)}</Chip>}
     >
       {error ? <p className="ec-upd-error ec-upd-group-error" role="alert">{error}</p> : null}
+      <p className="ec-upd-note ec-upd-group-note" data-testid="updates-integrity-note">{t('sec.settings.updates.sources.integrityNote')}</p>
       {BUILTIN_SOURCES.map((entry) => {
         const unavailable = entry.id === 'gitcode' && settings?.gitcodeAvailable === false ? t('kernel.versions.gitcodeUnavailable') : '';
         return (
@@ -76,6 +78,14 @@ export function DownloadSources({ settings, saving, locked, error, addError, onS
           </div>
         );
       })}
+      <SettingRow label={t('sec.settings.updates.sources.fallbackLabel')} hint={t('sec.settings.updates.sources.fallbackHint')}>
+        <Toggle
+          checked={settings?.mirrorFallback ?? false}
+          label={t('sec.settings.updates.sources.fallbackLabel')}
+          disabled={disabled}
+          onChange={onMirrorFallback}
+        />
+      </SettingRow>
       <SettingRow
         label={t('sec.settings.updates.sources.addLabel')}
         hint={t('sec.settings.updates.sources.addHint')}

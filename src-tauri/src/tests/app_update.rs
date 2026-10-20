@@ -635,12 +635,13 @@ fn portable_update_download_order_respects_gitcode_preference() {
 }
 
 #[test]
-fn version_detection_candidates_try_every_available_source_once() {
+fn opted_in_version_detection_candidates_try_every_available_source_once() {
     assert_eq!(
         version_download_source_candidates(
             VersionDownloadCandidate::builtin(VersionDownloadSource::GhFast),
             true,
             &[],
+            true,
         ),
         [
             VersionDownloadCandidate::builtin(VersionDownloadSource::GhFast),
@@ -654,6 +655,7 @@ fn version_detection_candidates_try_every_available_source_once() {
             VersionDownloadCandidate::builtin(VersionDownloadSource::Gitcode),
             false,
             &[],
+            true,
         ),
         [
             VersionDownloadCandidate::builtin(VersionDownloadSource::Github),
@@ -664,7 +666,7 @@ fn version_detection_candidates_try_every_available_source_once() {
 }
 
 #[test]
-fn custom_mirror_urls_are_normalized_and_join_the_fallback_chain() {
+fn custom_mirror_urls_are_normalized_and_join_the_opted_in_fallback_chain() {
     assert_eq!(
         normalize_custom_download_mirror_url(" https://mirror.example.com/base ").unwrap(),
         "https://mirror.example.com/base/"
@@ -680,6 +682,7 @@ fn custom_mirror_urls_are_normalized_and_join_the_fallback_chain() {
         VersionDownloadCandidate::custom(&mirrors[1]),
         true,
         &mirrors,
+        true,
     );
     assert_eq!(candidates[0], VersionDownloadCandidate::custom(&mirrors[1]));
     assert_eq!(
@@ -1305,7 +1308,7 @@ fn github_proxy_core_release_uses_proxy_then_official_and_gitcode() {
 }
 
 #[test]
-fn core_download_candidates_follow_the_complete_fallback_chain() {
+fn opted_in_core_download_candidates_follow_the_complete_fallback_chain() {
     let release = release_from_tag_for_repositories(
         "v7.2.80",
         Some("lzt404/CLIProxyAPI"),
@@ -1326,6 +1329,7 @@ fn core_download_candidates_follow_the_complete_fallback_chain() {
         VersionDownloadCandidate::builtin(VersionDownloadSource::Github),
         Some("lzt404/CLIProxyAPI"),
         &custom_mirrors,
+        true,
     );
 
     assert_eq!(
@@ -1425,6 +1429,7 @@ async fn selected_gitcode_source_reports_missing_configuration_without_network_r
         &reqwest::Client::new(),
         VersionDownloadCandidate::builtin(VersionDownloadSource::Gitcode),
         &[],
+        false,
     )
     .await
     .unwrap_err();

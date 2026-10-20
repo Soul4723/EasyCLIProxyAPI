@@ -522,7 +522,7 @@ function createState(scenario: BrowserMockScenario) {
       message: null,
       result: null,
     },
-    versionSource: { source: 'github', gitcodeAvailable: true, customMirrors: ['https://gh-proxy.example.com/'] },
+    versionSource: { source: 'github', gitcodeAvailable: true, customMirrors: ['https://gh-proxy.example.com/'], mirrorFallback: false },
     // Native groups are authoritative; legacy routes only adapt their own view.
     providerConfig: Object.fromEntries(PROVIDER_SECTIONS.map((section) => [
       section, scenario === 'empty' ? [] : groupProviderRecords(section, legacyProviderConfig[section]),
@@ -1290,7 +1290,10 @@ export function createBrowserMockRuntime(
       case 'get_version_source_settings': return clone(state.versionSource);
       case 'set_download_source': {
         state.versionSource.source = readString(payload.source) || 'github';
-        emit('version-download-source-changed', state.versionSource);
+        return clone(state.versionSource);
+      }
+      case 'set_mirror_fallback': {
+        state.versionSource.mirrorFallback = payload.enabled === true;
         return clone(state.versionSource);
       }
       case 'add_custom_download_mirror': {

@@ -2,7 +2,6 @@ use super::*;
 
 #[tauri::command]
 pub(crate) async fn check_latest_core(
-    app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<CoreLatest, String> {
     crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
@@ -11,20 +10,14 @@ pub(crate) async fn check_latest_core(
     let config = gui_config_state.snapshot()?;
     let proxy_url = config.proxy_url.clone();
     let client = http_client(&proxy_url, &config.custom_download_mirrors)?;
-    let requested_source = config.selected_download_candidate();
-    let (release, resolved_source) = fetch_release(
+    let (release, _resolved_source) = fetch_release(
         &client,
         None,
-        requested_source.clone(),
+        config.selected_download_candidate(),
         &config.custom_download_mirrors,
+        config.allow_mirror_fallback,
     )
     .await?;
-    persist_automatic_download_source_switch(
-        &app,
-        gui_config_state.inner(),
-        &requested_source,
-        &resolved_source,
-    )?;
     let asset = select_release_asset(&release, &platform)?;
 
     Ok(CoreLatest {
@@ -211,15 +204,14 @@ pub(crate) async fn install_core_version(
 
         // Stage download, SHA-256 verification, and archive extraction BEFORE stopping the running core.
         let staged_result = tauri::async_runtime::block_on(stage_core_version_inner(
-            &app,
             &window,
             state.inner(),
-            gui_config_state.inner(),
             token,
             version,
             &proxy_url,
             config.selected_download_candidate(),
             config.custom_download_mirrors.clone(),
+            config.allow_mirror_fallback,
         ));
 
         let result = staged_result.and_then(|staged| {

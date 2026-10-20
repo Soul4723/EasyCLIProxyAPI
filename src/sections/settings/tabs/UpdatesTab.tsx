@@ -99,6 +99,7 @@ export function UpdatesTab() {
         error={sources.error}
         addError={sources.addError}
         onSelect={(source) => void sources.select(source)}
+        onMirrorFallback={(enabled) => void sources.setMirrorFallback(enabled)}
         onAdd={sources.addMirror}
         onRemove={(url, wasSelected) => void sources.removeMirror(url, wasSelected)}
         onClearAddError={sources.clearAddError}
