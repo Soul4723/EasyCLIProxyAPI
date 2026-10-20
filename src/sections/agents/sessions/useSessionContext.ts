@@ -13,6 +13,11 @@ export type EditorNotice = { kind: 'success' | 'error'; message: string };
 export type MessageEditState = { content: string; isEditing: boolean; isDeleted: boolean };
 export type RoleFilter = 'all' | 'user' | 'assistant' | 'tool' | 'reasoning';
 
+/** Messages fetched per page (the backend default, and the smallest reload after a save). */
+export const CONTEXT_PAGE_SIZE = 200;
+/** Largest page the backend serves; a reload after a save asks for what was already loaded, up to this. */
+const MAX_CONTEXT_PAGE_SIZE = 1000;
+
 type Options = {
   sessionId: string;
   /** Closes the editor (called after a confirmed discard, or directly when nothing is unsaved). */
@@ -51,7 +56,14 @@ export function useSessionContext({ sessionId, onClose, onSessionUpdated }: Opti
   const [searchQuery, setSearchQuery] = useState('');
   const [discardOpen, setDiscardOpen] = useState(false);
 
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const mountedRef = useRef(true);
+  const detailRef = useRef<CodexSessionContextDetail | null>(null);
+  detailRef.current = detail;
+  /** Bumped by every full read so a page fetched for an older read is dropped. */
+  const readGenerationRef = useRef(0);
+  const loadingMoreRef = useRef(false);
   const pendingReadRef = useRef<{ sessionId: string; promise: Promise<CodexSessionContextDetail> } | null>(null);
   const savingRef = useRef(false);
   const translateRef = useRef(t);
@@ -71,13 +83,19 @@ export function useSessionContext({ sessionId, onClose, onSessionUpdated }: Opti
       setNotice(null);
       setLoadError(null);
     }
+    // A silent reload (after a save) re-reads as many messages as were already loaded.
+    const loaded = detailRef.current?.messages.length ?? 0;
+    const request = silent && loaded > CONTEXT_PAGE_SIZE
+      ? { sessionId, messageLimit: Math.min(loaded, MAX_CONTEXT_PAGE_SIZE) }
+      : { sessionId };
     const pending = pendingReadRef.current?.sessionId === sessionId
       ? pendingReadRef.current
-      : { sessionId, promise: invoke<CodexSessionContextDetail>('get_codex_session_context', { request: { sessionId } }) };
+      : { sessionId, promise: invoke<CodexSessionContextDetail>('get_codex_session_context', { request }) };
     pendingReadRef.current = pending;
     try {
       const data = await pending.promise;
       if (!mountedRef.current || pendingReadRef.current !== pending) return false;
+      readGenerationRef.current += 1;
       setDetail(data);
       setTitle(data.title || '');
       setCwd(data.cwd || '');
@@ -111,6 +129,58 @@ export function useSessionContext({ sessionId, onClose, onSessionUpdated }: Opti
     void loadContext();
   }, [loadContext]);
 
+  const totalMessages = detail?.totalMessages ?? 0;
+  const loadedMessages = detail?.messages.length ?? 0;
+  const hasMoreMessages = detail ? detail.messageOffset + loadedMessages < totalMessages : false;
+
+  /** Appends the next page of messages. Edits and staged deletions of already loaded messages are kept. */
+  const loadMore = useCallback(async () => {
+    const current = detailRef.current;
+    if (!current || loadingMoreRef.current) return;
+    const offset = current.messageOffset + current.messages.length;
+    if (offset >= current.totalMessages) return;
+    const generation = readGenerationRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const page = await invoke<CodexSessionContextDetail>('get_codex_session_context', {
+        request: { sessionId, messageOffset: offset, messageLimit: CONTEXT_PAGE_SIZE },
+      });
+      if (!mountedRef.current || readGenerationRef.current !== generation) return;
+      if (page.rolloutSha256 !== current.rolloutSha256) {
+        setNotice({ kind: 'error', message: translateRef.current('agents.sessions.context.changedOnDisk') });
+        return;
+      }
+      const loadedLines = new Set(current.messages.map((message) => message.lineNumber));
+      const fresh = page.messages.filter((message) => !loadedLines.has(message.lineNumber));
+      setDetail((prev) => (prev && prev.id === current.id
+        ? { ...prev, messages: [...prev.messages, ...fresh], totalMessages: page.totalMessages }
+        : prev));
+      setMessageEdits((prev) => {
+        const next = { ...prev };
+        for (const message of fresh) {
+          // A partner line staged for removal before its page loaded only has a placeholder entry.
+          const staged = prev[message.lineNumber];
+          next[message.lineNumber] = staged
+            ? { ...staged, content: message.content }
+            : { content: message.content, isEditing: false, isDeleted: false };
+        }
+        return next;
+      });
+    } catch (error) {
+      if (!mountedRef.current || readGenerationRef.current !== generation) return;
+      setNotice({
+        kind: 'error',
+        message: translateRef.current('agents.sessions.context.loadMoreFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    } finally {
+      loadingMoreRef.current = false;
+      if (mountedRef.current) setLoadingMore(false);
+    }
+  }, [sessionId]);
+
   const metadataDirty = useMemo(() => {
     if (!detail) return false;
     return title !== (detail.title || '')
@@ -128,7 +198,8 @@ export function useSessionContext({ sessionId, onClose, onSessionUpdated }: Opti
     if (newMessages.length > 0 || draftPending) return true;
     return Object.entries(messageEdits).some(([lineStr, edit]) => {
       const original = messagesByLine.get(Number(lineStr));
-      if (!original) return true;
+      // No original: the partner of a removed tool record whose page is not loaded yet.
+      if (!original) return edit.isDeleted;
       return edit.isDeleted || edit.content !== original.content;
     });
   }, [detail, newMessages, messageEdits, messagesByLine, draftPending]);
@@ -143,7 +214,7 @@ export function useSessionContext({ sessionId, onClose, onSessionUpdated }: Opti
     ].filter(Boolean).length;
     const edited = Object.entries(messageEdits).filter(([lineStr, edit]) => {
       const original = messagesByLine.get(Number(lineStr));
-      return Boolean(original) && (edit.isDeleted || edit.content !== original!.content);
+      return original ? edit.isDeleted || edit.content !== original.content : edit.isDeleted;
     }).length;
     return metadata + edited + newMessages.length + (draftPending ? 1 : 0);
   }, [detail, title, cwd, model, modelProvider, archived, messageEdits, messagesByLine, newMessages, draftPending]);
@@ -208,8 +279,8 @@ export function useSessionContext({ sessionId, onClose, onSessionUpdated }: Opti
           .map(([lineStr, edit]) => {
             const lineNumber = Number(lineStr);
             const original = messagesByLine.get(lineNumber);
-            if (!original) return null;
             if (edit.isDeleted) return { lineNumber, deleted: true };
+            if (!original) return null;
             const update: { lineNumber: number; content?: string } = { lineNumber };
             if (edit.content !== original.content) update.content = edit.content;
             return update.content !== undefined ? update : null;
@@ -302,13 +373,17 @@ export function useSessionContext({ sessionId, onClose, onSessionUpdated }: Opti
     const target = messagesByLine.get(lineNumber);
     if (!target) return;
     const nextDeleted = !messageEdits[lineNumber]?.isDeleted;
+    const lines = new Set([lineNumber, ...(target.linkedLines ?? [])]);
+    for (const message of detail?.messages ?? []) {
+      if (target.role === 'tool' && target.callId && message.role === 'tool' && message.callId === target.callId) {
+        lines.add(message.lineNumber);
+      }
+    }
     setMessageEdits((prev) => {
       const next = { ...prev };
-      for (const message of detail?.messages ?? []) {
-        if (message.lineNumber === lineNumber
-          || (target.role === 'tool' && target.callId && message.role === 'tool' && message.callId === target.callId)) {
-          next[message.lineNumber] = { ...prev[message.lineNumber], isDeleted: nextDeleted };
-        }
+      for (const line of lines) {
+        // A partner line on a page that is not loaded yet gets a placeholder; its text fills in when the page arrives.
+        next[line] = { content: '', isEditing: false, ...prev[line], isDeleted: nextDeleted };
       }
       return next;
     });
@@ -330,6 +405,7 @@ export function useSessionContext({ sessionId, onClose, onSessionUpdated }: Opti
     title, setTitle, cwd, setCwd, model, setModel, modelProvider, setModelProvider, archived, setArchived,
     messageEdits, newMessages, setNewMessages, addingMessage, setAddingMessage, newRole, setNewRole, newContent, setNewContent,
     roleFilter, setRoleFilter, searchQuery, setSearchQuery, filteredMessages,
+    loadingMore, loadMore, hasMoreMessages, loadedMessages, totalMessages,
     isDirty, changeCount, discardOpen, setDiscardOpen,
     loadContext, requestClose, confirmDiscard, save, exportJsonl, openRollout,
     commitNewMessage, cancelNewMessage, updateEdit, toggleDeleted,

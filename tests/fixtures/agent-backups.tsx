@@ -120,14 +120,16 @@ mockIPC(async (cmd,args:any) => {
  }
  if(cmd==='get_codex_session_context') {
    const sessionId=args.request.sessionId;
+   const pageOffset=args.request.messageOffset??0;
+   const pageLimit=Math.min(args.request.messageLimit??200,1000);
    const count=(window as any).fixtureSessionMessageCount;
    if(count!==undefined) {
-     const messages=Array.from({length:count},(_,index)=>({id:`layout-message-${index}`,lineNumber:index,role:['user','assistant','reasoning','tool'][index%4],content:index%5?`Message ${index}`:'Long message\n'.repeat(40),rawType:'response_item',timestamp:'2026-10-07T12:00:00Z',model:'mock-model',callId:null}));
+     const messages=Array.from({length:count},(_,index)=>({id:`layout-message-${index}`,lineNumber:index,role:['user','assistant','reasoning','tool'][index%4],content:index%5?`Message ${index}`:'Long message\n'.repeat(40),rawType:'response_item',timestamp:'2026-10-07T12:00:00Z',model:'mock-model',...(index%4===3?(()=>{const partner=index<400?index+400:index-400;return {callId:`call-${index%400}`,...(partner<count?{linkedLines:[Math.min(index,partner),Math.max(index,partner)]}:{})};})():{callId:null})}));
      const of=(role:string)=>messages.filter(m=>m.role===role).length;
-     return {id:sessionId,title:sessionId,cwd:'C:/test/project',modelProvider:'test',model:'mock-model',archived:false,updatedAtMs:1760000000000,rolloutPath:'C:/test/.codex/sessions/'+sessionId+'.jsonl',databasePath:'C:/test/.codex/state.sqlite',messages,stats:{totalLines:count,messageCount:count-of('tool'),userMessageCount:of('user'),assistantMessageCount:of('assistant'),reasoningCount:of('reasoning'),toolCount:of('tool'),fileSizeBytes:count*20},rawJsonlAvailable:true,rolloutSha256:'sha-layout',rawJsonl:''};
+     return {id:sessionId,title:sessionId,cwd:'C:/test/project',modelProvider:'test',model:'mock-model',archived:false,updatedAtMs:1760000000000,rolloutPath:'C:/test/.codex/sessions/'+sessionId+'.jsonl',databasePath:'C:/test/.codex/state.sqlite',messages:messages.slice(pageOffset,pageOffset+pageLimit),messageOffset:pageOffset,totalMessages:count,stats:{totalLines:count,messageCount:count-of('tool'),userMessageCount:of('user'),assistantMessageCount:of('assistant'),reasoningCount:of('reasoning'),toolCount:of('tool'),fileSizeBytes:count*20},rawJsonlAvailable:pageOffset===0,rolloutSha256:(window as any).fixtureLayoutSha??'sha-layout',rawJsonl:pageOffset===0?'':null};
    }
    const sessionContexts=((window as any).fixtureSessionContexts??={});
-   return JSON.parse(JSON.stringify(sessionContexts[sessionId]??=(()=>{
+   const full=JSON.parse(JSON.stringify(sessionContexts[sessionId]??=(()=>{
      const messages=[
        {id:'msg-2',lineNumber:2,role:'user',timestamp:'2026-10-07T11:00:00Z',content:'Hello Codex, can you help me refactor the database module?',rawType:'response_item',model:'mock-model',callId:null},
        {id:'msg-3',lineNumber:3,role:'assistant',timestamp:'2026-10-07T11:01:00Z',content:'Sure, I will inspect the current database schema first.',rawType:'response_item',model:'mock-model',callId:null},
@@ -135,6 +137,7 @@ mockIPC(async (cmd,args:any) => {
      ];
      return {id:sessionId,title:sessionId,cwd:'C:/test/project',modelProvider:'test',model:'mock-model',archived:false,updatedAtMs:1760000000000,rolloutPath:'C:/test/.codex/sessions/'+sessionId+'.jsonl',databasePath:'C:/test/.codex/state.sqlite',messages,stats:{totalLines:messages.length+2,messageCount:2,userMessageCount:1,assistantMessageCount:1,reasoningCount:0,toolCount:1,fileSizeBytes:900},rawJsonlAvailable:true,rolloutSha256:'sha-0',rawJsonl:'{}\n'};
    })()));
+   return {...full,messages:full.messages.slice(pageOffset,pageOffset+pageLimit),messageOffset:pageOffset,totalMessages:full.messages.length};
  }
  if(cmd==='open_codex_session_rollout') {
    if((window as any).fixtureFailRolloutOpen)throw new Error('No default application is configured');

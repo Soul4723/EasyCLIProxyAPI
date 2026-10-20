@@ -1635,7 +1635,15 @@ export function createBrowserMockRuntime(
       case 'get_codex_session_context': {
         const request = asObject(payload.request);
         const sessionId = String(request.sessionId || 'mock-session-id');
-        return clone(mockSessionContext(state, sessionId));
+        const context = clone(mockSessionContext(state, sessionId));
+        const offset = Math.max(0, readNumber(request.messageOffset));
+        const limit = Math.min(1000, Math.max(1, readNumber(request.messageLimit, 200)));
+        return {
+          ...context,
+          messages: context.messages.slice(offset, offset + limit),
+          messageOffset: offset,
+          totalMessages: context.messages.length,
+        };
       }
       case 'open_codex_session_rollout': {
         const sessionId = String(asObject(payload.request).sessionId || '');

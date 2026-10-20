@@ -32,7 +32,7 @@ export function SessionEditor({ sessionId, fallbackTitle, onClose, onSessionUpda
   const stats = detail?.stats;
 
   const roleOptions: FilterOption<RoleFilter>[] = [
-    { value: 'all', label: t('agents.sessions.context.filterAll'), count: detail?.messages.length ?? 0 },
+    { value: 'all', label: t('agents.sessions.context.filterAll'), count: ctl.totalMessages },
     { value: 'user', label: t('agents.sessions.context.userRole'), count: stats?.userMessageCount ?? 0, icon: <RoleIcon role="user" size={12} /> },
     { value: 'assistant', label: t('agents.sessions.context.assistantRole'), count: stats?.assistantMessageCount ?? 0, icon: <RoleIcon role="assistant" size={12} /> },
     { value: 'reasoning', label: t('agents.sessions.context.reasoningRole'), count: stats?.reasoningCount ?? 0, icon: <RoleIcon role="reasoning" size={12} /> },
@@ -167,7 +167,7 @@ export function SessionEditor({ sessionId, fallbackTitle, onClose, onSessionUpda
             </div>
 
             <div className="ses-msg-list">
-              {ctl.filteredMessages.length === 0 && ctl.newMessages.length === 0 ? (
+              {ctl.filteredMessages.length === 0 && ctl.newMessages.length === 0 && !ctl.hasMoreMessages ? (
                 <p className="ses-empty-line ec-muted">{t('agents.sessions.context.emptyMessages')}</p>
               ) : null}
               {ctl.filteredMessages.map((message) => (
@@ -180,6 +180,18 @@ export function SessionEditor({ sessionId, fallbackTitle, onClose, onSessionUpda
                   onToggleDeleted={() => ctl.toggleDeleted(message.lineNumber)}
                 />
               ))}
+              {ctl.hasMoreMessages ? (
+                <div className="ses-load-more">
+                  {ctl.roleFilter !== 'all' || ctl.searchQuery.trim() ? (
+                    <p className="ses-empty-line ec-muted">
+                      {t('agents.sessions.context.partialHint', { loaded: formatNumber(ctl.loadedMessages), total: formatNumber(ctl.totalMessages) })}
+                    </p>
+                  ) : null}
+                  <Button variant="outline" loading={ctl.loadingMore} disabled={saving} onClick={() => void ctl.loadMore()}>
+                    {t('agents.sessions.context.loadMore', { loaded: formatNumber(ctl.loadedMessages), total: formatNumber(ctl.totalMessages) })}
+                  </Button>
+                </div>
+              ) : null}
               {ctl.newMessages.map((message, index) => (
                 <article key={`new-${index}`} className={`ses-msg ses-msg--${message.role} ses-msg--new`}>
                   <header className="ses-msg-head">
