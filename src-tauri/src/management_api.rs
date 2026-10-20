@@ -14,7 +14,7 @@ use std::{
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, LazyLock, Mutex,
+        Arc, LazyLock, Mutex, Weak,
     },
     time::Duration,
 };
@@ -23,9 +23,22 @@ use tokio_util::sync::CancellationToken;
 static REQUESTS: LazyLock<Mutex<HashMap<String, CancellationToken>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
-static MANAGEMENT_CLIENTS: LazyLock<Mutex<HashMap<ManagementClientKey, Arc<reqwest::Client>>>> =
+static MANAGEMENT_CLIENTS: LazyLock<Mutex<HashMap<ManagementClientKey, CachedManagementClient>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static RUNTIME_TOKENS: LazyLock<Mutex<HashMap<tokio::runtime::Id, Weak<RuntimeToken>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
+static NEXT_CLIENT_ACCESS: AtomicU64 = AtomicU64::new(1);
 const MAX_MANAGEMENT_CLIENTS: usize = 8;
+
+struct RuntimeToken {
+    generation: u64,
+}
+
+struct CachedManagementClient {
+    client: Arc<reqwest::Client>,
+    last_used: u64,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct ManagementClientKey {
@@ -33,7 +46,7 @@ struct ManagementClientKey {
     accept_invalid_certs: bool,
     tls_cert: Option<String>,
     tls_key: Option<String>,
-    runtime_id: tokio::runtime::Id,
+    runtime_generation: u64,
 }
 
 // Reserve before sending so cancellation also works before the HTTP request starts.
@@ -593,13 +606,31 @@ pub(crate) async fn submit_oauth_callback(
 }
 
 pub(crate) fn management_http_client_for(config: &GuiConfigFile) -> Result<reqwest::Client, String> {
-    let connection = super::core_connection::connection_from_config(config)?;
     let tls_settings = (config.connection_mode == super::CoreConnectionMode::Local)
         .then(current_core_tls_settings)
         .transpose()?;
+    management_http_client_for_with_tls_settings(config, tls_settings.as_ref())
+}
+
+fn management_http_client_for_with_tls_settings(
+    config: &GuiConfigFile,
+    tls_settings: Option<&super::CoreTlsSettings>,
+) -> Result<reqwest::Client, String> {
+    let origin = if config.connection_mode == super::CoreConnectionMode::Local {
+        core_origin(
+            &config.host,
+            config.port,
+            tls_settings.is_some_and(|settings| settings.enabled),
+        )
+    } else {
+        // Client construction historically did not validate a Remote target. Keep that
+        // behavior for onboarding and partial configurations; endpoint resolution owns
+        // target validation before any request is sent.
+        config.remote_management_origin.clone()
+    };
     let accept_invalid_certs = tls_settings.as_ref().is_some_and(|settings| settings.enabled);
     cached_management_http_client(
-        &connection.management_origin,
+        &origin,
         accept_invalid_certs,
         tls_settings.as_ref().map(|settings| settings.cert.clone()),
         tls_settings.as_ref().map(|settings| settings.key.clone()),
@@ -613,35 +644,93 @@ fn cached_management_http_client(
     tls_cert: Option<String>,
     tls_key: Option<String>,
 ) -> Result<Arc<reqwest::Client>, String> {
-    let parsed = reqwest::Url::parse(origin).map_err(|_| "Invalid management origin".to_string())?;
+    let Ok(parsed) = reqwest::Url::parse(origin) else {
+        return build_management_http_client(accept_invalid_certs).map(Arc::new);
+    };
     if !matches!(parsed.scheme(), "http" | "https") {
-        return Err("Invalid management origin".to_string());
+        return build_management_http_client(accept_invalid_certs).map(Arc::new);
     }
     // reqwest's connection pool is tied to the runtime that first drives it. Do not
     // share a pooled client across Tauri/test runtimes, which may be shut down separately.
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return build_management_http_client(accept_invalid_certs).map(Arc::new);
     };
+    let runtime_generation = runtime_generation(&runtime)?;
     let key = ManagementClientKey {
         origin: parsed.origin().ascii_serialization(),
         accept_invalid_certs,
         tls_cert,
         tls_key,
-        runtime_id: runtime.id(),
+        runtime_generation,
     };
     let mut clients = MANAGEMENT_CLIENTS
         .lock()
         .map_err(|_| "Management client cache unavailable".to_string())?;
-    if let Some(client) = clients.get(&key) {
-        return Ok(Arc::clone(client));
-    }
-    if clients.len() >= MAX_MANAGEMENT_CLIENTS {
-        clients.clear();
+    let access = NEXT_CLIENT_ACCESS.fetch_add(1, Ordering::Relaxed);
+    if let Some(entry) = clients.get_mut(&key) {
+        entry.last_used = access;
+        return Ok(Arc::clone(&entry.client));
     }
     let client = build_management_http_client(accept_invalid_certs)?;
     let client = Arc::new(client);
-    clients.insert(key, Arc::clone(&client));
+    evict_oldest_management_client_if_full(&mut clients);
+    clients.insert(
+        key,
+        CachedManagementClient {
+            client: Arc::clone(&client),
+            last_used: access,
+        },
+    );
     Ok(client)
+}
+
+fn evict_oldest_management_client_if_full(
+    clients: &mut HashMap<ManagementClientKey, CachedManagementClient>,
+) {
+    if clients.len() < MAX_MANAGEMENT_CLIENTS {
+        return;
+    }
+    if let Some(oldest_key) = clients
+        .iter()
+        .min_by_key(|(_, entry)| entry.last_used)
+        .map(|(key, _)| key.clone())
+    {
+        clients.remove(&oldest_key);
+    }
+}
+
+fn runtime_generation(runtime: &tokio::runtime::Handle) -> Result<u64, String> {
+    let (token, is_new) = runtime_token_for_id(runtime.id())?;
+    let generation = token.generation;
+    if is_new {
+        // Keep a strong token alive until this runtime drops its async tasks.
+        drop(runtime.spawn(async move {
+            let _token = token;
+            std::future::pending::<()>().await;
+        }));
+    }
+    Ok(generation)
+}
+
+fn runtime_token_for_id(
+    runtime_id: tokio::runtime::Id,
+) -> Result<(Arc<RuntimeToken>, bool), String> {
+    let mut tokens = RUNTIME_TOKENS
+        .lock()
+        .map_err(|_| "Management runtime registry unavailable".to_string())?;
+    tokens.retain(|_, token| token.strong_count() > 0);
+    if let Some(token) = tokens.get(&runtime_id).and_then(Weak::upgrade) {
+        return Ok((token, false));
+    }
+
+    let generation = NEXT_RUNTIME_GENERATION
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .map_err(|_| "Management runtime generation exhausted".to_string())?;
+    let token = Arc::new(RuntimeToken { generation });
+    tokens.insert(runtime_id, Arc::downgrade(&token));
+    Ok((token, true))
 }
 
 fn build_management_http_client(accept_invalid_certs: bool) -> Result<reqwest::Client, String> {
@@ -836,6 +925,102 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    struct SelfSignedTlsServer {
+        child: std::process::Child,
+        root: PathBuf,
+        port: u16,
+    }
+
+    impl Drop for SelfSignedTlsServer {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn start_self_signed_tls_server() -> SelfSignedTlsServer {
+        use std::io::BufRead;
+        use std::sync::mpsc;
+
+        let root = std::env::temp_dir().join(format!(
+            "cpa-management-tls-{}-{}",
+            std::process::id(),
+            NEXT_REQUEST.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cert = root.join("cert.pem");
+        let key = root.join("key.pem");
+        let cert_output = std::process::Command::new("openssl")
+            .args([
+                "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj",
+                "/CN=localhost", "-keyout",
+            ])
+            .arg(&key)
+            .arg("-out")
+            .arg(&cert)
+            .output()
+            .expect("openssl must be available for the isolated TLS test");
+        if !cert_output.status.success() {
+            let _ = std::fs::remove_dir_all(&root);
+            panic!("failed to generate the TLS test certificate");
+        }
+        let script = r#"
+import http.server, ssl, sys
+class Handler(http.server.BaseHTTPRequestHandler):
+ def do_GET(self):
+  self.send_response(200); self.send_header('Content-Length', '13'); self.end_headers(); self.wfile.write(b'local-core-ok')
+ def log_message(self, *args): pass
+server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain(sys.argv[1], sys.argv[2])
+server.socket = ctx.wrap_socket(server.socket, server_side=True)
+print(server.server_port, flush=True)
+server.serve_forever()
+"#;
+        let child = std::process::Command::new("python3")
+            .arg("-u")
+            .arg("-c")
+            .arg(script)
+            .arg(&cert)
+            .arg(&key)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|error| {
+                let _ = std::fs::remove_dir_all(&root);
+                panic!("failed to start the isolated TLS test server: {error}");
+            });
+        // Establish the guard before waiting for startup so all later panics kill and
+        // reap the server rather than leaving it holding the CI log pipe open.
+        let mut server = SelfSignedTlsServer {
+            child,
+            root,
+            port: 0,
+        };
+        let stdout = server
+            .child
+            .stdout
+            .take()
+            .expect("TLS test server stdout is piped");
+        let (sender, receiver) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let result = std::io::BufReader::new(stdout)
+                .read_line(&mut line)
+                .map(|_| line);
+            let _ = sender.send(result);
+        });
+        let line = receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|error| panic!("TLS test server did not report its port within 5 seconds: {error}"))
+            .expect("failed reading TLS test server port");
+        server.port = line
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("TLS test server reported an invalid port: {line:?}"));
+        server
+    }
+
     #[tokio::test]
     async fn management_client_cache_is_scoped_to_origin_and_tls_policy() {
         let first = cached_management_http_client("https://core-a.example:9443", true, Some("cert-a".into()), Some("key-a".into())).unwrap();
@@ -847,29 +1032,89 @@ mod tests {
         assert!(!Arc::ptr_eq(&first, &strict));
     }
 
-    #[tokio::test]
-    async fn management_clients_are_not_shared_across_tokio_runtimes() {
-        let from_other_runtime = std::thread::spawn(|| {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(async {
-                    cached_management_http_client("http://runtime.example:8080", false, None, None)
-                        .unwrap()
-                })
-        })
-        .join()
-        .unwrap();
+    #[test]
+    fn management_clients_are_not_shared_across_sequential_tokio_runtimes() {
+        let first_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (first, first_generation) = first_runtime.block_on(async {
+            (
+                cached_management_http_client("http://sequential-runtime.example:8080", false, None, None)
+                    .unwrap(),
+                runtime_generation(&tokio::runtime::Handle::current()).unwrap(),
+            )
+        });
+        drop(first_runtime);
 
-        let current_runtime = cached_management_http_client(
-            "http://runtime.example:8080",
-            false,
-            None,
-            None,
-        )
-        .unwrap();
-        assert!(!Arc::ptr_eq(&from_other_runtime, &current_runtime));
+        let second_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (second, second_generation) = second_runtime.block_on(async {
+            (
+                cached_management_http_client("http://sequential-runtime.example:8080", false, None, None)
+                    .unwrap(),
+                runtime_generation(&tokio::runtime::Handle::current()).unwrap(),
+            )
+        });
+        assert_ne!(first_generation, second_generation);
+        assert!(!Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn reused_tokio_runtime_id_gets_a_fresh_generation_after_shutdown() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (runtime_id, first_generation) = runtime.block_on(async {
+            let handle = tokio::runtime::Handle::current();
+            (handle.id(), runtime_generation(&handle).unwrap())
+        });
+        drop(runtime);
+
+        // Exercise Tokio's documented ID-reuse case deterministically: once the old
+        // runtime's sentinel task is dropped, the same public Id must get a new token.
+        let (next_token, was_new) = runtime_token_for_id(runtime_id).unwrap();
+        assert!(was_new);
+        assert_ne!(first_generation, next_token.generation);
+    }
+
+    #[test]
+    fn management_client_cache_evicts_only_the_oldest_entry() {
+        let mut clients = HashMap::new();
+        let key = |index: u64| ManagementClientKey {
+            origin: format!("http://cache-{index}.example"),
+            accept_invalid_certs: false,
+            tls_cert: None,
+            tls_key: None,
+            runtime_generation: 1,
+        };
+        for index in 0..MAX_MANAGEMENT_CLIENTS {
+            clients.insert(
+                key(index as u64),
+                CachedManagementClient {
+                    client: Arc::new(reqwest::Client::new()),
+                    last_used: index as u64,
+                },
+            );
+        }
+        let oldest = key(0);
+        let next_oldest = key(1);
+        evict_oldest_management_client_if_full(&mut clients);
+        assert_eq!(clients.len(), MAX_MANAGEMENT_CLIENTS - 1);
+        assert!(!clients.contains_key(&oldest));
+        assert!(clients.contains_key(&next_oldest));
+
+        clients.insert(
+            key(MAX_MANAGEMENT_CLIENTS as u64),
+            CachedManagementClient {
+                client: Arc::new(reqwest::Client::new()),
+                last_used: MAX_MANAGEMENT_CLIENTS as u64,
+            },
+        );
+        assert_eq!(clients.len(), MAX_MANAGEMENT_CLIENTS);
     }
 
     #[test]
@@ -891,36 +1136,33 @@ mod tests {
     // Disposable TLS management endpoint: no installed core or user config is changed.
     #[tokio::test]
     async fn self_signed_local_tls_management_remains_compatible() {
-        let root = std::env::temp_dir().join(format!("cpa-management-tls-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        let cert = root.join("cert.pem");
-        let key = root.join("key.pem");
-        assert!(std::process::Command::new("openssl").args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-keyout"]).arg(&key).arg("-out").arg(&cert).output().unwrap().status.success());
-        let script = r#"
-import http.server, ssl, sys
-class Handler(http.server.BaseHTTPRequestHandler):
- def do_GET(self):
-  self.send_response(200); self.send_header('Content-Length', '13'); self.end_headers(); self.wfile.write(b'local-core-ok')
- def log_message(self, *args): pass
-server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
-ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ctx.load_cert_chain(sys.argv[1], sys.argv[2])
-server.socket = ctx.wrap_socket(server.socket, server_side=True)
-print(server.server_port, flush=True)
-server.serve_forever()
-"#;
-        let mut server = std::process::Command::new("python3").arg("-u").arg("-c").arg(script).arg(&cert).arg(&key).stdout(std::process::Stdio::piped()).spawn().unwrap();
-        use std::io::BufRead;
-        let mut port = String::new();
-        std::io::BufReader::new(server.stdout.take().unwrap()).read_line(&mut port).unwrap();
-        let url = format!("https://127.0.0.1:{}/v8/management/config", port.trim());
-        let compatible = local_management_http_client(true).unwrap().get(&url).send().await;
+        let server = start_self_signed_tls_server();
+        let url = format!("https://127.0.0.1:{}/v8/management/config", server.port);
+        let local_config = GuiConfigFile {
+            connection_mode: super::super::CoreConnectionMode::Local,
+            host: "127.0.0.1".into(),
+            port: server.port,
+            ..Default::default()
+        };
+        let tls_settings = super::super::CoreTlsSettings {
+            enabled: true,
+            cert: server.root.join("cert.pem").display().to_string(),
+            key: server.root.join("key.pem").display().to_string(),
+        };
+        let compatible = management_http_client_for_with_tls_settings(
+            &local_config,
+            Some(&tls_settings),
+        )
+        .unwrap()
+        .get(&url)
+        .send()
+        .await;
         let strict_local = local_management_http_client(false).unwrap().get(&url).send().await;
         let config = GuiConfigFile {
             connection_mode: super::super::CoreConnectionMode::Remote,
-            remote_management_origin: format!("https://127.0.0.1:{}", port.trim()),
+            remote_management_origin: format!("https://127.0.0.1:{}", server.port),
             remote_management_key: "isolated-test-management-key".into(),
-            remote_client_origin: format!("https://127.0.0.1:{}", port.trim()),
+            remote_client_origin: format!("https://127.0.0.1:{}", server.port),
             ..Default::default()
         };
         let strict_remote_client = management_http_client_for(&config);
@@ -928,13 +1170,21 @@ server.serve_forever()
             Ok(client) => Some(client.get(&url).send().await),
             Err(_) => None,
         };
-        server.kill().unwrap();
-        server.wait().unwrap();
-        std::fs::remove_dir_all(root).unwrap();
         assert_eq!(compatible.unwrap().text().await.unwrap(), "local-core-ok");
         assert!(strict_local.is_err());
         assert!(strict_remote_client.is_ok());
         assert!(strict_remote.unwrap().is_err());
+    }
+
+    #[test]
+    fn partial_remote_target_can_still_construct_management_client() {
+        let config = GuiConfigFile {
+            connection_mode: super::super::CoreConnectionMode::Remote,
+            remote_management_origin: "https://management.example".into(),
+            ..Default::default()
+        };
+        assert!(management_http_client_for(&config).is_ok());
+        assert!(management_endpoint(&config, "config").is_err());
     }
 
     #[tokio::test]
