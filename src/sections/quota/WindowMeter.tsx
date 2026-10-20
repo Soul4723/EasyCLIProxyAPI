@@ -7,8 +7,10 @@ import type { WindowView } from './model';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 
-export function windowLabel(window: WindowView, t: Translate): string {
+/** `grouped`: the window sits under its model group's heading (account panel), so the label drops the group prefix. Cards and rows show the prefix. */
+export function windowLabel(window: WindowView, t: Translate, grouped = false): string {
   const base = window.kind === '5h' ? t('sec.quota.win.5h') : window.kind === 'weekly' ? t('sec.quota.win.week') : '';
+  if (grouped && window.groupLabel && window.windowLabel) return base || window.windowLabel.replace(/\s*(limit\s*)?remaining$/i, '').trim();
   if (!base) return window.rawLabel.replace(/\s*(limit\s*)?remaining$/i, '').trim();
   return window.prefix ? `${window.prefix} ${base}` : base;
 }
@@ -24,7 +26,7 @@ export function ResetTime({ ms, now, passed = true }: { ms?: number; now: number
 export function WindowMeter({ window, now, stale }: { window: WindowView; now: number; stale: boolean }) {
   const { t, formatNumber } = useI18n();
   const label = windowLabel(window, t);
-  const title = [window.rawLabel, window.detail, window.resetText].filter(Boolean).join(' · ');
+  const title = [window.groupLabel ? `${window.groupLabel} · ${windowLabel(window, t, true)}` : window.rawLabel, window.groupDescription ?? window.detail, window.resetText].filter(Boolean).join(' · ');
   return (
     <div className={`qt-win${stale ? ' qt-stale' : ''}`} title={title || undefined}>
       <span className="qt-win__label">{label}</span>

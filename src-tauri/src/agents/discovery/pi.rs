@@ -302,6 +302,8 @@ pub(crate) fn inspect_pi_provider_status_with_executable(
         current_model: current_model.clone(),
         oauth_configuration: false,
         codex_native_oauth: false,
+        codex_openai_provider: false,
+        codex_remote_compaction: false,
         modification_enabled: configured,
         modification_state: modification_state.to_string(),
         backup_available: false,

@@ -242,6 +242,10 @@
 .qt-panel__detail { font-size: var(--ec-fs-xs); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-panel__none { padding: var(--ec-sp-4); text-align: center; border: 1px dashed var(--ec-border); border-radius: var(--ec-r-md); }
 .qt-bigs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--ec-gap); }
+.qt-mgroup + .qt-mgroup { margin-top: var(--ec-sp-3); }
+.qt-mgroup__head { margin-bottom: var(--ec-sp-2); }
+.qt-mgroup__head h3 { margin: 0; font-size: var(--ec-fs-sm); font-weight: 600; color: var(--ec-fg-2); }
+.qt-mgroup__head p { margin: 2px 0 0; font-size: var(--ec-fs-xs); overflow-wrap: anywhere; }
 .qt-big { display: flex; flex-direction: column; gap: var(--ec-sp-2); padding: var(--ec-sp-3); border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface); }
 .qt-big__label { font-size: var(--ec-fs-sm); color: var(--ec-fg-2); }
 .qt-big__num { font-size: var(--ec-fs-stat); font-weight: 600; line-height: 1; }

@@ -9,6 +9,7 @@
 .ec-sec-agents .ag-mg-label span { font-size: var(--ec-fs-xs); }
 .ec-sec-agents .ag-mg-value { display: flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; font-size: var(--ec-fs-sm); }
 .ec-sec-agents .ag-mg-value .ag-mg-path { flex: 1 1 0; min-width: 0; color: var(--ec-fg-2); }
+.ec-sec-agents .ag-mg-approval { display: flex; flex-direction: column; align-items: stretch; gap: var(--ec-sp-2); flex: 1 1 0; min-width: 0; }
 .ec-sec-agents .ag-mg-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--ec-sp-2); flex-wrap: wrap; }
 
 /* ---- Backups ---- */

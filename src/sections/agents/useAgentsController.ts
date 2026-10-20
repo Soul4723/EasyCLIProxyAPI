@@ -83,7 +83,7 @@ let codexCliServiceRestart: Promise<void> | null = null;
 
 export type AgentBusyAction =
   | 'backup' | 'apply' | 'close-config' | 'default' | 'clear' | 'install-pi' | 'update-pi' | 'repair-pi'
-  | 'uninstall-pi' | 'oauth-check' | 'native-oauth' | 'directory' | 'launch' | 'launch-cli' | 'launch-app'
+  | 'uninstall-pi' | 'oauth-check' | 'native-oauth' | 'codex-provider' | 'remote-compaction' | 'approval-model' | 'directory' | 'launch' | 'launch-cli' | 'launch-app'
   | 'restart-app' | 'stop-deepseek' | 'restart-deepseek';
 
 export function useAgentsController(clientId: AgentClientId | null, options: { onOpenManage?: () => void } = {}) {
@@ -600,6 +600,12 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
     } catch (requestError) {
       setDetectionError(String(requestError));
     }
+  };
+
+  /** A Codex setting was written outside the draft form: show it at once, then re-read the client status. */
+  const codexSettingChanged = async (patch: Partial<Pick<AgentConfigStatus, 'codexOpenaiProvider' | 'codexRemoteCompaction'>>) => {
+    setStatuses((current) => current.map((status) => status.id === 'codex' ? { ...status, ...patch } : status));
+    await reloadStatusesAfterAction();
   };
 
   const selectModel = (value: string) => {
@@ -1279,7 +1285,7 @@ export function useAgentsController(clientId: AgentClientId | null, options: { o
   return {
     // selection + detection
     selected, activeDefinition, activeStatus, statuses, loading, detectionError, setDetectionError, refresh,
-    busy, busyAction,
+    busy, busyAction, setBusyAction, codexSettingChanged,
     // executable paths
     executablePaths, chooseExecutablePath, clearExecutablePath,
     // models

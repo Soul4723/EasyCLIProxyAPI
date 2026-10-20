@@ -211,16 +211,40 @@ runUi(async ({ base }) => {
     await page.evaluate(() => { window.pluginsFixture.holdInstall = true; });
     await dialog().getByRole('button', { name: 'Install', exact: true }).click();
     await page.waitForFunction(() => window.pluginsFixture.installs.length === 1);
-    await page.keyboard.press('Escape');
-    assert.equal(await dialog().count(), 1, 'In-flight installation keeps the dialog open');
-    assert.equal(await dialog().getByRole('button', { name: 'Close dialog', exact: true }).count(), 0, 'no close button while installing');
-    assert.equal(await dialog().getByRole('button', { name: 'Cancel', exact: true }).isDisabled(), true);
+    assert.equal(await dialog().getByRole('button', { name: 'Close dialog', exact: true }).isDisabled(), false, 'an in-flight installation can be closed');
+    assert.equal(await dialog().getByRole('button', { name: 'Cancel', exact: true }).isDisabled(), false);
     assert.deepEqual((await installs())[0].query, { source: 'community', version: 'v1.2.3' });
     await page.evaluate(() => { window.pluginsFixture.holdInstall = false; window.pluginsFixture.releaseInstall(); });
     await dialog().waitFor({ state: 'detached' });
     // A restart-required install reports through the toast (no runtime polling can change that) and the persistent banner.
     await page.locator('.pl-banner-text', { hasText: 'Restart the core to fully apply this change.' }).waitFor();
     await page.locator('.pl-toast', { hasText: 'Restart the core to fully apply this change.' }).waitFor();
+
+    // Even when the native promise is stalled, all three exits close immediately and cancel the native request.
+    for (const exit of ['Cancel', 'Close dialog', 'Escape']) {
+      await card('Sample provider').getByRole('button', { name: 'Update', exact: true }).click();
+      await page.evaluate(() => { window.pluginsFixture.holdInstall = true; window.pluginsFixture.releaseInstall = null; });
+      const previous = (await installs()).length;
+      await dialog().getByRole('button', { name: 'Update', exact: true }).click();
+      await page.waitForFunction(count => window.pluginsFixture.installs.length > count, previous);
+      const requestId = (await installs()).at(-1).requestId;
+      if (exit === 'Escape') await page.keyboard.press('Escape');
+      else await dialog().getByRole('button', { name: exit, exact: true }).click();
+      await dialog().waitFor({ state: 'detached' });
+      await page.waitForFunction(id => window.pluginsFixture.commands.some(call =>
+        call.command === 'cancel_management_request' && call.args.requestId === id), requestId);
+      // A late failure from a cancelled request must not appear in a new dialog.
+      await card('Sample provider').getByRole('button', { name: 'Update', exact: true }).click();
+      await page.evaluate(() => {
+        window.pluginsFixture.failNextInstall = true;
+        window.pluginsFixture.holdInstall = false;
+        window.pluginsFixture.releaseInstall();
+      });
+      await page.waitForTimeout(100);
+      assert.equal(await dialog().getByRole('alert').count(), 0);
+      await dialog().getByRole('button', { name: 'Cancel', exact: true }).click();
+      await dialog().waitFor({ state: 'detached' });
+    }
 
     // ---- Official update with retry, direct artifacts ------------------------------------------------------------------
     await card('Sample provider').getByRole('button', { name: 'Update', exact: true }).click();
@@ -230,7 +254,7 @@ runUi(async ({ base }) => {
     await dialog().getByRole('alert').filter({ hasText: 'Fixture installation failed' }).waitFor();
     await dialog().getByRole('button', { name: 'Update', exact: true }).click();
     await dialog().waitFor({ state: 'detached' });
-    assert.equal((await installs()).length, 3, 'Official install retries without a third-party gate');
+    assert.equal((await installs()).length, 6, 'Official install retries without a third-party gate');
     await card('Direct artifact').getByRole('button', { name: 'Install', exact: true }).click();
     assert.equal(await dialog().locator('label', { hasText: 'Version tag' }).count(), 0, 'Direct artifacts do not accept GitHub tags');
     await dialog().getByRole('button', { name: 'Cancel', exact: true }).click();

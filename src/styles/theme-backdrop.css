@@ -1,13 +1,5 @@
-/* Gradient theme backdrop: paints #root and the Windows titlebar from the --theme-backdrop-* variables. */
+/* Gradient theme backdrop: paints #root from the --theme-backdrop-* variables. */
 
 :root[data-theme-backdrop='gradient'] #root {
   background: var(--theme-backdrop-image) center / 100% 100% no-repeat var(--theme-backdrop-color) !important;
-}
-
-:root[data-theme-backdrop='gradient'] :is(.immersive-window) {
-  background: transparent;
-}
-
-:root[data-theme-backdrop='gradient'] .immersive-window .window-titlebar {
-  background: var(--theme-backdrop-panel);
 }

@@ -40,6 +40,18 @@ pub(crate) fn read_agent_json5_or_empty(
     Ok(value)
 }
 
+pub(crate) fn codex_managed_provider_id(root: &toml::Value) -> &'static str {
+    if root.get("model_provider").and_then(toml::Value::as_str) == Some("openai")
+        && root.get("model_providers").and_then(|p| p.get(MANAGED_AGENT_PROVIDER_ID))
+            .is_some_and(|p| p.get("name").and_then(toml::Value::as_str).is_some_and(is_codex_managed_provider_name)
+                && root.get("openai_base_url").and_then(toml::Value::as_str)
+                    .is_some_and(|base| p.get("base_url").and_then(toml::Value::as_str) == Some(base))) {
+        "openai"
+    } else {
+        MANAGED_AGENT_PROVIDER_ID
+    }
+}
+
 pub(crate) fn inspect_codex_agent_config(
     path: &Path,
     port: impl AgentClientOrigin,
@@ -53,6 +65,7 @@ pub(crate) fn inspect_codex_agent_config(
     )
     .map_err(|_| "Failed to parse Codex configuration".to_string())?;
     let expected_base = format!("{}/v1", port.client_origin());
+    let provider_id = codex_managed_provider_id(&root);
     let provider = root
         .get("model_providers")
         .and_then(toml::Value::as_table)
@@ -73,13 +86,13 @@ pub(crate) fn inspect_codex_agent_config(
         codex_auth_file_has_api_key(&auth_path, api_key)
     };
     let configured_without_auth = root.get("model_provider").and_then(toml::Value::as_str)
-        == Some(MANAGED_AGENT_PROVIDER_ID)
+        == Some(provider_id)
         && root.get("model_catalog_json").and_then(toml::Value::as_str)
             == Some(CODEX_MODEL_CATALOG_FILE)
         && provider
             .and_then(|provider| provider.get("name"))
             .and_then(toml::Value::as_str)
-            == Some("EasyCLIProxyAPI")
+            .is_some_and(is_codex_managed_provider_name)
         && provider
             .and_then(|provider| provider.get("base_url"))
             .and_then(toml::Value::as_str)

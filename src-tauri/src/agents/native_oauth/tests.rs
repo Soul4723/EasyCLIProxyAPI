@@ -48,6 +48,101 @@ base_url = "http://localhost:8317/v1"
 const OAUTH: &str = r#"{"auth_mode":"chatgpt","tokens":{"access_token":"test-token","refresh_token":"test-refresh"},"last_refresh":"today","custom":"keep"}"#;
 
 #[test]
+fn openai_proxy_switch_preserves_endpoint_auth_and_history_and_restores_override() {
+    let home = TestHome::new();
+    home.write("config.toml", "openai_base_url = \"https://original.example/v1\"\n[model_providers.openai]\nbase_url = \"https://example.com/v1\"\n");
+    home.write("auth.json", OAUTH);
+    apply_cpa(&home, true).unwrap();
+    let before = home.config();
+    let auth = home.read("auth.json");
+    fs::create_dir_all(home.path("sessions")).unwrap();
+    fs::write(home.path("sessions/untouched.jsonl"), "original history").unwrap();
+    switch_codex_openai_provider(&home.0, true).unwrap();
+    assert!(codex_openai_proxy_enabled(&home.0).unwrap());
+    assert!(!codex_native_oauth_enabled(&home.0).unwrap());
+    let switched = home.config();
+    assert_eq!(switched["model_providers"], before["model_providers"]);
+    assert_eq!(switched["openai_base_url"], before["model_providers"]["cpa-gui"]["base_url"]);
+    assert_eq!(home.read("auth.json"), auth);
+    assert_eq!(home.read("sessions/untouched.jsonl"), "original history");
+    assert!(inspect_codex_agent_config(&home.path("config.toml"), 8317, "test-api-key").unwrap().0);
+    // Repeated enabling must not replace the saved original override.
+    switch_codex_openai_provider(&home.0, true).unwrap();
+    assert!(apply_cpa(&home, false).is_err());
+    apply_cpa(&home, true).unwrap();
+    assert!(codex_openai_proxy_enabled(&home.0).unwrap());
+    assert!(current_codex_oauth_configuration(&home.0).unwrap());
+    switch_codex_openai_provider(&home.0, false).unwrap();
+    assert_eq!(home.config()["model_providers"]["openai"], before["model_providers"]["openai"]);
+    assert_eq!(home.config()["openai_base_url"], before["openai_base_url"]);
+}
+
+#[test]
+fn openai_proxy_close_and_official_round_trip_restore_correct_routing() {
+    let home = TestHome::new();
+    let original = "model = \"official\"\n[model_providers.openai]\nbase_url = \"https://example.com/v1\"\n";
+    home.write("config.toml", original);
+    home.write("auth.json", OAUTH);
+    apply_cpa(&home, true).unwrap();
+    switch_codex_openai_provider(&home.0, true).unwrap();
+    close_codex_configuration(&home.0).unwrap();
+    assert_eq!(home.config()["model_providers"]["openai"]["base_url"].as_str(), Some("https://example.com/v1"));
+    apply_cpa(&home, true).unwrap();
+    switch_codex_openai_provider(&home.0, true).unwrap();
+    switch_codex_native_oauth(&home.0, true).unwrap();
+    assert!(!codex_openai_proxy_enabled(&home.0).unwrap());
+    assert!(home.config().get("model_providers").and_then(|p| p.get("openai")).is_none());
+    apply_cpa(&home, true).unwrap();
+    assert!(codex_openai_proxy_enabled(&home.0).unwrap());
+    close_codex_configuration(&home.0).unwrap();
+    assert!(!codex_openai_proxy_enabled(&home.0).unwrap());
+    assert!(home.config().get("openai_base_url").is_none());
+}
+
+#[test]
+fn openai_proxy_requires_managed_configuration_and_rejects_profile_overrides() {
+    let home = TestHome::new();
+    home.write("config.toml", "model_provider = \"openai\"\n");
+    let before = home.read("config.toml");
+    assert!(switch_codex_openai_provider(&home.0, true).is_err());
+    assert_eq!(home.read("config.toml"), before);
+    home.write("config.toml", CPA_CONFIG);
+    assert!(switch_codex_openai_provider(&home.0, true).is_err());
+    assert_eq!(home.read("config.toml"), CPA_CONFIG);
+}
+
+#[tokio::test]
+async fn openai_proxy_checks_the_credentials_the_builtin_provider_actually_sends() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    for (oauth, status) in [(false, 200), (true, 200), (true, 401)] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut bytes = [0; 1024];
+                let n = stream.read(&mut bytes).await.unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&bytes[..n]);
+                if request.windows(4).any(|w| w == b"\r\n\r\n") { break; }
+            }
+            let request = String::from_utf8(request).unwrap().to_ascii_lowercase();
+            assert!(request.starts_with("get /v1/models "));
+            assert!(request.contains(if oauth { "authorization: bearer test-token" } else { "authorization: bearer test-api-key" }));
+            let response = format!("HTTP/1.1 {status} Test\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}");
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+        let config = build_codex_agent_config_with_oauth(None, &base, "test-api-key", "model", oauth).unwrap();
+        let auth = if oauth { OAUTH.to_string() } else { build_codex_api_auth("test-api-key").unwrap() };
+        let result = validate_codex_openai_proxy_auth(&config, &auth).await;
+        if status == 200 { assert!(result.is_ok(), "{result:?}"); }
+        else { assert_eq!(result.unwrap_err(), "CPA_CODEX_OAUTH_AUTH_UNSUPPORTED"); }
+        server.await.unwrap();
+    }
+}
+
+#[test]
 fn native_oauth_round_trip_preserves_cpa_and_unrelated_user_edits() {
     let home = TestHome::new();
     home.write("config.toml", CPA_CONFIG);
@@ -561,4 +656,41 @@ fn failed_cpa_update_preserves_official_routing_and_login() {
     assert_eq!(config_images(&paths).unwrap(), before);
     assert!(codex_native_oauth_enabled(&home.0).unwrap());
     assert!(home.config().get("model_catalog_json").is_none());
+}
+
+
+#[test]
+fn remote_compaction_defaults_off_preserves_settings_and_survives_apply() {
+    let home = TestHome::new();
+    apply_cpa(&home, false).unwrap();
+    assert!(!codex_remote_compaction_enabled(&home.0).unwrap());
+    let before = home.config();
+    let auth = home.read("auth.json");
+    switch_codex_remote_compaction(&home.0, true).unwrap();
+    assert!(codex_remote_compaction_enabled(&home.0).unwrap());
+    let mut expected = before.clone();
+    expected["model_providers"]["cpa-gui"]["name"] = toml::Value::String("OpenAI".into());
+    assert_eq!(home.config(), expected);
+    assert_eq!(home.read("auth.json"), auth);
+    assert!(inspect_codex_agent_config(&home.path("config.toml"), 8317, "test-api-key").unwrap().0);
+    apply_cpa(&home, false).unwrap();
+    assert!(codex_remote_compaction_enabled(&home.0).unwrap());
+    switch_codex_openai_provider(&home.0, true).unwrap();
+    assert!(codex_openai_proxy_enabled(&home.0).unwrap());
+    assert!(inspect_codex_agent_config(&home.path("config.toml"), 8317, "test-api-key").unwrap().0);
+    assert!(switch_codex_remote_compaction(&home.0, false).is_err());
+    switch_codex_openai_provider(&home.0, false).unwrap();
+    switch_codex_remote_compaction(&home.0, false).unwrap();
+    assert!(!codex_remote_compaction_enabled(&home.0).unwrap());
+    assert_eq!(home.config(), before);
+}
+
+#[test]
+fn remote_compaction_rejects_unmanaged_invalid_and_profile_configs_without_writing() {
+    let home = TestHome::new();
+    for config in ["", "invalid = [", "model_provider = \"openai\"", CPA_CONFIG] {
+        home.write("config.toml", config);
+        assert!(switch_codex_remote_compaction(&home.0, true).is_err());
+        assert_eq!(home.read("config.toml"), config);
+    }
 }

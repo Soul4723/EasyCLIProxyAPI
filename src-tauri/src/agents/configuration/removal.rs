@@ -266,6 +266,7 @@ pub(crate) fn prepare_codex_managed_removal(paths: &[PathBuf]) -> Result<Images,
     let mut document = content
         .parse::<Document>()
         .map_err(|_| "Failed to parse Codex configuration".to_string())?;
+    restore_codex_proxy_identity_for_removal(&mut document, path)?;
     let managed_selected =
         document.get("model_provider").and_then(Item::as_str) == Some(MANAGED_AGENT_PROVIDER_ID);
     let managed_catalog =

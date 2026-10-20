@@ -6,15 +6,41 @@ pub(crate) struct SavedWindowSize {
     pub(crate) height: u32,
 }
 
-pub(crate) struct MainWindowSizeState {
+pub(crate) struct MainWindowState {
     pub(crate) inner: Mutex<Option<SavedWindowSize>>,
+    pub(crate) position: Mutex<Option<tauri::PhysicalPosition<i32>>>,
+    pub(crate) position_tracking: AtomicBool,
 }
 
-impl MainWindowSizeState {
-    pub(crate) fn new(size: Option<SavedWindowSize>) -> Self {
+impl MainWindowState {
+    pub(crate) fn new(
+        size: Option<SavedWindowSize>,
+        position: Option<tauri::PhysicalPosition<i32>>,
+    ) -> Self {
         Self {
             inner: Mutex::new(size),
+            position: Mutex::new(position),
+            position_tracking: AtomicBool::new(false),
         }
+    }
+
+    pub(crate) fn position(&self) -> Result<Option<tauri::PhysicalPosition<i32>>, String> {
+        self.position
+            .lock()
+            .map(|position| *position)
+            .map_err(|_| "Main window position status lock is poisoned".to_string())
+    }
+
+    pub(crate) fn replace_position(
+        &self,
+        position: tauri::PhysicalPosition<i32>,
+    ) -> Result<(), String> {
+        *self
+            .position
+            .lock()
+            .map_err(|_| "Main window position status lock is poisoned".to_string())? =
+            Some(position);
+        Ok(())
     }
 
     pub(crate) fn snapshot(&self) -> Result<Option<SavedWindowSize>, String> {

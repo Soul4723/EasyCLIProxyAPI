@@ -1071,6 +1071,8 @@
             default_terminal: crate::DEFAULT_AGENT_TERMINAL.to_string(),
             window_width: None,
             window_height: None,
+            window_x: None,
+            window_y: None,
             auth_dir: String::new(),
             auth_dir_user_selected: false,
             image_generation_user_selected: false,
@@ -2836,6 +2838,60 @@
         .unwrap();
         assert_eq!(content, "{}");
         server.await.unwrap();
+    }
+
+    #[test]
+    fn pricing_uses_original_model_then_manual_fallback_without_prefix_guessing() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&connection).unwrap();
+        for model in ["gpt-6-sol", "my-alias", "claude-sonnet-5-5"] {
+            upsert_model_price(&connection, &ModelPrice {
+                model: model.into(),
+                prompt: 99.0,
+                completion: 99.0,
+                prompt_configured: true,
+                completion_configured: true,
+                source: "manual".into(),
+                ..ModelPrice::default()
+            }).unwrap();
+        }
+        let prices = load_model_prices(&connection).unwrap();
+        let (_, original) = resolve_model_price("openai/GPT-6-SOL", "my-alias", &prices).unwrap();
+        assert_eq!(original.source, "builtin");
+        assert_eq!(original.prompt, 2.0);
+        let (_, manual) = resolve_model_price("unknown-model", "my-alias", &prices).unwrap();
+        assert_eq!(manual.source, "manual");
+        assert_eq!(manual.model, "my-alias");
+        let (_, manual_original) = resolve_model_price("claude-sonnet-5-5", "my-alias", &prices).unwrap();
+        assert_eq!(manual_original.model, "claude-sonnet-5-5");
+        assert_eq!(manual_original.prompt, 99.0);
+        assert!(resolve_model_price("unknown-model", "gpt-6-astra", &prices).is_none());
+        assert!(resolve_model_price("claude-sonnet-5-unknown", "", &prices).is_none());
+        assert!(resolve_model_price("unknown-model", "my-alias-extra", &prices).is_none());
+
+        let mut records = Vec::new();
+        for (id, model, alias) in [
+            ("original", "gpt-6-sol", "my-alias"),
+            ("manual", "unknown-model", "my-alias"),
+            ("unpriced", "unknown-model", "gpt-6-astra"),
+        ] {
+            let mut record = sample_record(id, "2026-10-04T00:00:00Z", model);
+            record.alias = alias.into();
+            records.push(record);
+        }
+        insert_usage_records(&mut connection, &records).unwrap();
+        let query = UsageQuery::default();
+        let page = load_usage_events(&connection, &query, &GuiConfigFile::default()).unwrap();
+        assert_eq!(page.items.iter().find(|r| r.id == "original").unwrap().cost.as_ref().unwrap().pricing_model, "gpt-6-sol");
+        assert_eq!(page.items.iter().find(|r| r.id == "manual").unwrap().cost.as_ref().unwrap().pricing_model, "my-alias");
+        assert!(page.items.iter().find(|r| r.id == "unpriced").unwrap().cost.is_none());
+        let total: f64 = page.items.iter().filter_map(|r| r.cost.as_ref().map(|c| c.total)).sum();
+        let overview = load_usage_overview(&connection, &query).unwrap();
+        let pricing = load_usage_pricing(&connection, &query).unwrap();
+        assert_eq!(overview.priced_requests, 2);
+        assert_eq!(pricing.priced_requests, 2);
+        assert!((overview.estimated_cost - total).abs() < 1e-9);
+        assert!((pricing.total_cost - total).abs() < 1e-9);
     }
 
     #[test]

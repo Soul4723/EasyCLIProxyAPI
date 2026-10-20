@@ -4,8 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { themeTokenProperties } from '../../../src/themes/types';
 
 const semanticPaint = new Set([
-  'components/WindowFrame.css|.window-controls .window-close:hover',
-  'components/WindowFrame.css|.window-controls .window-close:active',
   'styles/controls.css|.danger-button',
   'styles/controls.css|.danger-button:hover:not(:disabled)',
   "styles/controls.css|:root[data-theme='dark'] .danger-button",
