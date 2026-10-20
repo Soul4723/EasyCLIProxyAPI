@@ -919,6 +919,7 @@ server.serve_forever()
         let config = GuiConfigFile {
             connection_mode: super::super::CoreConnectionMode::Remote,
             remote_management_origin: format!("https://127.0.0.1:{}", port.trim()),
+            remote_management_key: "isolated-test-management-key".into(),
             remote_client_origin: format!("https://127.0.0.1:{}", port.trim()),
             ..Default::default()
         };
