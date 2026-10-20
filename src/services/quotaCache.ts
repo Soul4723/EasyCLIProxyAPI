@@ -13,6 +13,7 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
+export const subscribeQuotaCache = subscribe;
 const getSnapshot = () => cache;
 export const getQuotaCacheSnapshot = getSnapshot;
 export const captureQuotaCacheGeneration = () => generation;

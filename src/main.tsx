@@ -12,6 +12,7 @@ import { initializeTheme, initializeThemePreferences } from './theme';
 import { initializeUsagePreferences } from './services/usagePreferences';
 import { initializePrivacyMode } from './privacy';
 import { initializeDensity } from './density';
+import { startAgentBriefing } from './sections/quota/agentBriefing';
 import './ui/index.css';
 
 async function bootstrap() {
@@ -29,6 +30,8 @@ async function bootstrap() {
   await documentTarget.getRevision();
   initializeTheme();
   initializeDensity();
+  // Native app only: the browser mock has no briefing command and nothing reads its cache.
+  if (isTauri()) startAgentBriefing();
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

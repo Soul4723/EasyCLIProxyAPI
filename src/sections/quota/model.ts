@@ -129,6 +129,13 @@ export function classifyWindow(row: QuotaRow, now: number, locale: AppLocale): {
   return { kind: 'other', prefix: '' };
 }
 
+/** True for the plain 5-hour / weekly labels, false for model- or product-specific windows ("7-day Opus window"). */
+export function isPlainWindowLabel(label: string, locale: AppLocale): boolean {
+  const text = label.trim().toLowerCase();
+  const bases = baseLabels(locale);
+  return [...bases.fiveHour, ...bases.weekly].some((base) => base && base.toLowerCase() === text);
+}
+
 const validPct = (value: number | null) =>
   value !== null && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
 

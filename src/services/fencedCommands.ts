@@ -1,6 +1,7 @@
 // Fencing rejects calls from a document whose core target has changed; see docs/remote-core.md, “Fencing and revision semantics”.
 // Native commands that take expected_revision (src-tauri/src). tests/unit/platform/platformBoundary.test.ts keeps this list equal to the Rust signatures.
 export const FENCED_COMMANDS: ReadonlySet<string> = new Set([
+  'agent_briefing_publish',
   'add_core_api_key',
   'clear_core_management_secret_key',
   'create_speed_alias',
