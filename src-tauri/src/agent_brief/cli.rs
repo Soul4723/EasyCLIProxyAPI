@@ -165,7 +165,8 @@ pub(super) fn refresh_core(config: &GuiConfigFile, dir: &Path, origin: &str, cac
 
 fn refresh_without_cache(config: &GuiConfigFile, origin: &str, cached: Option<&CorePart>) -> CorePart {
     let now = now_ms();
-    tauri::async_runtime::block_on(tokio::time::timeout(REFRESH_DEADLINE, refresh::refresh(config, origin, cached, now)))
+    // The timeout must be created inside the runtime: its timer needs the reactor.
+    tauri::async_runtime::block_on(async { tokio::time::timeout(REFRESH_DEADLINE, refresh::refresh(config, origin, cached, now)).await })
         .unwrap_or_else(|_| refresh::down(cached, origin, now, "core refresh timed out".to_string()))
 }
 
