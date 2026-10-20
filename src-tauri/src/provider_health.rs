@@ -386,6 +386,33 @@ fn parse_core_models(payload: &serde_json::Value) -> Result<Vec<CoreHealthModel>
     Ok(models)
 }
 
+#[cfg(test)]
+mod redirect_policy_tests {
+    use super::provider_health_client_builder;
+    use tokio::io::AsyncWriteExt;
+
+    #[tokio::test]
+    async fn health_probe_client_does_not_follow_redirects() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            stream
+                .write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let client = provider_health_client_builder(Some(5_000)).build().unwrap();
+        let response = client
+            .get(format!("http://{address}/probe"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FOUND);
+        server.await.unwrap();
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn core_health_probe(
     gui_config_state: tauri::State<'_, GuiConfigState>,
@@ -447,6 +474,13 @@ fn health_probe_timeout(timeout_ms: Option<u64>) -> Duration {
     Duration::from_millis(timeout_ms.unwrap_or(15_000).clamp(1_000, 120_000))
 }
 
+fn provider_health_client_builder(timeout_ms: Option<u64>) -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(health_probe_timeout(timeout_ms))
+}
+
 #[tauri::command]
 pub(crate) async fn provider_health_probe(
     app: tauri::AppHandle,
@@ -458,9 +492,7 @@ pub(crate) async fn provider_health_probe(
     let config = gui_config_state.snapshot()?;
     let proxy_url = provider_health_proxy_url(&url, request.proxy_url.as_deref(), &config.proxy_url);
     let client = build_http_client_with_proxy(
-        reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(health_probe_timeout(request.timeout_ms)),
+        provider_health_client_builder(request.timeout_ms),
         proxy_url,
         "Failed to create health check client",
     )?;
