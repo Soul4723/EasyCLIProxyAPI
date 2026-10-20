@@ -36,7 +36,7 @@ fn set_mtime(path: &Path, modified: SystemTime) {
 
 /// One line of a synthetic rollout, without its terminator.
 fn mixed_line(rng: &mut Rng, file: usize, line: usize) -> String {
-    let id = if rng.draw() % 3 == 0 {
+    let id = if rng.draw().is_multiple_of(3) {
         format!("fork-{file}-{line}")
     } else {
         thread_uuid(file)
@@ -86,7 +86,7 @@ fn mixed_rollout(rng: &mut Rng, file: usize) -> Vec<u8> {
             _ => "\n",
         });
     }
-    if rng.draw() % 3 == 0 {
+    if rng.draw().is_multiple_of(3) {
         // No terminator on the last line.
         out.push_str(&mixed_line(rng, file, lines));
     }
