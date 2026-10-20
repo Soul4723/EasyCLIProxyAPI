@@ -232,6 +232,7 @@ Stored in the GUI `config.toml` (kebab-case keys):
 | `import_core_connection(path)` | Returns a draft. |
 | `get_management_target_revision` | The only way a document learns its revision. |
 | `resume_usage_collection(expectedOrigin, expectedRevision)` | Resumes a paused remote collector for that origin and revision. |
+| `agent_briefing_publish(accounts)` | Writes the masked quota snapshot for the agent briefing ([agent-briefing.md](agent-briefing.md)); the cache is keyed by the management origin. Fenced. |
 | `lighting_*` | `lighting_list`, `lighting_get`, `lighting_save`, `lighting_delete`, `lighting_set_enabled`, `lighting_run_now`, `lighting_report_reset`, `lighting_history`, `lighting_capabilities`, `lighting_status`. |
 
 Event `core-connection-changed { revision }` is emitted after a target change, including
@@ -266,10 +267,10 @@ changes made outside this window.
   fenced command through an unfenced `invoke`, and checks the browser mock's list of fenced
   commands against the Rust signatures.
 
-**Fenced commands.** `management_request` carries the revision inside its request. These 42
+**Fenced commands.** `management_request` carries the revision inside its request. These 43
 commands take `expectedRevision` as a top-level argument:
 
-`add_core_api_key`, `clear_core_management_secret_key`, `create_speed_alias`,
+`add_core_api_key`, `agent_briefing_publish`, `clear_core_management_secret_key`, `create_speed_alias`,
 `create_thinking_alias`, `delete_core_api_key`, `delete_speed_alias`, `delete_thinking_alias`,
 `get_core_config_settings`, `get_core_sensitive_words_settings`, `get_core_tls_settings`,
 `get_extended_core_config`, `get_model_alias_edit_source`, `get_model_alias_sources`,

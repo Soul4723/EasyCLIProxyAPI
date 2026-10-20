@@ -2458,6 +2458,22 @@ pub(crate) fn gui_config_path() -> Result<PathBuf, String> {
     Ok(core_base_dir()?.join(GUI_CONFIG_FILE))
 }
 
+/// The saved GUI config as the `--brief` CLI sees it: never created, migrated or rewritten.
+pub(crate) fn load_saved_gui_config_read_only() -> Result<GuiConfigFile, String> {
+    load_saved_gui_config_read_only_at(&gui_config_path()?, &legacy_gui_config_path()?)
+}
+
+/// Without a saved config the in-memory defaults (port 8317, a well-known legacy management key) are not a
+/// connection anyone chose, so the CLI must not dial them: that port may belong to an unrelated core.
+fn load_saved_gui_config_read_only_at(config_path: &Path, legacy_config_path: &Path) -> Result<GuiConfigFile, String> {
+    let saved = |path: &Path| path.try_exists().map_err(|error| format!("Failed to inspect GUI configuration: {error}"));
+    if !saved(config_path)? && !saved(legacy_config_path)? {
+        return Err("EasyCLIProxyAPI has no saved settings yet; start the app once".to_string());
+    }
+    let (config, ..) = read_saved_gui_config(config_path, legacy_config_path)?;
+    Ok(config)
+}
+
 pub(crate) fn legacy_gui_config_path() -> Result<PathBuf, String> {
     Ok(core_base_dir()?.join(LEGACY_GUI_CONFIG_FILE))
 }
@@ -2505,6 +2521,19 @@ mod saved_config_tests {
         let error = read_saved_gui_config(&path, &root.join("legacy.yaml")).err().unwrap();
         assert!(error.contains("Management key is required"), "{error}");
         assert_eq!(fs::read_to_string(&path).unwrap(), content);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn read_only_loading_refuses_to_invent_a_connection_when_nothing_is_saved() {
+        let root = std::env::temp_dir().join(format!("cpa-native-readonly-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let error = load_saved_gui_config_read_only_at(&root.join("config.toml"), &root.join("legacy.yaml")).err().unwrap();
+        assert!(error.contains("no saved settings"), "{error}");
+        fs::write(root.join("config.toml"), "port = 4242\n").unwrap();
+        let loaded = load_saved_gui_config_read_only_at(&root.join("config.toml"), &root.join("legacy.yaml")).unwrap();
+        assert_eq!(loaded.port, 4242);
+        assert_eq!(fs::read_to_string(root.join("config.toml")).unwrap(), "port = 4242\n", "never rewritten");
         fs::remove_dir_all(root).unwrap();
     }
 
