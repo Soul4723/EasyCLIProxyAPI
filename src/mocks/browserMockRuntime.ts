@@ -1182,7 +1182,7 @@ export function createBrowserMockRuntime(
         }
         Object.assign(state.coreConfig, syncValues);
         const restartRequired = changes.some((change) => !sameTemplateValue(readTemplatePath(before, change.path), readTemplatePath(state.extendedConfig, change.path)) && ['server.host', 'server.port', 'server.tls', 'management', 'oauth.auth-dir'].some((prefix) => change.path.join('.') === prefix || change.path.join('.').startsWith(`${prefix}.`)));
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return { config: clone(state.extendedConfig), restartRequired };
       }
       case 'get_software_settings': return clone(state.softwareSettings);
@@ -1190,7 +1190,7 @@ export function createBrowserMockRuntime(
       case 'get_core_sensitive_words_settings': return clone(state.sensitiveWords);
       case 'save_core_sensitive_words_settings': {
         state.sensitiveWords = clone(asObject(payload.settings)) as typeof state.sensitiveWords;
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return clone(state.sensitiveWords);
       }
       case 'save_software_settings': {
@@ -1200,7 +1200,7 @@ export function createBrowserMockRuntime(
       case 'save_core_tls_settings': {
         Object.assign(state.tlsSettings, asObject(payload.settings));
         state.extendedConfig = applyTemplateChanges(state.extendedConfig, [{ path: ['server', 'tls'], value: { enable: state.tlsSettings.enabled, cert: state.tlsSettings.cert, key: state.tlsSettings.key }, remove: false, expected: null, expectedExists: false }]);
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return clone(state.tlsSettings);
       }
       case 'save_core_logging_settings':
@@ -1208,12 +1208,12 @@ export function createBrowserMockRuntime(
       case 'save_retry_settings':
       case 'save_session_routing_settings': {
         const config = updateCoreConfig(state, payload);
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return config;
       }
       case 'set_core_routing_strategy': {
         const config = updateCoreConfig(state, { settings: { routingStrategy: readString(payload.strategy) } });
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return config;
       }
       case 'set_core_proxy_url': {

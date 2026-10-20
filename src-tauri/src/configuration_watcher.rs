@@ -98,6 +98,29 @@ fn record_content_change(known: &mut HashMap<PathBuf, Option<Vec<u8>>>, path: &P
     changed
 }
 
+// File kinds in a change set. Names alone cannot tell them apart (the GUI config and several
+// agent configs are all `config.toml`), so the frontend filters on these instead of on paths.
+fn config_change_scopes(
+    paths: &[PathBuf],
+    is_gui_path: impl Fn(&Path) -> bool,
+    is_core_path: impl Fn(&Path) -> bool,
+) -> Vec<&'static str> {
+    let mut scopes = Vec::new();
+    for path in paths {
+        let scope = if is_gui_path(path) {
+            "gui"
+        } else if is_core_path(path) {
+            "core"
+        } else {
+            "agent"
+        };
+        if !scopes.contains(&scope) {
+            scopes.push(scope);
+        }
+    }
+    scopes
+}
+
 fn handle_configuration_file_changes(
     app: &tauri::AppHandle,
     changed_paths: Vec<PathBuf>,
@@ -245,6 +268,7 @@ fn handle_configuration_file_changes(
             CONFIG_FILES_CHANGED_EVENT,
             ConfigFilesChangedPayload {
                 paths: payload_paths,
+                scopes: config_change_scopes(&tracked_changes, is_gui_path, is_core_path),
                 errors,
             },
         );
@@ -469,6 +493,21 @@ mod tests {
                 .add_path(tracked.clone()), &[(tracked.clone(), tracked.clone())]));
             assert!(pending.paths.is_empty());
         }
+    }
+
+    #[test]
+    fn change_scopes_classify_gui_core_and_agent_files_once() {
+        let gui = PathBuf::from("/app/config.toml");
+        let core = PathBuf::from("/app/cpa-core/config.yaml");
+        let codex = PathBuf::from("/home/u/.codex/config.toml");
+        let kimi = PathBuf::from("/home/u/.kimi/config.toml");
+        let is_gui = |path: &Path| path == gui;
+        let is_core = |path: &Path| path == core;
+        assert!(config_change_scopes(&[], is_gui, is_core).is_empty());
+        assert_eq!(config_change_scopes(&[codex.clone(), kimi.clone()], is_gui, is_core), ["agent"]);
+        assert_eq!(config_change_scopes(&[core.clone()], is_gui, is_core), ["core"]);
+        assert_eq!(config_change_scopes(&[codex, gui.clone(), core.clone(), kimi], is_gui, is_core), ["agent", "gui", "core"]);
+        assert_eq!(config_change_scopes(&[gui.clone()], is_gui, is_core), ["gui"]);
     }
 
     #[test]

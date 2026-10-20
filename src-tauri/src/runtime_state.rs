@@ -88,6 +88,8 @@ pub(crate) struct AgentConfigStatusCacheEntry {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ConfigFilesChangedPayload {
     pub(crate) paths: Vec<String>,
+    /// Kinds of file in `paths` (`gui`, `core`, `agent`), so listeners can skip changes they do not read.
+    pub(crate) scopes: Vec<&'static str>,
     pub(crate) errors: Vec<String>,
 }
 
