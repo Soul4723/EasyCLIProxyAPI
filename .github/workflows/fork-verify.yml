@@ -591,10 +591,12 @@ jobs:
           cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local-restart/core.log" 2>/dev/null || true
           python3 - "$root/logs/local-restart/observe/ipc.log" <<'PY'
           import sys
-          lines = open(sys.argv[1]).read().splitlines()
+          text = open(sys.argv[1]).read()
+          lines = text.splitlines()
           positions = {marker: next((i for i, line in enumerate(lines) if marker in line), -1) for marker in (
               'REPORT RESTART_REVISION before ',
               'REPORT RESTART_CHECK management read before restart succeeded',
+              'REPORT RESTART_CHECK restart command succeeded',
               'REPORT RESTART_CHECK ready after ',
               'REPORT RESTART_REVISION after ',
               'REPORT RESTART_CHECK management read after restart succeeded',
@@ -607,8 +609,8 @@ jobs:
           ):
               if not any('management_request GET /credentials' in line for line in lines[positions[start] + 1:positions[end]]):
                   raise SystemExit(f'No authenticated GET /credentials was observed {label}')
-          if not positions['REPORT RESTART_CHECK management read before restart succeeded'] < positions['REPORT RESTART_CHECK ready after '] < positions['REPORT RESTART_REVISION after ']:
-              raise SystemExit('Expected readiness recovery between the two management reads')
+          if not positions['REPORT RESTART_CHECK management read before restart succeeded'] < positions['REPORT RESTART_CHECK restart command succeeded'] < positions['REPORT RESTART_CHECK ready after '] < positions['REPORT RESTART_REVISION after ']:
+              raise SystemExit('Expected app restart command and readiness recovery between the two management reads')
           for marker in (
               'RESTART_CHECK management read before restart succeeded',
               'RESTART_CHECK management read after restart succeeded',
