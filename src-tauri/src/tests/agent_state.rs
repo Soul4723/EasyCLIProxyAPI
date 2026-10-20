@@ -1567,9 +1567,11 @@ fn claude_code_connection_evidence_matches_the_active_client_origin() {
     )
     .unwrap());
 
-    let mut remote = GuiConfigFile::default();
-    remote.connection_mode = CoreConnectionMode::Remote;
-    remote.remote_client_origin = "https://core.example.test:9443".into();
+    let mut remote = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_client_origin: "https://core.example.test:9443".into(),
+        ..Default::default()
+    };
     fs::write(
         &paths[0],
         r#"{"env":{"ANTHROPIC_BASE_URL":"https://core.example.test:9443"}}"#,
@@ -1630,9 +1632,11 @@ fn claude_desktop_connection_evidence_matches_the_active_client_origin() {
     )
     .unwrap());
 
-    let mut remote = GuiConfigFile::default();
-    remote.connection_mode = CoreConnectionMode::Remote;
-    remote.remote_client_origin = "https://core.example.test:9443".into();
+    let mut remote = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_client_origin: "https://core.example.test:9443".into(),
+        ..Default::default()
+    };
     fs::write(
         &paths[2],
         r#"{"inferenceGatewayBaseUrl":"https://core.example.test:9443"}"#,

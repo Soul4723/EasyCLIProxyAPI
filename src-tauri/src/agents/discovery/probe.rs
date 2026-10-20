@@ -48,14 +48,14 @@ pub(crate) fn command_output_with_timeout(
     }
     let child = command.spawn()?;
     let mut child = AgentProbeChild::new(child);
-    let mut stdout = child
+    let stdout = child
         .child
         .as_mut()
         .expect("probe child is present before reader startup")
         .stdout
         .take()
         .ok_or_else(|| io::Error::other("Unable to read agent detection standard output"))?;
-    let mut stderr = child
+    let stderr = child
         .child
         .as_mut()
         .expect("probe child is present before reader startup")
@@ -319,7 +319,7 @@ pub(super) fn terminate_agent_probe_process(
             }
             return Some(format!("probe process reaping was handed to a background thread: {error}"));
         }
-        return None;
+        None
     }
     #[cfg(not(any(unix, target_os = "windows")))]
     {
