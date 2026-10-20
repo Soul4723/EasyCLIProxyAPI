@@ -32,12 +32,13 @@ tiny launcher that runs the current binary with `--brief`; the skill names the l
 
 PowerShell uses `& "$env:APPDATA\com.cpa.gui\agent\cpa-brief.cmd"`; `%APPDATA%` is the `cmd.exe` form.
 
-The same folder holds two cache files, each written by one party only (so neither needs a lock):
+The same folder holds three cache files, each written by one party only:
 
 | File | Written by | Contains | Refreshed |
 | --- | --- | --- | --- |
 | `quota.json` | the running app (`agent_briefing_publish`) | per account: provider, masked label, plan, 5h/weekly/other windows (remaining %, absolute reset time), balance, read time | when the app's quota cache changes (debounced) |
 | `core.json` | the `--brief` command | per credential: provider, disabled, unavailable, retry time, cooldowns, model ids; whether the core answered | by a query, when older than 60 s (15 s after a failure) |
+| `quota-cli.json` | the `--brief` command | the same per-account quota shape as `quota.json`, for Claude, Codex and Devin; last failed read per account | by a query, for accounts with no read newer than 5 min (15 min after a failed read) |
 
 Both are `0600`, keyed by the core's management origin; a cache from another core is ignored. The command reads
 the app's saved `config.toml` (read-only, next to the executable) to find the core and its management key. If the
@@ -46,10 +47,17 @@ files: it prints `no briefing data yet` and exits 1.
 
 ## Data sources
 
-- **Quota windows** come only from the app's existing quota cache (`src/services/quotaCache.ts`),
-  which the Overview and Quota pages fill by asking the providers through the core. A small module
-  (`src/sections/quota/agentBriefing.ts`) listens to that cache and sends a masked snapshot over one
-  fenced command. It does no polling and makes no provider call of its own.
+- **Quota windows** come from the app's quota cache (`src/services/quotaCache.ts`), which the Overview
+  and Quota pages fill by asking the providers through the core; a small module
+  (`src/sections/quota/agentBriefing.ts`) sends a masked snapshot of it over one fenced command. When an
+  enabled Claude, Codex or Devin account has no read newer than 5 minutes (from the app or the command),
+  the command reads it itself (`src-tauri/src/agent_brief/quota_fetch.rs`): one `GET /credentials`, then
+  per account the same read-only usage request the app makes, through the core's
+  `POST /v8/management/requests/api-call` (the core inserts the token). Only three URLs are allowed:
+  Claude `api/oauth/usage`, Codex `backend-api/wham/usage` and Devin `GetUserStatus`; no inference
+  endpoint. The two snapshots are merged per account and the newest read wins. Antigravity, xAI and Kimi
+  quota still come only from the app. The command does not read Claude's plan endpoint; it keeps the last
+  known plan.
 - **Availability and cooldowns** come from the core's `GET /v8/management/credentials`
   (disabled, unavailable, retry time, per-credential and per-model `cooldowns`).
 - **Models** come from `GET /v8/management/credentials/models?name=` for each enabled credential,
@@ -71,9 +79,9 @@ files: it prints `no briefing data yet` and exits 1.
   cached data never shows a wrong countdown. A window whose reset passed since the read prints `5h=reset`
   and counts as full.
 - Every output states the age of the oldest quota read among displayed accounts and flags it `stale` after 30 minutes.
-- **Quota is only as fresh as the last time the app read it** (opening Overview or Quota, or a manual
-  refresh). The command deliberately does not ask providers. With the app closed, the last read is served
-  with its age.
+- Claude, Codex and Devin quota is at most about 5 minutes old while the core is up (an account whose
+  read failed is retried after 15 minutes). Other providers are as fresh as the app's last read. With the
+  core down, the last reads are served with their age.
 - `core=up` means core data was refreshed within 60 seconds. When unreachable, output says
   `core=down cached=<age>`; if refresh failed for another reason, it says `core=stale cached=<age>`.
   Data older than the TTL is never marked live. Down or stale core state lists no models.
@@ -101,16 +109,19 @@ core reads and never printed.
 
 ## Cost
 
-- A query reads two small files. When `core.json` is older than the TTL it makes one `GET /credentials`
+- A query reads three small files. When `core.json` is older than the TTL it makes one `GET /credentials`
   (plus model requests for credential lists older than 15 minutes), bounded to 4 s each and 32 model reads
   per refresh. Concurrent callers wait on a lock file and share one refresh (checked again under the lock);
   an overall 25 s deadline bounds the refresh.
+- Quota reads follow the same discipline with their own lock (`quota.lock`): at most 24 accounts, 6 at a
+  time, 10 s each, 20 s overall. Callers that find the lock held wait up to 5 s and then use what is cached.
+  Without a writable cache folder the command never asks for quota (it could not record backoff).
 - Nothing runs when nobody asks: the app has a quota-cache subscription with a one-shot debounce, and the
   command polls briefly only while waiting for another command's lock. The frontend sends one debounced IPC
   per quota-cache change.
-- A query never calls a provider and never starts or stops a core.
+- A query never sends an inference request and never starts or stops a core.
 
 ## Limits (not in this version)
 
-Refreshing quota on demand while the app is idle; balances for API-key providers; usage history in the
+Refreshing Antigravity, xAI and Kimi quota while the app is idle; balances for API-key providers; usage history in the
 briefing; any UI. In Remote mode the data comes from the remote core, and quota is cached per core address.

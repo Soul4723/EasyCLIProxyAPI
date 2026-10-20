@@ -1,11 +1,11 @@
 ---
 name: cpa-brief
-description: Get a cheap, cached briefing of provider headroom, reset times and routable models. Run BEFORE planning or delegating, and again before a long run. It makes no provider calls.
+description: Get a cheap, cached briefing of provider headroom, reset times and routable models. Run BEFORE planning or delegating, and again before a long run. It sends no inference requests.
 ---
 
 # cpa-brief: pre-delegation briefing
 
-Run before planning or delegating, then again before a long run. It is a briefing, not a dashboard or polling command; it reads cached quota and routing data and makes no provider calls.
+Run before planning or delegating, then again before a long run. It is a briefing, not a dashboard or polling command; it reads cached quota and routing data. Claude, Codex and Devin quota older than 5 min is re-read on demand from read-only usage endpoints; it never sends an inference request.
 
 ## Run
 
@@ -52,4 +52,4 @@ guide: swarm=claude light=codex(5h=8%~20m)
 
 - Missing launcher or `no briefing data yet`: restore valid saved connection settings, then start EasyCLIProxyAPI and open Overview or Quota once. Do not invent numbers.
 - If you know the core is up but the command says `core=down`, the sandbox may block loopback; treat core-dependent numbers as unknown, not an outage. `core=down` lists no models; `core=stale` means routing is unknown.
-- Stale quota is only refreshed when Overview or Quota loads or the user refreshes it. Treat it as potentially outdated; a recent run may have used more. `remote` uses the remote core; quota is cached per core address. Exit 1 means no data; exit 2 means a bad option.
+- Claude, Codex and Devin quota is refreshed on demand (at most ~5 min old while the core is up); other providers only when Overview or Quota loads. `quota_age` still shows the oldest read; treat `stale` quota as potentially outdated. `remote` uses the remote core; quota is cached per core address. Exit 1 means no data; exit 2 means a bad option.
