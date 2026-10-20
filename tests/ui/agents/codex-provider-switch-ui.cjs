@@ -13,6 +13,11 @@ runUi(async ({ base }) => {
     page.on('pageerror', error => errors.push(String(error)));
     const toggle = () => page.getByRole('switch', { name: '使用 openai 提供商标识', exact: true });
     const sync = () => page.getByRole('checkbox', { name: '同时同步会话', exact: true });
+    // The kit hides the native input, so tick the box the way a user does: through its visible label.
+    const tickSync = async () => {
+      await page.getByRole('dialog').getByText('同时同步会话', { exact: true }).click();
+      assert.equal(await sync().isChecked(), true);
+    };
     const tab = name => page.getByRole('tab', { name, exact: true });
     const on = async () => (await toggle().getAttribute('aria-checked')) === 'true';
     const open = async (query = '') => {
@@ -37,7 +42,7 @@ runUi(async ({ base }) => {
       await page.waitForFunction(() => document.querySelector('[data-row="codex-provider"] [role="switch"]').getAttribute('aria-checked') === 'true');
       assert.equal((await calls()).filter(c => c.cmd === 'repair_codex_session_metadata').length, 0);
       await toggle().click();
-      await sync().check({ force: true });
+      await tickSync();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await confirm();
       await page.waitForFunction(() => document.querySelector('[data-row="codex-provider"] [role="switch"]').getAttribute('aria-checked') === 'false');
@@ -57,13 +62,13 @@ runUi(async ({ base }) => {
 
     await open('fail-provider-sync');
     await toggle().click();
-    await sync().check({ force: true });
+    await tickSync();
     await confirm();
     await page.getByText(/提供商已切换，但会话同步失败/).waitFor();
     assert.equal(await on(), true);
     await open('fail-provider');
     await toggle().click();
-    await sync().check({ force: true });
+    await tickSync();
     await confirm();
     await page.getByText(/CPA 未接受当前 Codex OAuth 凭证/).waitFor();
     assert.equal(await on(), false);
