@@ -792,9 +792,27 @@ async fn remote_openai_proxy_auth_check_uses_the_remote_origin_and_rejects_other
     assert!(agent_catalog_http_client(&remote_config("")).is_err());
 }
 
+// Kills the disposable Python server even when an assertion panics.
+struct ChildGuard(std::process::Child);
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+// A Local target whose client origin is the self-signed TLS endpoint under test.
+#[derive(Clone, Copy)]
+struct TlsLocalTarget(u16);
+impl AgentClientOrigin for TlsLocalTarget {
+    fn client_origin(self) -> String { format!("https://127.0.0.1:{}", self.0) }
+    fn validate_client_origin(self) -> Result<(), String> { Ok(()) }
+    fn local_client(self) -> bool { true }
+}
+
 // Disposable self-signed TLS endpoint standing in for a Local core with TLS enabled.
 #[tokio::test]
-async fn openai_proxy_auth_check_accepts_a_self_signed_local_core_only_when_local_tls_is_on() {
+async fn openai_proxy_auth_check_trusts_a_self_signed_certificate_only_for_the_client_origin() {
     let root = crate::unique_test_temp_path("cpa-native-oauth-tls");
     fs::create_dir_all(&root).unwrap();
     let (cert, key) = (root.join("cert.pem"), root.join("key.pem"));
@@ -813,23 +831,44 @@ server.socket = ctx.wrap_socket(server.socket, server_side=True)
 print(server.server_port, flush=True)
 server.serve_forever()
 "#;
-    let mut server = std::process::Command::new("python3").arg("-u").arg("-c").arg(script).arg(&cert).arg(&key)
-        .stdout(std::process::Stdio::piped()).spawn().unwrap();
+    let mut server = ChildGuard(std::process::Command::new("python3").arg("-u").arg("-c").arg(script).arg(&cert).arg(&key)
+        .stdout(std::process::Stdio::piped()).spawn().unwrap());
     use std::io::BufRead;
     let mut port = String::new();
-    std::io::BufReader::new(server.stdout.take().unwrap()).read_line(&mut port).unwrap();
-    let base = format!("https://127.0.0.1:{}/v1", port.trim());
+    std::io::BufReader::new(server.0.stdout.take().unwrap()).read_line(&mut port).unwrap();
+    let port: u16 = port.trim().parse().unwrap();
+    let base = format!("https://127.0.0.1:{port}/v1");
     let config = build_codex_agent_config_with_oauth(None, &base, "test-api-key", "model", false).unwrap();
     let auth = build_codex_api_auth("test-api-key").unwrap();
-    let trusted = validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(8317, true).unwrap(), 8317, &config, &auth).await;
-    let strict = validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(8317, false).unwrap(), 8317, &config, &auth).await;
-    // A Remote target never trusts a self-signed certificate, even if a local core uses TLS.
-    let remote = remote_config(&format!("https://127.0.0.1:{}", port.trim()));
-    let remote_result = validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(&remote, true).unwrap(), &remote, &config, &auth).await;
-    server.kill().unwrap();
-    server.wait().unwrap();
+    let unreachable = "Unable to check CPA authentication. Ensure the core is running";
+    let own = TlsLocalTarget(port);
+    // The endpoint is the target's own origin: the relaxed client is used.
+    validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(own, true).unwrap(), own, &config, &auth).await.unwrap();
+    // Local TLS off: strict client rejects the self-signed certificate.
+    assert_eq!(validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(own, false).unwrap(), own, &config, &auth).await.unwrap_err(), unreachable);
+    // Another localhost endpoint is accepted by the Local matcher, but the relaxed client must not reach it.
+    assert!(is_managed_agent_target_url(&base, 8317u16));
+    assert_eq!(validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(8317u16, true).unwrap(), 8317u16, &config, &auth).await.unwrap_err(), unreachable);
+    // A Remote target never trusts a self-signed certificate, even with the relaxed flag.
+    let remote = remote_config(&format!("https://127.0.0.1:{port}"));
+    assert_eq!(validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(&remote, true).unwrap(), &remote, &config, &auth).await.unwrap_err(), unreachable);
+    drop(server);
     fs::remove_dir_all(root).unwrap();
-    trusted.unwrap();
-    assert_eq!(strict.unwrap_err(), "Unable to check CPA authentication. Ensure the core is running");
-    assert!(remote_result.is_err());
+}
+
+#[test]
+fn an_empty_or_invalid_remote_origin_never_matches_and_blocks_the_switches() {
+    let mut empty = remote_config("https://management.example");
+    empty.remote_client_origin.clear();
+    for url in ["", "/v1", "http://127.0.0.1:8317/v1"] {
+        assert!(!is_managed_agent_target_url(url, &empty), "{url:?}");
+    }
+    let home = TestHome::new();
+    apply_cpa(&home, false).unwrap();
+    let written = home.read("config.toml");
+    assert_eq!(switch_codex_openai_provider(&home.0, &empty, true).unwrap_err(), "Invalid Client origin");
+    assert_eq!(switch_codex_remote_compaction(&home.0, &empty, true).unwrap_err(), "Invalid Client origin");
+    assert_eq!(switch_codex_openai_provider(&home.0, 0u16, true).unwrap_err(), "Invalid core port");
+    assert_eq!(switch_codex_remote_compaction(&home.0, 0u16, true).unwrap_err(), "Invalid core port");
+    assert_eq!(home.read("config.toml"), written);
 }

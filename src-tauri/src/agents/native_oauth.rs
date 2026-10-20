@@ -83,6 +83,7 @@ pub(crate) fn restore_codex_proxy_identity_for_removal(document: &mut toml_edit:
 }
 
 pub(crate) fn switch_codex_openai_provider(home: &Path, target: impl AgentClientOrigin, enabled: bool) -> Result<AgentConfigActionResult, String> {
+    target.validate_client_origin()?;
     let directory = codex_configuration_directory(home);
     let paths = vec![directory.join(CODEX_NATIVE_OAUTH_STATE_FILE), directory.join("config.toml")];
     let before = config_images(&paths)?;
@@ -121,6 +122,9 @@ pub(crate) fn switch_codex_openai_provider(home: &Path, target: impl AgentClient
 
 // The built-in provider ignores model_providers.openai overrides. It uses
 // auth.json and the top-level openai_base_url, so validate that auth at CPA first.
+// `client` may accept a self-signed certificate (Local core with TLS); it is used only when
+// the endpoint's origin is exactly the target's client origin, never for another URL
+// that the managed-endpoint match also accepts.
 async fn validate_codex_openai_proxy_auth(
     client: &reqwest::Client,
     target: impl AgentClientOrigin,
@@ -140,6 +144,13 @@ async fn validate_codex_openai_proxy_auth(
     } else {
         auth.get("OPENAI_API_KEY").and_then(serde_json::Value::as_str)
     }.filter(|token| !token.trim().is_empty()).ok_or("Missing Codex credentials")?;
+    let strict;
+    let client = if reqwest::Url::parse(base).is_ok_and(|url| {
+        url.origin().ascii_serialization().eq_ignore_ascii_case(target.client_origin().trim_end_matches('/'))
+    }) { client } else {
+        strict = agent_catalog_http_client_with_tls(target, false)?;
+        &strict
+    };
     let mut request = client.get(format!("{}/models", base.trim_end_matches('/'))).bearer_auth(token);
     if oauth {
         if let Some(account) = auth.get("tokens").and_then(|tokens| tokens.get("account_id")).and_then(serde_json::Value::as_str) {
@@ -676,6 +687,7 @@ pub(crate) fn codex_remote_compaction_enabled(home: &Path) -> Result<bool, Strin
 }
 
 pub(crate) fn switch_codex_remote_compaction(home: &Path, target: impl AgentClientOrigin, enabled: bool) -> Result<AgentConfigActionResult, String> {
+    target.validate_client_origin()?;
     let paths = vec![codex_configuration_directory(home).join("config.toml")];
     let before = config_images(&paths)?;
     let mut document = parse_codex_document(text(before[0].1.as_deref())?, "Codex config.toml")?;

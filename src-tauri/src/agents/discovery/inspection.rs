@@ -637,6 +637,7 @@ pub(crate) fn agent_has_managed_marker(
 pub(crate) fn is_managed_agent_target_url(value: &str, target: impl AgentClientOrigin) -> bool {
     if target.local_client() { return is_managed_agent_base_url(value); }
     let origin = target.client_origin().to_ascii_lowercase();
+    if origin.is_empty() { return false; }
     value.trim().to_ascii_lowercase().strip_prefix(&origin)
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
