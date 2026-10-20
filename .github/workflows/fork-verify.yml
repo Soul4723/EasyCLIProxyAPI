@@ -485,10 +485,10 @@ jobs:
           if len(settle_pattern.findall(text)) != 1:
               raise SystemExit('Could not uniquely patch observer action settling')
           text = settle_pattern.sub(lambda match: f"{match.group(1)}await sleep(settleMs);\n{match.group(2)}const burst = lines().slice(start);", text)
-          old_actions = "  if (args.includes('--actions')) {"
-          if text.count(old_actions) != 1:
+          actions_pattern = re.compile(r"(?m)^(\s*)if \((?:mode === 'local' && )?args\.includes\('--actions'\)\) \{$")
+          if len(actions_pattern.findall(text)) != 1:
               raise SystemExit('Could not uniquely add Local restart observer scenario')
-          restart_check = r'''  if (args.includes('--restart-check')) {
+          restart_check = r'''if (mode === 'local' && args.includes('--restart-check')) {
           const managementRead = async which => {
             const marker = `RESTART_CHECK management read ${which} restart`;
             send(`window.__TAURI_INTERNALS__.invoke('get_management_target_revision').then(r=>window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'credentials',expectedRevision:r}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
@@ -518,8 +518,8 @@ jobs:
           }
           if (!recovered) throw Error('Local core did not report running and ready within 10000ms after app restart');
           await managementRead('after');
-          } else if (args.includes('--actions')) {'''
-          text = text.replace(old_actions, restart_check)
+          } else if (mode === 'local' && args.includes('--actions')) {'''
+          text = actions_pattern.sub(lambda match: match.group(1) + restart_check, text)
           script.write_text(text)
           PY
           management_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
