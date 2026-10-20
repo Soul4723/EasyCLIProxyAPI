@@ -29,11 +29,11 @@ const path = require('node:path');
     const setCore = scenario => page.evaluate(value => window.usageStateFixture.setCore(value), scenario);
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collecting Locally'));
     assert.equal(await isLive(state), true);
-    assert.doesNotMatch(await state.innerText(), /Last collected/, 'the timestamp is hidden while live');
+    assert.doesNotMatch(await state.innerText(), /Last record/, 'the timestamp is hidden while live');
     await setCore('stopped');
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Core stopped'));
     assert.equal(await isLive(state), false);
-    assert.match(await state.innerText(), /Last collected/, 'the timestamp is shown when stopped');
+    assert.match(await state.innerText(), /Last record/, 'the timestamp is shown when stopped');
     await setCore('running');
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collecting Locally'));
     assert.equal(await isLive(state), true);
@@ -53,6 +53,16 @@ const path = require('node:path');
       assert.equal(await isLive(state), false, `${scenario} is never presented as live`);
     }
 
+    await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=stopped&collector=restarted`);
+    const restartedState = page.locator('.usage-collector-state');
+    await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Core stopped'));
+    assert.equal(await isLive(restartedState), false);
+    assert.match(
+      await restartedState.innerText(),
+      /Last record\s+Mar \d{1,2}, 2026/,
+      'after a restart with the core stopped, the stored record time is shown',
+    );
+
     await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=error`);
     const errorState = page.locator('.usage-collector-state');
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collection Error'));
@@ -62,7 +72,7 @@ const path = require('node:path');
     const translatedState = page.locator('.usage-collector-state');
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('内核已停止'));
     assert.match(await translatedState.innerText(), /内核已停止 · 采集已暂停/);
-    assert.match(await translatedState.innerText(), /上次采集/);
+    assert.match(await translatedState.innerText(), /最近记录/);
     assert.deepEqual(errors, []);
     console.log('PASS: transitions, stopped/unknown/starting/uninstalled/error states, zh-CN labels and collection timestamp visibility verified.');
   } finally {

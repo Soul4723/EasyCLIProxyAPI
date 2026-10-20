@@ -668,7 +668,7 @@ export const en: Record<MessageKey, string> = {
   'usage.collector.stopped': 'Core stopped · collection paused',
   'usage.collector.unavailable': 'Core unavailable · collection paused',
   'usage.collector.unknown': 'Core status unknown · history only',
-  'usage.collector.lastCollected': 'Last collected {time}',
+  'usage.collector.lastCollected': 'Last record {time}',
   'usage.longTermRecords': '{count} stored records',
   'usage.pageLabel': 'Usage history page',
   'usage.tab.overview': 'Overview',
