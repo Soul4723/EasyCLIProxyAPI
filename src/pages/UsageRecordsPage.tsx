@@ -44,6 +44,7 @@ import {
   X,
 } from 'lucide-react';
 import { getCurrentLocale, useI18n } from '../i18n';
+import { useCoreRuntime } from '../coreRuntime';
 import { usePrivacyMask } from '../privacy';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
 import { calculateTokenComposition } from '../services/usageMetrics';
@@ -182,6 +183,7 @@ const filterOptions = (items: UsageCategory[]) => items.filter((item) => item.ke
 
 export function UsageRecordsPage() {
   const { t } = useI18n();
+  const { status: coreStatus } = useCoreRuntime();
   const privacy = usePrivacyMask();
   const [activeTab, setActiveTab] = useState<UsageTab>(loadTab);
   const [range, setRange] = useState<UsageRange>(loadRange);
@@ -391,7 +393,23 @@ export function UsageRecordsPage() {
     setPage(1);
   };
 
-  const collectorTone = status?.state === 'error' ? 'error' : status?.state === 'collecting' ? 'success' : '';
+  const collecting = coreStatus?.ready === true && status?.state === 'collecting';
+  const collectorLabel = status?.state === 'error'
+    ? t('usage.collector.error')
+    : collecting
+      ? t('usage.collector.collecting')
+      : !coreStatus
+        ? t('usage.collector.unknown')
+        : !coreStatus.ready && !coreStatus.starting && !coreStatus.running
+          ? coreStatus.installed ? t('usage.collector.stopped') : t('usage.collector.unavailable')
+          : t('usage.collector.waiting');
+  const lastCollectedAt = !collecting && status?.lastCollectedAt
+    ? new Date(status.lastCollectedAt)
+    : null;
+  const lastCollectedLabel = lastCollectedAt && !Number.isNaN(lastCollectedAt.getTime())
+    ? new Intl.DateTimeFormat(getCurrentLocale(), { dateStyle: 'short', timeStyle: 'short' }).format(lastCollectedAt)
+    : null;
+  const collectorTone = status?.state === 'error' ? 'error' : collecting ? 'success' : '';
   const showInitialLoading =
     activeTab !== 'data-management' &&
     !error &&
@@ -499,16 +517,11 @@ export function UsageRecordsPage() {
         </div>
 
         <div className="usage-topbar-actions">
-          <div className={`usage-collector-state ${collectorTone}`} title={status?.message}>
+          <div className={`usage-collector-state ${collectorTone}`} data-live={collecting} title={status?.message}>
             <span className="status-dot" />
-            <strong>
-              {status?.state === 'collecting'
-                ? t('usage.collector.collecting')
-                : status?.state === 'error'
-                ? t('usage.collector.error')
-                : t('usage.collector.waiting')}
-            </strong>
+            <strong>{collectorLabel}</strong>
             <span>{t('usage.longTermRecords', { count: compactNumber(status?.totalRecords ?? 0) })}</span>
+            {lastCollectedLabel ? <span>{t('usage.collector.lastRecord', { time: lastCollectedLabel })}</span> : null}
           </div>
           <button
             type="button"

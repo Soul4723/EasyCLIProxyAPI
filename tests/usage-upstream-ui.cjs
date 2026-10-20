@@ -27,6 +27,14 @@ const base = process.env.USAGE_TEST_URL || 'http://127.0.0.1:1427';
    await page.setViewportSize({ width, height: 850 });
    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   }
+  await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=stopped`);
+  await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Core stopped · collection paused'));
+  assert.match(await page.locator('.usage-collector-state').innerText(), /Core stopped · collection paused/);
+  assert.match(await page.locator('.usage-collector-state').innerText(), /Last record/);
+  await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=unknown`);
+  await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Core status unknown · history only'));
+  assert.match(await page.locator('.usage-collector-state').innerText(), /Core status unknown · history only/);
+  assert.doesNotMatch(await page.locator('.usage-collector-state').innerText(), /Collecting Locally/);
   assert.deepEqual(errors, []);
   console.log('PASS: five filters, plain source options, exact filtering, keyboard clear, default columns, narrow layout.');
  } finally { await browser.close(); }

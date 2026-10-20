@@ -2,10 +2,12 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { UsageRecordsPage } from '../../src/pages/UsageRecordsPage';
 import '../../src/styles/index.css';
 
 const params = new URLSearchParams(location.search);
+const coreScenario = params.get('core') || 'running';
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') || 'zh-TW');
 localStorage.setItem('cpa-gui.usage-records-tab.v1', params.get('tab') || 'overview');
 localStorage.setItem('cpa-gui.usage-records-range.v1', '4h');
@@ -85,6 +87,15 @@ Object.assign(window, { usageKeyFixture });
 mockIPC(async (cmd, args) => {
   if (cmd === 'plugin:event|listen') return 1;
   if (cmd === 'plugin:event|unlisten' || cmd === 'set_app_locale') return null;
+  if (cmd === 'get_core_status') {
+    if (coreScenario === 'unknown') throw new Error('Core status unavailable');
+    const ready = coreScenario === 'running';
+    return {
+      installed: true, running: ready, ready, starting: coreScenario === 'starting', managed: ready,
+      processId: ready ? 42817 : null, currentVersion: '7.3.15', installDir: '', binaryPath: null,
+      message: ready ? 'Fixture core is running' : 'Fixture core is stopped',
+    };
+  }
   if (cmd === 'get_usage_collector_status') {
     return { state: 'collecting', message: '', lastCollectedAt: now.toISOString(), totalRecords: 54 };
   }
@@ -153,13 +164,15 @@ mockIPC(async (cmd, args) => {
 
 createRoot(document.getElementById('root')!).render(
   <I18nProvider>
-    <div className="app-shell">
-      <aside className="sidebar" aria-hidden="true" />
-      <div className="workspace">
-        <main className="content">
-          <UsageRecordsPage />
-        </main>
+    <CoreRuntimeProvider>
+      <div className="app-shell">
+        <aside className="sidebar" aria-hidden="true" />
+        <div className="workspace">
+          <main className="content">
+            <UsageRecordsPage />
+          </main>
+        </div>
       </div>
-    </div>
+    </CoreRuntimeProvider>
   </I18nProvider>,
 );
