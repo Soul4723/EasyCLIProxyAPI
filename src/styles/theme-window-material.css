@@ -1,8 +1,8 @@
-/* Native window material (upstream #481): a translucent theme on macOS/Windows lets the window material show
- * through. Mapped onto the fork shell: the app root goes transparent and the main/sidebar panes mix their --ec-*
- * colour with transparency by the theme's opacity tokens. Inactive unless :root[data-window-material] is set. */
 :root[data-window-material],
 :root[data-window-material] :is(body, #root, .ec-app) {
+  /* Native window material (upstream #481) for translucent themes on macOS/Windows, mapped onto the fork shell:
+   * the app root goes transparent; main and sidebar mix their --ec-* colour with transparency by the theme's
+   * opacity tokens. Every rule stays scoped to :root[data-window-material] (tests/unit/ui-kit/windowMaterialStyles). */
   background: transparent !important;
 }
 
