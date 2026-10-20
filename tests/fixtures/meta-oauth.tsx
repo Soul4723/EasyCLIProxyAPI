@@ -15,6 +15,7 @@ type MetaFixture = {
   holdStatus: boolean;
   releaseStatus: null | (() => void);
   releaseStart: null | (() => void);
+  releaseCancel: null | (() => void);
   cancelledStates: string[];
   priorityPatches: Array<{ name: string; priority: number }>;
   files: Array<Record<string, unknown>>;
@@ -46,6 +47,7 @@ const fixture: MetaFixture = {
   holdStatus: false,
   releaseStatus: null,
   releaseStart: null,
+  releaseCancel: null,
   cancelledStates: [],
   priorityPatches: [],
   files: params.has('kimiAi') ? [{ name: 'kimi-ai-existing.json', provider: 'kimi-ai', status: 'active' }] : [],
@@ -119,6 +121,7 @@ mockIPC(async (cmd, args: any = {}) => {
     if (request.path === '/oauth/session') {
       const state = String(request.query?.state ?? '');
       fixture.cancelledStates.push(state);
+      if (params.has('holdCancel')) return new Promise((resolve) => { fixture.releaseCancel = () => resolve({ status: 'ok', cancelled: true }); });
       return { status: 'ok', cancelled: true };
     }
     if (request.path === '/config') return {};

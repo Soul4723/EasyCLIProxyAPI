@@ -73,8 +73,29 @@ const path = require('node:path');
     await managementCard().getByText('META-CODE-2', { exact: true }).waitFor();
     assert.deepEqual((await fixture()).cancelledStates, ['meta-attempt-1']);
 
+    // A Refresh Link still waiting on its cancel when the page goes away must not start a login or resume polling.
+    await open(views[0], '&holdCancel=1');
+    await views[0].signIn().click();
+    await managementCard().getByText('META-CODE-1', { exact: true }).waitFor();
+    await managementCard().getByRole('button', { name: 'Refresh Link', exact: true }).click();
+    await page.waitForFunction(() => window.metaFixture.releaseCancel !== null);
+    await page.evaluate(() => window.metaUnmount());
+    const refreshPolls = (await fixture()).statusCalls;
+    await page.evaluate(() => window.metaFixture.releaseCancel());
+    await page.waitForTimeout(150);
+    assert.equal(await startCalls(), 1, 'a refresh released after unmount must not start a new login');
+    assert.equal((await fixture()).statusCalls, refreshPolls, 'a refresh released after unmount must not resume polling');
+    await page.evaluate(() => window.metaMount());
+    await page.locator(cards).first().waitFor();
+    await page.waitForTimeout(150);
+    assert.equal(await page.getByText(/META-CODE-/).count(), 0, 'a released refresh must not update a remounted page');
+    assert.equal(await views[0].success().count(), 0);
+    assert.equal(await views[0].signIn().isEnabled(), true);
+    assert.equal(await startCalls(), 1);
+    assert.equal((await fixture()).statusCalls, refreshPolls);
+
     assert.deepEqual(errors, []);
-    console.log('OAuth page lifecycle UI passed: unmount stops polling without cancelling, late success and late start fencing, clean remount, explicit refresh cancel.');
+    console.log('OAuth page lifecycle UI passed: unmount stops polling without cancelling, late success and late start fencing, clean remount, explicit and late refresh.');
   } catch (error) { console.error(error); process.exitCode = 1; }
   finally { await browser?.close(); await server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
