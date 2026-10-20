@@ -6,6 +6,15 @@ try {
     if (!auth.state || typeof auth.state !== 'object' || Array.isArray(auth.state)) auth.state = {};
     auth.state.managementKey = K;
     localStorage.setItem('cli-proxy-auth', JSON.stringify(auth));
+    window.addEventListener('pagehide', function () {
+      try {
+        var current = JSON.parse(localStorage.getItem('cli-proxy-auth'));
+        if (current && current.state && current.state.managementKey === K) {
+          delete current.state.managementKey;
+          localStorage.setItem('cli-proxy-auth', JSON.stringify(current));
+        }
+      } catch (e) {}
+    }, { once: true });
   }
 } catch (e) {}
 try {

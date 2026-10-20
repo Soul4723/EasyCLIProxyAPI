@@ -745,13 +745,15 @@ mod tests {
         assert!(!script.contains("setAttribute('style'"));
         assert!(script.contains("setPointerCapture"));
         assert!(script.contains("var STORE = 'cpa-gui.plugin-controls'"));
-        assert_eq!(script.matches("localStorage.setItem(").count(), 2);
+        assert_eq!(script.matches("localStorage.setItem(").count(), 3);
         assert_eq!(
             script
                 .matches("localStorage.setItem('cli-proxy-auth'")
                 .count(),
-            1
+            2
         );
+        assert!(script.contains("window.addEventListener('pagehide'"));
+        assert!(script.contains("delete current.state.managementKey"));
         assert_eq!(script.matches("localStorage.setItem(STORE,").count(), 1);
         assert_eq!(script.matches("localStorage.removeItem(").count(), 1);
         assert_eq!(script.matches("localStorage.removeItem(STORE)").count(), 1);
