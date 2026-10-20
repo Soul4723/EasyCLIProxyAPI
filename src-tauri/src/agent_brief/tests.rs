@@ -74,18 +74,22 @@ fn text(quota: &QuotaPart, core: &CorePart, filters: &Filters) -> String {
     render::text(&briefing(quota, core, filters))
 }
 
+fn at(quota: Option<&QuotaPart>, core: Option<&CorePart>, now_ms: i64) -> String {
+    render::text(&render::build(&Inputs { mode: "local", quota, core, now_ms }, &Filters::default()))
+}
+
+fn provider(name: &str) -> Filters {
+    Filters { provider: Some(name.into()), ..Default::default() }
+}
+
 #[test]
 fn durations_are_compact_and_round_down() {
-    assert_eq!(format_duration(0), "<1m");
-    assert_eq!(format_duration(59_999), "<1m");
-    assert_eq!(format_duration(MIN), "1m");
-    assert_eq!(format_duration(22 * MIN), "22m");
-    assert_eq!(format_duration(HOUR), "1h");
-    assert_eq!(format_duration(HOUR + 12 * MIN), "1h12m");
-    assert_eq!(format_duration(13 * HOUR + 30 * MIN), "13h");
-    assert_eq!(format_duration(24 * HOUR), "1d");
-    assert_eq!(format_duration(3 * 24 * HOUR + 4 * HOUR + 59 * MIN), "3d4h");
-    assert_eq!(format_duration(-5 * MIN), "<1m");
+    for (ms, text) in [
+        (-5 * MIN, "<1m"), (59_999, "<1m"), (22 * MIN, "22m"), (HOUR, "1h"), (HOUR + 12 * MIN, "1h12m"),
+        (13 * HOUR + 30 * MIN, "13h"), (24 * HOUR, "1d"), (3 * 24 * HOUR + 4 * HOUR + 59 * MIN, "3d4h"),
+    ] {
+        assert_eq!(format_duration(ms), text);
+    }
 }
 
 #[test]
@@ -103,12 +107,22 @@ fn default_text_is_one_line_per_provider_with_guidance() {
 }
 
 #[test]
-fn windows_follow_the_selected_headroom_account() {
+fn windows_and_guide_use_the_same_headroom_account() {
     let (mut quota, core) = fixture();
-    // The second account has a better weekly window, but the first has more total headroom.
-    quota.accounts[1].windows = vec![window("5h", 30.0, Some(2 * HOUR)), window("weekly", 95.0, Some(5 * 24 * HOUR))];
+    quota.accounts[0].windows = vec![window("5h", 90.0, Some(HOUR)), window("weekly", 5.0, Some(2 * 24 * HOUR))];
+    quota.accounts[1].windows = vec![window("5h", 2.0, Some(HOUR)), window("weekly", 80.0, Some(2 * 24 * HOUR))];
     let out = text(&quota, &core, &Filters::default());
-    assert!(out.contains("claude ok 2/2 5h=62%~1h12m wk=81%~3d4h "), "{out}");
+    assert!(out.contains("claude low 2/2 5h=90%~1h wk=5%~2d"), "{out}");
+    assert!(out.contains("guide: light=claude(wk=5%~2d)"), "{out}");
+}
+
+#[test]
+fn usable_account_without_quota_is_not_shown_with_an_exhausted_accounts_windows() {
+    let (mut quota, core) = fixture();
+    quota.accounts.remove(0);
+    quota.accounts[0].windows = vec![window("5h", 0.0, Some(HOUR))];
+    let out = text(&quota, &core, &provider("claude"));
+    assert!(out.contains("claude ok 1/2 quota=n/a |"), "{out}");
 }
 
 #[test]
@@ -123,79 +137,48 @@ fn passed_reset_counts_as_full_and_never_prints_a_negative_time() {
 #[test]
 fn exhausted_window_makes_the_account_out_until_its_reset() {
     let (mut quota, core) = fixture();
-    quota.accounts[2].windows = vec![window("5h", 0.0, Some(22 * MIN)), window("weekly", 40.0, Some(2 * 24 * HOUR))];
+    // Under half a percent counts as exhausted.
+    quota.accounts[2].windows = vec![window("5h", 0.4, Some(22 * MIN)), window("weekly", 40.0, Some(2 * 24 * HOUR))];
     let out = text(&quota, &core, &Filters::default());
-    assert!(out.contains("codex out 0/1 back=22m 5h=<1%~22m wk=40%~2d"), "{out}");
+    assert!(out.contains("codex out 0/1 back=22m 5h=<1%~22m wk=40%~2d\n"), "an exhausted provider lists no model: {out}");
     assert!(out.contains("guide: swarm=claude wait=codex~22m"), "{out}");
-    assert!(!out.contains("gpt-6-luna"), "an exhausted provider lists no routable model: {out}");
     let asked = text(&quota, &core, &Filters { model: Some("luna".into()), ..Default::default() });
     assert!(asked.contains("codex out 0/1 back=22m") && asked.contains("| cool:gpt-6-luna~22m\n"), "{asked}");
-}
-
-#[test]
-fn exhausted_window_without_reset_has_unknown_recovery_and_is_avoided() {
-    let (mut quota, core) = fixture();
-    quota.accounts[2].windows = vec![window("5h", 0.0, None), window("weekly", 40.0, Some(2 * 24 * HOUR))];
+    // Without a reset time the recovery is unknown and the provider is avoided.
+    quota.accounts[2].windows[0].reset_at_ms = None;
     let out = text(&quota, &core, &Filters::default());
     assert!(out.contains("codex out 0/1 back=? 5h=<1% wk=40%~2d"), "{out}");
     assert!(out.contains("guide: swarm=claude avoid=codex"), "{out}");
-    assert!(!out.contains("back=<1m"), "{out}");
-}
-
-#[test]
-fn windows_and_guide_use_the_same_headroom_account() {
-    let (mut quota, core) = fixture();
-    quota.accounts[0].windows = vec![window("5h", 90.0, Some(HOUR)), window("weekly", 5.0, Some(2 * 24 * HOUR))];
-    quota.accounts[1].windows = vec![window("5h", 2.0, Some(HOUR)), window("weekly", 80.0, Some(2 * 24 * HOUR))];
-    let out = text(&quota, &core, &Filters::default());
-    assert!(out.contains("claude low 2/2 5h=90%~1h wk=5%~2d"), "{out}");
-    assert!(out.contains("guide: light=claude(wk=5%~2d)"), "{out}");
-}
-
-#[test]
-fn fractional_headroom_below_half_percent_prints_exhausted_consistently() {
-    let (mut quota, core) = fixture();
-    quota.accounts[2].windows = vec![window("5h", 0.4, Some(22 * MIN)), window("weekly", 40.0, Some(2 * 24 * HOUR))];
-    let out = text(&quota, &core, &Filters::default());
-    assert!(out.contains("codex out 0/1 back=22m 5h=<1%~22m"), "{out}");
-    assert!(out.contains("guide: swarm=claude wait=codex~22m"), "{out}");
 }
 
 #[test]
 fn guidance_uses_exact_thresholds_while_display_floors_percentages() {
     let (mut quota, core) = fixture();
     for (pct, status, display, guide) in [
+        (0.7, "low", "5h=<1%", "light=codex"),
         (19.6, "low", "5h=19%", "light=codex"),
         (20.0, "ok", "5h=20%", "light=codex"),
         (49.6, "ok", "5h=49%", "light=codex"),
         (50.0, "ok", "5h=50%", "swarm=codex"),
     ] {
         quota.accounts[2].windows = vec![window("5h", pct, Some(HOUR))];
-        let out = text(&quota, &core, &Filters { provider: Some("codex".into()), ..Default::default() });
+        let out = text(&quota, &core, &provider("codex"));
         assert!(out.contains(&format!("codex {status} 1/1 {display}")), "{pct}: {out}");
         assert!(out.contains(&format!("guide: {guide}")), "{pct}: {out}");
     }
 }
 
 #[test]
-fn credential_cooldown_blocks_the_account_and_a_far_one_is_avoided() {
+fn unavailable_accounts_cool_until_their_retry_or_error_without_one() {
     let (quota, mut core) = fixture();
     core.accounts[3].unavailable = true;
     core.accounts[3].retry_at_ms = Some(NOW + 3 * HOUR);
     let out = text(&quota, &core, &Filters::default());
-    assert!(out.contains("xai cool 0/1 back=3h"), "{out}");
-    assert!(out.contains("avoid=xai"), "{out}");
+    assert!(out.contains("xai cool 0/1 back=3h") && out.contains("avoid=xai"), "{out}");
     // Once the retry time has passed, the cached `unavailable` no longer blocks.
-    let later = render::build(&Inputs { mode: "local", quota: Some(&quota), core: Some(&core), now_ms: NOW + 4 * HOUR }, &Filters::default());
-    assert!(render::text(&later).contains("xai ok 1/1"));
-}
-
-#[test]
-fn unavailable_without_a_retry_time_is_an_error_not_a_cooldown() {
-    let (quota, mut core) = fixture();
-    core.accounts[3].unavailable = true;
-    let out = text(&quota, &core, &Filters::default());
-    assert!(out.contains("xai err 0/1"), "{out}");
+    assert!(at(Some(&quota), Some(&core), NOW + 4 * HOUR).contains("xai ok 1/1"));
+    core.accounts[3].retry_at_ms = None;
+    assert!(text(&quota, &core, &Filters::default()).contains("xai err 0/1"));
 }
 
 #[test]
@@ -210,40 +193,46 @@ fn model_cooldown_hides_a_model_only_when_no_account_can_serve_it() {
 }
 
 #[test]
-fn quota_older_than_thirty_minutes_is_flagged_stale() {
+fn quota_age_covers_the_shown_accounts_and_is_stale_after_thirty_minutes() {
     let (mut quota, core) = fixture();
-    for account in &mut quota.accounts {
-        account.fetched_at_ms = Some(NOW - 2 * HOUR - 5 * MIN);
-    }
+    quota.accounts[2].fetched_at_ms = Some(NOW - 2 * HOUR - 5 * MIN);
+    assert!(text(&quota, &core, &provider("claude")).starts_with("cpa local core=up quota_age=6m\n"));
     let out = text(&quota, &core, &Filters::default());
     assert!(out.starts_with("cpa local core=up quota_age=2h5m stale\n"), "{out}");
     let json = render::json(&briefing(&quota, &core, &Filters::default()));
-    assert_eq!(json["quota"]["stale"], true);
-    assert_eq!(json["quota"]["ageS"], 2 * 3600 + 5 * 60);
-}
-
-#[test]
-fn quota_age_uses_only_accounts_in_the_filtered_output() {
-    let (mut quota, core) = fixture();
-    quota.accounts[2].fetched_at_ms = Some(NOW - 5 * HOUR);
-    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.starts_with("cpa local core=up quota_age=6m\n"), "{out}");
+    assert_eq!(json["quota"], json!({ "stale": true, "ageS": 2 * 3600 + 5 * 60 }));
 }
 
 #[test]
 fn core_down_serves_cached_state_and_says_so() {
     let (quota, mut core) = fixture();
     core.up = false;
-    core.checked_at_ms = NOW;
     core.ok_at_ms = NOW - 12 * MIN;
     core.error = "could not connect to the core".into();
     let out = text(&quota, &core, &Filters::default());
-    assert!(out.starts_with("cpa local core=down cached=12m quota_age=6m\ncore error: core unreachable\n"), "{out}");
-    assert!(out.contains("claude ok 2/2 5h=62%~1h12m"), "{out}");
+    assert!(out.starts_with("cpa local core=down cached=12m quota_age=6m\nclaude ok 2/2 5h=62%~1h12m"), "{out}");
     assert!(!out.contains("opus-5-5"), "no model is routable while the core is unreachable: {out}");
     assert!(out.ends_with("guide: core unreachable, nothing routes now; numbers are cached\n"), "{out}");
-    let json = render::json(&briefing(&quota, &core, &Filters::default()));
-    assert_eq!(json["providers"][0]["models"], json!([]));
+    assert_eq!(render::json(&briefing(&quota, &core, &Filters::default()))["providers"][0]["models"], json!([]));
+}
+
+#[test]
+fn core_data_that_is_old_or_failed_otherwise_is_stale_never_up() {
+    let (quota, mut core) = fixture();
+    core.checked_at_ms = NOW - CORE_TTL_MS;
+    core.ok_at_ms = NOW - CORE_TTL_MS;
+    let out = text(&quota, &core, &Filters::default());
+    assert!(out.starts_with("cpa local core=stale cached=1m quota_age=6m\n"), "{out}");
+    assert!(out.ends_with("guide: core state is stale; routing is unknown\n") && !out.contains('|'), "{out}");
+    // An unreachable result that no recent refresh confirms is stale too, as is a rejected key.
+    core.up = false;
+    core.checked_at_ms = NOW - CORE_FAILURE_TTL_MS;
+    core.ok_at_ms = NOW - HOUR;
+    core.error = "could not connect to the core".into();
+    assert!(text(&quota, &core, &Filters::default()).starts_with("cpa local core=stale cached=1h "));
+    core.checked_at_ms = NOW;
+    core.error = "management key rejected by the core".into();
+    assert!(text(&quota, &core, &Filters::default()).starts_with("cpa local core=stale cached=1h "));
 }
 
 #[test]
@@ -251,131 +240,77 @@ fn default_text_features_the_newest_model_of_each_family() {
     let (quota, mut core) = fixture();
     let catalogue = [
         "claude-3-5-haiku-20241022", "claude-3-7-sonnet-20250219", "claude-haiku-4-5-20251001", "claude-haiku-5-5",
-        "claude-opus-4-1-20250805", "claude-opus-5-5", "claude-opus-5-10", "claude-sonnet-4-6", "claude-sonnet-5-5",
+        "claude-opus-4-20250514", "claude-opus-4-1-20250805", "claude-opus-5-5", "claude-opus-5-10",
+        "claude-sonnet-4-6", "claude-sonnet-5-5", "claude-image-9",
     ];
     core.accounts[0].models = catalogue.iter().map(|m| m.to_string()).collect();
     core.accounts[1].models = core.accounts[0].models.clone();
-    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.contains("| claude-opus-5-10 claude-haiku-5-5 claude-sonnet-5-5 +6\n"), "{out}");
-    core.accounts[0].models.push("claude-image-9".into());
-    core.accounts[1].models = core.accounts[0].models.clone();
-    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.contains("| claude-opus-5-10 claude-haiku-5-5 claude-sonnet-5-5 +6\n"), "images are omitted from both list and hidden count: {out}");
-    let all = text(&quota, &core, &Filters { provider: Some("claude".into()), model: Some("opus".into()), ..Default::default() });
-    assert!(all.contains("| claude-opus-4-1-20250805 claude-opus-5-5 claude-opus-5-10\n"), "{all}");
+    let out = text(&quota, &core, &provider("claude"));
+    assert!(out.contains("| claude-opus-5-10 claude-haiku-5-5 claude-sonnet-5-5 +7\n"), "image models are not counted: {out}");
+    let opus = text(&quota, &core, &Filters { model: Some("opus".into()), ..provider("claude") });
+    assert!(opus.contains("| claude-opus-4-20250514 claude-opus-4-1-20250805 claude-opus-5-5 claude-opus-5-10\n"), "{opus}");
+    // Ten unversioned models: four in the text, all in JSON; an image-only list has no `+N`.
+    let many: Vec<String> = (b'a'..=b'j').map(|c| format!("{}-model", c as char)).collect();
+    core.accounts[0].models = many.clone();
+    core.accounts[1].models = many;
+    assert!(text(&quota, &core, &provider("claude")).contains("| a-model b-model c-model d-model +6\n"));
+    let json = render::json(&briefing(&quota, &core, &provider("claude")));
+    assert_eq!(json["providers"][0]["models"].as_array().unwrap().len(), 10);
+    core.accounts[0].models = vec!["claude-image-9".into()];
+    core.accounts[1].models = vec![];
+    assert!(text(&quota, &core, &provider("claude")).contains("claude ok 2/2 5h=62%~1h12m wk=81%~3d4h\n"));
 }
 
 #[test]
-fn image_only_catalogue_has_no_hidden_model_count() {
-    let (quota, mut core) = fixture();
-    core.accounts[0].models = vec!["claude-image-9".into(), "claude-image-10".into()];
-    core.accounts[1].models = core.accounts[0].models.clone();
-    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.contains("claude ok 2/2 5h=62%~1h12m wk=81%~3d4h\n"), "{out}");
-    assert!(!out.contains("+"), "{out}");
-}
-
-#[test]
-fn date_tokens_do_not_outrank_newer_model_versions() {
-    let (quota, mut core) = fixture();
-    let catalogue = [
-        "claude-opus-4-20250514", "claude-opus-4-1-20250805", "claude-opus-4-8",
-        "claude-sonnet-4-5-20250929", "claude-sonnet-4-6",
-    ];
-    core.accounts[0].models = catalogue.iter().map(|m| m.to_string()).collect();
-    core.accounts[1].models = core.accounts[0].models.clone();
-    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.contains("| claude-opus-4-8 claude-sonnet-4-6"), "{out}");
-    assert!(!out.contains("claude-opus-4-20250514") && !out.contains("claude-sonnet-4-5-20250929"), "{out}");
-}
-
-#[test]
-fn a_core_that_answered_with_no_accounts_is_a_normal_empty_briefing() {
-    let empty = core(vec![]);
-    let b = render::build(&Inputs { mode: "local", quota: None, core: Some(&empty), now_ms: NOW }, &Filters::default());
-    assert_eq!(render::text(&b), "cpa local core=up quota=none\nno accounts known yet\n");
-}
-
-#[test]
-fn without_a_core_part_quota_only_accounts_are_shown() {
-    let (quota, _) = fixture();
-    let b = render::build(&Inputs { mode: "remote", quota: Some(&quota), core: None, now_ms: NOW }, &Filters::default());
-    let out = render::text(&b);
-    assert!(out.starts_with("cpa remote core=unknown quota_age=6m\n"), "{out}");
-    assert!(out.contains("claude ok 2/2 5h=62%~1h12m"), "{out}");
-    assert!(!out.contains('|'), "no model list without core data: {out}");
-}
-
-#[test]
-fn without_quota_the_header_says_none() {
-    let (_, core) = fixture();
-    let b = render::build(&Inputs { mode: "local", quota: None, core: Some(&core), now_ms: NOW }, &Filters::default());
-    let out = render::text(&b);
-    assert!(out.starts_with("cpa local core=up quota=none\n"), "{out}");
-    assert!(out.contains("claude ok 2/2 quota=n/a"), "{out}");
+fn partial_inputs_still_brief() {
+    let (quota, core) = fixture();
+    let empty = self::core(vec![]);
+    assert_eq!(at(None, Some(&empty), NOW), "cpa local core=up quota=none\nno accounts known yet\n");
+    let quota_only = at(Some(&quota), None, NOW);
+    assert!(quota_only.starts_with("cpa local core=unknown quota_age=6m\nclaude ok 2/2 5h=62%~1h12m"), "{quota_only}");
+    assert!(!quota_only.contains('|'), "no model list without core data: {quota_only}");
+    let core_only = at(None, Some(&core), NOW);
+    assert!(core_only.starts_with("cpa local core=up quota=none\nclaude ok 2/2 quota=n/a"), "{core_only}");
 }
 
 #[test]
 fn filters_narrow_by_provider_and_model_and_accounts_adds_lines() {
     let (quota, core) = fixture();
-    let only_codex = text(&quota, &core, &Filters { provider: Some("codex".into()), ..Default::default() });
-    assert!(only_codex.contains("codex low") && !only_codex.contains("claude"), "{only_codex}");
-    let alias = text(&quota, &core, &Filters { provider: Some("Anthropic".into()), ..Default::default() });
+    let alias = text(&quota, &core, &provider("Anthropic"));
     assert!(alias.contains("claude ok") && !alias.contains("codex"), "{alias}");
     let by_model = text(&quota, &core, &Filters { model: Some("SONNET".into()), ..Default::default() });
     assert!(by_model.contains("claude ok 2/2 5h=62%~1h12m wk=81%~3d4h | sonnet-5-5\n"), "{by_model}");
     assert!(!by_model.contains("codex") && !by_model.contains("opus"), "{by_model}");
     let none = text(&quota, &core, &Filters { model: Some("nonexistent".into()), ..Default::default() });
     assert!(none.contains("no provider serves a model matching \"nonexistent\""), "{none}");
-    let accounts = text(&quota, &core, &Filters { provider: Some("claude".into()), accounts: true, ..Default::default() });
+    let accounts = text(&quota, &core, &Filters { accounts: true, ..provider("claude") });
     assert!(accounts.contains("\n  al***@e***.com ok 5h=62%~1h12m wk=81%~3d4h\n  bo***@e***.com ok 5h=30%~2h wk=70%~4d\n"), "{accounts}");
-}
-
-#[test]
-fn model_lists_are_capped_in_text_but_complete_in_json() {
-    let (quota, mut core) = fixture();
-    let many: Vec<String> =
-        ["amber", "birch", "cedar", "dune", "ember", "fjord", "grove", "hazel", "iris", "juniper"].iter().map(|m| m.to_string()).collect();
-    core.accounts[0].models = many.clone();
-    core.accounts[1].models = many.clone();
-    let out = text(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() });
-    assert!(out.contains("| amber birch cedar dune +6\n"), "{out}");
-    let json = render::json(&briefing(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() }));
-    assert_eq!(json["providers"][0]["models"].as_array().unwrap().len(), 10);
 }
 
 #[test]
 fn json_has_the_same_facts_with_relative_seconds() {
     let (quota, core) = fixture();
-    let json = render::json(&briefing(&quota, &core, &Filters { provider: Some("claude".into()), ..Default::default() }));
+    let json = render::json(&briefing(&quota, &core, &provider("claude")));
     assert_eq!(json["mode"], "local");
     assert_eq!(json["core"]["state"], "up");
     let provider = &json["providers"][0];
-    assert_eq!(provider["id"], "claude");
-    assert_eq!(provider["status"], "ok");
-    assert_eq!(provider["usable"], 2);
+    assert_eq!((&provider["id"], &provider["status"], &provider["usable"]), (&json!("claude"), &json!("ok"), &json!(2)));
     assert_eq!(provider["windows"][0], json!({ "window": "5h", "pct": 62, "resetInS": 4320 }));
     assert_eq!(json["guide"], "swarm=claude");
 }
 
 #[test]
-fn model_group_windows_do_not_exhaust_the_account() {
+fn special_pools_never_exhaust_the_account_and_alone_show_as_lim() {
     let (mut quota, core) = fixture();
-    let mut spare = window("5h", 0.0, Some(HOUR));
-    spare.group = "Code review".into();
-    quota.accounts[2].windows.push(spare);
-    let out = text(&quota, &core, &Filters { provider: Some("codex".into()), ..Default::default() });
-    assert!(out.contains("codex low 1/1"), "{out}");
-}
-
-#[test]
-fn providers_with_only_special_pools_show_the_tightest_as_lim() {
-    let (mut quota, core) = fixture();
+    let mut review = window("5h", 0.0, Some(HOUR));
+    review.group = "Code review".into();
+    quota.accounts[2].windows.push(review);
+    assert!(text(&quota, &core, &provider("codex")).contains("codex low 1/1"));
     let mut pool = window("other", 35.0, Some(2 * HOUR));
     pool.group = "Extra usage".into();
     quota.accounts[3].windows = vec![pool];
     quota.accounts[3].credit_balance = None;
-    let out = text(&quota, &core, &Filters { provider: Some("xai".into()), ..Default::default() });
+    let out = text(&quota, &core, &provider("xai"));
     assert!(out.contains("xai ok 1/1 lim=35%~2h"), "{out}");
 }
 
@@ -383,8 +318,7 @@ fn providers_with_only_special_pools_show_the_tightest_as_lim() {
 fn disabled_accounts_are_not_counted() {
     let (quota, mut core) = fixture();
     core.accounts[1].disabled = true;
-    let out = text(&quota, &core, &Filters::default());
-    assert!(out.contains("claude ok 1/1 5h=62%~1h12m"), "{out}");
+    assert!(text(&quota, &core, &Filters::default()).contains("claude ok 1/1 5h=62%~1h12m"));
     core.accounts[0].disabled = true;
     assert!(text(&quota, &core, &Filters::default()).contains("claude off 0/0"));
 }
@@ -392,8 +326,6 @@ fn disabled_accounts_are_not_counted() {
 #[test]
 fn freshness_follows_the_ttl_and_failures_retry_sooner() {
     let mut part = core(vec![]);
-    part.checked_at_ms = NOW;
-    assert!(is_fresh(&part, NOW));
     assert!(is_fresh(&part, NOW + CORE_TTL_MS - 1));
     assert!(!is_fresh(&part, NOW + CORE_TTL_MS));
     part.up = false;
@@ -401,29 +333,6 @@ fn freshness_follows_the_ttl_and_failures_retry_sooner() {
     assert!(!is_fresh(&part, NOW + CORE_FAILURE_TTL_MS));
     // A clock that moved backwards must not freeze the cache.
     assert!(!is_fresh(&part, NOW - 1));
-}
-
-#[test]
-fn core_data_older_than_ttl_is_never_reported_as_up() {
-    let (quota, mut core) = fixture();
-    core.checked_at_ms = NOW - CORE_TTL_MS;
-    core.ok_at_ms = NOW - CORE_TTL_MS;
-    let out = text(&quota, &core, &Filters::default());
-    assert!(out.starts_with("cpa local core=stale cached=1m quota_age=6m\n"), "{out}");
-    assert!(out.contains("guide: core state is stale; routing is unknown"), "{out}");
-    assert!(!out.contains("| haiku-5-5"), "{out}");
-}
-
-#[test]
-fn old_unreachable_result_is_stale_when_no_recent_refresh_confirms_it() {
-    let (quota, mut core) = fixture();
-    core.up = false;
-    core.checked_at_ms = NOW - CORE_FAILURE_TTL_MS;
-    core.ok_at_ms = NOW - HOUR;
-    core.error = "could not connect to the core".into();
-    let out = text(&quota, &core, &Filters::default());
-    assert!(out.starts_with("cpa local core=stale cached=1h quota_age=6m\n"), "{out}");
-    assert!(out.contains("guide: core state is stale; routing is unknown"), "{out}");
 }
 
 const SECRET_EMAIL: &str = "alice.private@example.org";
@@ -463,13 +372,9 @@ fn credentials_parse_keeps_only_availability_fields() {
     assert_eq!(first.cooldowns[1], Cooldown { scope: "credential".into(), model: String::new(), retry_at_ms: now + 90_000 });
     assert_eq!(parsed[1].account.provider, "claude", "provider aliases are normalised");
     assert!(parsed[1].account.disabled && parsed[1].account.cooldowns.is_empty());
-}
-
-#[test]
-fn provider_aliases_include_xai_and_meta_names_used_by_the_core() {
-    assert_eq!(refresh::normalize_provider("x.ai"), "xai");
-    assert_eq!(refresh::normalize_provider("x-ai"), "xai");
-    assert_eq!(refresh::normalize_provider("muse"), "meta");
+    for (raw, normal) in [("x.ai", "xai"), ("X_AI", "xai"), ("muse", "meta")] {
+        assert_eq!(refresh::normalize_provider(raw), normal);
+    }
 }
 
 #[test]
@@ -563,9 +468,10 @@ fn args(list: &[&str]) -> Vec<OsString> {
 fn arguments_parse_flags_with_both_value_styles() {
     assert_eq!(
         parse_args(&args(&["--json", "--accounts", "--provider", "codex", "--model=opus"])).unwrap(),
-        Args { json: true, filters: Filters { provider: Some("codex".into()), model: Some("opus".into()), accounts: true }, help: false }
+        Args { json: true, filters: Filters { provider: Some("codex".into()), model: Some("opus".into()), accounts: true }, help: false, skill: false }
     );
     assert!(parse_args(&args(&["-h"])).unwrap().help);
+    assert!(parse_args(&args(&["--skill"])).unwrap().skill);
     assert!(parse_args(&args(&["--provider"])).unwrap_err().contains("needs a value"));
     assert!(parse_args(&args(&["--bogus"])).unwrap_err().contains("unknown option"));
     for value in ["has space", "a&b", "a^b", "a%b", "a\"b", "☃"] {

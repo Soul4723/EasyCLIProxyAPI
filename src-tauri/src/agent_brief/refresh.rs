@@ -148,6 +148,16 @@ async fn get_json(
     response.json::<Value>().await.map_err(|_| "unreadable core response".to_string())
 }
 
+/// A failed attempt: the previous accounts are kept (as old as `ok_at_ms`) and marked down.
+pub(crate) fn down(previous: Option<&CorePart>, origin: &str, now_ms: i64, error: String) -> CorePart {
+    let mut part = previous.cloned().unwrap_or_default();
+    part.origin = origin.to_string();
+    part.checked_at_ms = now_ms;
+    part.up = false;
+    part.error = error;
+    part
+}
+
 /// Reads credentials (one GET) and, for credentials whose model list is missing or old, their
 /// models (bounded, concurrent). On failure the previous accounts are kept and marked down.
 pub(crate) async fn refresh(
@@ -156,21 +166,13 @@ pub(crate) async fn refresh(
     previous: Option<&CorePart>,
     now_ms: i64,
 ) -> CorePart {
-    let down = |error: String| {
-        let mut part = previous.cloned().unwrap_or_default();
-        part.origin = origin.to_string();
-        part.checked_at_ms = now_ms;
-        part.up = false;
-        part.error = error;
-        part
-    };
     let client = match management_http_client_for(config) {
         Ok(client) => client,
-        Err(error) => return down(error),
+        Err(error) => return down(previous, origin, now_ms, error),
     };
     let listing = match get_json(&client, config, "credentials", &[]).await {
         Ok(listing) => listing,
-        Err(error) => return down(error),
+        Err(error) => return down(previous, origin, now_ms, error),
     };
     let mut parsed = parse_credentials(&listing, now_ms);
     let known = |index: &str| previous.and_then(|p| p.accounts.iter().find(|a| a.auth_index == index));
@@ -200,7 +202,9 @@ pub(crate) async fn refresh(
     for (position, result) in fetched {
         // A failed model read keeps the older list; only the listing decides whether the core is up.
         parsed[position].account.models_at_ms = now_ms;
-        if let Ok(models) = result { parsed[position].account.models = models; }
+        if let Ok(models) = result {
+            parsed[position].account.models = models;
+        }
     }
     CorePart {
         origin: origin.to_string(),

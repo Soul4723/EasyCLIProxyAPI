@@ -10,7 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "Usage: cpa-brief [--json] [--accounts] [--provider NAME] [--model TEXT]
+const USAGE: &str = "Usage: cpa-brief [--json] [--accounts] [--provider NAME] [--model TEXT] | --skill
 
 Prints how much headroom each provider has and which models are routable now.
 Reads cached data; reads the core's management API at most once a minute; never calls a provider.
@@ -18,7 +18,12 @@ Reads cached data; reads the core's management API at most once a minute; never 
   --accounts        add one line per account (masked ids)
   --provider NAME   only this provider (claude, codex, xai, ...)
   --model TEXT      only models whose id contains TEXT
+  --skill           print the agent skill (SKILL.md) to install wherever you keep skills
 ";
+
+const SKILL: &str = include_str!("../../../skills/cpa-brief/SKILL.md");
+
+const START_HINT: &str = "Start EasyCLIProxyAPI and open Overview or Quota once so it can read the quota.";
 
 const LOCK_FILE: &str = "refresh.lock";
 const LOCK_STALE: Duration = Duration::from_secs(60);
@@ -35,10 +40,11 @@ pub(crate) struct Args {
     pub(crate) json: bool,
     pub(crate) filters: Filters,
     pub(crate) help: bool,
+    pub(crate) skill: bool,
 }
 
 pub(crate) fn parse_args(args: &[OsString]) -> Result<Args, String> {
-    let mut parsed = Args { json: false, filters: Filters::default(), help: false };
+    let mut parsed = Args { json: false, filters: Filters::default(), help: false, skill: false };
     let mut iter = args.iter().map(|arg| arg.to_string_lossy().to_string());
     while let Some(arg) = iter.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -54,6 +60,7 @@ pub(crate) fn parse_args(args: &[OsString]) -> Result<Args, String> {
             "--provider" => parsed.filters.provider = Some(filter_value("--provider", value("--provider")?)?),
             "--model" => parsed.filters.model = Some(filter_value("--model", value("--model")?)?),
             "--help" | "-h" => parsed.help = true,
+            "--skill" => parsed.skill = true,
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -70,11 +77,6 @@ fn filter_value(flag: &str, value: String) -> Result<String, String> {
 
 fn read_part<T: DeserializeOwned>(dir: &Path, file: &str) -> Option<T> {
     serde_json::from_slice(&std::fs::read(dir.join(file)).ok()?).ok()
-}
-
-/// Read-only: unlike the app's own loader this never creates, migrates or rewrites the config.
-fn load_config() -> Result<GuiConfigFile, String> {
-    crate::core_config::load_saved_gui_config_read_only()
 }
 
 /// One CLI refreshes at a time; the others wait briefly and then read the fresh file.
@@ -163,19 +165,8 @@ pub(super) fn refresh_core(config: &GuiConfigFile, dir: &Path, origin: &str, cac
 
 fn refresh_without_cache(config: &GuiConfigFile, origin: &str, cached: Option<&CorePart>) -> CorePart {
     let now = now_ms();
-    tauri::async_runtime::block_on(async {
-        match tokio::time::timeout(REFRESH_DEADLINE, refresh::refresh(config, origin, cached, now)).await {
-            Ok(part) => part,
-            Err(_) => {
-                let mut part = cached.cloned().unwrap_or_default();
-                part.origin = origin.to_string();
-                part.checked_at_ms = now;
-                part.up = false;
-                part.error = "core refresh timed out".to_string();
-                part
-            }
-        }
-    })
+    tauri::async_runtime::block_on(tokio::time::timeout(REFRESH_DEADLINE, refresh::refresh(config, origin, cached, now)))
+        .unwrap_or_else(|_| refresh::down(cached, origin, now, "core refresh timed out".to_string()))
 }
 
 #[cfg(windows)]
@@ -229,14 +220,15 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
             return 2;
         }
     };
-    if args.help {
-        print(USAGE);
+    if args.help || args.skill {
+        print(if args.skill { SKILL } else { USAGE });
         return 0;
     }
-    let (config, origin, mode) = match resolve_saved_target(load_config()) {
+    // Read-only: unlike the app's own loader this never creates, migrates or rewrites the config.
+    let (config, origin, mode) = match resolve_saved_target(crate::core_config::load_saved_gui_config_read_only()) {
         Ok(target) => target,
         Err(()) => {
-            eprintln!("cpa-brief: no briefing data yet (saved settings are unavailable). Start EasyCLIProxyAPI and open Overview or Quota once so it can read the quota.");
+            eprintln!("cpa-brief: no briefing data yet (saved settings are unavailable). {START_HINT}");
             return 1;
         }
     };
@@ -247,25 +239,17 @@ pub(crate) fn run_cli(args: &[OsString]) -> i32 {
             return 1;
         }
     };
-    let for_origin = |part: Option<QuotaPart>| part.filter(|part| origin == part.origin);
-    let quota = for_origin(read_part::<QuotaPart>(&dir, QUOTA_FILE));
-    let mut core = read_part::<CorePart>(&dir, CORE_FILE)
-        .filter(|part| origin == part.origin);
+    let quota = read_part::<QuotaPart>(&dir, QUOTA_FILE).filter(|part| part.origin == origin);
+    let mut core = read_part::<CorePart>(&dir, CORE_FILE).filter(|part| part.origin == origin);
     if !core.as_ref().is_some_and(|part| is_fresh(part, now_ms())) {
         core = refresh_core(&config, &dir, &origin, core);
     }
     if quota.is_none() && !core.as_ref().is_some_and(|part| part.ok_at_ms > 0) {
-        eprintln!(
-            "cpa-brief: no briefing data yet (core could not be refreshed). Start EasyCLIProxyAPI and open Overview or Quota once so it can read the quota."
-        );
+        eprintln!("cpa-brief: no briefing data yet (core could not be refreshed). {START_HINT}");
         return 1;
     }
     let briefing = render::build(&Inputs { mode, quota: quota.as_ref(), core: core.as_ref(), now_ms: now_ms() }, &args.filters);
-    if args.json {
-        print(&format!("{}\n", serde_json::to_string(&render::json(&briefing)).unwrap_or_default()));
-    } else {
-        print(&render::text(&briefing));
-    }
+    print(&if args.json { format!("{}\n", render::json(&briefing)) } else { render::text(&briefing) });
     0
 }
 

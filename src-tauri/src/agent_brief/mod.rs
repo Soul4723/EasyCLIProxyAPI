@@ -43,10 +43,6 @@ const LAUNCHER_NAME: &str = "cpa-brief.cmd";
 #[cfg(not(windows))]
 const LAUNCHER_NAME: &str = "cpa-brief";
 
-pub(crate) fn launcher_path() -> Result<PathBuf, String> {
-    Ok(agent_dir()?.join(LAUNCHER_NAME))
-}
-
 fn launcher_script(executable: &std::path::Path) -> Result<String, String> {
     let path = executable.to_string_lossy();
     if path.chars().any(|c| c.is_control()) {
@@ -68,7 +64,7 @@ fn launcher_script(executable: &std::path::Path) -> Result<String, String> {
 
 /// (Re)writes the launcher that the skill names. Rewritten only when its content changes.
 pub(crate) fn write_launcher() -> Result<PathBuf, String> {
-    let path = launcher_path()?;
+    let path = agent_dir()?.join(LAUNCHER_NAME);
     let executable = std::env::current_exe().map_err(|error| format!("Cannot read the executable path: {error}"))?;
     crate::write_bytes_atomically(&path, launcher_script(&executable)?.as_bytes())?;
     #[cfg(unix)]

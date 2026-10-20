@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) const QUOTA_FILE: &str = "quota.json";
 pub(crate) const CORE_FILE: &str = "core.json";
 
-/// Providers whose quota windows the app can read (`quotaService.ts`); also the display order.
+/// Providers whose quota windows the app can read (`quotaService.ts`); also the briefing's display order.
 pub(crate) const QUOTA_PROVIDERS: [&str; 6] = ["claude", "codex", "antigravity", "xai", "kimi", "devin"];
 
 const MAX_ACCOUNTS: usize = 200;
