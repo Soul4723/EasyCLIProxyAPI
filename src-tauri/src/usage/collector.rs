@@ -25,6 +25,25 @@ impl UsageCollectorState {
         }
     }
 
+    /// Retry wait for a failed loop prerequisite (config, storage root, inbox,
+    /// retained batch). A pending readiness request cuts the first such wait
+    /// short, since its probe cannot run until the prerequisite passes. The
+    /// request stays pending for the loop to consume after that, so `woken`
+    /// records the early wake and later failures back off normally.
+    pub(super) async fn wait_prerequisite_retry(
+        &self,
+        token: &CancellationToken,
+        seconds: u64,
+        woken: &mut bool,
+    ) {
+        if *woken {
+            wait_or_cancel(token, seconds).await;
+            return;
+        }
+        self.wait_or_readiness(token, seconds).await;
+        *woken = self.readiness_requested.load(Ordering::Acquire);
+    }
+
     /// Waits out an idle remote poll. A readiness request ends the wait and
     /// restarts the empty-poll backoff at once; otherwise the backoff grows.
     pub(super) async fn wait_empty_remote_poll(
@@ -379,18 +398,12 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
     let mut remote_ready_error: Option<String> = None;
     let mut active_connection: Option<String> = None;
     let mut pending_remote_batch: Option<PendingRemoteUsageBatch> = None;
+    // Set once a pending readiness request has cut a prerequisite retry wait
+    // short, so a persistent failure backs off normally instead of spinning.
+    let mut prerequisite_woken = false;
     loop {
         if token.is_cancelled() {
             return;
-        }
-        // Lifecycle status is emitted by user actions, not by unchanged status
-        // polls. Consume the request before anything that can wait on an error:
-        // those waits end early on a pending request, so leaving it set would
-        // spin them.
-        if app.state::<UsageCollectorState>().readiness_requested.swap(false, Ordering::AcqRel) {
-            readiness.reset();
-            next_core_check_at = tokio::time::Instant::now();
-            empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
         }
         // Drain the captured batch before resolving another target or doing any
         // further destructive read, even when the user switched to Local mode.
@@ -408,14 +421,14 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                     retry_seconds = (retry_seconds * 2).min(10);
                 }
             }
-            wait_or_readiness(&app, &token, retry_seconds).await;
+            wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken).await;
             continue;
         }
         let config = match app.state::<GuiConfigState>().snapshot() {
             Ok(config) => config,
             Err(error) => {
                 set_collector_error(&app, error);
-                wait_or_readiness(&app, &token, retry_seconds).await;
+                wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken).await;
                 retry_seconds = (retry_seconds * 2).min(10);
                 continue;
             }
@@ -428,7 +441,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
             Ok(root) => root,
             Err(error) => {
                 set_collector_error(&app, error);
-                wait_or_readiness(&app, &token, retry_seconds).await;
+                wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken).await;
                 retry_seconds = (retry_seconds * 2).min(10);
                 continue;
             }
@@ -490,11 +503,20 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                 }
                 Err(error) => {
                     set_collector_error(&app, error);
-                    wait_or_readiness(&app, &token, retry_seconds).await;
+                    wait_prerequisite_retry(&app, &token, retry_seconds, &mut prerequisite_woken).await;
                     retry_seconds = (retry_seconds * 2).min(10);
                     continue;
                 }
             }
+        }
+        // Lifecycle status is emitted by user actions, not by unchanged status
+        // polls. The request stays pending through the prerequisite checks above,
+        // so the probe it asks for runs on the first iteration they all pass.
+        if app.state::<UsageCollectorState>().readiness_requested.swap(false, Ordering::AcqRel) {
+            readiness.reset();
+            next_core_check_at = tokio::time::Instant::now();
+            empty_poll_seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
+            prerequisite_woken = false;
         }
         if tokio::time::Instant::now() >= next_core_check_at {
             if remote {
@@ -857,6 +879,19 @@ pub(super) async fn wait_or_readiness(
 ) {
     app.state::<UsageCollectorState>()
         .wait_or_readiness(token, seconds)
+        .await;
+}
+
+/// `wait_or_readiness` for loop prerequisites; see
+/// `UsageCollectorState::wait_prerequisite_retry`.
+pub(super) async fn wait_prerequisite_retry(
+    app: &tauri::AppHandle,
+    token: &CancellationToken,
+    seconds: u64,
+    woken: &mut bool,
+) {
+    app.state::<UsageCollectorState>()
+        .wait_prerequisite_retry(token, seconds, woken)
         .await;
 }
 

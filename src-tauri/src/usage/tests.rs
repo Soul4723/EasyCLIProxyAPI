@@ -48,6 +48,51 @@
     }
 
     #[tokio::test(start_paused = true)]
+    async fn pending_request_cuts_a_failed_prerequisite_wait_short_and_stays_pending() {
+        let state = UsageCollectorState::default();
+        let token = CancellationToken::new();
+        let mut woken = false;
+        let started = tokio::time::Instant::now();
+        // A request arrives, the config check fails once and enters its retry wait.
+        state.request_readiness_check();
+        state.wait_prerequisite_retry(&token, 10, &mut woken).await;
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(woken);
+        // The retry succeeds; the loop consumes the request and probes at once.
+        assert!(state.readiness_requested.swap(false, Ordering::AcqRel));
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn persistent_prerequisite_failure_with_a_pending_request_backs_off_without_spinning() {
+        let state = UsageCollectorState::default();
+        let token = CancellationToken::new();
+        let mut woken = false;
+        let started = tokio::time::Instant::now();
+        state.request_readiness_check();
+        state.wait_prerequisite_retry(&token, 1, &mut woken).await;
+        assert!(started.elapsed() < Duration::from_secs(1));
+        let mut expected = Duration::ZERO;
+        for seconds in [2, 4, 8] {
+            state.wait_prerequisite_retry(&token, seconds, &mut woken).await;
+            expected += Duration::from_secs(seconds);
+            assert!(started.elapsed() >= expected);
+            assert!(started.elapsed() < expected + Duration::from_secs(1));
+        }
+        // Still pending for the loop to consume once the prerequisite passes.
+        assert!(state.readiness_requested.load(Ordering::Acquire));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn prerequisite_wait_without_a_request_is_not_marked_woken() {
+        let state = UsageCollectorState::default();
+        let token = CancellationToken::new();
+        let mut woken = false;
+        state.wait_prerequisite_retry(&token, 2, &mut woken).await;
+        assert!(!woken);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn cancellation_ends_a_retry_wait_without_a_readiness_request() {
         let state = std::sync::Arc::new(UsageCollectorState::default());
         let token = CancellationToken::new();
