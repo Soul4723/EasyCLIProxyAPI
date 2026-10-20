@@ -20,9 +20,102 @@ pub(crate) fn normalize_app_locale(locale: &str) -> &'static str {
 pub(crate) struct GuiConfigState {
     pub(crate) inner: Mutex<GuiConfigFile>,
     pub(crate) target_operation: std::sync::Arc<tokio::sync::Mutex<()>>,
-    pub(crate) oauth_sessions: Mutex<HashMap<String, u64>>,
+    pub(crate) oauth_sessions: Mutex<OAuthSessions>,
     #[cfg(test)]
     pub(crate) persistence_path: Option<PathBuf>,
+}
+
+const MAX_OAUTH_SESSIONS: usize = 256;
+
+struct OAuthSession {
+    target_revision: u64,
+    expires_at: std::time::Instant,
+}
+
+pub(crate) struct OAuthSessions {
+    entries: HashMap<String, OAuthSession>,
+}
+
+#[cfg(test)]
+mod oauth_session_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn expires_are_pruned_on_insert_and_lookup_but_live_sessions_survive() {
+        let mut sessions = OAuthSessions::new();
+        sessions.insert("expired".into(), 1, Duration::from_millis(1)).unwrap();
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(!sessions.contains_for_revision("expired", 1));
+
+        sessions.insert("expired-before-insert".into(), 1, Duration::from_millis(1)).unwrap();
+        std::thread::sleep(Duration::from_millis(5));
+        sessions.insert("insert-trigger".into(), 1, Duration::from_secs(900)).unwrap();
+        assert!(!sessions.contains_for_revision("expired-before-insert", 1));
+
+        sessions.insert("active".into(), 1, Duration::from_secs(900)).unwrap();
+        assert!(sessions.contains_for_revision("active", 1));
+        sessions.insert("new".into(), 1, Duration::from_secs(900)).unwrap();
+        assert_eq!(sessions.len(), 3);
+    }
+
+    #[test]
+    fn many_abandoned_sessions_cannot_grow_the_map_without_bound() {
+        let mut sessions = OAuthSessions::new();
+        for index in 0..MAX_OAUTH_SESSIONS {
+            sessions.insert(format!("state-{index}"), 1, Duration::from_secs(900)).unwrap();
+        }
+        assert!(sessions.insert("overflow".into(), 1, Duration::from_secs(900)).is_err());
+        assert_eq!(sessions.len(), MAX_OAUTH_SESSIONS);
+        assert!(sessions.contains_for_revision("state-0", 1));
+    }
+
+    #[test]
+    fn terminal_oauth_outcomes_remove_sessions() {
+        for outcome in ["completed", "cancelled", "failed"] {
+            let mut sessions = OAuthSessions::new();
+            sessions.insert("state".into(), 1, Duration::from_secs(900)).unwrap();
+            sessions.remove("state");
+            assert!(!sessions.contains_for_revision("state", 1), "{outcome} session remained");
+        }
+    }
+}
+
+impl OAuthSessions {
+    fn new() -> Self { Self { entries: HashMap::new() } }
+
+    fn prune_expired(&mut self, now: std::time::Instant) {
+        self.entries.retain(|_, session| session.expires_at > now);
+    }
+
+    pub(crate) fn insert(
+        &mut self,
+        state: String,
+        target_revision: u64,
+        ttl: std::time::Duration,
+    ) -> Result<(), String> {
+        let now = std::time::Instant::now();
+        self.prune_expired(now);
+        if !self.entries.contains_key(&state) && self.entries.len() >= MAX_OAUTH_SESSIONS {
+            return Err("Too many OAuth sessions are pending; finish or cancel one before starting another".to_string());
+        }
+        let expires_at = now.checked_add(ttl).unwrap_or(now);
+        self.entries.insert(state, OAuthSession { target_revision, expires_at });
+        Ok(())
+    }
+
+    pub(crate) fn contains_for_revision(&mut self, state: &str, target_revision: u64) -> bool {
+        self.prune_expired(std::time::Instant::now());
+        self.entries.get(state).is_some_and(|session| session.target_revision == target_revision)
+    }
+
+    pub(crate) fn remove(&mut self, state: &str) { self.entries.remove(state); }
+
+    #[cfg(test)]
+    fn len(&mut self) -> usize {
+        self.prune_expired(std::time::Instant::now());
+        self.entries.len()
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -660,7 +753,7 @@ impl GuiConfigState {
         Self {
             inner: Mutex::new(config),
             target_operation: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-            oauth_sessions: Mutex::new(HashMap::new()),
+            oauth_sessions: Mutex::new(OAuthSessions::new()),
             #[cfg(test)]
             persistence_path: None,
         }
