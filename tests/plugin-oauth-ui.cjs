@@ -59,6 +59,13 @@ const path = require('node:path');
     }
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => window.pluginOAuthFixture.cancelled.includes('plugin-1'));
+    const closedPolls = await page.evaluate(() => window.pluginOAuthFixture.polls);
+    await page.waitForTimeout(150);
+    assert.equal(await page.evaluate(() => window.pluginOAuthFixture.polls), closedPolls, 'Closing the dialog must stop polling');
+    await page.getByRole('button', { name: 'Open plugin login' }).click(); await waitSession();
+    assert.equal(await page.getByLabel('Sign-in URL', { exact: true }).inputValue(), 'https://login.example.test/authorize?state=plugin-2', 'Reopening starts a fresh session');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.waitForFunction(() => window.pluginOAuthFixture.cancelled.includes('plugin-2'));
 
     await open('holdStart');
     await page.waitForFunction(() => window.pluginOAuthFixture.releaseStart !== null);

@@ -133,6 +133,39 @@ const base = process.env.META_OAUTH_TEST_BASE_URL || process.env.DEVIN_TEST_BASE
     assert.equal(await expiring.locator('.simple-mode-oauth-authorization').count(), 0, 'expiry clears the authorization link');
     assert.ok(await expiring.getByRole('button', { name: 'Start Sign-In', exact: true }).isEnabled());
 
+    // Leaving the page cancels the pending session; late responses cannot poll, complete or leak, and a remount starts clean.
+    for (const [view, signIn, successPill] of [
+      ['', () => managementCard().getByRole('button', { name: 'Sign In', exact: true }), () => managementCard().getByText('Authorization successful. Credentials saved to Authentication Files.', { exact: true })],
+      ['view=easy&', () => easyCard().getByRole('button', { name: 'Start Sign-In', exact: true }), () => easyCard().locator('.state-pill.success')],
+    ]) {
+      await open(`${view}locale=en`);
+      await page.evaluate(() => { window.metaFixture.holdStatus = true; });
+      await signIn().click();
+      await page.waitForFunction(() => window.metaFixture.releaseStatus !== null);
+      await page.evaluate(() => window.metaUnmount());
+      await page.waitForFunction(() => window.metaFixture.cancelledStates.includes('meta-attempt-1'));
+      const unmountedPolls = (await fixture()).statusCalls;
+      await page.evaluate(() => window.metaFixture.releaseStatus());
+      await page.waitForTimeout(150);
+      assert.equal((await fixture()).statusCalls, unmountedPolls, `${view || 'management '}polling must stop on unmount`);
+      assert.deepEqual((await fixture()).priorityPatches, [], 'a late success must not apply credential priority');
+      await page.evaluate(() => window.metaMount());
+      await page.locator('.oauth-card, .simple-mode-provider-card').first().waitFor();
+      assert.equal(await successPill().count(), 0, 'a late success must not be remembered after remount');
+      await signIn().click();
+      await page.getByText('META-CODE-2', { exact: true }).waitFor();
+      assert.equal((await calls()).filter(call => call.cmd === 'start_oauth_login').length, 2);
+
+      await open(`${view}locale=en&holdStart=1`);
+      await signIn().click();
+      await page.waitForFunction(() => window.metaFixture.releaseStart !== null);
+      await page.evaluate(() => window.metaUnmount());
+      await page.evaluate(() => window.metaFixture.releaseStart());
+      await page.waitForFunction(() => window.metaFixture.cancelledStates.includes('meta-attempt-1'));
+      await page.waitForTimeout(150);
+      assert.equal((await fixture()).statusCalls, 0, 'a start answered after unmount must never be polled');
+    }
+
     // Existing kimi-ai credentials continue to map to Kimi in Easy mode.
     await open('view=easy&locale=en&kimiAi=1');
     const kimi = page.locator('.simple-mode-provider-card').filter({ hasText: 'Kimi OAuth' });

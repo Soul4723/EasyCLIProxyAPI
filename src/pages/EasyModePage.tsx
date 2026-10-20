@@ -141,6 +141,14 @@ export function EasyModePage({
   const { showNotice: showOAuthNotice, clearNotice: clearOAuthNotice } = oauthFeedback;
   const oauthPollTimer = useRef<number | null>(null);
   const oauthGeneration = useRef(0);
+  const oauthSession = useRef("");
+  const cancelOAuthSession = (state: string) => {
+    if (state) void managementApi.delete("/oauth/session", { query: { state } }).catch(() => {});
+  };
+  const releaseOAuthSession = () => {
+    cancelOAuthSession(oauthSession.current);
+    oauthSession.current = "";
+  };
 
   const [selectedApiSection, setSelectedApiSection] = useState<ApiSection>("openai-compatibility");
   const [apiBaseUrl, setApiBaseUrl] = useState("");
@@ -239,6 +247,7 @@ export function EasyModePage({
     return () => {
       ++oauthGeneration.current;
       if (oauthPollTimer.current !== null) window.clearTimeout(oauthPollTimer.current);
+      releaseOAuthSession();
     };
   }, [refreshSourceStatus]);
 
@@ -274,6 +283,7 @@ export function EasyModePage({
     const generation = ++oauthGeneration.current;
     if (oauthPollTimer.current !== null) window.clearTimeout(oauthPollTimer.current);
     oauthPollTimer.current = null;
+    releaseOAuthSession();
     setOauthAuthorization(null);
     setOauthDeviceCode(null);
     setOauthLoggingIn(provider);
@@ -285,7 +295,11 @@ export function EasyModePage({
         browser: "default",
       });
 
-      if (generation !== oauthGeneration.current) return;
+      if (generation !== oauthGeneration.current) {
+        cancelOAuthSession(result.state ?? "");
+        return;
+      }
+      oauthSession.current = result.state ?? "";
 
       if (result.url) setOauthAuthorization({ provider, url: result.url });
 
@@ -313,6 +327,7 @@ export function EasyModePage({
       const poll = async () => {
         if (generation !== oauthGeneration.current) return;
         if (Date.now() >= deadline) {
+          oauthSession.current = "";
           setOauthLoggingIn(null);
           setOauthAuthorization(null);
           setOauthDeviceCode((current) => current?.provider === provider ? null : current);
@@ -339,11 +354,15 @@ export function EasyModePage({
               ? { key: "easyMode.notice.oauthFailedWithReason", variables: { error: pollRes.error } }
               : { key: "easyMode.notice.oauthFailed" }, "error");
           }
-          if (status === "ok" || status === "error") return;
+          if (status === "ok" || status === "error") {
+            oauthSession.current = "";
+            return;
+          }
         } catch (error) {
           if (generation !== oauthGeneration.current) return;
           failures += 1;
           if (failures >= 3) {
+            releaseOAuthSession();
             setOauthLoggingIn(null);
             setOauthAuthorization(null);
             setOauthDeviceCode((current) => current?.provider === provider ? null : current);
