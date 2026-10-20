@@ -3199,14 +3199,14 @@ fn terminate_agent_probe_process(child: &mut Child, reaped: &mut bool) -> Option
     {
         // The child owns the private group assigned when it was spawned.
         // Use #95's validated signal helper so only that group can be targeted.
-        let status = signal_then_reap(
-            reaped,
-            || {
+        let status = signal_then_reap(reaped, |step| match step {
+            ProbeCleanupStep::Signal => {
                 let _ = crate::process_signal::signal_group(child.id(), libc::SIGKILL);
                 let _ = child.kill();
-            },
-            || child.wait(),
-        );
+                Ok(None)
+            }
+            ProbeCleanupStep::Reap => child.wait().map(Some),
+        });
         match status {
             Ok(_) => {}
             Err(error) => return Some(format!("could not reap probe process: {error}")),
@@ -3224,20 +3224,23 @@ fn terminate_agent_probe_process(child: &mut Child, reaped: &mut bool) -> Option
     }
 }
 
+pub(crate) enum ProbeCleanupStep {
+    Signal,
+    Reap,
+}
+
 pub(crate) fn signal_then_reap<T>(
     reaped: &mut bool,
-    signal: impl FnOnce(),
-    reap: impl FnOnce() -> io::Result<T>,
+    mut step: impl FnMut(ProbeCleanupStep) -> io::Result<Option<T>>,
 ) -> io::Result<T> {
     if *reaped {
         return Err(io::Error::other("probe process was already reaped"));
     }
-    signal();
-    let result = reap();
-    if result.is_ok() {
-        *reaped = true;
-    }
-    result
+    step(ProbeCleanupStep::Signal)?;
+    let result = step(ProbeCleanupStep::Reap)?
+        .ok_or_else(|| io::Error::other("probe reap step returned no exit status"))?;
+    *reaped = true;
+    Ok(result)
 }
 
 #[cfg(target_os = "windows")]

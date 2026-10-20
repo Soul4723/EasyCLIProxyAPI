@@ -2821,18 +2821,24 @@ fn agent_probe_cleanup_signals_before_reaping_the_group_leader() {
     let mut reaped = false;
     let mut steps = Vec::new();
 
-    crate::agents::discovery::signal_then_reap(
-        &mut reaped,
-        || steps.push("signal"),
-        || {
-            steps.push("reap");
-            Ok(())
-        },
-    )
+    crate::agents::signal_then_reap(&mut reaped, |step| {
+        match step {
+            crate::agents::ProbeCleanupStep::Signal => steps.push("signal"),
+            crate::agents::ProbeCleanupStep::Reap => steps.push("reap"),
+        }
+        Ok(None::<()>)
+    })
     .unwrap();
 
     assert_eq!(steps, ["signal", "reap"]);
     assert!(reaped);
+    assert!(crate::agents::signal_then_reap(
+        &mut reaped,
+        |_| -> std::io::Result<Option<()>> {
+            panic!("cleanup signalled an already-reaped probe")
+        },
+    )
+    .is_err());
 }
 
 #[cfg(unix)]
