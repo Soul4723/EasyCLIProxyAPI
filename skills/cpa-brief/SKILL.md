@@ -1,12 +1,11 @@
 ---
 name: cpa-brief
-description: Get a cheap, cached briefing of how much quota headroom each provider/account has now, when its windows reset, and which models are routable or cooling down. Use BEFORE planning, delegating, fanning out sub-agents or choosing models/providers, and again before a long run. One command, about 150 tokens, no provider calls.
+description: Get a cheap, cached briefing of provider headroom, reset times and routable models. Run BEFORE planning or delegating, and again before a long run. It makes no provider calls.
 ---
 
 # cpa-brief: pre-delegation briefing
 
-Run it, read it, then decide how hard to push. It answers: *who has headroom, when does it come back, which
-models work right now*. It is a briefing, not a dashboard: run it once per plan, not in a loop.
+Run once before planning or delegation. It is a briefing, not a dashboard or a polling command.
 
 ## Run
 
@@ -14,54 +13,28 @@ models work right now*. It is a briefing, not a dashboard: run it once per plan,
 | --- | --- |
 | Linux | `"${XDG_DATA_HOME:-$HOME/.local/share}/com.cpa.gui/agent/cpa-brief"` |
 | macOS | `"$HOME/Library/Application Support/com.cpa.gui/agent/cpa-brief"` |
-| Windows | `"%APPDATA%\com.cpa.gui\agent\cpa-brief.cmd"` |
+| Windows PowerShell | `& "$env:APPDATA\com.cpa.gui\agent\cpa-brief.cmd"` |
+| Windows cmd.exe | `"%APPDATA%\com.cpa.gui\agent\cpa-brief.cmd"` |
 
-The EasyCLIProxyAPI app writes that launcher each time it starts. Options: `--provider claude` · `--model opus`
-(any part of a model id; lists every match) · `--accounts` (one line per account, masked) · `--json`.
+The app writes the launcher at startup. Options: `--provider P`, `--model TEXT` (case-insensitive substring; lists every match), `--accounts` (masked per-account lines), `--json`.
 
-## Read the output
+## Read it
 
-```
-cpa local core=up quota_age=6m
-claude ok 2/2 5h=62%~1h11m wk=81%~3d3h | claude-fable-5-1 claude-haiku-5-5 claude-opus-5-5 claude-sonnet-5-5 +15
-codex low 1/1 5h=8%~21m wk=40%~1d23h | codex-auto-review gpt-6-astra gpt-6-luna gpt-6.1-sol +9
-guide: swarm=claude light=codex(5h=8%~21m)
-```
+- Header: `local|remote|unknown`; `core=up` means core data was refreshed within 60 s. `core=down cached=<age>` means unreachable; `core=stale cached=<age>` means refresh failed for another reason. Old core data is never marked up. `quota_age` is the age of the oldest quota read among the displayed accounts; `stale` means over 30 min.
+- Provider line: `status usable/enabled`, its windows, optional balance and models. Windows use the selected headroom account so the status, windows and guide agree. `5h=62%~1h12m` means 62% remains; reset in 1h12m. `<1%` is treated as exhausted. `back=?` means exhausted with no known reset.
+- Status: `ok`, `low` (best account under 20% on its tightest window), `out`, `cool`, `err` (core says unavailable without a retry time), or `off` (all disabled). `quota=n/a` means usable but no quota numbers.
+- After `|`, the default text samples up to four newest routable models, one per family, ordered by newest version; image models are omitted. `+N` means more models are routable. To check a specific model, run `--model <part>`. A model is unavailable only if `--model` does not list it or shows it under `cool:`.
+- `cool:m~4m` means no account can serve `m` for 4 more minutes. `guide:` uses the same headroom: `swarm` = at least 50% on the tightest window; `light` = under 50% or `low`; `wait` = unavailable and back within 30 min; `avoid` = unavailable longer or reset unknown. Providers without quota numbers are omitted from the guide.
 
-- Header: `local|remote` core · `core=up|down|unknown` · `quota_age` = age of the oldest quota read (`stale` after 30m).
-- Provider: `status usable/enabled`, then windows. `5h=62%~1h11m` = **62% left, resets in 1h11m**; `wk` weekly;
-  `lim` another limit; `5h=reset` = it reset since the read (usage since is unknown, treat as full). Each window
-  is the best usable account. `bal=` balance where known. `back=22m` = soonest recovery when nothing is usable.
-  `quota=n/a` = usable, but no quota numbers for it.
-- Status: `ok` · `low` (best account under 20% on its tightest window) · `out` all exhausted · `cool` all in a
-  core cooldown · `err` auth failure, needs a human · `off` all disabled.
-- After `|`: routable models, newest of each family, max 4 (`+15` more; image models hidden). `cool:m~4m` = no
-  account can serve `m` for 4 more minutes. A model not listed is not offered by any enabled account.
-- `guide:` is arithmetic on those numbers: `swarm` = best account at least 50% on every window · `light` = under
-  50% or `low` (tightest window shown) · `wait` = unavailable but back within 30m · `avoid` = unavailable longer, or `err`.
+## Use it
 
-## Turn it into a plan
-
-- Several `swarm` providers: fan out in parallel, spread tasks across them, use the strongest models.
-- Only `light`: 1-2 workers, serial, smaller models, short prompts, no speculative retries.
-- A window is nearly out and `~` is minutes away (`wait`): do prep work now, start the heavy part after the reset.
-  If it is hours or days away, move the work to another provider or a cheaper model instead.
-- Size the fan-out by `usable` accounts and headroom, not by provider name.
-- Before a run longer than the shortest `~`, run the command again.
-
-Example 1: above output → send the big refactor to 3-4 claude workers (opus/sonnet); give codex one small
-review, or hold it ~21m until `5h` resets.
-Example 2: `claude out 0/2 back=3h` · `xai ok 1/1 | grok-4.7` · `guide: avoid=claude` → one serial worker on xai
-now; do not queue claude-only work.
+- Several `swarm` providers: fan out across them. Only `light`: use fewer workers, serially, with shorter prompts. For `wait`, do prep now and start the heavy part after the reset if it is soon; otherwise use another provider.
+- Size fan-out by usable accounts and headroom, not provider name. Run it again before a run longer than the shortest reset.
 
 ## Failure modes
 
-- Launcher missing, or `no briefing data yet`: the app never ran on this machine. Ask the user to start
-  EasyCLIProxyAPI and open Overview once. Do not invent numbers.
-- `core=down cached=12m`: the core is stopped or unreachable. No models are listed and nothing routes; quota
-  numbers are the last known ones.
-- `stale` / large `quota_age`: quota is read only when the app's Overview or Quota page loads or the user
-  refreshes it. Treat percentages as upper bounds; a recent heavy run may have used more.
-- `quota=none`: the app has not read quota yet; only core state (cooldowns, disabled) is shown.
-- `remote`: same data from the remote core; quota is cached per core address.
-- Exit code 1 = no data, 2 = bad option. It never opens the app window and never calls a provider.
+- Missing launcher or `no briefing data yet`: start EasyCLIProxyAPI and open Overview or Quota once. Do not invent numbers.
+- If you know the core is up but this command says `core=down`, your sandbox may block loopback; treat core-dependent numbers as unknown, not as an outage.
+- `core=down` lists no models; `core=stale` says routing is unknown. A failed refresh never makes cached data live.
+- `stale` quota is only refreshed when Overview or Quota loads or the user refreshes it. Treat it as potentially outdated; a recent run may have used more.
+- `remote` uses the remote core. Quota is cached per core address. Exit 1 means no data; exit 2 means a bad option. The command does not open the app or call providers.

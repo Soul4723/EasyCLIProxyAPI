@@ -8,13 +8,12 @@ slow, cheap one. It is a briefing, not a dashboard. The agent-facing instruction
 
 ```
 cpa local core=up quota_age=6m
-claude ok 2/2 5h=62%~1h11m wk=81%~3d3h | claude-fable-5-1 claude-haiku-5-5 claude-opus-5-5 claude-sonnet-5-5 +15
-codex low 1/1 5h=8%~21m wk=40%~1d23h | codex-auto-review gpt-6-astra gpt-6-luna gpt-6.1-sol +9
-guide: swarm=claude light=codex(5h=8%~21m)
+claude ok 1/2 5h=62%~1h11m wk=81%~3d2h | claude-opus-4-6 claude-sonnet-4-6 claude-haiku-4-5-20251001 +4 cool:claude-opus-4-8~3m
+codex low 1/1 5h=8%~20m wk=40%~1d23h | gpt-6.1-sol gpt-6-luna codex-auto-review
+guide: swarm=claude light=codex(5h=8%~20m)
 ```
 
-(`5h=62%~1h11m`: 62% left, resets in 1h11m. The quota numbers in this example are fixtures; the model lists
-are from a real v8.0.32 test core.)
+(`5h=62%~1h11m`: 62% left, resets in 1h11m. This example is copied from a built binary.)
 
 ## How it works
 
@@ -28,6 +27,8 @@ tiny launcher that runs the current binary with `--brief`; the skill names the l
 | Linux | `${XDG_DATA_HOME:-~/.local/share}/com.cpa.gui/agent/cpa-brief` |
 | macOS | `~/Library/Application Support/com.cpa.gui/agent/cpa-brief` |
 | Windows | `%APPDATA%\com.cpa.gui\agent\cpa-brief.cmd` |
+
+PowerShell uses `& "$env:APPDATA\com.cpa.gui\agent\cpa-brief.cmd"`; `%APPDATA%` is the `cmd.exe` form.
 
 The same folder holds two cache files, each written by one party only (so neither needs a lock):
 
@@ -51,10 +52,13 @@ app has never saved settings it does not dial anything: it prints `no briefing d
 - **Models** come from `GET /v8/management/credentials/models?name=` for each enabled credential,
   cached for 15 minutes per credential. A model is routable when an account that can route now serves it
   without a model cooldown; otherwise it is listed as `cool:` with the time the first serving account
-  recovers. The default text shows the newest model of each family (the id without its version and date
-  tokens), at most four, with image models hidden and the rest counted as `+N`; `--model` and `--json`
-  list every model. This is exact per credential, which `GET /v1/models` is not: that list has no provider and
-  keeps quota-cooled models listed.
+  recovers. The default text samples the newest model per family, at most four, ordered by newest version
+  (alphabetically by family for ties); image models are omitted and `+N` counts additional routable models.
+  `--model` lists every match and `--json` lists all models. A model omitted from the default sample may
+  still be routable; check it with `--model`. This is exact per credential, which `GET /v1/models` is not:
+  that list has no provider and keeps quota-cooled models listed.
+- Model-list attempts, including failed reads, are timestamped. With over 32 stale credential lists, later
+  refreshes pick up remaining credentials rather than retrying the same failures each minute.
 - The core's own quota `signals` (raw rate-limit response headers for Claude, Codex and Devin) are not
   used: they are provider-specific strings, present only after real traffic, with no stable window shape.
 
@@ -63,24 +67,27 @@ app has never saved settings it does not dial anything: it prints `no briefing d
 - Relative times ("resets in 1h12m") are computed when you run the command from absolute timestamps, so
   cached data never shows a wrong countdown. A window whose reset passed since the read prints `5h=reset`
   and counts as full.
-- Every output states the age of the oldest quota read and flags it `stale` after 30 minutes.
+- Every output states the age of the oldest quota read among displayed accounts and flags it `stale` after 30 minutes.
 - **Quota is only as fresh as the last time the app read it** (opening Overview or Quota, or a manual
   refresh). The command deliberately does not ask providers. With the app closed, the last read is served
   with its age.
-- When the core cannot be reached the last core state is served and marked `core=down cached=<age>`; no
-  models are listed then (nothing routes) and the guide line says so.
+- `core=up` means core data was refreshed within 60 seconds. When unreachable, output says
+  `core=down cached=<age>`; if refresh failed for another reason, it says `core=stale cached=<age>`.
+  Data older than the TTL is never marked live. Down or stale core state lists no models.
 
 ## Guidance line
 
-Arithmetic on the numbers, with fixed thresholds in `render.rs`: a provider whose best usable account has at
-least 50% left on its tightest 5h/weekly window and status `ok` is `swarm`; a lower one, or `low` (under 20%),
-is `light` (tightest window shown); a provider with no usable account is `wait` if it recovers within 30 minutes,
-otherwise `avoid`. A provider with no quota numbers is left out.
+Arithmetic on the numbers, with fixed thresholds in `render.rs`: windows shown come from the selected
+headroom account, so status and guidance agree. Under 0.5% is exhausted and renders `<1%`; if its reset is
+unknown, output says `back=?` and the guide uses `avoid`. A provider with at least 50% on its tightest
+window and status `ok` is `swarm`; below that, or `low` (under 20%), is `light`; a provider with no usable
+account is `wait` if it recovers within 30 minutes, otherwise `avoid`. Providers with no quota numbers are
+omitted from the guide.
 
 ## Privacy
 
 Only masked labels (the same masking as privacy mode, applied before the data leaves the webview and
-checked again in Rust), provider names, plans, percentages, times, model ids and a balance string are
+validated again in Rust), provider names, plans, percentages, times, model ids and a balance string are
 stored or printed. No email, account id, file name, path, token or API key is written to the cache or
 printed. The management key from the app's own config is used for the two core reads and never printed.
 Rust tests assert this against a fixture that contains such values.
@@ -88,10 +95,12 @@ Rust tests assert this against a fixture that contains such values.
 ## Cost
 
 - A query reads two small files. When `core.json` is older than the TTL it makes one `GET /credentials`
-  (plus a model request per credential whose list is older than 15 minutes), bounded to 4 s each and
-  32 model reads. Concurrent callers wait on a lock file and share one refresh (checked again under the lock).
-- Nothing runs when nobody asks: there is no timer or listener in the app or the command. The only
-  frontend work is one debounced IPC per quota cache change.
+  (plus model requests for credential lists older than 15 minutes), bounded to 4 s each and 32 model reads
+  per refresh. Concurrent callers wait on a lock file and share one refresh (checked again under the lock);
+  an overall 25 s deadline bounds the refresh.
+- Nothing runs when nobody asks: the app has a quota-cache subscription with a one-shot debounce, and the
+  command polls briefly only while waiting for another command's lock. The frontend sends one debounced IPC
+  per quota-cache change.
 - A query never calls a provider and never starts or stops a core.
 
 ## Limits (not in this version)
