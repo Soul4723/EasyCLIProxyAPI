@@ -481,11 +481,26 @@ fn config_path_value<'a>(document: &'a serde_json::Value, path: &[String]) -> Op
     path.iter().try_fold(document, |node, key| node.as_object()?.get(key))
 }
 
-// v8.0.29 has no ETag/If-Match contract. Preflight detects observed conflicts,
-// but cannot make the read/write pair atomic. Replace only changed values; never
-// replay a failed write or roll back over another management client's changes.
+// v8.0.29 has no ETag/If-Match contract. One preflight read checks every changed
+// field before the first write, but cannot make the read/write pair atomic, and a
+// change by another client during the batch is not detected. Replace only changed
+// values; never replay a failed write or roll back over another client's changes.
 pub(crate) async fn write_remote_yaml(
     state: &GuiConfigState, config: &GuiConfigFile, original: &str, updated: &str,
+) -> Result<(), String> {
+    write_remote_yaml_batch(state, config, original, updated, true).await
+}
+
+// For callers whose `original` is itself a read made immediately before this call,
+// so a preflight read would only repeat it; the writer then sends only the N writes.
+pub(crate) async fn write_remote_yaml_after_fresh_read(
+    state: &GuiConfigState, config: &GuiConfigFile, fresh: &str, updated: &str,
+) -> Result<(), String> {
+    write_remote_yaml_batch(state, config, fresh, updated, false).await
+}
+
+async fn write_remote_yaml_batch(
+    state: &GuiConfigState, config: &GuiConfigFile, original: &str, updated: &str, preflight: bool,
 ) -> Result<(), String> {
     let before = remote_config_json(original)?;
     let after = remote_config_json(updated)?;
@@ -497,13 +512,24 @@ pub(crate) async fn write_remote_yaml(
         }
     }
     let total = changes.len();
-    for (completed, change) in changes.iter().enumerate() {
-        let apply = async {
+    let stopped = |completed: usize, error: String| {
+        let confirmed = changes[..completed].iter().map(|change| change.path.join("/")).collect::<Vec<_>>();
+        let confirmed = if confirmed.is_empty() { "none".to_string() } else { confirmed.join(", ") };
+        format!("Remote configuration save stopped after {completed} of {total} confirmed changes; some changes may have applied. Reload before editing. Confirmed: {confirmed}. {error}")
+    };
+    if preflight && total > 0 {
+        let check = async {
             state.ensure_target(config)?;
             let current = remote_config_json(&read_remote_yaml(config).await?)?;
-            if config_path_value(&current, &change.path) != change.before.as_ref() {
+            if changes.iter().any(|change| config_path_value(&current, &change.path) != change.before.as_ref()) {
                 return Err("Remote configuration changed; reload before saving".to_string());
             }
+            Ok(())
+        }.await;
+        check.map_err(|error| stopped(0, error))?;
+    }
+    for (completed, change) in changes.iter().enumerate() {
+        let apply = async {
             state.ensure_target(config)?;
             let endpoint = crate::management_api::management_endpoint(config, &format!("config/{}", change.path.join("/")))?;
             let client = crate::management_api::management_http_client_for(config)?;
@@ -516,9 +542,7 @@ pub(crate) async fn write_remote_yaml(
             crate::management_api::read_management_text(response).await?;
             state.ensure_target(config)
         }.await;
-        if let Err(error) = apply {
-            return Err(format!("Remote configuration save stopped after {completed} of {total} confirmed changes; some changes may have applied. Reload before editing. {error}"));
-        }
+        apply.map_err(|error| stopped(completed, error))?;
     }
     Ok(())
 }
