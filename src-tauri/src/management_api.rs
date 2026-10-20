@@ -919,15 +919,21 @@ server.serve_forever()
         let config = GuiConfigFile {
             connection_mode: super::super::CoreConnectionMode::Remote,
             remote_management_origin: format!("https://127.0.0.1:{}", port.trim()),
+            remote_client_origin: format!("https://127.0.0.1:{}", port.trim()),
             ..Default::default()
         };
-        let strict_remote = management_http_client_for(&config).unwrap().get(&url).send().await;
+        let strict_remote_client = management_http_client_for(&config);
+        let strict_remote = match strict_remote_client.as_ref() {
+            Ok(client) => Some(client.get(&url).send().await),
+            Err(_) => None,
+        };
         server.kill().unwrap();
         server.wait().unwrap();
         std::fs::remove_dir_all(root).unwrap();
         assert_eq!(compatible.unwrap().text().await.unwrap(), "local-core-ok");
         assert!(strict_local.is_err());
-        assert!(strict_remote.is_err());
+        assert!(strict_remote_client.is_ok());
+        assert!(strict_remote.unwrap().is_err());
     }
 
     #[tokio::test]
