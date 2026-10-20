@@ -1,8 +1,9 @@
 import { createTraditionalMessages } from './traditional';
 import { zhCN, type MessageKey } from './zh-CN';
 
-export const zhTW: Record<MessageKey, string> = {
-  ...createTraditionalMessages(zhCN),
+let cachedZhTW: Readonly<Record<MessageKey, string>> | undefined;
+
+export const zhTWOverrides: Readonly<Partial<Record<MessageKey, string>>> = Object.freeze({
   "app.theme.lightGroup": "淺色主題",
   "app.theme.darkGroup": "深色主題",
   'app.theme.triggerLabel': '外觀',
@@ -44,4 +45,31 @@ export const zhTW: Record<MessageKey, string> = {
   'appUpdate.notes.loading': '正在取得更新說明…',
   'appUpdate.notes.failed': '暫時無法取得更新說明，請稍後重新檢查。',
   'appUpdate.notes.notChecked': '檢查軟體更新後，將顯示最新版的更新說明。',
-};
+});
+
+export function getZhTW(): Readonly<Record<MessageKey, string>> {
+  if (cachedZhTW) return cachedZhTW;
+  cachedZhTW = Object.freeze({
+    ...createTraditionalMessages(zhCN),
+    ...zhTWOverrides,
+  });
+  return cachedZhTW;
+}
+
+export function isZhTWBuilt(): boolean {
+  return cachedZhTW !== undefined;
+}
+
+// Preserve the object-shaped export while deferring conversion until it is read.
+export const zhTW: Record<MessageKey, string> = new Proxy({} as Record<MessageKey, string>, {
+  get: (_target, property) => Reflect.get(getZhTW(), property),
+  has: (_target, property) => Reflect.has(getZhTW(), property),
+  ownKeys: () => Reflect.ownKeys(getZhTW()),
+  set: () => false,
+  defineProperty: () => false,
+  deleteProperty: () => false,
+  getOwnPropertyDescriptor: (_target, property) => {
+    const descriptor = Reflect.getOwnPropertyDescriptor(getZhTW(), property);
+    return descriptor && { ...descriptor, configurable: true };
+  },
+});

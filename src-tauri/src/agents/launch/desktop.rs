@@ -152,7 +152,11 @@ fn stop_macos_desktop_application(application: &Path, label: &str) -> Result<(),
         .replace('"', "\\\"");
     let mut quit = Command::new("osascript");
     quit.args(["-e", &format!("tell application \"{escaped}\" to quit")]);
-    let _ = command_output_with_timeout(&mut quit, Duration::from_secs(5));
+    if let Ok(CommandOutputOutcome::TimedOut(timeout)) =
+        command_output_with_timeout(&mut quit, Duration::from_secs(5))
+    {
+        log_probe_timeout("macOS application quit", &timeout);
+    }
     for _ in 0..50 {
         if macos_processes_for_application(application)?.is_empty() {
             return Ok(());

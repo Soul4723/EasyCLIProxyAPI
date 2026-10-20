@@ -164,8 +164,10 @@
             command.args(interactive.get_args().filter(|arg| *arg != "-NoExit"));
             command.current_dir(&directory).env("CPA_LAUNCH_TEST", "launch-fixture");
             configure_background_command(&mut command);
-            let output = command_output_with_timeout(&mut command, Duration::from_secs(20))
-                .unwrap().expect("launch fixture timed out");
+            let output = match command_output_with_timeout(&mut command, Duration::from_secs(20)).unwrap() {
+                CommandOutputOutcome::Completed(output) => output,
+                CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("launch fixture")),
+            };
             assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
             let stdout = String::from_utf8_lossy(&output.stdout);
             let lines = stdout.lines().collect::<Vec<_>>();
@@ -217,9 +219,10 @@ class GuiHelper {
                 script,
             ]);
             configure_background_command(&mut command);
-            let result = command_output_with_timeout(&mut command, Duration::from_secs(20))
-                .unwrap()
-                .expect("PowerShell timed out");
+            let result = match command_output_with_timeout(&mut command, Duration::from_secs(20)).unwrap() {
+                CommandOutputOutcome::Completed(output) => output,
+                CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("PowerShell")),
+            };
             assert!(
                 result.status.success(),
                 "{}",
