@@ -726,14 +726,20 @@ pub(crate) async fn get_deepseek_harness_model_catalog_editor(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<HarnessEditorSnapshot, String> {
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    let config = gui_config_state.snapshot()?;
-    let models = fetch_deepseek_harness_models(&config).await?;
-    let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
-    let _guard = AGENT_CONFIG_FILE_LOCK
-        .lock()
-        .map_err(|_| "Agent configuration file lock is poisoned")?;
-    harness_editor_snapshot(&home, &models, &config)
+    super::commands::target_read_then_apply(
+        &gui_config_state,
+        None,
+        |config| async move { fetch_deepseek_harness_models(&config).await },
+        move |config, models, _target_operation| async move {
+            let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
+            let _guard = AGENT_CONFIG_FILE_LOCK
+                .lock()
+                .map_err(|_| "Agent configuration file lock is poisoned")?;
+            harness_editor_snapshot(&home, &models, &config)
+        },
+    )
+    .await?
+    .ok_or_else(|| "The core connection changed; request cancelled".to_string())
 }
 
 #[tauri::command]
@@ -742,12 +748,18 @@ pub(crate) async fn save_deepseek_harness_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     request: HarnessEditorRequest,
 ) -> Result<HarnessEditorSnapshot, String> {
-    let _target_operation = gui_config_state.target_operation.lock().await;
-    let config = gui_config_state.snapshot()?;
-    let models = fetch_deepseek_harness_models(&config).await?;
-    let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
-    let _guard = AGENT_CONFIG_FILE_LOCK
-        .lock()
-        .map_err(|_| "Agent configuration file lock is poisoned")?;
-    save_harness_editor(&home, &models, &config, request)
+    super::commands::target_read_then_apply(
+        &gui_config_state,
+        None,
+        |config| async move { fetch_deepseek_harness_models(&config).await },
+        move |config, models, _target_operation| async move {
+            let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
+            let _guard = AGENT_CONFIG_FILE_LOCK
+                .lock()
+                .map_err(|_| "Agent configuration file lock is poisoned")?;
+            save_harness_editor(&home, &models, &config, request)
+        },
+    )
+    .await?
+    .ok_or_else(|| "The core connection changed; request cancelled".to_string())
 }
