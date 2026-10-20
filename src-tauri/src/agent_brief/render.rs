@@ -299,7 +299,7 @@ fn family(id: &str) -> String {
 fn featured(models: &[String], cap: usize) -> Vec<&String> {
     let mut best: std::collections::BTreeMap<String, &String> = Default::default();
     // Image-generation models are never what a coding agent delegates to; `--model image` still lists them.
-    for model in models.iter().filter(|m| !m.to_ascii_lowercase().contains("image")) {
+    for model in non_image_models(models) {
         let slot = best.entry(family(model)).or_insert(model);
         if natural_key(model) > natural_key(slot) {
             *slot = model;

@@ -16,7 +16,7 @@ Run before planning or delegating, then again before a long run. It is a briefin
 | Windows PowerShell | `& "$env:APPDATA\com.cpa.gui\agent\cpa-brief.cmd"` |
 | Windows cmd.exe | `"%APPDATA%\com.cpa.gui\agent\cpa-brief.cmd"` |
 
-The app writes the launcher at startup. Options: `--provider P`, `--model TEXT` (case-insensitive substring; lists every match), `--accounts` (masked per-account lines), `--json`. Filter values must be plain words using only letters, digits, `-`, `.`, and `_` (the CLI also permits `:`, and `/`).
+The app writes the launcher at startup. Options: `--provider P`, `--model TEXT` (case-insensitive substring; lists every match), `--accounts` (masked per-account lines), `--json`. Filter values are plain words: letters, digits and `. _ : / -` only (anything else exits 2).
 
 ## Read it
 

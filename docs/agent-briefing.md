@@ -18,6 +18,8 @@ This sample is verbatim output from the built binary against fictional fixture d
 ## How it works
 
 The command is the app binary itself: `cpa-gui --brief [--json] [--accounts] [--provider P] [--model M]`.
+Filter values may contain only ASCII letters, digits and `. _ : / -` (the Windows `.cmd` launcher
+forwards `%*`, which `cmd` re-parses); anything else exits 2, as does an unknown option.
 `main` handles `--brief` before the single-instance lock, GTK and the webview, so it starts fast,
 never opens a window and works whether or not the app is running. When the app starts it writes a
 tiny launcher that runs the current binary with `--brief`; the skill names the launcher, not the binary:
@@ -39,7 +41,8 @@ The same folder holds two cache files, each written by one party only (so neithe
 
 Both are `0600`, keyed by the core's management origin; a cache from another core is ignored. The command reads
 the app's saved `config.toml` (read-only, next to the executable) to find the core and its management key. If the
-app has never saved settings it does not dial anything: it prints `no briefing data yet` and exits 1.
+app has never saved settings (or they cannot be read) it does not dial anything and ignores any cached
+files: it prints `no briefing data yet` and exits 1.
 
 ## Data sources
 
