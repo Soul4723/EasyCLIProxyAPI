@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
@@ -139,5 +140,5 @@ const mount = () => root.render(
     </main>
   </I18nProvider>,
 );
-Object.assign(window, { metaMount: mount, metaUnmount: () => root.render(null) });
+Object.assign(window, { metaMount: mount, metaUnmount: () => flushSync(() => root.render(null)) });
 mount();
