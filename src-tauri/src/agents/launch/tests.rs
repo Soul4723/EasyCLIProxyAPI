@@ -176,6 +176,77 @@
         fs::remove_dir_all(directory.parent().unwrap()).unwrap();
     }
 
+    /// The PowerShell and Command Prompt terminals run a `.cmd` shim with text a user typed.
+    /// Runs both for real and checks that the text arrives unchanged and nothing in it ran.
+    #[cfg(windows)]
+    #[test]
+    fn windows_terminals_pass_hostile_text_to_batch_shims_as_data() {
+        use std::os::windows::process::CommandExt;
+
+        let Some(node) = env::var_os("PATH").and_then(|path| {
+            env::split_paths(&path).find_map(|directory| {
+                let candidate = directory.join("node.exe");
+                candidate.is_file().then_some(candidate)
+            })
+        }) else {
+            eprintln!("node.exe not found; skipping the end-to-end terminal argument test");
+            return;
+        };
+        let directory = env::temp_dir().join(format!(
+            "cpa-terminal-hostile-{}-{}", std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        )).join("100% work's [dir] & more");
+        fs::create_dir_all(&directory).unwrap();
+        let marker = directory.join("pwned.txt");
+        fs::write(
+            directory.join("args.js"),
+            "require('fs').writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)))",
+        ).unwrap();
+        let shim = directory.join("agent shim.cmd");
+        fs::write(&shim, format!(
+            "@echo off\r\n\"{}\" \"%~dp0args.js\" \"%~dp0out.json\" %*\r\n", node.display(),
+        )).unwrap();
+        let hostile = vec![
+            "headless task: fix it & calc".to_string(),
+            format!("\" & echo owned> \"{}\" & \"", marker.display()),
+            format!("x | echo owned> \"{}\"", marker.display()),
+            "%PATH% and 100%".to_string(),
+            "^&^|".to_string(),
+            "say \"hi\" it's".to_string(),
+            "\u{2018}; Start-Process calc; \u{2019}".to_string(),
+            "\u{201C}smart\u{201D}".to_string(),
+        ];
+        for terminal in ["auto", "cmd"] {
+            let _ = fs::remove_file(directory.join("out.json"));
+            let launch = windows_cli_launch_command(&shim, "test client", &directory, &hostile, terminal).unwrap();
+            // Run the same startup line without keeping a test shell open.
+            let mut command = Command::new(launch.get_program());
+            for argument in launch.get_args() {
+                let text = argument.to_string_lossy();
+                if text == "-NoExit" {
+                    continue;
+                }
+                match text.strip_prefix("/D /E:ON /V:OFF /S /K ") {
+                    Some(line) => command.raw_arg(format!("/D /E:ON /V:OFF /S /C {line}")),
+                    None => command.arg(argument),
+                };
+            }
+            command.current_dir(&directory);
+            configure_background_command(&mut command);
+            let output = match command_output_with_timeout(&mut command, Duration::from_secs(30)).unwrap() {
+                CommandOutputOutcome::Completed(output) => output,
+                CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("terminal fixture")),
+            };
+            assert!(output.status.success(), "{terminal}: {}", String::from_utf8_lossy(&output.stderr));
+            assert!(!marker.exists(), "{terminal}: an argument ran as a command");
+            let received: Vec<String> =
+                serde_json::from_slice(&fs::read(directory.join("out.json")).unwrap()).unwrap();
+            assert_eq!(received, hostile, "{terminal}");
+        }
+        assert!(windows_cli_launch_command(&shim, "test client", &directory, &["a\nb".to_string()], "cmd").is_err());
+        fs::remove_dir_all(directory.parent().unwrap()).unwrap();
+    }
+
     #[cfg(windows)]
     #[test]
     fn powershell_waits_for_gui_helpers_and_preserves_arguments() {
@@ -242,7 +313,7 @@ class GuiHelper {
             ];
             let script = format!(
                 "{}; if (![IO.File]::Exists({})) {{ throw 'GUI helper is still running' }}",
-                windows_powershell_cli_script(&executable, &directory, &arguments),
+                windows_powershell_cli_script(&executable, &directory, &arguments).unwrap(),
                 windows_powershell_single_quoted_literal(&path_to_string(
                     &directory.join("finished.txt")
                 )),

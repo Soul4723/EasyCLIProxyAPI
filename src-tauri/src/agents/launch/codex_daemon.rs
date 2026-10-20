@@ -140,11 +140,7 @@ pub(super) fn codex_cli_daemon_command(
     let executable = executable_override.filter(|path| path.is_file()).map(Path::to_path_buf)
         .or_else(|| find_agent_executable(AgentClient::Codex, home))
         .ok_or_else(|| "Executable for Codex not found".to_string())?;
-    #[cfg(target_os = "windows")]
-    let mut command = windows_command_for_executable(&executable, false);
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new(&executable);
-    command.args(["app-server", "daemon", action]);
+    let mut command = command_for_executable(&executable, &["app-server", "daemon", action])?;
     configure_background_command(&mut command);
     configure_agent_command_environment(&mut command, home, &executable)?;
     Ok(command)

@@ -22,6 +22,8 @@ mod models;
 pub(crate) use models::*;
 mod client_config;
 pub(crate) use client_config::*;
+mod windows_quoting;
+pub(crate) use windows_quoting::*;
 
 const AGENT_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const AGENT_VERSION_PROBE_POLL_INTERVAL: Duration = Duration::from_millis(20);

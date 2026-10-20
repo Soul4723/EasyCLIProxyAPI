@@ -398,13 +398,7 @@ fn wait_for_child_bounded(child: &mut Child, timeout: Duration) -> bool {
 }
 
 pub(crate) fn read_agent_version(path: &Path, home: &Path) -> Option<String> {
-    #[cfg(target_os = "windows")]
-    let mut command = windows_command_for_executable(path, false);
-
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new(path);
-
-    command.arg("--version");
+    let mut command = command_for_executable(path, &["--version"]).ok()?;
     configure_background_command(&mut command);
     configure_agent_command_environment(&mut command, home, path).ok()?;
     let output = match command_output_with_timeout(&mut command, AGENT_VERSION_PROBE_TIMEOUT).ok()? {
