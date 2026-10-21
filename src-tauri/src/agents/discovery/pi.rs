@@ -5,18 +5,28 @@ pub(crate) fn read_pi_provider_version(home: &Path) -> Result<Option<String>, St
     if !path.is_file() {
         return Ok(None);
     }
-    let content = fs::read_to_string(&path).map_err(|error| {
-        format!(
-            "Failed to read Pi provider package.json {}: {error}",
-            path_to_string(&path)
-        )
-    })?;
-    let package = serde_json::from_str::<serde_json::Value>(&content).map_err(|error| {
-        format!(
-            "Failed to parse Pi provider package.json {}: {error}",
-            path_to_string(&path)
-        )
-    })?;
+    let read = || {
+        fs::read_to_string(&path).map_err(|error| {
+            format!(
+                "Failed to read Pi provider package.json {}: {error}",
+                path_to_string(&path)
+            )
+        })
+    };
+    let mut content = read()?;
+    let package = match serde_json::from_str::<serde_json::Value>(&content) {
+        Ok(package) => package,
+        Err(first_error) => {
+            // npm may replace this file during install; retry once against a fresh read.
+            content = read()?;
+            serde_json::from_str::<serde_json::Value>(&content).map_err(|second_error| {
+                format!(
+                    "Failed to parse Pi provider package.json {} after retry (first parse error: {first_error}; retry: {second_error})",
+                    path_to_string(&path)
+                )
+            })?
+        }
+    };
     Ok(package
         .get("version")
         .and_then(serde_json::Value::as_str)
