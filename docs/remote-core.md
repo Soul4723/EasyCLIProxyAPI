@@ -1,9 +1,9 @@
 # Remote core
 
 Remote mode attaches this GUI to an **already-running CLIProxyAPI v8** server.
-It does not install or update that server. It can start, stop and restart it
-only through [remote host control](#remote-host-control): EasyCLIProxyAPI
-running on the core's computer, with remote control allowed there.
+It can start, stop, restart and update that server only through
+[remote host control](#remote-host-control): EasyCLIProxyAPI running on the
+core's computer, with remote control allowed there.
 
 ## Connect
 
@@ -72,6 +72,21 @@ buttons stay disabled and Home shows the reason.
 
 Start, Stop and Restart on the host behave exactly like pressing them there.
 
+Also through reachable host control:
+
+- **Version Management** opens. Checking for the latest core and installing a
+  version (or the latest) run on the host, with the host's own download
+  source, platform, staged download, SHA-256 check, rollback and restart of a
+  running core, under its core-operation lock. Progress and Cancel work as in
+  Local; the host's own window shows the progress too. This computer's
+  download source, custom mirrors and bundled core do not apply and are
+  disabled.
+- **Start Core on Launch** (Advanced Features → App preferences) shows and
+  changes the host app's own setting at once. This computer's saved value is
+  kept for Local mode.
+- The **tray** (Linux and Windows) offers Start/Stop and Restart, and reads
+  "stopped on host" when the core is down but the host answers.
+
 ### Security model
 
 - Off by default; one opt-in listener; its own key, compared in constant time
@@ -110,9 +125,17 @@ Base path `/host-control/v1`, HTTP/1.1, `Connection: close`, JSON replies with
 | `POST /host-control/v1/core/start` | start the core, wait until its management port answers |
 | `POST /host-control/v1/core/stop` | stop the core |
 | `POST /host-control/v1/core/restart` | stop if running, then start |
+| `GET /host-control/v1/core/latest` | the latest core release for the host: `{"version","assetName"}` |
+| `POST /host-control/v1/core/install/latest` | install the latest core; replies when done with `{"version","assetName","installDir":"","binaryPath":null}` |
+| `POST /host-control/v1/core/install/<version>` | the same for one version (`v`, three numbers, optional `-suffix`) |
+| `GET /host-control/v1/core/install` | the host's install task (phase, bytes, percent, result) |
+| `POST /host-control/v1/core/install/cancel` | cancel a running download; replies with the task |
+| `POST /host-control/v1/settings/start-core-on-launch/on` (or `/off`) | set the host app's Start Core on Launch; replies with the status |
 
-A successful reply is the core status:
-`{"protocol":1,"installed":…,"running":…,"ready":…,"starting":…,"managed":…,"processId":…,"currentVersion":…,"message":…}`.
+Status and lifecycle replies are the core status:
+`{"protocol":1,"installed":…,"running":…,"ready":…,"starting":…,"managed":…,"processId":…,"currentVersion":…,"message":…,"startCoreOnLaunch":…}`.
+`startCoreOnLaunch` is optional; clients accept hosts that do not send it, and
+a host without the newer routes answers them with 404.
 Errors are `{"error":"…"}` with 400 (malformed request, missing protocol
 header, body), 401 (key), 403 (browser request), 404, 405, 409 (another core
 operation is running, or the host is not managing a local core), 413, 429,
@@ -141,15 +164,13 @@ reason; this computer's local data is never shown as the remote core's.
 
 These stay visible in place but are disabled, with a short reason:
 
-- Start, Stop and Restart (Home and the plugin page's Restart core) without
+- Start, Stop and Restart (Home, the plugin page's Restart core and the tray),
+  Version Management and Start Core on Launch without
   [remote host control](#remote-host-control), or while the host does not answer.
-- Start Core on Launch: there is no local core to start; the host app keeps its
-  own setting.
-- The tray's start, stop and restart: the tray stays a local-core control.
+- Installing the bundled core, and this computer's download source and mirrors,
+  while Remote: they belong to this computer.
 - Agent Configuration, Beginner Mode and Codex tools: machine and agent
   configuration stays local for now.
-- Version Management: it installs a local core binary. Updating the remote
-  host's core through remote host control is not offered yet.
 - Usage, and the Home success rate: reading usage from a remote core would consume
   its usage queue, so no usage is collected in Remote mode.
 - Local folder buttons (credentials, logs) and local plugin file installation.
@@ -159,7 +180,7 @@ Silent Launch is hidden and ignored in Remote mode: it keeps a locally hosted co
 in the tray, and there is none.
 
 Select **Local core** and choose **Use local core** to return to the existing
-local core configuration. Start Core on Launch and Silent Launch keep their
-saved values for Local.
+local core configuration. This computer's Start Core on Launch and Silent Launch
+keep their saved values for Local.
 Change the active connection through the panel; edits to connection fields in
 `config.toml` are only picked up on the next application launch.
