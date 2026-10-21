@@ -57,28 +57,6 @@ pub(crate) fn require_local(config: &GuiConfigFile) -> Result<(), String> {
     }
 }
 
-// The caller holds CORE_OPERATION_LOCK, just like local lifecycle commands.
-pub(crate) fn prepare_remote_transition(process: &crate::CoreProcessState) -> Result<(), String> {
-    let mut child = process
-        .child
-        .lock()
-        .map_err(|_| "Core process lock is poisoned")?;
-    if let Some(owned) = child.as_mut() {
-        if owned
-            .try_wait()
-            .map_err(|_| "Unable to inspect the local core process")?
-            .is_none()
-        {
-            return Err("Stop the GUI-managed local core before switching to Remote".into());
-        }
-        *child = None;
-    }
-    process.recovery.cancel();
-    process.clear_adopted_processes()?;
-    process.set_starting(false);
-    Ok(())
-}
-
 #[tauri::command]
 pub(crate) fn get_core_connection(
     gui_config_state: tauri::State<'_, GuiConfigState>,
@@ -97,9 +75,14 @@ pub(crate) fn save_core_connection(
     } else {
         connection
     };
-    let _operation = crate::lock_core_operation(app.state::<crate::CoreProcessState>().inner())?;
+    let process = app.state::<crate::CoreProcessState>();
+    let _operation = crate::lock_core_operation(process.inner())?;
     if connection.mode == CoreConnectionMode::Remote {
-        prepare_remote_transition(app.state::<crate::CoreProcessState>().inner())?;
+        // Includes adopted processes, matching the managed flag the UI checks.
+        if process.managed_pid().is_some() {
+            return Err("Stop the GUI-managed local core before switching to Remote".into());
+        }
+        process.recovery.cancel();
     }
     let config = gui_config_state.update(|config| {
         config.connection_mode = connection.mode;
