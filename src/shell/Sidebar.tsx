@@ -1,4 +1,5 @@
 import { Lock } from 'lucide-react';
+import { ChannelBadge } from '../components/ChannelBadge';
 import appLogo from '../assets/logo.jpg';
 import { useCoreRuntime } from '../coreRuntime';
 import { useAppUpdate } from '../appUpdate';
@@ -74,7 +75,7 @@ export function Sidebar({ activeId, drawerOpen, onNavigate }: { activeId: string
     }}>
       <a className="ec-brand" href={routeHref('overview')} title="EasyCLIProxyAPI">
         <img src={appLogo} alt="" className="ec-brand-mark" />
-        <strong className="ec-brand-name">EasyCLIProxyAPI</strong>
+        <strong className="ec-brand-name">EasyCLIProxyAPI<ChannelBadge /></strong>
       </a>
       <span className="ec-brand-menu"><AppMenu /></span>
       <nav className="ec-nav" aria-label={t('app.navigation')}>

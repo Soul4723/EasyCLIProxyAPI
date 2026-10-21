@@ -203,7 +203,7 @@ pub(crate) async fn download_and_stage_portable_app_update(
                 task.message = Some("Preparing application update".to_string());
             });
 
-            let staged_app = work_dir.join("staging").join("EasyCLIProxyAPI.app");
+            let staged_app = work_dir.join("staging").join(APP_BUNDLE_NAME);
             stage_macos_application_from_dmg(&archive_path, &work_dir, &staged_app)?;
             validate_macos_staged_application(&staged_app, pending)?;
             let current_exe =
@@ -217,7 +217,7 @@ pub(crate) async fn download_and_stage_portable_app_update(
             let backup_app = current_app
                 .parent()
                 .ok_or_else(|| "macOS application path has no parent directory".to_string())?
-                .join(".EasyCLIProxyAPI.app.update-backup");
+                .join(format!(".{APP_BUNDLE_NAME}.update-backup"));
             let descriptor = MacosUpdateDescriptor {
                 parent_pid: std::process::id(),
                 current_app,

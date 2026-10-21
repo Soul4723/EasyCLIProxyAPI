@@ -10,6 +10,13 @@
 
 use super::*;
 
+#[cfg(any(target_os = "macos", test))]
+const APP_BUNDLE_NAME: &str = env!("APP_BUNDLE_NAME");
+#[cfg(any(target_os = "macos", test))]
+fn require_macos_notarization() -> bool {
+    env!("APP_ALLOW_UNNOTARIZED_UPDATES") != "true"
+}
+
 pub(crate) const PORTABLE_UPDATE_HELPER_ACK_FILE: &str = "update-helper-started.ack";
 const PORTABLE_UPDATE_HELPER_START_TIMEOUT: Duration = Duration::from_secs(10);
 #[tauri::command]

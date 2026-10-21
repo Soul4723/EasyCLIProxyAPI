@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { isTauri, getCurrentWindow } from '../services/platform';
 import { Copy, Minus, Square, X } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { channel } from '../channel';
+import { ChannelBadge } from './ChannelBadge';
 import './WindowFrame.css';
 
 // The browser preview is explicitly opt-in and never affects production builds.
@@ -80,7 +82,9 @@ export function WindowFrame({ children }: { children: ReactNode }) {
     <div className="immersive-window" data-focused={focused}>
       <header className="window-titlebar">
         <div className="window-drag-region" data-tauri-drag-region={!preview ? true : undefined}
-          onDoubleClick={preview ? () => void act('toggleMaximize') : undefined} />
+          onDoubleClick={preview ? () => void act('toggleMaximize') : undefined}>
+          {channel ? <span className="window-title">EasyCLIProxyAPI<ChannelBadge /></span> : null}
+        </div>
         {error ? <span className="window-error" role="alert">{t('app.window.error')}</span> : null}
         <div className="window-controls">
           <button type="button" aria-label={t('app.window.minimize')} title={t('app.window.minimize')}

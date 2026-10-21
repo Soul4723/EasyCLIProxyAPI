@@ -136,3 +136,6 @@ pub(crate) static CODEX_APPLIED_STATES: LazyLock<
 > = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 pub(crate) static CONFIG_WRITE_HASHES: LazyLock<Mutex<std::collections::HashMap<PathBuf, String>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+pub(crate) const APP_RELEASE_REPOSITORY: &str = env!("APP_RELEASE_REPOSITORY");
+pub(crate) const APP_RELEASE_CHANNEL: &str = env!("APP_RELEASE_CHANNEL");

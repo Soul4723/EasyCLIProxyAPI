@@ -464,7 +464,11 @@ impl Default for GuiConfigFile {
             remote_client_key: String::new(),
 
             locale: "en".to_string(),
-            port: 8317,
+            port: match APP_RELEASE_CHANNEL {
+                "beta" => 8318,
+                "dev" => 8319,
+                _ => 8317,
+            },
             allow_lan: false,
             host: "127.0.0.1".to_string(),
             run_on_startup: false,
