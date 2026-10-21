@@ -56,7 +56,11 @@ These stay visible in place but are disabled, with a short reason:
 - Usage, and the Home success rate: reading usage from a remote core would consume
   its usage queue, so no usage is collected in Remote mode.
 - Local folder buttons (credentials, logs) and local plugin file installation.
-- Editing any core setting: remote configuration is shown read-only.
+- Editing any core setting: remote configuration is shown read-only. The app
+  also refuses these writes natively in Remote mode (core settings, keys, TLS,
+  sensitive words, network, retry and routing settings, the advanced editor and
+  model aliases), so they can never touch this computer's core files or the
+  remote core.
 
 Silent Launch is hidden and ignored in Remote mode: it keeps a locally hosted core
 in the tray, and there is none.

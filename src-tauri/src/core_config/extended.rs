@@ -1106,6 +1106,8 @@ pub(crate) fn save_extended_core_config(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     changes: Vec<ExtendedConfigChange>,
 ) -> Result<ExtendedConfigResult, String> {
+    // Local core only: Remote mode shows the remote core's settings read-only.
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let _guard = lock_core_config_file()?;
     let path = core_install_dir()?.join(CORE_CONFIG_FILE);
     let content = fs::read_to_string(&path)
