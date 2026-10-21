@@ -97,6 +97,14 @@ mockIPC(async (cmd, args) => {
     };
   }
   if (cmd === 'get_usage_collector_status') {
+    // App restarted with the core stopped: nothing was collected this session, so the
+    // time comes from the newest stored record seeded at collector start.
+    if (params.get('collector') === 'restarted') {
+      return {
+        state: 'waiting-core', message: 'Waiting for kernel startup',
+        lastCollectedAt: '2026-03-04T12:00:00+00:00', totalRecords: 54,
+      };
+    }
     return {
       state: coreScenario === 'error' ? 'error' : 'collecting',
       message: '', lastCollectedAt: now.toISOString(), totalRecords: 54,

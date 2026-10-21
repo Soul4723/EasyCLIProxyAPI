@@ -653,7 +653,7 @@ export const zhCN = {
   'usage.collector.stopped': '内核已停止 · 采集已暂停',
   'usage.collector.unavailable': '内核不可用 · 采集已暂停',
   'usage.collector.unknown': '内核状态未知 · 仅显示历史记录',
-  'usage.collector.lastCollected': '上次采集 {time}',
+  'usage.collector.lastCollected': '最近记录 {time}',
   'usage.longTermRecords': '{count} 条长期记录',
   'usage.pageLabel': '使用记录页面',
   'usage.tab.overview': '总览',

@@ -558,6 +558,17 @@ impl UsageCollectorState {
         }
     }
 
+    /// Records the stored history at collector start. The newest stored record
+    /// time stands in for the last collection until this session collects again.
+    fn seed_stored_records(&self, total_records: u64, newest_record_at: Option<String>) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.status.total_records = total_records;
+            if inner.status.last_collected_at.is_none() {
+                inner.status.last_collected_at = newest_record_at;
+            }
+        }
+    }
+
     fn apply_record_changes(&self, inserted: usize, deleted: u64) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.status.total_records = inner
@@ -1821,8 +1832,8 @@ fn redis_pull_can_try_legacy_queue(error: &str) -> bool {
 
 pub(crate) fn start_usage_collector(app: tauri::AppHandle) {
     let state = app.state::<UsageCollectorState>();
-    if let Ok(total_records) = total_usage_records() {
-        state.set_total_records(total_records);
+    if let Ok((total_records, newest_record_at)) = stored_usage_summary() {
+        state.seed_stored_records(total_records, newest_record_at);
     }
     let Some(token) = state.start() else {
         return;
@@ -2246,18 +2257,34 @@ fn set_collector_status(
     last_collected_at: Option<String>,
 ) {
     let state = app.state::<UsageCollectorState>();
-    let previous = state.status().ok();
+    let status = next_collector_status(
+        state.status().ok(),
+        state_name,
+        message,
+        last_collected_at,
+    );
+    state.set_status(status);
+}
+
+/// Carries the record count and last collection time over from `previous`
+/// unless a newer time is given.
+fn next_collector_status(
+    previous: Option<UsageCollectorStatus>,
+    state_name: &str,
+    message: &str,
+    last_collected_at: Option<String>,
+) -> UsageCollectorStatus {
     let total_records = previous
         .as_ref()
         .map(|value| value.total_records)
         .unwrap_or(0);
-    state.set_status(UsageCollectorStatus {
+    UsageCollectorStatus {
         state: state_name.to_string(),
         message: message.to_string(),
         last_collected_at: last_collected_at
             .or_else(|| previous.and_then(|value| value.last_collected_at)),
         total_records,
-    });
+    }
 }
 
 fn persist_queue_items_from_source(
@@ -4599,14 +4626,26 @@ fn usage_record_from_row(row: &Row<'_>) -> rusqlite::Result<UsageRecord> {
     })
 }
 
-fn total_usage_records() -> Result<u64, String> {
-    let connection = open_usage_database()?;
-    connection
-        .query_row("SELECT COUNT(*) FROM usage_events", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .map(from_sql_i64)
-        .map_err(|error| format!("Failed to count total SQLite usage records: {error}"))
+fn stored_usage_summary() -> Result<(u64, Option<String>), String> {
+    stored_usage_summary_in(&open_usage_database()?)
+}
+
+/// Counts stored records and finds the newest one's time. `MAX(timestamp_ms)`
+/// is answered by `idx_usage_events_timestamp`, so it adds no table scan.
+fn stored_usage_summary_in(connection: &Connection) -> Result<(u64, Option<String>), String> {
+    let (total, newest_ms) = connection
+        .query_row(
+            "SELECT COUNT(*), MAX(timestamp_ms) FROM usage_events",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .map_err(|error| format!("Failed to summarize SQLite usage records: {error}"))?;
+    // Events whose timestamp could not be parsed are stored as 0.
+    let newest_record_at = newest_ms
+        .filter(|millis| *millis > 0)
+        .and_then(DateTime::from_timestamp_millis)
+        .map(|timestamp| timestamp.with_timezone(&Local).to_rfc3339());
+    Ok((from_sql_i64(total), newest_record_at))
 }
 
 fn query_window_minutes(query: &UsageQuery, first: Option<i64>, last: Option<i64>) -> f64 {
@@ -5047,6 +5086,88 @@ mod tests {
 
         state.apply_record_changes(0, 100);
         assert_eq!(state.status().unwrap().total_records, 0);
+    }
+
+    #[test]
+    fn collector_start_seeds_last_collected_from_newest_stored_record() {
+        let root = test_root("seed-last-collected");
+        let mut connection = open_test_database(&root);
+        insert_usage_records(
+            &mut connection,
+            &[
+                sample_record("older", "2026-10-10T00:00:00Z", "model"),
+                sample_record("newest", "2026-10-12T08:30:00Z", "model"),
+                sample_record("middle", "2026-10-11T00:00:00Z", "model"),
+            ],
+        )
+        .unwrap();
+
+        let (total, newest) = stored_usage_summary_in(&connection).unwrap();
+        let state = UsageCollectorState::default();
+        state.seed_stored_records(total, newest);
+
+        let status = state.status().unwrap();
+        assert_eq!(status.total_records, 3);
+        let seeded = DateTime::parse_from_rfc3339(&status.last_collected_at.unwrap()).unwrap();
+        assert_eq!(
+            seeded.timestamp_millis(),
+            parse_timestamp_millis("2026-10-12T08:30:00Z").unwrap()
+        );
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collector_start_without_stored_records_has_no_last_collected() {
+        let root = test_root("seed-last-collected-empty");
+        let mut connection = open_test_database(&root);
+
+        let (total, newest) = stored_usage_summary_in(&connection).unwrap();
+        assert_eq!((total, newest.as_deref()), (0, None));
+
+        // Events whose timestamp could not be parsed are stored as 0 and are not a time.
+        insert_usage_records(
+            &mut connection,
+            &[sample_record("unparsable", "not a timestamp", "model")],
+        )
+        .unwrap();
+        let (total, newest) = stored_usage_summary_in(&connection).unwrap();
+        assert_eq!((total, newest.as_deref()), (1, None));
+
+        let state = UsageCollectorState::default();
+        state.seed_stored_records(total, newest);
+        assert!(state.status().unwrap().last_collected_at.is_none());
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collecting_after_start_updates_the_seeded_last_collected() {
+        let state = UsageCollectorState::default();
+        let seeded = "2026-10-12T08:30:00+00:00".to_string();
+        state.seed_stored_records(3, Some(seeded.clone()));
+
+        // Status changes without a new collection keep the seeded time.
+        let waiting = next_collector_status(state.status().ok(), "waiting-core", "Waiting", None);
+        assert_eq!(waiting.last_collected_at.as_deref(), Some(seeded.as_str()));
+        assert_eq!(waiting.total_records, 3);
+        state.set_status(waiting);
+
+        let collected = "2026-10-20T12:00:00+00:00".to_string();
+        let collecting = next_collector_status(
+            state.status().ok(),
+            "collecting",
+            "Saved 1 usage record",
+            Some(collected.clone()),
+        );
+        assert_eq!(collecting.last_collected_at.as_deref(), Some(collected.as_str()));
+        state.set_status(collecting);
+
+        // A later restart of the collector does not move the time back to the database value.
+        state.seed_stored_records(4, Some(seeded));
+        let status = state.status().unwrap();
+        assert_eq!(status.last_collected_at.as_deref(), Some(collected.as_str()));
+        assert_eq!(status.total_records, 4);
     }
 
     fn test_root(name: &str) -> PathBuf {
