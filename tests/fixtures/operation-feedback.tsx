@@ -2,6 +2,7 @@ import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { FloatingNotice, MessageNotice, useAppNotice } from '../../src/appNotice';
 import { UsageRecordsPage } from '../../src/pages/UsageRecordsPage';
 import { AgentConfigurationFeedback } from '../../src/pages/AgentControls';
@@ -29,6 +30,10 @@ const fixture = window as typeof window & { feedbackFixture: { failSync: boolean
 fixture.feedbackFixture = { failSync: false };
 mockIPC(async (cmd) => {
   if (cmd === 'set_app_locale') return null;
+  if (cmd === 'get_core_status') return {
+    installed: true, running: true, ready: true, starting: false, managed: true,
+    processId: 42817, currentVersion: '7.3.15', installDir: '', binaryPath: null, message: 'Fixture core is running',
+  };
   if (cmd === 'get_usage_collector_status') return { state: 'collecting', totalRecords: 1 };
   if (cmd === 'get_usage_analysis') return { models: [], providers: [], sources: [], apiKeys: [] };
   if (cmd === 'get_usage_pricing') return {
@@ -92,6 +97,6 @@ function Fixture() {
     </Dialog>}
   </main>;
 }
-createRoot(document.getElementById('root')!).render(<StrictMode><I18nProvider>
+createRoot(document.getElementById('root')!).render(<StrictMode><I18nProvider><CoreRuntimeProvider>
   {params.get('scenario') === 'pricing' ? <UsageRecordsPage /> : <Fixture />}
-</I18nProvider></StrictMode>);
+</CoreRuntimeProvider></I18nProvider></StrictMode>);

@@ -63,9 +63,17 @@
   max-width: 100%;
 }
 
+.usage-collector-state > strong {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .usage-collector-state > span:last-child {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 1;
+  white-space: nowrap;
 }
 
 .usage-section-heading {
