@@ -94,8 +94,5 @@ export const showPluginWebview = (args: { pluginId: string; menuIndex: number; b
     return url;
   });
 export const setPluginWebviewBounds = (bounds: WebviewBounds, token: number, force = false) => boundsUpdater.update(bounds, token, force);
-export const hidePluginWebview = async (token: number) => {
-  await invoke('hide_plugin_webview', { token });
-  await invoke('close_plugin_webview', { token });
-};
+export const hidePluginWebview = (token: number) => invoke('hide_plugin_webview', { token });
 export const closePluginWebview = () => invoke('close_plugin_webview');
