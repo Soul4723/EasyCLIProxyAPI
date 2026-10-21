@@ -22,6 +22,12 @@ fn app_update_comparison_uses_semantic_versions() {
     assert!(is_app_update_available("v0.2.0-beta.1", "v0.2.0").unwrap());
     assert!(!is_app_update_available("v0.2.0", "v0.2.0").unwrap());
     assert!(!is_app_update_available("v0.2.0", "v0.1.9").unwrap());
+    for channel in ["fork", "beta", "dev"] {
+        let version = |base: &str, n| format!("{base}-{channel}.{n}");
+        assert!(is_app_update_available(&version("0.3.50", 9), &version("0.3.50", 10)).unwrap());
+        assert!(!is_app_update_available(&version("0.3.50", 10), &version("0.3.50", 9)).unwrap());
+        assert!(is_app_update_available(&version("0.3.50", 99), &version("0.3.51", 1)).unwrap());
+    }
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
@@ -442,7 +448,7 @@ fn portable_update_test_manifest(version: &str) -> PortableUpdateManifest {
         published_at: "2026-07-24T00:00:00.000Z".to_string(),
         release_notes: HashMap::new(),
         release_url: format!(
-            "https://github.com/router-for-me/EasyCLIProxyAPI/releases/tag/v{version}"
+            "https://github.com/{APP_RELEASE_REPOSITORY}/releases/tag/v{version}"
         ),
         assets: [
             (
@@ -1379,4 +1385,15 @@ fn release_asset_names_cover_the_six_supported_gui_targets() {
             format!("CLIProxyAPI_7.2.83_{os}_{arch}.{archive_kind}")
         );
     }
+}
+
+#[test]
+fn portable_update_rejects_another_repository() {
+    let mut manifest = portable_update_test_manifest("1.2.3-dev.10");
+    validate_portable_update_manifest(&manifest).unwrap();
+    manifest.release_url = "https://github.com/untrusted/repo/releases/tag/v1.2.3-dev.10".into();
+    assert!(validate_portable_update_manifest(&manifest).is_err());
+    let mut asset = portable_update_test_asset("1.2.3-dev.10", "amd64");
+    asset.url = asset.url.replace(APP_RELEASE_REPOSITORY, "untrusted/repo");
+    assert!(validate_portable_update_asset(&asset).is_err());
 }

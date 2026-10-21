@@ -30,6 +30,14 @@
   min-width: 0;
 }
 
+.window-title {
+  display: block;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: var(--window-titlebar-height);
+  pointer-events: none;
+}
+
 .immersive-window[data-focused='false'] .window-controls { color: var(--text-disabled); }
 .window-error { align-self: center; font-size: 11px; color: var(--error-color); }
 .window-controls { display: flex; flex-shrink: 0; }

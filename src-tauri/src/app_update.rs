@@ -1,5 +1,12 @@
 use super::*;
 
+#[cfg(any(target_os = "macos", test))]
+const APP_BUNDLE_NAME: &str = env!("APP_BUNDLE_NAME");
+#[cfg(any(target_os = "macos", test))]
+fn require_macos_notarization() -> bool {
+    env!("APP_ALLOW_UNNOTARIZED_UPDATES") != "true"
+}
+
 pub(crate) const PORTABLE_UPDATE_HELPER_ACK_FILE: &str = "update-helper-started.ack";
 const PORTABLE_UPDATE_HELPER_START_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -468,7 +475,7 @@ pub(crate) fn validate_portable_update_manifest(
         || release_url.fragment().is_some()
         || !release_url
             .path()
-            .starts_with("/router-for-me/EasyCLIProxyAPI/releases/tag/v")
+            .starts_with(&format!("/{APP_RELEASE_REPOSITORY}/releases/tag/v"))
     {
         return Err("Untrusted application update release URL".to_string());
     }
@@ -950,7 +957,7 @@ pub(crate) async fn download_and_stage_portable_app_update(
                 task.message = Some("Preparing application update".to_string());
             });
 
-            let staged_app = work_dir.join("staging").join("EasyCLIProxyAPI.app");
+            let staged_app = work_dir.join("staging").join(APP_BUNDLE_NAME);
             stage_macos_application_from_dmg(&archive_path, &work_dir, &staged_app)?;
             validate_macos_staged_application(&staged_app, pending)?;
             let current_exe =
@@ -964,7 +971,7 @@ pub(crate) async fn download_and_stage_portable_app_update(
             let backup_app = current_app
                 .parent()
                 .ok_or_else(|| "macOS application path has no parent directory".to_string())?
-                .join(".EasyCLIProxyAPI.app.update-backup");
+                .join(format!(".{APP_BUNDLE_NAME}.update-backup"));
             let descriptor = MacosUpdateDescriptor {
                 parent_pid: std::process::id(),
                 current_app,
@@ -2289,10 +2296,10 @@ pub(crate) fn stage_macos_application_from_dmg_with_commands(
         .arg(&mount_dir);
     run(&mut attach, "Mount application update DMG")?;
 
-    let source_app = mount_dir.join("EasyCLIProxyAPI.app");
+    let source_app = mount_dir.join(APP_BUNDLE_NAME);
     let stage_result = (|| -> Result<(), String> {
         if !source_app.is_dir() {
-            return Err("Application update DMG is missing EasyCLIProxyAPI.app".to_string());
+            return Err(format!("Application update DMG is missing {APP_BUNDLE_NAME}"));
         }
         let staging_parent = staged_app
             .parent()
@@ -2307,11 +2314,14 @@ pub(crate) fn stage_macos_application_from_dmg_with_commands(
             .args(["--verify", "--deep", "--strict"])
             .arg(staged_app);
         run(&mut codesign, "Verify new macOS application signature")?;
-        let mut gatekeeper = Command::new("spctl");
-        gatekeeper
-            .args(["--assess", "--type", "execute", "--verbose=2"])
-            .arg(staged_app);
-        run(&mut gatekeeper, "Verify new macOS application system trust status")
+        if require_macos_notarization() {
+            let mut gatekeeper = Command::new("spctl");
+            gatekeeper
+                .args(["--assess", "--type", "execute", "--verbose=2"])
+                .arg(staged_app);
+            run(&mut gatekeeper, "Verify new macOS application system trust status")?;
+        }
+        Ok(())
     })();
 
     match eject_macos_update_dmg_with_commands(&mount_dir, &mut run, &mut wait) {
@@ -2473,7 +2483,7 @@ pub(crate) fn validate_macos_update_descriptor(
         .current_app
         .parent()
         .ok_or_else(|| "Invalid macOS application update target path".to_string())?;
-    if descriptor.backup_app != app_parent.join(".EasyCLIProxyAPI.app.update-backup")
+    if descriptor.backup_app != app_parent.join(format!(".{APP_BUNDLE_NAME}.update-backup"))
         || descriptor.executable_relative_path.is_absolute()
         || descriptor
             .executable_relative_path
@@ -2510,7 +2520,7 @@ pub(crate) fn validate_macos_update_descriptor(
             != descriptor
                 .work_dir
                 .join("staging")
-                .join("EasyCLIProxyAPI.app")
+                .join(APP_BUNDLE_NAME)
         || !canonical_staged_app.starts_with(&canonical_work_dir)
         || descriptor.ack_path != descriptor.work_dir.join("update-started.ack")
     {
@@ -2551,7 +2561,7 @@ pub(crate) fn replace_macos_application(descriptor: &MacosUpdateDescriptor) -> R
         .current_app
         .parent()
         .ok_or_else(|| "Invalid macOS application update target path".to_string())?;
-    let replacement_app = app_parent.join(".EasyCLIProxyAPI-update-new.app");
+    let replacement_app = app_parent.join(format!(".{APP_BUNDLE_NAME}.update-new.app"));
     let legacy_replacement_app = app_parent.join(".EasyCLIProxyAPI.app.update-new");
     if legacy_replacement_app.exists() {
         fs::remove_dir_all(&legacy_replacement_app)
@@ -2573,15 +2583,17 @@ pub(crate) fn replace_macos_application(descriptor: &MacosUpdateDescriptor) -> R
         let _ = fs::remove_dir_all(&replacement_app);
         return Err(error);
     }
-    let mut gatekeeper = Command::new("spctl");
-    gatekeeper
-        .args(["--assess", "--type", "execute", "--verbose=2"])
-        .arg(&replacement_app);
-    if let Err(error) =
-        run_macos_update_command(&mut gatekeeper, "Verify replacement macOS application system trust status")
-    {
-        let _ = fs::remove_dir_all(&replacement_app);
-        return Err(error);
+    if require_macos_notarization() {
+        let mut gatekeeper = Command::new("spctl");
+        gatekeeper
+            .args(["--assess", "--type", "execute", "--verbose=2"])
+            .arg(&replacement_app);
+        if let Err(error) =
+            run_macos_update_command(&mut gatekeeper, "Verify replacement macOS application system trust status")
+        {
+            let _ = fs::remove_dir_all(&replacement_app);
+            return Err(error);
+        }
     }
     if descriptor.backup_app.exists() {
         fs::remove_dir_all(&descriptor.backup_app)

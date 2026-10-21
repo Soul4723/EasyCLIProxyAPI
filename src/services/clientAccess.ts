@@ -1,3 +1,4 @@
+import { defaultCorePort } from '../channel';
 import { getCurrentLocale, translate } from '../i18n';
 
 export type ClientApiProfile = {
@@ -8,7 +9,7 @@ export type ClientApiProfile = {
 };
 
 const safeLocalPort = (port: number) =>
-  Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 8317;
+  Number.isInteger(port) && port >= 1 && port <= 65535 ? port : defaultCorePort;
 
 const normalizedConnectHost = (listenHost: string) => {
   const host = listenHost.trim().replace(/^\[|\]$/g, '');
