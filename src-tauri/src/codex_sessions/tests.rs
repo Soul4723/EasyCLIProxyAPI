@@ -735,3 +735,58 @@
         assert!(root.join("session_index.jsonl").is_file());
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn read_only_scans_do_not_wait_for_the_target_fence() {
+        let root = test_root("read-only-fence-free");
+        let rollout = root.join("sessions/2026/rollout.jsonl");
+        fs::create_dir_all(rollout.parent().unwrap()).unwrap();
+        fs::write(&rollout, "{}\n").unwrap();
+        create_threads_db(&root.join("state_5.sqlite"), &rollout);
+        let state = std::sync::Arc::new(crate::GuiConfigState::new(
+            crate::GuiConfigFile::default(),
+        ));
+        let expected = state.snapshot().unwrap();
+        // Another target operation (a management request, a plugin toggle) holds the fence.
+        let fence = state.blocking_target_operation(&expected).unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker_state = state.clone();
+        let worker_root = root.clone();
+        let worker_expected = expected.clone();
+        std::thread::spawn(move || {
+            let listed = read_without_target_fence(&worker_state, &worker_expected, || {
+                list_codex_sessions_from_home(&worker_root, 0, 10)
+            });
+            let previewed = read_without_target_fence(&worker_state, &worker_expected, || {
+                preview_session_index_cleanup_from_home(&worker_root)
+            });
+            let _ = sender.send((listed.map(|page| page.sessions.len()), previewed.is_ok()));
+        });
+        let finished = receiver.recv_timeout(Duration::from_secs(10));
+        drop(fence);
+        let (listed, previewed) = finished.expect("read-only scans must not wait for the fence");
+        assert_eq!(listed.unwrap(), 1);
+        assert!(previewed);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fence_free_scan_is_discarded_when_the_target_changes_during_it() {
+        let state = crate::GuiConfigState::new(crate::GuiConfigFile::default());
+        let expected = state.snapshot().unwrap();
+        let result = read_without_target_fence(&state, &expected, || {
+            let mut remote = expected.clone();
+            remote.connection_mode = crate::CoreConnectionMode::Remote;
+            state.replace_external(remote).unwrap();
+            Ok("computed for the old target")
+        });
+        assert!(result.unwrap_err().contains("Core connection changed"));
+        // A scan started after the switch, for the stale target, never runs.
+        let ran = std::cell::Cell::new(false);
+        assert!(read_without_target_fence(&state, &expected, || {
+            ran.set(true);
+            Ok(())
+        })
+        .is_err());
+        assert!(!ran.get());
+    }

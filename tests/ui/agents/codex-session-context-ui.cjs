@@ -191,7 +191,7 @@ runUi(async ({ base }) => {
     for (const count of [43, 1000]) {
       await page.evaluate(next => { window.fixtureSessionMessageCount = next; }, count);
       await panel.getByRole('button', { name: 'Reload', exact: true }).click();
-      await page.waitForFunction(next => document.querySelectorAll('.ec-side-panel .ses-msg').length === next, count);
+      await page.waitForFunction(next => document.querySelectorAll('.ec-side-panel .ses-msg').length === next, Math.min(count, 200));
       for (const width of [1600, 640]) {
         await page.setViewportSize({ width, height: 800 });
         for (const [index, role] of ['all', 'user', 'assistant', 'reasoning', 'tool'].entries()) {
@@ -215,7 +215,45 @@ runUi(async ({ base }) => {
       });
       assert.ok(lastCardFits, 'The last message must be reachable by scrolling');
     }
+
+    // Paging: a long transcript opens with the first 200 messages; "Load more" appends the next page and keeps staged edits,
+    // including the removal of a tool record whose partner (same call id) sits on a page that is not loaded yet.
     await page.setViewportSize({ width: 1600, height: 1100 });
+    const cards = panel.locator('.ses-msg:not(.ses-msg--new)');
+    const loadMore = panel.getByRole('button', { name: /^Load more messages/ });
+    const cardFor = line => panel.locator('.ses-msg', { has: page.locator('.ses-line', { hasText: new RegExp(`^#${line}$`) }) });
+    const lastRead = async () => (await calls('get_codex_session_context')).at(-1).request;
+    assert.equal(await cards.count(), 200);
+    assert.match(await loadMore.innerText(), /200 of 1,?000 loaded/);
+    assert.match(await panel.locator('.ec-filters').first().locator('.ec-filters__chip').first().innerText(), /1,?000/);
+    assert.deepEqual(Object.keys(await lastRead()), ['sessionId']);
+    // Filters only cover what is loaded, and say so.
+    await panel.locator('.ec-filters').first().locator('.ec-filters__chip').nth(1).click();
+    await panel.locator('.ses-load-more .ses-empty-line').waitFor();
+    await panel.locator('.ec-filters').first().locator('.ec-filters__chip').first().click();
+    assert.equal(await panel.locator('.ses-load-more .ses-empty-line').count(), 0);
+    await cardFor(4).getByRole('button', { name: 'Remove Message', exact: true }).click();
+    assert.match(await panel.locator('.ses-foot').innerText(), /Changes · 2/);
+    // A page of a rollout that changed on disk is refused instead of being mixed in.
+    await page.evaluate(() => { window.fixtureLayoutSha = 'sha-changed'; });
+    await loadMore.click();
+    await panel.locator('.ses-notice--error', { hasText: 'changed on disk' }).waitFor();
+    assert.equal(await cards.count(), 200);
+    await page.evaluate(() => { delete window.fixtureLayoutSha; });
+    await loadMore.click();
+    await page.waitForFunction(() => document.querySelectorAll('.ec-side-panel .ses-msg').length === 400);
+    assert.deepEqual(await lastRead(), { sessionId: (await lastRead()).sessionId, messageOffset: 200, messageLimit: 200 });
+    assert.equal(await cardFor(4).evaluate(card => card.classList.contains('ses-msg--deleted')), true);
+    while (await loadMore.count()) {
+      const before = await cards.count();
+      await loadMore.click();
+      await page.waitForFunction(previous => document.querySelectorAll('.ec-side-panel .ses-msg').length > previous, before);
+    }
+    assert.equal(await cards.count(), 1000);
+    // The partner arrived with its page and is already staged for removal; the edit count did not change.
+    assert.equal(await cardFor(404).evaluate(card => card.classList.contains('ses-msg--deleted')), true);
+    assert.equal(await panel.locator('.ses-msg--deleted').count(), 2);
+    assert.match(await panel.locator('.ses-foot').innerText(), /Changes · 2/);
     await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
     await setLocale('zh-CN');
     await panel.locator('.ec-filters').first().locator('.ec-filters__chip').nth(2).click();
@@ -223,6 +261,6 @@ runUi(async ({ base }) => {
 
     assert.deepEqual(errors, []);
     assert.deepEqual(externalRequests, []);
-    console.log('PASS: No context preloading; one target read on entry; collapsed metadata; saves, draft guards, themes and unclipped 43/1000-message lists.');
+    console.log('PASS: No context preloading; one target read on entry; collapsed metadata; saves, draft guards, themes and unclipped 43/1000-message lists, and paged loading of long transcripts.');
   } finally { await browser?.close(); }
 }, { url: process.env.AGENT_TEST_URL });
