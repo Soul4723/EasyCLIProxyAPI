@@ -39,7 +39,13 @@ fn copilot_probe_output(executable: &Path, home: &Path, args: &[&str]) -> Option
     configure_agent_command_environment(&mut command, home, executable).ok()?;
     // No input is provided to installation shims; only a successful, explicit
     // identity response counts. Do not accept prompts, generic versions or stderr.
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(5)).ok()??;
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(5)).ok()? {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => {
+            log_probe_timeout("Copilot CLI version", &timeout);
+            return None;
+        }
+    };
     output
         .status
         .success()
