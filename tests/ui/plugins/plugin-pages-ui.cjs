@@ -71,14 +71,30 @@ runUiTest('plugin pages', async ({ base, newPage }) => {
   // --- route page: header + host fills the main area; the native view covers it
   const hole = page.locator('[data-mock-plugin-webview]');
   const pluginPage = page.locator('section.ec-plugin-page');
-  const aligned = () => page.waitForFunction(() => {
-    const placeholder = document.querySelector('[data-mock-plugin-webview]');
-    const host = document.querySelector('[data-testid=plugin-host]');
-    if (!placeholder || !host || placeholder.hidden) return false;
-    const a = placeholder.getBoundingClientRect();
-    const b = host.getBoundingClientRect();
-    return [a.left - b.left, a.top - b.top, a.width - b.width, a.height - b.height].every((delta) => Math.abs(delta) <= 1);
-  });
+  const aligned = async () => {
+    try {
+      await page.waitForFunction(() => {
+        const placeholder = document.querySelector('[data-mock-plugin-webview]');
+        const host = document.querySelector('[data-testid=plugin-host]');
+        if (!placeholder || !host || placeholder.hidden) return false;
+        const a = placeholder.getBoundingClientRect();
+        const b = host.getBoundingClientRect();
+        return [a.left - b.left, a.top - b.top, a.width - b.width, a.height - b.height].every((delta) => Math.abs(delta) <= 1);
+      });
+    } catch (error) {
+      const geometry = await page.evaluate(() => {
+        const placeholder = document.querySelector('[data-mock-plugin-webview]');
+        const host = document.querySelector('[data-testid=plugin-host]');
+        const rect = (element) => {
+          if (!element) return null;
+          const { x, y, width, height, left, top, right, bottom } = element.getBoundingClientRect();
+          return { x, y, width, height, left, top, right, bottom };
+        };
+        return { hidden: placeholder?.hidden, placeholderStyle: placeholder?.getAttribute('style'), placeholder: rect(placeholder), host: rect(host), viewport: { width: innerWidth, height: innerHeight } };
+      });
+      throw new Error(`${error.message}; plugin webview geometry: ${JSON.stringify(geometry)}`);
+    }
+  };
   const hidden = () => page.waitForFunction(() => document.querySelector('[data-mock-plugin-webview]')?.hidden === true);
   const resize = async (size) => { await page.setViewportSize(size); await frames(page); };
   await entries(page).first().click();
