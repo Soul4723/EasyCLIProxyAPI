@@ -1,4 +1,4 @@
-// Stable builds leave VITE_CHANNEL unset, so they keep the unmodified branding.
+// Main builds leave VITE_CHANNEL unset or set to main, so they keep the unmodified branding.
 const value = import.meta.env.VITE_CHANNEL;
 export const channel: 'dev' | 'beta' | null = value === 'dev' || value === 'beta' ? value : null;
 

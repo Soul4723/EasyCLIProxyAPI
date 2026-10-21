@@ -11,8 +11,8 @@ fn main() {
         && part.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))),
         "APP_RELEASE_REPOSITORY must be owner/repository");
     let channel = std::env::var("APP_RELEASE_CHANNEL").unwrap_or_default();
-    assert!(matches!(channel.as_str(), "" | "stable" | "beta" | "dev"),
-        "APP_RELEASE_CHANNEL must be stable, beta or dev");
+    assert!(matches!(channel.as_str(), "" | "main" | "beta" | "dev"),
+        "APP_RELEASE_CHANNEL must be main, beta or dev");
     let (identifier, product) = match channel.as_str() {
         "dev" => ("com.cpa.gui.dev", "EasyCLIProxyAPI [DEV]"),
         "beta" => ("com.cpa.gui.beta", "EasyCLIProxyAPI [BETA]"),

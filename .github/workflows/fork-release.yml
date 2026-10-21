@@ -1,16 +1,16 @@
 name: Fork channel release
-run-name: Fork ${{ inputs.channel || (github.ref_name == 'dev' && 'dev') || (github.ref_name == 'staging' && 'beta') || 'stable' }} release (draft=${{ github.event_name != 'workflow_dispatch' || inputs.draft }})
+run-name: Fork ${{ inputs.channel || (github.ref_name == 'dev' && 'dev') || (github.ref_name == 'beta' && 'beta') || 'main' }} release (draft=${{ github.event_name != 'workflow_dispatch' || inputs.draft }})
 
 on:
   push:
-    branches: [main, staging, dev]
+    branches: [main, beta, dev]
   workflow_dispatch:
     inputs:
       channel:
-        description: Release channel (stable=main, beta=staging, dev=dev)
+        description: Release channel (main=main, beta=beta, dev=dev)
         type: choice
-        options: [stable, beta, dev]
-        default: stable
+        options: [main, beta, dev]
+        default: main
         required: true
       source_ref:
         description: Source branch/tag/SHA; empty uses the channel branch. Overrides are draft-only.
@@ -25,7 +25,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: fork-release-${{ inputs.channel || (github.ref_name == 'dev' && 'dev') || (github.ref_name == 'staging' && 'beta') || 'stable' }}
+  group: fork-release-${{ inputs.channel || (github.ref_name == 'dev' && 'dev') || (github.ref_name == 'beta' && 'beta') || 'main' }}
   cancel-in-progress: false
 
 env:
@@ -57,15 +57,15 @@ jobs:
           set -euo pipefail
           if [ -z "$CHANNEL" ]; then
             case "$GITHUB_REF_NAME" in
-              main) CHANNEL=stable ;;
-              staging) CHANNEL=beta ;;
+              main) CHANNEL=main ;;
+              beta) CHANNEL=beta ;;
               dev) CHANNEL=dev ;;
               *) exit 1 ;;
             esac
           fi
           case "$CHANNEL" in
-            stable) branch=main ;;
-            beta) branch=staging ;;
+            main) branch=main ;;
+            beta) branch=beta ;;
             dev) branch=dev ;;
             *) exit 1 ;;
           esac
@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
           base="$(node scripts/fork-release.mjs --base-version)"
           suffix="$CHANNEL"
-          if [ "$CHANNEL" = stable ]; then suffix=fork; fi
+          if [ "$CHANNEL" = main ]; then suffix=fork; fi
           version="${base}-${suffix}.${GITHUB_RUN_NUMBER}"
           node scripts/version.mjs "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -253,7 +253,7 @@ jobs:
           set -euo pipefail
           args=(--repo Soul4723/EasyCLIProxyAPI --verify-tag --target "$SOURCE_SHA" --title "$RELEASE_TAG ($CHANNEL)" --notes-file "$RUNNER_TEMP/notes.md" --latest=false)
           if [ "$DRAFT" = true ]; then args+=(--draft); fi
-          if [ "$CHANNEL" != stable ]; then args+=(--prerelease); fi
+          if [ "$CHANNEL" != main ]; then args+=(--prerelease); fi
           # Never clobber versioned packages: reruns must not replace shipped bytes.
           gh release create "$RELEASE_TAG" "${args[@]}" artifacts/*
           echo "Release: $RELEASE_TAG (draft=$DRAFT)" >> "$GITHUB_STEP_SUMMARY"

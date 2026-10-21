@@ -1,6 +1,6 @@
-// Usage: node scripts/channel.mjs stable|beta|dev
+// Usage: node scripts/channel.mjs main|beta|dev
 // Writes the git-ignored src-tauri/tauri.channel.conf.json overlay (and recoloured icons) for
-// `tauri build --config src-tauri/tauri.channel.conf.json`. Stable writes an empty overlay.
+// `tauri build --config src-tauri/tauri.channel.conf.json`. Main writes an empty overlay.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -14,13 +14,13 @@ const overlayPath = join(tauriDir, 'tauri.channel.conf.json');
 const channels = { dev: 'DEV', beta: 'BETA' };
 
 const name = process.argv[2];
-if (name !== 'stable' && !channels[name]) {
-  console.error('Usage: node scripts/channel.mjs stable|beta|dev');
+if (name !== 'main' && !channels[name]) {
+  console.error('Usage: node scripts/channel.mjs main|beta|dev');
   process.exit(1);
 }
 
 function writeOverlay() {
-  if (name === 'stable') return {};
+  if (name === 'main') return {};
   const label = channels[name];
   const base = JSON.parse(readFileSync(join(tauriDir, 'tauri.conf.json'), 'utf8'));
   const productName = `${base.productName} [${label}]`;
