@@ -250,7 +250,12 @@ pub(super) fn terminate_agent_probe_process(
             .expect("probe child is present before taskkill")
             .id()
             .to_string();
-        let mut command = Command::new("taskkill");
+        let taskkill = std::env::var_os("SystemRoot")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
+            .join("System32")
+            .join("taskkill.exe");
+        let mut command = Command::new(taskkill);
         command
             .args(["/PID", &process_id, "/T", "/F"])
             .stdin(Stdio::null())

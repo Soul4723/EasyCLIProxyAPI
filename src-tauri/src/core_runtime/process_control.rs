@@ -314,7 +314,12 @@ pub(crate) fn terminate_process_id(process_id: u32) -> Result<(), String> {
         if unsafe { WaitForSingleObject(raw_handle, 0) } == WAIT_OBJECT_0 {
             return Ok(());
         }
-        let mut command = Command::new("taskkill");
+        let taskkill = std::env::var_os("SystemRoot")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
+            .join("System32")
+            .join("taskkill.exe");
+        let mut command = Command::new(taskkill);
         command
             .args(["/PID", &process_id.to_string(), "/T", "/F"])
             .stdin(Stdio::null())
