@@ -31,6 +31,7 @@ import {
   ServerCog,
   Settings,
   Sprout,
+  Unplug,
   X,
 } from 'lucide-react';
 import appLogo from './assets/logo.jpg';
@@ -401,7 +402,7 @@ function AppContent() {
                       .join(' ')}
                     aria-current={page.id === active ? 'page' : undefined}
                     disabled={locked}
-                    title={remoteDisabled(page.id) ? t('connection.remoteDisabled') : locked ? t('app.nav.lockedHint') : undefined}
+                    title={remoteDisabled(page.id) ? t('connection.remoteDisabledTitle') : locked ? t('app.nav.lockedHint') : undefined}
                     onClick={() => select(page.id)}
                   >
                     <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -454,7 +455,7 @@ function AppContent() {
                   type="button"
                   className="sidebar-link sidebar-easy-entry"
                   disabled={localBlocked}
-                  title={localBlocked ? t('connection.remoteDisabled') : undefined}
+                  title={localBlocked ? t('connection.remoteDisabledTitle') : undefined}
                   onClick={() => select('easy')}
                 >
                   <Sprout size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -555,7 +556,7 @@ function AppContent() {
         <div className="workspace">
           <main className="content">
             {remoteDisabled(active) ? (
-              <section className="page"><EmptyState>{t('connection.remoteDisabled')}</EmptyState></section>
+              <RemoteUnavailablePage />
             ) : !canOpenAppPage(active, coreReady) ? (
               <CoreLockedPage />
             ) : pluginEntry ? (
@@ -647,6 +648,17 @@ function AppContent() {
 
       <AppUpdateDialog />
     </>
+  );
+}
+
+function RemoteUnavailablePage() {
+  const { t } = useI18n();
+  return (
+    <section className="page core-locked-page">
+      <EmptyState variant="box" icon={<Unplug size={26} />} title={t('connection.remoteDisabledTitle')}>
+        {t('connection.remoteDisabled')}
+      </EmptyState>
+    </section>
   );
 }
 

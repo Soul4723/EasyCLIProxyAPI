@@ -5,7 +5,7 @@ import { getCoreConfigSettings, getCoreTlsSettings } from '../services/coreSetti
 import { getGuiSettings } from '../services/appSettings';
 import { useEffect, useRef, useState } from 'react';
 import { getVersion } from '../services/platform';
-import { LoaderCircle, Play, RefreshCw, RotateCw, Square } from 'lucide-react';
+import { LoaderCircle, Play, RefreshCw, RotateCw, Settings, Square } from 'lucide-react';
 import { useCoreRuntime } from '../coreRuntime';
 import { clientApiProfiles } from '../services/clientAccess';
 import { useI18n } from '../i18n';
@@ -15,6 +15,7 @@ import { VersionManagementPage, displayAppVersion } from './VersionManagementPag
 import { HomeAccessPanel } from './HomeAccessPanel';
 import { HomeOverviewCards } from './HomeOverviewCards';
 import { CoreHealthPanel } from './CoreHealthPanel';
+import { CoreConnectionSettings } from './CoreConnectionSettings';
 import { useHomeOverview } from './useHomeOverview';
 import './HomeDashboard.css';
 
@@ -27,11 +28,12 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     return <VersionManagementPage />;
   }
 
-  const { t } = useI18n();
+  const { t, formatDate } = useI18n();
   const { info: appUpdate } = useAppUpdate();
   const {
     status: coreStatus,
     statusError,
+    checkedAt,
     refreshStatus,
     publishStatus,
   } = useCoreRuntime();
@@ -50,6 +52,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
   const [homeApiKeyError, setHomeApiKeyError] = useState(false);
   const [configRevision, setConfigRevision] = useState(0);
   const [tlsEnabled, setTlsEnabled] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
 
   const savedPortRef = useRef(8317);
   const copiedApiTimerRef = useRef<number | null>(null);
@@ -214,16 +217,35 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     <Notice tone={statusError ? 'error' : 'info'} variant="text">{statusError || t('common.detecting')}</Notice>
   </section>;
 
+  const runtimeActions = (refreshDisabled: boolean) => <div className="home-runtime-actions">
+    <button type="button" className="icon-button quiet ghost small-button" disabled={refreshDisabled} onClick={() => void refreshStatus()} title={t('kernel.control.refresh')} aria-label={t('kernel.control.refresh')}><RefreshCw size={15} aria-hidden="true" /></button>
+    <button type="button" className="icon-button quiet ghost small-button" onClick={() => setConnectionOpen(true)} aria-haspopup="dialog" title={t('connection.settings')} aria-label={t('connection.settings')}><Settings size={15} aria-hidden="true" /></button>
+  </div>;
+  const connectionDialog = connectionOpen ? <CoreConnectionSettings variant="dialog" onClose={() => setConnectionOpen(false)} /> : null;
+
   if (remoteMode) return <section className="page kernel-page home-page home-dashboard" aria-label={t('app.nav.home')}>
-    <section className="panel surface-panel">
-      <div className="panel-heading home-panel-heading"><div><h2>{t('connection.title')}</h2><p>{coreReady ? t('connection.remoteStatus') : coreStatus?.message || t('common.detectionFailed')}</p></div>
-        <button type="button" className="icon-button quiet ghost small-button" onClick={() => void refreshStatus()} title={t('kernel.control.refresh')} aria-label={t('kernel.control.refresh')}><RefreshCw size={15} aria-hidden="true" /></button>
+    <div className="home-top-grid home-remote-grid">
+      <div className="panel surface-panel control-panel">
+        <div className="panel-heading home-panel-heading">
+          <div><h2>{t('kernel.control.title')}</h2><p>{t(coreReady ? 'connection.remoteReady' : 'connection.remoteUnreachable')}</p></div>
+          {runtimeActions(false)}
+        </div>
+        <dl className="panel-detail-grid home-runtime-details">
+          <div className="panel-detail-row" data-runtime="status">
+            <dt>{t('kernel.control.runStatus')}</dt>
+            <dd><span className={`home-runtime-state ${coreReady ? 'success' : 'error'}`} role="status"><span className="home-runtime-dot" aria-hidden="true" />{t(coreReady ? 'connection.statusConnected' : 'connection.statusUnreachable')}</span></dd>
+          </div>
+          <div className="panel-detail-row"><dt>{t('connection.remoteHost')}</dt><dd><span className="mono-tag">{coreStatus?.remoteOrigin}</span></dd></div>
+          <div className="panel-detail-row"><dt>{t('kernel.overview.coreVersion')}</dt><dd><span className="mono-tag">{currentVersion || t('common.unavailable')}</span></dd></div>
+          <div className="panel-detail-row"><dt>{t('connection.lastChecked')}</dt><dd><span className="mono-tag">{checkedAt ? formatDate(checkedAt, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : t('common.detecting')}</span></dd></div>
+        </dl>
+        {!coreReady && coreStatus?.message ? <Notice tone="error" variant="text">{coreStatus.message}</Notice> : null}
+        <div className="button-row panel-action-row control-action-row">
+          <button type="button" className="secondary-button" onClick={() => setConnectionOpen(true)} aria-haspopup="dialog"><Settings size={14} aria-hidden="true" />{t('connection.change')}</button>
+        </div>
       </div>
-      <dl className="panel-detail-grid home-runtime-details">
-        <div className="panel-detail-row"><dt>{t('connection.remoteHost')}</dt><dd><span className="mono-tag">{coreStatus?.remoteOrigin}</span></dd></div>
-        <div className="panel-detail-row"><dt>{t('kernel.overview.coreVersion')}</dt><dd><span className="mono-tag">{currentVersion || t('common.unavailable')}</span></dd></div>
-      </dl>
-    </section>
+    </div>
+    {connectionDialog}
   </section>;
 
   return (
@@ -241,7 +263,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
               <h2>{t('kernel.control.title')}</h2>
               <p>{t(coreReady ? 'home.runtime.ready' : coreInstalled ? 'home.runtime.stopped' : 'home.runtime.notInstalled')}</p>
             </div>
-            <button type="button" className="icon-button quiet ghost small-button" disabled={coreProcessBusy} onClick={() => void refreshStatus()} title={t('kernel.control.refresh')} aria-label={t('kernel.control.refresh')}><RefreshCw size={15} aria-hidden="true" /></button>
+            {runtimeActions(coreProcessBusy)}
           </div>
           <dl className="panel-detail-grid home-runtime-details">
             <div className="panel-detail-row" data-runtime="installation">
@@ -317,6 +339,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
         />
       </div>
       <FloatingNotice key={copyFeedback.revision} notice={copyFeedback.notice} onDismiss={copyFeedback.clearNotice} />
+      {connectionDialog}
     </section>
   );
 }

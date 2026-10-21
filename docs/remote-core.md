@@ -9,14 +9,16 @@ It does not install, launch, stop, restart, or update that server.
    and set a management key. Use the equivalent management settings for your
    core version, and ensure the management port is reachable.
 2. Stop the GUI-managed local core before switching targets.
-3. Open **Advanced Features → Software settings → Core connection**, choose **Remote**,
-   and enter the management origin (for example `https://core.example:8317`)
-   and its plaintext management key. An origin has no path, query, credentials,
-   or fragment.
+3. Open **Core connection** from the gear button on Home's Runtime Control
+   card (the same panel is under **Advanced Features → App preferences**),
+   choose **Remote core**, and enter the management URL (for example
+   `https://core.example:8317`) and its plaintext management key. The URL is an
+   origin only: no path, query, credentials, or fragment.
 4. **Test connection** authenticates against `/v8/management/config`, checks
    that the configuration is v8, and reports `X-CPA-VERSION` when supplied.
-   Testing does not save. **Save** stores the connection in the GUI's existing
-   `config.toml` and reloads the window.
+   Testing does not save. **Save & connect** stores the connection in the GUI's
+   existing `config.toml` and reloads the window. Closing the dialog or pressing
+   Escape discards unsaved edits.
 
 HTTPS validates the server certificate. Redirects are not followed. HTTP is
 allowed for trusted networks (for example a private VPN), but sends the
@@ -26,8 +28,9 @@ other GUI configuration secrets.
 
 ## Available remotely
 
-The runtime card shows authenticated reachability, remote origin and version,
-not local installation or process information. Management-API-backed pages
+The Runtime Control card shows whether the remote core is connected or
+unreachable, its host, version and when it was last checked, not local
+installation or process information. Management-API-backed pages
 continue to use the selected server, including credentials, OAuth (with manual
 callback submission where needed), Vertex import, and plugin management.
 
@@ -43,7 +46,9 @@ management interface instead. No remote usage history or agent targeting is
 provided. Embedded plugin pages currently depend on the local webview target and
 are disabled; plugin management API operations remain available.
 
-Select **Local** and save to return to the existing local core configuration.
-Local launch preferences are preserved, but are ignored while Remote is active.
+Select **Local core** and choose **Use local core** to return to the existing
+local core configuration. Start Core on Launch and Silent Launch are hidden and
+ignored while Remote is active (Silent Launch keeps a local core in the tray;
+there is none to keep), but their values are preserved for Local.
 Change the active connection through the panel; edits to connection fields in
 `config.toml` are only picked up on the next application launch.

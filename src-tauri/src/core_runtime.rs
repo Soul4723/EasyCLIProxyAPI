@@ -3045,8 +3045,10 @@ pub(crate) fn core_binary_name() -> &'static str {
     }
 }
 
+// Silent Launch keeps a locally hosted core in the tray; Remote mode hosts nothing, so it opens normally.
 pub(crate) fn should_start_hidden(config: &GuiConfigFile) -> bool {
-    config.silent_start
+    config.connection_mode == CoreConnectionMode::Local
+        && config.silent_start
         && cfg!(any(
             target_os = "linux",
             target_os = "macos",

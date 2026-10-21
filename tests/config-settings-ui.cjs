@@ -94,7 +94,7 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
               const cards = [...document.querySelectorAll('.config-settings-cards > section, .template-config-card, #config-native-aliases, #config-native-sensitive-words')]
                 .map(card => ({ id: card.id, box: card.getBoundingClientRect() })).filter(card => card.box.width > 0);
               return cards.filter(card => {
-                if (['config-native-software', 'config-group-extensions-plugins'].includes(card.id)) {
+                if (['config-native-software', 'config-core-connection', 'config-group-extensions-plugins'].includes(card.id)) {
                   return Math.abs(card.box.left + card.box.width / 2 - content.left - content.width / 2) > 1;
                 }
                 const peers = cards.filter(peer => Math.abs(peer.box.top - card.box.top) < 2);

@@ -79,6 +79,10 @@ fn remote_targeting_and_local_lifecycle_refusal() {
     );
     assert!(require_local(&config).is_err());
     assert!(!should_start_core_on_launch(&config));
+    assert!(!should_start_hidden(&GuiConfigFile {
+        silent_start: true,
+        ..config.clone()
+    }));
     let state = GuiConfigState::new(config);
     let process = CoreProcessState::new(false);
     assert!(start_core_process_with_state(&process, &state).is_err());

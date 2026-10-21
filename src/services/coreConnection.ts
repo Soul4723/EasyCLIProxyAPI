@@ -9,16 +9,33 @@ export const testCoreConnection = (connection: CoreConnection) => invoke<Connect
 
 const loopbackHosts = ['localhost', '127.0.0.1', '[::1]'];
 
+function parseOrigin(value: string) {
+  try { return new URL(value.trim()); } catch { return null; }
+}
+
+// Mirrors the native origin check so Save and Test are offered only for values the core will accept.
+export function isValidRemoteOrigin(value: string) {
+  const url = parseOrigin(value);
+  return Boolean(url && ['http:', 'https:'].includes(url.protocol) && url.hostname
+    && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash);
+}
+
 export function isInsecureRemoteOrigin({ mode, managementOrigin }: CoreConnection) {
-  if (mode !== 'remote') return false;
-  try {
-    const { protocol, hostname } = new URL(managementOrigin.trim());
-    return protocol === 'http:' && !loopbackHosts.includes(hostname);
-  } catch { return false; }
+  const url = mode === 'remote' ? parseOrigin(managementOrigin) : null;
+  return url?.protocol === 'http:' && !loopbackHosts.includes(url.hostname);
+}
+
+export function isCompleteRemoteDraft(draft: CoreConnection) {
+  return draft.mode === 'remote' && isValidRemoteOrigin(draft.managementOrigin) && Boolean(draft.managementKey);
+}
+
+export function connectionChanged(draft: CoreConnection, saved: CoreConnection) {
+  return draft.mode !== saved.mode || (draft.mode === 'remote'
+    && (draft.managementOrigin.trim() !== saved.managementOrigin || draft.managementKey !== saved.managementKey));
 }
 
 export function canSaveConnection(draft: CoreConnection, saved: CoreConnection, localCoreRunning: boolean) {
+  if (!connectionChanged(draft, saved)) return false;
   if (draft.mode === 'local') return true;
-  if (!draft.managementOrigin.trim() || !draft.managementKey) return false;
-  return saved.mode === 'remote' || !localCoreRunning;
+  return isCompleteRemoteDraft(draft) && (saved.mode === 'remote' || !localCoreRunning);
 }

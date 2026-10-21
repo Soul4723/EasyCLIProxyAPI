@@ -138,7 +138,7 @@ export function ConfigPanelPage() {
     : <LocalConfigPanelPage remote={status.connectionMode === 'remote'} />;
 }
 
-// In Remote mode only the app preferences and the connection panel render; the local core config stays unloaded.
+// In Remote mode only App preferences (with Core connection) is available; core categories are disabled and the local core config stays unloaded.
 function LocalConfigPanelPage({ remote }: { remote: boolean }) {
   const { t, locale } = useI18n();
   const { askConfirmation, confirmationDialog } = useConfirmation();
@@ -1037,6 +1037,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
     { category: 'requests', target: 'config-native-retry', title: st('nativeRetry'), context: '', keywords: [t('config.network.enableCooling'), t('config.network.disableCooling'), t('config.network.requestRetry'), t('config.network.maxRetryCredentials'), t('config.network.maxRetryInterval'), t('config.network.streamingBootstrapRetries'), 'retry retries cooldown 重试 冷却 流式 失败 fallback'].join(' ') },
     { category: 'diagnostics', target: 'config-native-logging', title: t('config.diagnostics.title'), context: '', keywords: [t('config.diagnostics.debug.title'), t('config.diagnostics.commercial.title'), t('config.diagnostics.fileLogging.title'), t('config.diagnostics.usage.title'), t('config.diagnostics.maxSize.title'), t('config.diagnostics.errorFiles.title'), t('config.diagnostics.redisRetention.title'), 'debug commercial-mode logging logs usage statistics redis retention 日志 调试 商业模式 用量 统计 留存 文件 容量'].join(' ') },
     { category: 'software', target: 'config-native-software', title: t('config.software.title'), context: '', keywords: [t('config.software.autostart'), t('config.software.startCoreOnLaunch'), t('config.software.silentStart'), t('config.software.closeBehavior'), t('config.software.defaultTerminal'), 'startup autostart silent tray close terminal 软件 自启动 启动 静默 托盘 关闭 终端'].join(' ') },
+    { category: 'software', target: 'config-core-connection', title: t('connection.title'), context: '', keywords: [t('connection.local'), t('connection.remote'), t('connection.managementOrigin'), t('connection.managementKey'), 'core connection remote local management URL key 内核 连接 远程 本地 管理'].join(' ') },
     { category: 'aliases', target: 'config-native-aliases', title: t('app.nav.thinkingAliases'), context: '', keywords: 'thinking reasoning speed aliases effort 思考 推理 速度 别名 模型' },
     { category: 'requests', target: 'config-native-sensitive-words', title: t('config.sensitiveWords.title'), context: '', keywords: 'sensitive words filters antigravity devin 敏感词 内容 过滤' },
   ];
@@ -1062,7 +1063,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
     })))),
   ];
   const searchTerms = settingsSearch.trim().toLocaleLowerCase().split(/\s+/);
-  const searchResults = searchEntries.filter(entry => {
+  const searchResults = searchEntries.filter(entry => !remote || entry.category === 'software').filter(entry => {
     const categoryTitle = templateText(settingsCategories.find(item => item.id === entry.category)!.title, locale);
     const text = `${entry.title} ${entry.context} ${entry.keywords} ${categoryTitle}`.toLocaleLowerCase();
     return searchTerms.every(term => text.includes(term));
@@ -1072,17 +1073,18 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
     <section className="page config-page" aria-label={st('title')}>
       {confirmationDialog}
       <div className="config-settings-layout">
-        {remote ? null : <div className="config-settings-topnav">
+        <div className="config-settings-topnav">
           <Tabs ref={categoryNavigationRef} className="config-subpage-tabs config-settings-navigation" aria-label={t('config.tabs.label')} value={activeSubpage} onChange={activateConfigSubpage}
             items={settingsCategories.map(item => {
               const Icon = CATEGORY_ICONS[item.id];
-              return { value: item.id, id: `config-subpage-tab-${item.id}`, panelId: 'config-subpage-panel', label: <><Icon size={17} aria-hidden="true" /><span>{templateText(item.title, locale)}</span>{categoryDirty(item.id) ? <span className="config-nav-dirty" title={st('dirty')}><span className="sr-only">{st('dirty')}</span></span> : null}</> };
+              return { value: item.id, id: `config-subpage-tab-${item.id}`, panelId: 'config-subpage-panel', disabled: remote && item.id !== 'software', label: <><Icon size={17} aria-hidden="true" /><span>{templateText(item.title, locale)}</span>{categoryDirty(item.id) ? <span className="config-nav-dirty" title={st('dirty')}><span className="sr-only">{st('dirty')}</span></span> : null}</> };
             })} />
           <div className="config-settings-search"><Search size={18} aria-hidden="true" /><input ref={searchRef} type="search" aria-label={st('search')} placeholder={st('searchHint')} value={settingsSearch} onChange={event => setSettingsSearch(event.currentTarget.value)} onKeyDown={event => { if (event.key === 'Escape') setSettingsSearch(''); }} />{searching ? <button type="button" className="icon-button quiet tiny-button" aria-label={st('clearSearch')} onClick={() => { setSettingsSearch(''); searchRef.current?.focus(); }}><X size={16} /></button> : null}</div>
-        </div>}
+        </div>
         <div className="config-settings-content" id="config-subpage-panel" role="tabpanel" aria-labelledby={`config-subpage-tab-${activeSubpage}`}>
           {searching ? <section className="config-search-results" aria-label={st('results')}><div className="config-search-heading"><h2>{st('results')}</h2><span role="status">{searchResults.length}</span></div>{searchResults.length ? <div className="surface-card config-search-result-list">{searchResults.map(entry => <button type="button" key={`${entry.target}-${entry.field ?? ''}`} onClick={() => navigateToSetting(entry)}><span className="config-search-result-copy"><strong>{entry.title}</strong><small>{templateText(settingsCategories.find(item => item.id === entry.category)!.title, locale)}{entry.context ? ` / ${entry.context}` : ''}</small></span><ChevronRight size={17} aria-hidden="true" /></button>)}</div> : <EmptyState variant="box" className="config-search-empty">{st('noResults')}</EmptyState>}</section> : null}
           <div className="config-settings-cards">
+            {remote ? <Notice tone="info" className="config-remote-notice">{t('connection.remoteSettingsNotice')}</Notice> : null}
 <section id="config-native-keys" tabIndex={-1} hidden={searching || activeSubpage !== 'general'} className="panel surface-card config-keys-panel">
           <div className="config-panel-heading">
             <div className="config-heading-title">
@@ -1944,7 +1946,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                         setSoftwareStartCoreDraft(event.currentTarget.checked);
                       }} />
                 </div>}
-                <div className="config-software-setting-row">
+                {remote ? null : <div className="config-software-setting-row">
                   <div className="config-software-setting-copy">
                     <span className="config-software-setting-icon" aria-hidden="true">
                       <EyeOff size={18} />
@@ -1958,7 +1960,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                         setSoftwareSavedStatusVisible(false);
                         setSoftwareSilentStartDraft(event.currentTarget.checked);
                       }} />
-                </div>
+                </div>}
                 <div className="config-software-setting-row config-software-close-row">
                   <div className="config-software-setting-copy">
                     <span className="config-software-setting-icon" aria-hidden="true">
