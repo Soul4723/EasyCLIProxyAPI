@@ -348,7 +348,7 @@ async fn preview_agent_config_template_cancels_after_switch_while_models_fetch_i
         let (mut config_socket, _) = listener.accept().await.unwrap();
         let mut config_request = [0; 4096];
         let config_len = config_socket.read(&mut config_request).await.unwrap();
-        assert!(String::from_utf8_lossy(&config_request[..config_len]).contains("/v0/management/config.yaml"));
+        assert!(String::from_utf8_lossy(&config_request[..config_len]).contains("/v8/management/config.yaml"));
         let config_body = "{}\n";
         config_socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/yaml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{config_body}", config_body.len()).as_bytes()).await.unwrap();
     });
