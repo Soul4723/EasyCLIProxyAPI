@@ -1,8 +1,13 @@
-import { pluginsApi, pluginStoreApi, type PluginListResponse, type PluginStoreInstallResult } from './plugins';
+import { pluginListSource } from './pluginList';
+import { pluginStoreApi, type PluginListResponse, type PluginStoreInstallResult } from './plugins';
 
 export type PluginActionStatus = 'ready' | 'globalDisabled' | 'restart' | 'pending' | 'cancelled';
 
-/** A successful write is not evidence that the runtime has applied it. */
+/** A successful write is not evidence that the runtime has applied it.
+ * Intentional bounded action reconciliation, not a subscribed data resource: the
+ * caller awaits one outcome with its own cancellation/deadline (including hidden
+ * windows). The plugin list itself is owned by pluginListSource.
+ */
 export async function waitForPluginAction(
   check: () => Promise<PluginActionStatus>,
   cancelled: () => boolean = () => false,
@@ -27,8 +32,15 @@ export function pluginToggleStatus(response: PluginListResponse, id: string, ena
   return plugin.registered && plugin.effectiveEnabled ? 'ready' : 'pending';
 }
 
-export const waitForPluginToggle = (id: string, enabled: boolean, cancelled: () => boolean) =>
-  waitForPluginAction(async () => pluginToggleStatus(await pluginsApi.list(), id, enabled), cancelled);
+export async function waitForPluginToggle(id: string, enabled: boolean, cancelled: () => boolean) {
+  await pluginListSource.refresh();
+  return waitForPluginAction(async () => {
+    await pluginListSource.load();
+    const source = pluginListSource.getSnapshot();
+    if (source.error) throw new Error(source.error);
+    return source.data?.list ? pluginToggleStatus(source.data.list, id, enabled) : 'pending';
+  }, cancelled, 15_000, 1_500);
+}
 
 export async function waitForPluginInstall(result: PluginStoreInstallResult, cancelled: () => boolean): Promise<PluginActionStatus> {
   // A restart is authoritative: polling cannot make a restart-required install active.

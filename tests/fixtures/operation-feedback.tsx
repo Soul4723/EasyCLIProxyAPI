@@ -1,33 +1,25 @@
-import { StrictMode, useState } from 'react';
+import { StrictMode, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { FloatingNotice, MessageNotice, useAppNotice } from '../../src/appNotice';
-import { UsageRecordsPage } from '../../src/pages/UsageRecordsPage';
-import { AgentConfigurationFeedback } from '../../src/pages/AgentControls';
+import { PricesTab } from '../../src/sections/usage/PricesTab';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
+import { UsageProvider } from '../../src/sections/usage/UsageContext';
 import { useConfirmation } from '../../src/components/ConfirmationDialog';
-import { Dialog } from '../../src/components/Dialog';
-import { QuotaActionFeedback } from '../../src/components/QuotaActionFeedback';
-import { themeRegistry } from '../../src/themes/registry';
-import { createThemeApplicator } from '../../src/themes/applyTheme';
-import type { PlatformWindowMaterial } from '../../src/themes/types';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
+import '../../src/sections/agents/agents.css';
+import '../../src/sections/agents/setup.css';
 
 const params = new URLSearchParams(location.search);
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'zh-CN');
-localStorage.setItem('cpa-gui.usage-records-tab.v1', 'pricing');
-const themeId = params.get('themeId');
-if (themeId) {
-  const theme = themeRegistry.get(themeId);
-  const material = params.get('material') as PlatformWindowMaterial | null;
-  if (theme) createThemeApplicator(document, () => material)(theme);
-} else {
-  document.documentElement.dataset.theme = params.get('theme') ?? 'light';
-  if (params.get('material')) document.documentElement.dataset.windowMaterial = params.get('material')!;
-}
+document.documentElement.dataset.theme = params.get('theme') ?? 'light';
 const fixture = window as typeof window & { feedbackFixture: { failSync: boolean } };
 fixture.feedbackFixture = { failSync: false };
 mockIPC(async (cmd) => {
+  if (cmd === 'get_management_target_revision') return 0; // usage commands go through documentTarget
+  if (cmd === 'get_core_status') return { ready: true };
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'get_usage_collector_status') return { state: 'collecting', totalRecords: 1 };
   if (cmd === 'get_usage_analysis') return { models: [], providers: [], sources: [], apiKeys: [] };
@@ -53,45 +45,43 @@ function Fixture() {
   const first = useAppNotice();
   const second = useAppNotice();
   const [agent, setAgent] = useState(false);
-  const [quota, setQuota] = useState(false);
-  const [dialogError, setDialogError] = useState('');
+  const [nativeError, setNativeError] = useState('');
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const [mounted, setMounted] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
   return <main style={{ padding: 24 }}>
     <div data-testid="toolbar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      <button onClick={() => first.showNotice('Saved', 'success')}>Success</button>
-      <button onClick={() => first.showNotice('Failure '.repeat(120), 'error')}>Error</button>
-      <button onClick={() => second.showNotice('Second result', 'info')}>Second</button>
-      <button onClick={() => { first.clearNotice(); second.clearNotice(); setAgent(false); setQuota(false); }}>Clear</button>
-      <button onClick={() => setAgent(true)}>Agent result</button>
-      <button onClick={() => setQuota(true)}>Quota result</button>
-      <button onClick={() => setDialogOpen(true)}>Tall dialog</button>
-      <button onClick={() => void askConfirmation({ title: "Confirm test", message: "Confirm the operation", confirmText: "Confirm" })}>Confirmation dialog</button>
-      <button onClick={() => setMounted(value => !value)}>Toggle source</button>
+      <button type="button" onClick={() => first.showNotice('Saved', 'success')}>Success</button>
+      <button type="button" onClick={() => first.showNotice('Failure '.repeat(120), 'error')}>Error</button>
+      <button type="button" onClick={() => second.showNotice('Second result', 'info')}>Second</button>
+      <button type="button" onClick={() => { first.clearNotice(); second.clearNotice(); setAgent(false); }}>Clear</button>
+      <button type="button" onClick={() => setAgent(true)}>Agent result</button>
+      <button type="button" onClick={() => dialog.current?.showModal()}>Native dialog</button>
+      <button type="button" onClick={() => void askConfirmation({ title: "Confirm test", message: "Confirm the operation", confirmText: "Confirm" })}>Confirmation dialog</button>
+      <button type="button" onClick={() => setMounted(value => !value)}>Toggle source</button>
     </div>
     <section data-testid="panel" style={{ transform: 'translateZ(0)', overflow: 'hidden', height: 210, marginTop: 16, border: '1px solid gray' }}>
       {mounted && <><FloatingNotice key={first.revision} notice={first.notice} onDismiss={first.clearNotice} />
         <FloatingNotice key={second.revision} notice={second.notice} onDismiss={second.clearNotice} /></>}
       <div data-testid="before">Existing form</div>
-      <div className="agent-save-bar">
-        <AgentConfigurationFeedback pending={agent} description="" />
-        <div className="agent-save-actions"><button>Apply agent</button></div>
+      <div className="ec-sec-agents">
+        <div className="ag-savebar" role="group" aria-label="Save bar">
+          <div className="ag-save-feedback" aria-live="polite">{agent ? <span className="ag-save-state is-pending">Pending changes</span> : null}</div>
+          <div className="ag-save-actions"><button type="button">Apply agent</button></div>
+        </div>
       </div>
       <MessageNotice tone="success" message={agent ? 'Agent saved' : ''} />
-      {quota && <QuotaActionFeedback name="test.json" quota={{ status: 'success', rows: [], actionResult: { action: 'reset', status: 'refresh-error', error: 'query failed' } }} />}
       <input data-testid="after" defaultValue="Keep focus" />
     </section>
     {confirmationDialog}
-    {dialogOpen && <Dialog className="agent-backup-modal" label="Tall backup dialog" onClose={() => setDialogOpen(false)}>
-      <div style={{ position: 'relative', width: 400, height: 'calc(100vh - 96px)' }}>
-        <button onClick={() => setDialogError('Dialog error')}>Dialog error</button>
-        <MessageNotice message={dialogError} onDismiss={() => setDialogError('')} />
-        <button data-testid="dialog-footer" style={{ position: 'absolute', right: 0, bottom: 0 }} onClick={() => setDialogOpen(false)}>Close dialog</button>
-      </div>
-    </Dialog>}
+    <dialog ref={dialog} style={{ width: 400, height: 'calc(100vh - 48px)' }}>
+      <h2>Native backup dialog</h2>
+      <button type="button" onClick={() => setNativeError('Native modal error')}>Native error</button>
+      <MessageNotice message={nativeError} onDismiss={() => setNativeError('')} />
+      <button type="button" data-testid="native-footer" style={{ position: 'absolute', right: 20, bottom: 20 }} onClick={() => dialog.current?.close()}>Close dialog</button>
+    </dialog>
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><I18nProvider>
-  {params.get('scenario') === 'pricing' ? <UsageRecordsPage /> : <Fixture />}
+  {params.get('scenario') === 'pricing' ? <CoreRuntimeProvider><UsageProvider params={new URLSearchParams()} needsOptions={false}><PricesTab /></UsageProvider></CoreRuntimeProvider> : <Fixture />}
 </I18nProvider></StrictMode>);

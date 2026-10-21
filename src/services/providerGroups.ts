@@ -41,11 +41,6 @@ export function providerGroupStatus(group: Record<string, unknown>): 'enabled' |
   return active === 0 ? 'disabled' : active === keys.length ? 'enabled' : 'partial';
 }
 
-export function providerKeyOverrides(key: Record<string, unknown>): string[] {
-  return Object.keys(key).filter((field) => !['api-key', 'auth-index', 'authIndex', 'auth_index', 'weight'].includes(field)
-    && key[field] != null);
-}
-
 export function validateProviderGroupKeys(keys: ProviderKeyDraft[]): string | null {
   for (const { value } of keys) {
     if (!readString(value, 'api-key').trim()) return 'key';
@@ -103,15 +98,6 @@ export function validateProviderTemplateRecord(value: Record<string, unknown>, p
     if (error) return error;
   }
   return null;
-}
-
-export function appendNativeProviderGroup(groups: Record<string, unknown>[], group: Record<string, unknown>): Record<string, unknown>[] {
-  const base = readString(group, 'name').trim() || 'provider';
-  let name = base;
-  let suffix = 2;
-  const names = new Set(groups.map((item) => readString(item, 'name')));
-  while (names.has(name)) name = `${base} (${suffix++})`;
-  return [...groups.map(cleanProviderGroup), cleanProviderGroup({ ...group, name })];
 }
 
 export function serializeProviderKey(draft: ProviderKeyDraft): Record<string, unknown> {

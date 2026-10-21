@@ -1,0 +1,8 @@
+.ec-sec-settings .ec-logs { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-settings .ec-logs-more { min-width: 0; }
+.ec-sec-settings .ec-logs-reason { font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); }
+.ec-sec-settings .ec-logs-note {
+  margin: 0; padding: var(--ec-sp-2) var(--ec-pad);
+  border: 1px solid var(--ec-st-limited); border-radius: var(--ec-r-md); background: var(--ec-tint);
+  font-size: var(--ec-fs-sm); color: var(--ec-fg-2);
+}

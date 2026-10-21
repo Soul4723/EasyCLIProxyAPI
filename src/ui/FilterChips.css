@@ -1,0 +1,85 @@
+/* FilterChips: see FilterChips.tsx. Scrolls horizontally instead of wrapping. */
+
+.ec-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+  max-width: 100%;
+  padding: 2px 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.ec-filters__chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: var(--ec-ctrl-h-sm);
+  padding: 0 var(--ec-sp-2);
+  border: 1px solid var(--ec-border);
+  border-radius: var(--ec-r-pill);
+  background: transparent;
+  color: var(--ec-fg-muted);
+  font: inherit;
+  font-size: var(--ec-fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.ec-filters__chip:hover {
+  background: var(--ec-hover);
+  color: var(--ec-fg-2);
+}
+
+.ec-filters__chip:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 2px;
+}
+
+.ec-filters__chip--on,
+.ec-filters__chip--on:hover {
+  background: var(--ec-field);
+  border-color: var(--ec-input-border);
+  color: var(--ec-fg);
+}
+
+.ec-filters__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ec-filter-c, var(--ec-fg-subtle));
+}
+
+.ec-filters__icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.ec-filters__icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ec-filters__count {
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-2xs);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--ec-fg-muted);
+}
+
+.ec-filters__chip--on .ec-filters__count {
+  color: var(--ec-fg-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-filters__chip {
+    transition: none;
+  }
+}

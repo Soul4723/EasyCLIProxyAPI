@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 mod restore;
+mod target;
 pub(crate) use restore::*;
 
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -91,7 +92,7 @@ pub(crate) fn agent_data_directory(paths: &[PathBuf]) -> Result<PathBuf, String>
                 .as_os_str(),
         );
         assert!(paths.iter().all(|p| p.starts_with(&directory)));
-        return Ok(directory.join("cpa-data"));
+        Ok(directory.join("cpa-data"))
     }
     #[cfg(not(test))]
     {
@@ -469,6 +470,8 @@ pub(crate) fn create_agent_config_backup(
     app: tauri::AppHandle,
     client: String,
 ) -> Result<BackupSummary, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -481,6 +484,8 @@ pub(crate) fn list_agent_config_backups(
     app: tauri::AppHandle,
     client: String,
 ) -> Result<BackupList, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -494,6 +499,8 @@ pub(crate) fn delete_agent_config_backup(
     client: String,
     id: String,
 ) -> Result<(), String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.try_lock().map_err(|_| "Core target operation is in progress".to_string())?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -524,4 +531,20 @@ pub(crate) fn test_restore_backup(client: AgentClient, home: &Path, id: &str) {
         version.mappings,
     )
     .unwrap();
+}
+
+// Legacy restore fixtures predate target validation: bind only their saved
+// Desktop credentials to the test's selected target, keeping models/mappings.
+#[cfg(test)]
+pub(crate) fn test_bind_desktop_backup_target(config: &GuiConfigFile, home: &Path, id: &str) {
+    let paths = config_paths("claude-desktop", home).unwrap();
+    let mut version = read_version("claude-desktop", &paths, id).unwrap();
+    let file = &mut version.files[2];
+    let mut profile: Value = serde_json::from_slice(file.bytes.as_ref().unwrap()).unwrap();
+    profile["inferenceGatewayBaseUrl"] = serde_json::json!(config.client_origin());
+    profile["inferenceGatewayApiKey"] = serde_json::json!(effective_agent_api_key(config));
+    file.bytes = Some(serde_json::to_vec(&profile).unwrap());
+    file.hash = image_hash(file.bytes.as_deref());
+    let package = BackupPackage { checksum: sha256_bytes(&serde_json::to_vec(&version).unwrap()), payload: version };
+    fs::write(version_path("claude-desktop", &paths, id).unwrap(), serde_json::to_vec(&package).unwrap()).unwrap();
 }

@@ -1,4 +1,4 @@
-use super::{management_plaintext_key, open_external_url_inner, GuiConfigState};
+use super::{management_api::management_plaintext_key, open_external_url_inner, GuiConfigState};
 use crate::plugins::resolve_plugin_entry_url;
 use std::sync::Mutex;
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
@@ -357,6 +357,9 @@ async fn open_plugin_page(
 ) -> Result<String, String> {
     let config = gui_config_state.snapshot()?;
     let url = resolve_plugin_entry_url(&config, &plugin_id, menu_index).await?;
+    // Fence the resolved URL and key as one target-bound webview update.
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
     let key = management_plaintext_key(&config)?.to_string();
     let origin = url_origin(&url)?;
     let mut inner = state.lock()?;

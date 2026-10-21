@@ -1,0 +1,143 @@
+/* Chip and Badge: see Chip.tsx. Tones set --ec-chip-c (solid) and --ec-chip-fg (text-safe) and everything derives from them. */
+
+.ec-chip,
+.ec-badge {
+  --ec-chip-c: var(--ec-fg-muted);
+  --ec-chip-fg: var(--ec-fg-2);
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--ec-chip-c) 30%, transparent);
+  background: color-mix(in srgb, var(--ec-chip-c) var(--ec-tint), transparent);
+  color: var(--ec-chip-fg);
+  white-space: nowrap;
+}
+
+/* tones */
+.ec-chip--ok,
+.ec-badge--ok {
+  --ec-chip-c: var(--ec-ok);
+  --ec-chip-fg: var(--ec-ok-fg);
+}
+
+.ec-chip--warn,
+.ec-badge--warn {
+  --ec-chip-c: var(--ec-warn);
+  --ec-chip-fg: var(--ec-warn-fg);
+}
+
+.ec-chip--danger,
+.ec-badge--danger {
+  --ec-chip-c: var(--ec-danger);
+  --ec-chip-fg: var(--ec-danger-fg);
+}
+
+.ec-chip--info,
+.ec-badge--info {
+  --ec-chip-c: var(--ec-info);
+  --ec-chip-fg: var(--ec-info-fg);
+}
+
+.ec-chip--accent,
+.ec-badge--accent {
+  --ec-chip-c: var(--ec-accent);
+  --ec-chip-fg: var(--ec-accent);
+  background: var(--ec-accent-soft);
+}
+
+.ec-chip--outline,
+.ec-badge--outline {
+  --ec-chip-c: var(--ec-border);
+  --ec-chip-fg: var(--ec-fg-2);
+  background: transparent;
+  border-color: var(--ec-border);
+}
+
+.ec-chip--neutral,
+.ec-badge--neutral {
+  border-color: var(--ec-border-soft);
+  background: var(--ec-muted-bg);
+}
+
+/* chip */
+.ec-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+  max-width: 100%;
+  border-radius: var(--ec-r-pill);
+  font-size: var(--ec-fs-sm);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.ec-chip--md {
+  padding: 1px var(--ec-sp-2);
+}
+
+.ec-chip--sm {
+  padding: 0 6px;
+  font-size: var(--ec-fs-xs);
+}
+
+.ec-chip__icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.ec-chip__icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ec-chip__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ec-chip__remove {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ec-r-pill);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ec-chip__remove svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ec-chip__remove:hover {
+  background: color-mix(in srgb, var(--ec-chip-c) 24%, transparent);
+}
+
+.ec-chip__remove:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 1px;
+}
+
+/* badge */
+.ec-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: var(--ec-r-pill);
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-2xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+}

@@ -1,9 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { I18nProvider } from '../../src/i18n';
-import { OAuthLoginPage } from '../../src/pages/ManagementPages';
-import { EasyModePage } from '../../src/pages/EasyModePage';
-import '../../src/styles/index.css';
+import { SignInHarness, coreStatus } from './signinHarness';
 
 type MetaStatus = 'wait' | 'ok' | 'error';
 
@@ -14,28 +11,24 @@ type MetaFixture = {
   statusCalls: number;
   holdStatus: boolean;
   releaseStatus: null | (() => void);
+  releaseStart: null | (() => void);
   cancelledStates: string[];
   priorityPatches: Array<{ name: string; priority: number }>;
   files: Array<Record<string, unknown>>;
   currentState: string;
   copied: string[];
-  clockOffsetMs: number;
 };
 
 const params = new URLSearchParams(location.search);
-const view = params.get('view');
 const locale = params.get('locale') ?? 'en';
 localStorage.setItem('easy-cli-proxy-api.locale', locale);
 localStorage.setItem('easy-cli-proxy-api.oauth-browser.v3', 'none');
 document.documentElement.dataset.theme = params.get('theme') ?? 'light';
 
 // Keep OAuth polling quick in this fixture while preserving the production timer behavior.
-const nativeSetInterval = window.setInterval.bind(window);
 const nativeSetTimeout = window.setTimeout.bind(window);
-(window as any).setInterval = (handler: TimerHandler, timeout?: number, ...args: any[]) =>
-  nativeSetInterval(handler, timeout === 3000 ? 25 : timeout, ...args);
 (window as any).setTimeout = (handler: TimerHandler, timeout?: number, ...args: any[]) =>
-  nativeSetTimeout(handler, timeout === 1500 ? 25 : timeout, ...args);
+  nativeSetTimeout(handler, timeout === 3000 ? 25 : timeout, ...args);
 
 const fixture: MetaFixture = {
   calls: [],
@@ -44,16 +37,14 @@ const fixture: MetaFixture = {
   statusCalls: 0,
   holdStatus: false,
   releaseStatus: null,
+  releaseStart: null,
   cancelledStates: [],
   priorityPatches: [],
   files: params.has('kimiAi') ? [{ name: 'kimi-ai-existing.json', provider: 'kimi-ai', status: 'active' }] : [],
   currentState: '',
   copied: [],
-  clockOffsetMs: 0,
 };
 Object.assign(window, { metaFixture: fixture });
-const nativeDateNow = Date.now.bind(Date);
-Date.now = () => nativeDateNow() + fixture.clockOffsetMs;
 
 const credentialForAttempt = (attempt: number) => ({
   name: `meta-oauth-${attempt}.json`,
@@ -63,8 +54,11 @@ const credentialForAttempt = (attempt: number) => ({
 });
 
 mockIPC(async (cmd, args: any = {}) => {
+  if (cmd === 'get_management_target_revision') return 0; // documentTarget fences every target command
   fixture.calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;
+  if (cmd === 'get_core_status') return coreStatus(false);
+  if (cmd === 'get_plugin_support') return false;
   if (cmd === 'list_oauth_browsers') {
     return [{ id: 'default', label: 'System Default' }];
   }
@@ -73,7 +67,7 @@ mockIPC(async (cmd, args: any = {}) => {
     fixture.status = 'wait';
     fixture.statusCalls = 0;
     fixture.currentState = `meta-attempt-${fixture.attempts}`;
-    return {
+    const result = {
       url: `https://auth.meta.ai/device?state=${fixture.currentState}`,
       state: fixture.currentState,
       opened: !params.has('openError'),
@@ -82,6 +76,8 @@ mockIPC(async (cmd, args: any = {}) => {
       flow: 'device',
       expiresIn: 900,
     };
+    if (params.has('holdStart')) return new Promise(resolve => { fixture.releaseStart = () => resolve(result); });
+    return result;
   }
   if (cmd === 'get_oauth_status') {
     fixture.statusCalls += 1;
@@ -117,17 +113,11 @@ mockIPC(async (cmd, args: any = {}) => {
       fixture.cancelledStates.push(state);
       return { status: 'ok', cancelled: true };
     }
-    if (request.path === '/config') return {};
-    if (request.path.startsWith('/config/api-keys/')) return [];
     throw new Error(`Unexpected management request: ${request.method} ${request.path}`);
   }
   throw new Error('Unexpected command: ' + cmd + ' ' + JSON.stringify(args));
 }, { shouldMockEvents: true });
 
-createRoot(document.getElementById('root')!).render(
-  <I18nProvider>
-    <main style={{ padding: 24 }}>
-      {view === 'easy' ? <EasyModePage /> : <OAuthLoginPage />}
-    </main>
-  </I18nProvider>,
-);
+const root = createRoot(document.getElementById('root')!);
+Object.assign(window, { metaUnmount: () => root.unmount() });
+root.render(<SignInHarness />);

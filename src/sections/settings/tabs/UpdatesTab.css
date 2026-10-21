@@ -1,0 +1,94 @@
+/* Settings → Updates. Scoped under .ec-sec-settings; kit tokens only. */
+.ec-sec-settings .ec-upd-page { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; }
+.ec-sec-settings .ec-upd-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ec-gap); }
+
+.ec-sec-settings .ec-upd-card { display: flex; flex-direction: column; gap: var(--ec-sp-3); min-width: 0; }
+.ec-sec-settings .ec-upd-card-head { display: flex; align-items: center; gap: var(--ec-sp-2); flex-wrap: wrap; }
+.ec-sec-settings .ec-upd-card-head h3 { margin: 0; font-size: var(--ec-fs-md); font-weight: 600; }
+.ec-sec-settings .ec-upd-card-icon { display: inline-flex; color: var(--ec-fg-muted); }
+.ec-sec-settings .ec-upd-card-chips { display: inline-flex; align-items: center; gap: var(--ec-sp-1); margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.ec-sec-settings .ec-upd-card-body { display: flex; flex-direction: column; gap: var(--ec-sp-3); flex: 1; min-width: 0; }
+.ec-sec-settings .ec-upd-card-actions { display: flex; align-items: center; gap: var(--ec-sp-2); flex-wrap: wrap; padding-top: var(--ec-sp-3); border-top: 1px solid var(--ec-border-soft); }
+
+/* current -> latest */
+.ec-sec-settings .ec-upd-flow { display: flex; align-items: center; gap: var(--ec-sp-3); margin: 0; min-width: 0; }
+.ec-sec-settings .ec-upd-ver { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 0 1 auto; }
+.ec-sec-settings .ec-upd-ver dt { font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); }
+.ec-sec-settings .ec-upd-ver dd { margin: 0; font-size: var(--ec-fs-xl, 20px); font-weight: 600; color: var(--ec-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-sec-settings .ec-upd-ver dd.is-placeholder { font-family: var(--ec-font); font-size: var(--ec-fs-md); font-weight: 500; color: var(--ec-fg-muted); line-height: 1.7; }
+.ec-sec-settings .ec-upd-ver.is-latest dd { color: var(--ec-fg-2); }
+.ec-sec-settings .ec-upd-flow.has-update .ec-upd-ver.is-latest dd { color: var(--ec-accent); }
+.ec-sec-settings .ec-upd-arrow { color: var(--ec-fg-subtle); flex: none; margin-top: 14px; }
+.ec-sec-settings .ec-upd-flow.has-update .ec-upd-arrow { color: var(--ec-accent); }
+
+.ec-sec-settings .ec-upd-meta { display: flex; align-items: center; gap: var(--ec-sp-2); flex-wrap: wrap; min-height: var(--ec-ctrl-h-sm, 24px); }
+.ec-sec-settings .ec-upd-note { display: inline-flex; align-items: center; gap: var(--ec-sp-1); margin: 0; font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); }
+.ec-sec-settings .ec-upd-bundled { display: inline-flex; align-items: center; gap: var(--ec-sp-2); font-size: var(--ec-fs-xs); color: var(--ec-fg-2); flex-wrap: wrap; }
+.ec-sec-settings .ec-upd-error { margin: 0; color: var(--ec-danger-fg); font-size: var(--ec-fs-xs); overflow-wrap: anywhere; }
+.ec-sec-settings .ec-upd-group-error { padding: var(--ec-sp-2) var(--ec-pad); border-bottom: 1px solid var(--ec-border-soft); }
+
+/* progress */
+.ec-sec-settings .ec-upd-progress { display: flex; flex-direction: column; gap: var(--ec-sp-1); }
+.ec-sec-settings .ec-upd-progress-meta { display: flex; justify-content: space-between; gap: var(--ec-sp-2); font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); }
+.ec-sec-settings .ec-upd-progress-meta strong { color: var(--ec-fg-2); font-weight: 500; }
+.ec-sec-settings .ec-upd-progress-bar.is-indeterminate { animation: ec-upd-pulse 1.2s ease-in-out infinite; }
+.ec-sec-settings .ec-upd-result {
+  display: flex; align-items: center; gap: var(--ec-sp-2); flex-wrap: wrap;
+  padding: var(--ec-sp-2) var(--ec-sp-3); border-radius: var(--ec-r-sm);
+  background: var(--ec-muted-bg); font-size: var(--ec-fs-xs); color: var(--ec-fg-2);
+}
+.ec-sec-settings .ec-upd-result.is-error { background: var(--ec-tint, var(--ec-muted-bg)); color: var(--ec-danger-fg); }
+.ec-sec-settings .ec-upd-result-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ec-sec-settings .ec-upd-spin { animation: ec-upd-rotate 1s linear infinite; }
+@keyframes ec-upd-rotate { to { transform: rotate(360deg); } }
+@keyframes ec-upd-pulse { 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) {
+  .ec-sec-settings .ec-upd-spin, .ec-sec-settings .ec-upd-progress-bar.is-indeterminate { animation: none; }
+}
+
+/* sources */
+.ec-sec-settings .ec-upd-source { grid-template-columns: minmax(0, 1fr) auto; }
+.ec-sec-settings .ec-upd-source.is-selected { background: var(--ec-accent-soft); }
+.ec-sec-settings .ec-upd-source .ec-set-row-label { flex-wrap: nowrap; }
+.ec-sec-settings .ec-upd-radio {
+  flex: none; width: 12px; height: 12px; border-radius: var(--ec-r-pill);
+  border: 2px solid var(--ec-input-border); background: transparent;
+}
+.ec-sec-settings .ec-upd-source.is-selected .ec-upd-radio { border-color: var(--ec-accent); background: var(--ec-accent); box-shadow: inset 0 0 0 2px var(--ec-surface); }
+.ec-sec-settings .ec-upd-source-name { font-size: var(--ec-fs-sm); color: var(--ec-fg); white-space: nowrap; }
+.ec-sec-settings .ec-upd-source-host { font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-sec-settings .ec-upd-source-url { font-size: var(--ec-fs-xs); color: var(--ec-fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ec-sec-settings .ec-upd-add { display: flex; align-items: center; gap: var(--ec-sp-2); width: 100%; }
+.ec-sec-settings .ec-upd-add .ec-set-input { flex: 1; }
+
+/* release notes */
+.ec-sec-settings .ec-upd-notes-toggle {
+  display: flex; align-items: center; gap: var(--ec-sp-2); width: 100%;
+  padding: var(--ec-sp-3) var(--ec-pad); background: transparent; border: 0; color: var(--ec-fg); font: inherit; text-align: left; cursor: pointer;
+  border-radius: var(--ec-r-md);
+}
+.ec-sec-settings .ec-upd-notes-toggle:hover { background: var(--ec-hover); }
+.ec-sec-settings .ec-upd-notes-toggle:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: -2px; }
+.ec-sec-settings .ec-upd-notes-toggle h3 { margin: 0; font-size: var(--ec-fs-md); font-weight: 600; }
+.ec-sec-settings .ec-upd-notes-date, .ec-sec-settings .ec-upd-notes-label { font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); }
+.ec-sec-settings .ec-upd-chevron { color: var(--ec-fg-muted); transition: transform 0.15s; }
+.ec-sec-settings .ec-upd-chevron.is-open { transform: rotate(180deg); }
+.ec-sec-settings .ec-upd-notes-body { padding: 0 var(--ec-pad) var(--ec-pad); display: flex; flex-direction: column; gap: var(--ec-sp-3); align-items: flex-start; }
+.ec-sec-settings .ec-upd-notes-body[hidden] { display: none; }
+.ec-sec-settings .ec-upd-notes-empty { margin: 0; color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
+.ec-sec-settings .ec-upd-markdown { font-size: var(--ec-fs-sm); color: var(--ec-fg-2); max-height: 320px; overflow: auto; width: 100%; overflow-wrap: anywhere; }
+.ec-sec-settings .ec-upd-markdown h4 { margin: var(--ec-sp-3) 0 var(--ec-sp-1); font-size: var(--ec-fs-sm); color: var(--ec-fg); }
+.ec-sec-settings .ec-upd-markdown h4:first-child { margin-top: 0; }
+.ec-sec-settings .ec-upd-markdown p, .ec-sec-settings .ec-upd-markdown ul { margin: 0 0 var(--ec-sp-2); }
+.ec-sec-settings .ec-upd-markdown ul { padding-left: var(--ec-sp-5); }
+.ec-sec-settings .ec-upd-markdown a { color: var(--ec-accent); }
+.ec-sec-settings .ec-upd-markdown code { font-family: var(--ec-mono); background: var(--ec-code); padding: 0 4px; border-radius: var(--ec-r-xs); }
+
+@container workspace (max-width: 960px) {
+  .ec-sec-settings .ec-upd-cards { grid-template-columns: minmax(0, 1fr); }
+}
+@container workspace (max-width: 760px) {
+  .ec-sec-settings .ec-upd-source { grid-template-columns: minmax(0, 1fr) auto; }
+  .ec-sec-settings .ec-upd-source .ec-set-row-control { justify-content: flex-end; }
+  .ec-sec-settings .ec-upd-add { flex-wrap: wrap; }
+}

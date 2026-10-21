@@ -1,5 +1,5 @@
 import { buildRepositoryURL, getPluginRepositorySlug } from './pluginResources';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './platform';
 import type { PluginStoreResponse } from './plugins';
 
 export const supportsPluginVersionSelection = (installType: string): boolean =>

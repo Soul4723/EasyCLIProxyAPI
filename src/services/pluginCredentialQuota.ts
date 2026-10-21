@@ -24,10 +24,10 @@ export function resolveQuotaPluginId(plugins: PluginListEntry[], provider: strin
 
 // Share concurrent lookups, but never retain a plugin list across connection generations.
 let pluginLookup: { generation: number; promise: Promise<PluginListEntry[]> } | undefined;
-async function quotaPlugins(): Promise<PluginListEntry[]> {
+async function quotaPlugins(expectedRevision?: number): Promise<PluginListEntry[]> {
   const generation = captureQuotaCacheGeneration();
   if (pluginLookup?.generation === generation) return pluginLookup.promise;
-  const entry = { generation, promise: pluginsApi.list().then(result => result.plugins) };
+  const entry = { generation, promise: pluginsApi.list(expectedRevision).then(result => result.plugins) };
   pluginLookup = entry;
   try { return await entry.promise; }
   finally { if (pluginLookup === entry) pluginLookup = undefined; }
@@ -65,18 +65,24 @@ export function parsePluginCredentialQuota(payload: unknown): QuotaState {
     ...(typeof offset === 'number' && Number.isFinite(offset) ? { serverTimeOffsetMs: offset } : {}), fetchedAt: Date.now() };
 }
 
-export async function loadPluginCredentialQuota(file: AuthFile): Promise<QuotaState> {
+export async function loadPluginCredentialQuota(file: AuthFile, expectedRevision?: number, assertActive: () => void = () => {}): Promise<QuotaState> {
   try {
+    assertActive();
     const generation = captureQuotaCacheGeneration();
     let plugin = credentialQuotaPlugin(file);
     if (!plugin && supportsPluginCredentialQuota(file)) {
       const provider = readString(file, 'quotaProvider', 'quota_provider');
       if (!provider) throw new Error('This credential has no supported plugin quota route');
-      plugin = resolveQuotaPluginId(await quotaPlugins(), provider) ?? '';
+      plugin = resolveQuotaPluginId(await quotaPlugins(expectedRevision), provider) ?? '';
     }
     if (generation !== captureQuotaCacheGeneration()) throw new Error('Connection changed during quota lookup');
+    assertActive();
     const authIndex = normalizeAuthIndex(file.auth_index ?? file.authIndex);
     if (!plugin || !authIndex || file.disabled === true) throw new Error('Plugin quota is unavailable for this credential');
-    return parsePluginCredentialQuota(await managementApi.post(`/plugins/${encodeURIComponent(plugin)}/quota`, { auth_index: authIndex }));
+    const path = `/plugins/${encodeURIComponent(plugin)}/quota`;
+    const body = { auth_index: authIndex };
+    return parsePluginCredentialQuota(await (expectedRevision === undefined
+      ? managementApi.post(path, body)
+      : managementApi.post(path, body, { expectedRevision })));
   } catch (reason) { return { status: 'error', rows: [], error: reason instanceof Error ? reason.message : String(reason) }; }
 }

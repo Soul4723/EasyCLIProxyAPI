@@ -1,5 +1,5 @@
-import { setAppLocale } from '../services/appSettings';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { invoke } from '../services/platform';
 import { en, ja, zhCN, zhTW, type MessageKey, type MessageVariables } from './resources';
 
 export type AppLocale = 'zh-CN' | 'zh-TW' | 'ja' | 'en';
@@ -50,7 +50,7 @@ function detectInitialLocale(): AppLocale {
 function interpolate(template: string, variables?: MessageVariables): string {
   if (!variables) return template;
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
-    Object.prototype.hasOwnProperty.call(variables, name) ? String(variables[name]) : match,
+    Object.hasOwn(variables, name) ? String(variables[name]) : match,
   );
 }
 
@@ -83,7 +83,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       window.localStorage.setItem(STORAGE_KEY, locale);
     } catch {
     }
-    void setAppLocale({ locale }).catch((error) => {
+    void invoke('set_app_locale', { locale }).catch((error) => {
       console.warn('Failed to synchronize the app locale with the native shell', error);
     });
   }, [locale]);

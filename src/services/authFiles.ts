@@ -71,13 +71,14 @@ export const isOAuthCredentialFile = (file: AuthFileRecord): boolean => {
 export const setOAuthCredentialFileDisabled = async (
   file: AuthFileRecord,
   disabled: boolean,
-  api: { patch: (path: string, body: Record<string, unknown>) => Promise<unknown> } = managementApi,
+  api: { patch: (path: string, body: Record<string, unknown>, options?: { expectedRevision?: number }) => Promise<unknown> } = managementApi,
+  options: { expectedRevision?: number } = {},
 ): Promise<void> => {
   if (!isOAuthCredentialFile(file)) {
     throw new Error(translate(getCurrentLocale(), 'authFiles.fileOnly'));
   }
   const authIndex = authFileCooldownResetIndex(file);
-  await api.patch('/credentials/status', { name: readString(file, 'name'), disabled, ...(authIndex ? { auth_index: authIndex } : {}) });
+  await api.patch('/credentials/status', { name: readString(file, 'name'), disabled, ...(authIndex ? { auth_index: authIndex } : {}) }, options);
 };
 
 export const parseAuthFilePriority = (value: unknown): number | undefined => {
@@ -217,7 +218,7 @@ const mergeDuplicateAuthFiles = (entries: AuthFileRecord[]) => {
   sorted.slice(1).forEach((entry) => {
     Object.entries(entry).forEach(([key, value]) => {
       if (authFileSourceFields.has(key)) return;
-      if (key === 'cooldowns' && Object.prototype.hasOwnProperty.call(merged, key)) return;
+      if (key === 'cooldowns' && Object.hasOwn(merged, key)) return;
       if (!hasMeaningfulValue(merged[key]) && hasMeaningfulValue(value)) merged[key] = value;
     });
   });

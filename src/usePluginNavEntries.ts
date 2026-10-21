@@ -1,45 +1,17 @@
-import { getPluginSupport, pluginsApi } from './services/plugins';
-import { useEffect, useState } from 'react';
-import { collectPluginResourceEntries, PLUGIN_RESOURCES_REFRESH_EVENT } from './services/pluginResources';
-import {
-  readCachedPluginNavEntries,
-  toPluginNavEntry,
-  writeCachedPluginNavEntries,
-  type PluginNavEntry,
-} from './services/pluginNavigation';
+import { useMemo } from 'react';
+import { useDataSource } from './services/dataSource';
+import { pluginListSource } from './services/pluginList';
+import { collectPluginResourceEntries } from './services/pluginResources';
+import { readCachedPluginNavEntries, toPluginNavEntry, writeCachedPluginNavEntries } from './services/pluginNavigation';
 
 export function usePluginNavEntries(coreReady: boolean) {
-  const [entries, setEntries] = useState<PluginNavEntry[]>(readCachedPluginNavEntries);
-  const [fetched, setFetched] = useState(false);
-  const [revision, setRevision] = useState(0);
-
-  useEffect(() => {
-    const refresh = () => setRevision((value) => value + 1);
-    window.addEventListener(PLUGIN_RESOURCES_REFRESH_EVENT, refresh);
-    return () => window.removeEventListener(PLUGIN_RESOURCES_REFRESH_EVENT, refresh);
-  }, []);
-
-  useEffect(() => {
-    if (!coreReady) {
-      setFetched(false);
-      return undefined;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const supported = await getPluginSupport();
-        const data = supported ? await pluginsApi.list() : null;
-        if (cancelled) return;
-        const next = data?.pluginsEnabled ? collectPluginResourceEntries(data.plugins).map(toPluginNavEntry) : [];
-        setEntries(next);
-        writeCachedPluginNavEntries(next);
-        setFetched(true);
-      } catch {
-        return;
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [coreReady, revision]);
-
-  return { entries, fetched };
+  const source = useDataSource(pluginListSource, coreReady);
+  const entries = useMemo(() => {
+    if (!source.data) return readCachedPluginNavEntries();
+    const list = source.data.list;
+    const next = list?.pluginsEnabled ? collectPluginResourceEntries(list.plugins).map(toPluginNavEntry) : [];
+    writeCachedPluginNavEntries(next);
+    return next;
+  }, [source.data]);
+  return { entries, fetched: !!source.data, loading: source.loading, error: source.error, retry: pluginListSource.refresh };
 }

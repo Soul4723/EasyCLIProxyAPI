@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import schemaSource from './deepSeekHarnessSchema.json';
 
 export type HarnessProfile = Record<string, unknown>;
@@ -65,7 +64,7 @@ export function parseHarnessDraft(draft: HarnessDraft, group: string, api: strin
       if (Object.keys(nested).length) profile[field.name] = nested;
       continue;
     }
-    if (!Object.prototype.hasOwnProperty.call(draft, key) || !draft[key].trim()) continue;
+    if (!Object.hasOwn(draft, key) || !draft[key].trim()) continue;
     let value: unknown;
     try {
       value = ['string', 'enum'].includes(field.kind) ? draft[key].trim() : JSON.parse(draft[key]);
@@ -104,9 +103,3 @@ export function parseHarnessDraft(draft: HarnessDraft, group: string, api: strin
 export function sameHarnessDraft(left: HarnessDraft, right: HarnessDraft): boolean {
   return Object.keys(left).length === Object.keys(right).length && Object.keys(left).every(key => left[key] === right[key]);
 }
-
-export const getDeepSeekHarnessModelCatalogEditor = (): Promise<HarnessEditorSnapshot> =>
-  invoke<HarnessEditorSnapshot>('get_deepseek_harness_model_catalog_editor');
-
-export const saveDeepSeekHarnessModelCatalogEditor = (args: { request: { revision: string; provider: HarnessProfile; models: { configuration: HarnessProfile; id: string; defaults: HarnessProfile; }[]; }; }): Promise<HarnessEditorSnapshot> =>
-  invoke<HarnessEditorSnapshot>('save_deepseek_harness_model_catalog_editor', args);

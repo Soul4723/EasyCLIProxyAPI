@@ -1,7 +1,12 @@
+import { isOAuthCredentialFile } from '../services/authFiles';
 import { isThemeSelection, type ThemeSelection } from '../themes/types';
 import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type TemplateConfigChange } from '../services/templateConfig';
+import type { CoreConnection } from '../services/coreConnection';
 import { createPluginMock, type PluginWebviewMockState } from './pluginMock';
+
 import { createQuotaMock, createQuotaMockFiles } from './quotaMock';
+import { sectionMocks } from './sectionMocks';
+import { createLightingMock } from './lightingMock';
 
 export type BrowserMockScenario = 'running' | 'stopped' | 'empty' | 'error';
 export type BrowserMockMode = BrowserMockScenario | 'off';
@@ -18,6 +23,9 @@ export type BrowserMockRuntime = {
   scenario: BrowserMockScenario;
   invoke: (command: string, payload?: unknown) => Promise<unknown>;
 };
+
+export const BROWSER_MOCK_CONNECTION_STORAGE_KEY = 'easy-cli-proxy-api.browser-mock-connection';
+type ConnectionStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 const SCENARIOS = new Set<BrowserMockScenario>(['running', 'stopped', 'empty', 'error']);
 const BUNDLED_CORE = { version: '7.3.15', assetName: 'CLIProxyAPI_7.3.15_windows_amd64.zip' };
@@ -126,10 +134,14 @@ export function resolveBrowserMockOptions(
 
 type BrowserMockState = ReturnType<typeof createState>;
 
+export type MockRecoveryPhase = 'waiting' | 'restarting' | 'failed';
+
 function createCoreStatus(scenario: BrowserMockScenario) {
   const installed = scenario !== 'empty';
   const running = scenario === 'running';
   return {
+    connectionMode: 'local' as 'local' | 'remote',
+    remoteOrigin: null as string | null,
     installed,
     running,
     ready: running,
@@ -233,6 +245,12 @@ function createAgentStatuses() {
     opus: 'claude-opus-4-6',
     sonnet: 'claude-sonnet-4-6',
     haiku: 'claude-haiku-4-5',
+    fable: '',
+    fable1m: false,
+    startupModel: 'opus',
+    subagentModel: '',
+    manageDefaultModel: true,
+    manageSubagentModel: false,
     opus1m: false,
     sonnet1m: false,
     haiku1m: false,
@@ -869,6 +887,16 @@ function managementResponse(state: BrowserMockState, payload: JsonObject) {
   if (method === 'GET' && path === '/credentials') {
     return { files: clone(state.authFiles), observed_at: new Date().toISOString() };
   }
+  if (method === 'POST' && path === '/credentials/refresh') {
+    const target = asObject(body);
+    if (target.all === true) return { ok: true, results: state.authFiles
+      .filter(file => isOAuthCredentialFile(file) && file.disabled !== true)
+      .map(file => ({ id: file.name, success: true })) };
+    const file = state.authFiles.find(file => file.name === target.name
+      && (target.auth_index === undefined || file.auth_index === target.auth_index));
+    if (!file || !isOAuthCredentialFile(file) || file.disabled === true) throw new Error('Browser Mock credential cannot be refreshed');
+    return { ok: true };
+  }
   if (method === 'GET' && path === '/credentials/download') {
     const file = findAuthFile(state, readString(query.name));
     if (!file) throw new Error(`Browser Mock credential not found: ${readString(query.name)}`);
@@ -965,8 +993,84 @@ export function createBrowserMockRuntime(
   delayMs = 0,
   pluginPages = 0,
   onPluginWebview?: (state: PluginWebviewMockState) => void,
+  connectionStorage?: ConnectionStorage,
+  recovery?: MockRecoveryPhase,
 ): BrowserMockRuntime {
   const state = createState(scenario);
+  // Shape of the native RecoveryStatus (core_recovery.rs): the supervisor's own attempt/limit/delay.
+  if (recovery) {
+    Object.assign(state.coreStatus, {
+      running: false, ready: false, managed: true, processId: null, message: 'Browser Mock core exited unexpectedly',
+      recovery: { phase: recovery, attempt: recovery === 'failed' ? 5 : 3, limit: 5, delaySeconds: recovery === 'waiting' ? 5 : 0, detail: 'PID 42817 exited with code 1 (mock)' },
+    });
+  }
+  let connection: CoreConnection = { mode: 'local', managementOrigin: '', managementKey: '', clientOrigin: '', clientKey: '' };
+  let localStatus = clone(state.coreStatus);
+  let portableConnection: CoreConnection | null = null;
+  let connectionRevision = 0;
+  let usagePaused = false;
+  // In-memory client files only: never touch the host's actual agent configuration.
+  const localClientIdentity = 'local';
+  const clientIdentity = () => connection.mode === 'remote'
+    ? JSON.stringify([connection.clientOrigin, connection.clientKey]) : localClientIdentity;
+  const agentTargets = new Map(state.agentStatuses.map(status => [status.id, localClientIdentity]));
+  const recordClientOperation = (command: string, client?: unknown) => {
+    emitEvent('browser-mock-client-operation', {
+      command, client: readString(client),
+      origin: connection.mode === 'remote' ? connection.clientOrigin : `http://127.0.0.1:${state.coreConfig.port}`,
+      targetRevision: connectionRevision,
+    });
+  };
+  const requireClientAuthentication = () => {
+    if (connection.mode === 'remote' && connection.clientKey !== 'fixture-client-key') {
+      throw new Error('Browser fixture: client authentication rejected');
+    }
+  };
+  const validateConnection = (value: CoreConnection) => {
+    if (!value || !['local', 'remote'].includes(value.mode)) throw new Error('Invalid connection mode');
+    if (value.mode === 'remote') {
+      for (const origin of [value.managementOrigin, value.clientOrigin]) {
+        const url = new URL(origin);
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Enter an HTTP or HTTPS origin without a path or credentials');
+      }
+      if (!value.managementKey.trim()) throw new Error('Management key is required');
+    }
+    return clone(value);
+  };
+  const connectionResult = (value: CoreConnection) => {
+    const connected = value.mode === 'local' || (value.managementKey === 'fixture-management-key' && !value.managementOrigin.includes('offline'));
+    return { connected, version: connected ? '8.0.29' : null, message: 'Browser fixture only; no network request' };
+  };
+  const applyConnectionStatus = () => {
+    usagePaused = connection.mode === 'remote' && connection.managementOrigin.includes('usage-uncertain');
+    if (connection.mode === 'local') Object.assign(state.coreStatus, localStatus);
+    else {
+      const result = connectionResult(connection);
+      Object.assign(state.coreStatus, { connectionMode: 'remote', remoteOrigin: connection.managementOrigin,
+        installed: false, running: result.connected, ready: result.connected, managed: false, starting: false,
+        processId: null, currentVersion: result.connected ? result.version : null, binaryPath: null, installDir: '',
+        message: result.connected ? result.message : 'Browser fixture: authentication rejected or target offline' });
+    }
+  };
+  // Only the selected target and its saved local process snapshot survive a document reload.
+  // Storage is supplied by the browser installer; standalone runtimes remain isolated by default.
+  const storedConnection = connectionStorage?.getItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
+  if (storedConnection) {
+    try {
+      const saved = JSON.parse(storedConnection);
+      if (saved.scenario !== scenario || !Number.isSafeInteger(saved.revision) || saved.revision < 0
+        || !['managementOrigin', 'managementKey', 'clientOrigin', 'clientKey'].every(key => typeof saved.connection?.[key] === 'string')
+        || !['installed', 'running', 'ready', 'managed', 'starting'].every(key => typeof saved.localStatus?.[key] === 'boolean')) {
+        throw new Error('Invalid saved mock connection');
+      }
+      connection = validateConnection(saved.connection);
+      connectionRevision = saved.revision;
+      localStatus = { ...localStatus, ...saved.localStatus };
+      applyConnectionStatus();
+    } catch {
+      connectionStorage?.removeItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY);
+    }
+  }
   let usageViewPreferences: Record<string, string> = {};
   let privacyMode: boolean | null = null;
   let themeSelection: ThemeSelection | null = null;
@@ -982,10 +1086,15 @@ export function createBrowserMockRuntime(
     state.coreConfig.apiKeys = [];
   }
   const pluginMock = createPluginMock(state, pluginPages, onPluginWebview);
+  const sectionHandlers = sectionMocks.map(create => create(state as never));
   const emit = (event: string, payload: unknown) => emitEvent(event, clone(payload));
+  const lightingMock = createLightingMock(scenario, emit, () => connectionRevision);
 
   const invoke = async (command: string, rawPayload?: unknown): Promise<unknown> => {
+    const startedRevision = connectionRevision;
     await sleep(delayMs);
+    if ((command.includes('agent_') || ['get_core_models', 'core_health_probe'].includes(command))
+      && startedRevision !== connectionRevision) throw new Error('The core connection changed; agent operation cancelled');
     const payload = asObject(rawPayload);
     if (scenario === 'error' && ERROR_SCENARIO_COMMANDS.has(command)) {
       throw new Error(`Browser Mock error scenario: ${command}`);
@@ -993,6 +1102,12 @@ export function createBrowserMockRuntime(
 
     const pluginResponse = pluginMock.handle(command, payload);
     if (pluginResponse.handled) return pluginResponse.value;
+    for (const handler of sectionHandlers) {
+      const sectionResponse = handler.handle(command, payload);
+      if (sectionResponse.handled) return sectionResponse.value;
+    }
+    const lightingResponse = await lightingMock.handle(command, payload);
+    if (lightingResponse.handled) return lightingResponse.value;
 
     switch (command) {
       case 'plugin:app|version': return '0.2.97-mock';
@@ -1020,33 +1135,64 @@ export function createBrowserMockRuntime(
       case 'open_custom_themes_directory':
       case 'set_window_material':
       case 'restart_agent_app':
-      case 'restart_codex_app':
-      case 'restart_opencode_app':
       case 'restart_codex_cli_daemon':
       case 'check_codex_oauth_login':
       case 'restore_codex_official_config':
       case 'create_agent_config_backup':
       case 'restore_agent_config_backup':
-      case 'launch_agent': return null;
+        return null;
+      case 'launch_agent':
+        recordClientOperation(command, payload.client);
+        return null;
 
+      case 'get_management_target_revision': return connectionRevision;
+      case 'export_core_connection':
+        if (connection.mode !== 'remote') throw new Error('Switch to Remote mode before exporting connection settings');
+        portableConnection = { ...connection, managementKey: payload.includeSecrets ? connection.managementKey : '', clientKey: payload.includeSecrets ? connection.clientKey : '' };
+        return null;
+      case 'import_core_connection':
+        if (!portableConnection) throw new Error('Connection export is invalid or corrupted');
+        return clone(portableConnection);
+      case 'get_core_connection': return clone(connection);
+      case 'test_core_connection': return connectionResult(validateConnection(payload.connection as CoreConnection));
+      case 'save_core_connection': {
+        const next = validateConnection(payload.connection as CoreConnection);
+        if (next.mode === 'remote' && state.coreStatus.connectionMode === 'local' && state.coreStatus.running && state.coreStatus.managed) throw new Error('Stop the GUI-managed local core before switching to Remote; its lifetime is tied to this application');
+        const nextLocalStatus = connection.mode === 'local' ? clone(state.coreStatus) : localStatus;
+        const nextRevision = connectionRevision + 1;
+        // Persist before activating/emitting, just as native save does. A storage failure is a failed save.
+        connectionStorage?.setItem(BROWSER_MOCK_CONNECTION_STORAGE_KEY, JSON.stringify({
+          scenario, connection: next, revision: nextRevision, localStatus: nextLocalStatus,
+        }));
+        localStatus = nextLocalStatus;
+        connection = next;
+        connectionRevision = nextRevision;
+        applyConnectionStatus();
+        emit('core-connection-changed', null);
+        emit('core-status-changed', state.coreStatus);
+        return clone(connection);
+      }
       case 'get_core_status': return clone(state.coreStatus);
       case 'main_window_active': return !document.hidden;
       case 'start_core_process': {
+        if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
-        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42817, message: 'Browser Mock core is running' });
+        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42817, message: 'Browser Mock core is running', recovery: null });
         state.guiSettings.runOnStartup = true;
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }
       case 'stop_core_process': {
-        Object.assign(state.coreStatus, { running: false, ready: false, managed: false, starting: false, processId: null, message: 'Browser Mock core is stopped' });
+        if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
+        Object.assign(state.coreStatus, { running: false, ready: false, managed: false, starting: false, processId: null, message: 'Browser Mock core is stopped', recovery: null });
         state.guiSettings.runOnStartup = false;
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }
       case 'restart_core_process': {
+        if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
-        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42818, message: 'Browser Mock core restarted' });
+        Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42818, message: 'Browser Mock core restarted', recovery: null });
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }
@@ -1092,7 +1238,7 @@ export function createBrowserMockRuntime(
         }
         Object.assign(state.coreConfig, syncValues);
         const restartRequired = changes.some((change) => !sameTemplateValue(readTemplatePath(before, change.path), readTemplatePath(state.extendedConfig, change.path)) && ['server.host', 'server.port', 'server.tls', 'management', 'oauth.auth-dir'].some((prefix) => change.path.join('.') === prefix || change.path.join('.').startsWith(`${prefix}.`)));
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return { config: clone(state.extendedConfig), restartRequired };
       }
       case 'get_software_settings': return clone(state.softwareSettings);
@@ -1100,7 +1246,7 @@ export function createBrowserMockRuntime(
       case 'get_core_sensitive_words_settings': return clone(state.sensitiveWords);
       case 'save_core_sensitive_words_settings': {
         state.sensitiveWords = clone(asObject(payload.settings)) as typeof state.sensitiveWords;
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return clone(state.sensitiveWords);
       }
       case 'save_software_settings': {
@@ -1110,7 +1256,7 @@ export function createBrowserMockRuntime(
       case 'save_core_tls_settings': {
         Object.assign(state.tlsSettings, asObject(payload.settings));
         state.extendedConfig = applyTemplateChanges(state.extendedConfig, [{ path: ['server', 'tls'], value: { enable: state.tlsSettings.enabled, cert: state.tlsSettings.cert, key: state.tlsSettings.key }, remove: false, expected: null, expectedExists: false }]);
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return clone(state.tlsSettings);
       }
       case 'save_core_logging_settings':
@@ -1118,12 +1264,12 @@ export function createBrowserMockRuntime(
       case 'save_retry_settings':
       case 'save_session_routing_settings': {
         const config = updateCoreConfig(state, payload);
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return config;
       }
       case 'set_core_routing_strategy': {
         const config = updateCoreConfig(state, { settings: { routingStrategy: readString(payload.strategy) } });
-        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], errors: [] });
+        emit('config-files-changed', { paths: ['cpa-core/config.yaml'], scopes: ['core'], errors: [] });
         return config;
       }
       case 'set_core_proxy_url': {
@@ -1213,10 +1359,14 @@ export function createBrowserMockRuntime(
         if (state.versionSource.source === `custom:${payload.url}`) state.versionSource.source = 'github';
         return clone(state.versionSource);
       }
-      case 'set_prefer_gitcode_downloads': return clone(state.versionSource);
 
-      case 'management_request': return clone(managementResponse(state, payload));
+      case 'management_request': {
+        const revision = asObject(payload.request).expectedRevision;
+        if (revision !== undefined && revision !== connectionRevision) throw new Error('The core connection changed; request cancelled');
+        return clone(managementResponse(state, payload));
+      }
       case 'import_vertex_credential': {
+        if (payload.expectedRevision !== connectionRevision) throw new Error('Core connection changed; upload cancelled');
         const parsed: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(asArray(payload.data) as number[])));
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid json');
         const serviceAccount = asObject(parsed);
@@ -1235,6 +1385,7 @@ export function createBrowserMockRuntime(
         return { status: 'ok', project_id: projectId, email, location, 'auth-file': name };
       }
       case 'upload_auth_file': {
+        if (payload.expectedRevision !== connectionRevision) throw new Error('Core connection changed; upload cancelled');
         const name = readString(payload.name) || 'uploaded-mock.json';
         const parsed: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(asArray(payload.data) as number[])));
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Browser Mock: credential must be a JSON object');
@@ -1254,6 +1405,8 @@ export function createBrowserMockRuntime(
       case 'save_api_access_remark': return null;
       case 'provider_health_probe': return { firstTokenLatencyMs: 184, responseLatencyMs: 642 };
       case 'core_health_probe': {
+        recordClientOperation(command);
+        requireClientAuthentication();
         if (!state.coreStatus.ready) throw new Error('Browser Mock: the core is not ready');
         if (!readString(payload.model).trim()) throw new Error('Select a model first');
         return { firstTokenLatencyMs: 184, responseLatencyMs: 642 };
@@ -1284,9 +1437,15 @@ export function createBrowserMockRuntime(
       }
       case 'submit_oauth_callback': return null;
 
+      case 'resume_usage_collection': {
+        if (connection.mode !== 'remote' || payload.expectedOrigin !== connection.managementOrigin || payload.expectedRevision !== connectionRevision) throw new Error('The remote connection changed; reload usage status before resuming');
+        usagePaused = false;
+        return { state: 'collecting', message: 'Browser fixture resumed; no network request', paused: false, connectionMode: connection.mode, remoteOrigin: connection.managementOrigin, targetRevision: connectionRevision, lastCollectedAt: null, totalRecords: state.usageOverview.totalRequests };
+      }
       case 'get_usage_collector_status': return {
-        state: state.coreStatus.ready ? 'collecting' : 'waiting-core',
-        message: state.coreStatus.ready ? 'Browser Mock is collecting usage records' : 'Waiting for the core to start',
+        connectionMode: connection.mode, remoteOrigin: connection.mode === 'remote' ? connection.managementOrigin : null, targetRevision: connectionRevision, paused: usagePaused,
+        state: usagePaused ? 'paused' : state.coreStatus.ready ? 'collecting' : 'waiting-core',
+        message: usagePaused ? 'Browser fixture: uncertain HTTP queue read; collection paused without retry' : state.coreStatus.ready ? 'Browser Mock is collecting usage records' : 'Waiting for the core to start',
         lastCollectedAt: new Date().toISOString(),
         totalRecords: state.usageOverview.totalRequests,
       };
@@ -1378,21 +1537,40 @@ export function createBrowserMockRuntime(
       case 'apply_usage_model_prices': return { imported: asArray(payload.prices).length };
 
       case 'get_agent_config_statuses':
-      case 'refresh_agent_config_statuses': return clone(state.agentStatuses);
+      case 'refresh_agent_config_statuses': {
+        recordClientOperation(command);
+        return clone(state.agentStatuses.map(status => agentTargets.get(status.id) === clientIdentity()
+          ? status : { ...status, configured: false, configurationSynchronized: false, connectionState: 'needs-update' }));
+      }
       case 'get_core_models': {
         if (!state.coreStatus.ready) throw new Error('Browser Mock: the core is not ready');
         return invoke('get_agent_models', {});
       }
-      case 'get_agent_models': return [
-        { name: 'gpt-5.2-codex', alias: 'codex-latest', displayName: 'GPT-5.2 Codex', isAlias: true, contextWindow: 272_000, inputModalities: ['text', 'image'] },
-        { name: 'claude-opus-4-6', displayName: 'Claude Opus 4.6', contextWindow: 200_000, inputModalities: ['text', 'image'] },
-        { name: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', contextWindow: 200_000, inputModalities: ['text', 'image'] },
-        { name: 'claude-haiku-4-5', displayName: 'Claude Haiku 4.5', contextWindow: 200_000, inputModalities: ['text', 'image'] },
-        { name: 'gemini-3-pro', displayName: 'Gemini 3 Pro', contextWindow: 1_000_000, inputModalities: ['text', 'image'] },
-        { name: 'deepseek-chat', displayName: 'DeepSeek Chat', contextWindow: 64_000, inputModalities: ['text'] },
-      ];
+      case 'get_agent_models': {
+        recordClientOperation(command, payload.client);
+        requireClientAuthentication();
+        return [
+          { name: 'gpt-5.2-codex', alias: 'codex-latest', displayName: 'GPT-5.2 Codex', isAlias: true, contextWindow: 272_000, inputModalities: ['text', 'image'] },
+          { name: 'claude-opus-4-6', displayName: 'Claude Opus 4.6', contextWindow: 200_000, inputModalities: ['text', 'image'] },
+          { name: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', contextWindow: 200_000, inputModalities: ['text', 'image'] },
+          { name: 'claude-haiku-4-5', displayName: 'Claude Haiku 4.5', contextWindow: 200_000, inputModalities: ['text', 'image'] },
+          { name: 'gemini-3-pro', displayName: 'Gemini 3 Pro', contextWindow: 1_000_000, inputModalities: ['text', 'image'] },
+          { name: 'deepseek-chat', displayName: 'DeepSeek Chat', contextWindow: 64_000, inputModalities: ['text'] },
+        ];
+      }
       case 'update_agent_config':
-      case 'apply_agent_config_template':
+      case 'apply_agent_config_template': {
+        recordClientOperation(command, payload.client);
+        const client = readString(payload.client);
+        const status = state.agentStatuses.find(status => status.id === client);
+        if (status) {
+          agentTargets.set(status.id, clientIdentity());
+          Object.assign(status, { currentModel: readString(payload.model) || status.currentModel,
+            configured: true, configurationSynchronized: true, connectionState: 'configured' });
+        }
+        emit('config-files-changed', null);
+        return createActionResult(payload);
+      }
       case 'install_pi_provider':
       case 'update_pi_provider':
       case 'repair_pi_provider':
@@ -1514,7 +1692,15 @@ export function createBrowserMockRuntime(
       case 'get_codex_session_context': {
         const request = asObject(payload.request);
         const sessionId = String(request.sessionId || 'mock-session-id');
-        return clone(mockSessionContext(state, sessionId));
+        const context = clone(mockSessionContext(state, sessionId));
+        const offset = Math.max(0, readNumber(request.messageOffset));
+        const limit = Math.min(1000, Math.max(1, readNumber(request.messageLimit, 200)));
+        return {
+          ...context,
+          messages: context.messages.slice(offset, offset + limit),
+          messageOffset: offset,
+          totalMessages: context.messages.length,
+        };
       }
       case 'open_codex_session_rollout': {
         const sessionId = String(asObject(payload.request).sessionId || '');
@@ -1618,7 +1804,6 @@ export function createBrowserMockRuntime(
       case 'apply_codex_session_index_cleanup': return { prunedEntries: asArray(asObject(payload.request).threadIds).length, backupPath: 'C:\\Users\\Mock\\.codex\\backups\\index.json' };
 
       case 'get_codex_cli_daemon_running': return true;
-      case 'get_lan_ipv4': return ['192.168.100.100'];
       default:
         if (command.startsWith('plugin:window|') || command.startsWith('plugin:webview|')) return null;
         console.warn(`[Browser Mock] Command not implemented: ${command}`, rawPayload);

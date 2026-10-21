@@ -1,9 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { I18nProvider } from '../../src/i18n';
-import { OAuthLoginPage } from '../../src/pages/ManagementPages';
+import { SignInHarness, coreStatus } from './signinHarness';
 import { notifyPluginResourcesChanged } from '../../src/services/pluginResources';
-import '../../src/styles/index.css';
 
 const params = new URLSearchParams(location.search);
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'en');
@@ -45,14 +43,17 @@ const fixture = {
 };
 Object.assign(window, { pluginOAuthProvidersFixture: fixture });
 
+// Keep OAuth polling quick in this fixture while preserving the production timer behavior.
 const nativeSetTimeout = window.setTimeout.bind(window);
 window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
   nativeSetTimeout(handler, timeout === 3000 ? 25 : timeout, ...args)) as typeof window.setTimeout;
 
 mockIPC(async (cmd, unknownArgs) => {
+  if (cmd === 'get_management_target_revision') return 0; // documentTarget fences every target command
   const args = (unknownArgs ?? {}) as Record<string, unknown>;
   fixture.calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;
+  if (cmd === 'get_core_status') return coreStatus(false);
   if (cmd === 'list_oauth_browsers') return [
     { id: 'default', label: 'System Default' }, { id: 'edge', label: 'Microsoft Edge' },
   ];
@@ -63,7 +64,7 @@ mockIPC(async (cmd, unknownArgs) => {
     return {
       url: `https://login.example.test/authorize?state=${state}`,
       state, userCode: device ? 'BUDDY-CODE' : null,
-      flow: device ? 'device' : 'authorization_code', expiresIn: 900, opened: false,
+      flow: device ? 'device' : 'authorization_code', expiresIn: params.has('expire') ? 0.3 : 900, opened: false,
     };
   }
   if (cmd === 'get_oauth_status') return { status: fixture.status };
@@ -94,6 +95,4 @@ mockIPC(async (cmd, unknownArgs) => {
   throw new Error(`Unexpected command: ${cmd}`);
 }, { shouldMockEvents: true });
 
-createRoot(document.getElementById('root')!).render(
-  <I18nProvider><main style={{ padding: 20 }}><OAuthLoginPage /></main></I18nProvider>,
-);
+createRoot(document.getElementById('root')!).render(<SignInHarness />);

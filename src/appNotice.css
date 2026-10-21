@@ -1,0 +1,137 @@
+/* Toast notices (appNotice) and the stack that hosts them (NoticePortal). */
+
+.action-feedback.inline-notice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  margin: 10px 0;
+  border: 1px solid var(--theme-b6d3bd);
+  border-radius: 7px;
+  background: var(--theme-eef7f0);
+  color: var(--theme-2f6b3f);
+  box-sizing: border-box;
+}
+
+.action-feedback.inline-notice.error {
+  border-color: var(--theme-dfb7b0);
+  background: var(--theme-fff1ee);
+  color: var(--theme-9f2d20);
+}
+
+.action-feedback.inline-notice.info {
+  border-color: var(--theme-c9d6e2);
+  background: var(--theme-f1f6fa);
+  color: var(--theme-42637f);
+}
+
+.action-feedback.inline-notice .action-feedback-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.action-feedback.inline-notice .action-feedback-icon {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.action-feedback.inline-notice .action-feedback-text {
+  min-width: 0;
+  max-height: min(160px, 25vh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  padding-right: 4px;
+}
+
+.action-feedback.inline-notice .action-feedback-text:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.action-feedback.inline-notice .action-feedback-source {
+  font-weight: var(--font-weight-semibold);
+  margin-right: 4px;
+}
+
+.action-feedback.inline-notice .action-feedback-message {
+  min-width: 0;
+}
+
+.action-feedback.inline-notice .action-feedback-dismiss {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.action-feedback.inline-notice .action-feedback-dismiss:hover {
+  border-color: currentColor;
+  background: var(--bg-hover);
+}
+
+.inline-notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--theme-e2ddd3);
+  border-radius: 8px;
+  background: var(--theme-f8f5ef);
+  color: var(--theme-2d2a26);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.inline-notice.success {
+  border-color: var(--theme-c9dfcf);
+  background: var(--theme-eef7f0);
+  color: var(--theme-2f6b3a);
+}
+
+.inline-notice.error {
+  border-color: var(--theme-efc9c2);
+  background: var(--theme-fdf1ee);
+  color: var(--theme-a33b2b);
+}
+
+.app-notice-stack {
+  position: fixed;
+  right: 24px;
+  bottom: var(--notice-bottom, 24px);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(480px, calc(100vw - 48px));
+  max-height: calc(100vh - var(--notice-bottom, 24px) - 24px);
+  max-height: calc(100dvh - var(--notice-bottom, 24px) - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: none;
+}
+
+.app-notice-entry {
+  flex: none;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.app-notice-entry .action-feedback.inline-notice {
+  margin: 0;
+  box-shadow: 0 4px 16px rgba(45, 42, 38, 0.18);
+}

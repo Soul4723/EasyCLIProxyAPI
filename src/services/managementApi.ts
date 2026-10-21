@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import { documentTarget, invoke } from './documentTarget';
+import { checkTargetRevision } from './platform';
 import { getCurrentLocale, translate } from '../i18n';
 
 export type ManagementJson = Record<string, unknown> | unknown[] | string | number | boolean | null;
@@ -7,6 +8,7 @@ type ManagementRequestOptions = {
   query?: Record<string, string | number | boolean | undefined>;
   body?: ManagementJson;
   timeoutMs?: number;
+  expectedRevision?: number;
 };
 
 // Native v8 groups: callers keep keys and overrides intact through every edit.
@@ -62,31 +64,45 @@ async function request<T = ManagementJson>(
       query: normalizeQuery(options.query),
       body: options.body,
       timeoutMs: options.timeoutMs,
+      expectedRevision: options.expectedRevision,
     },
   });
 }
 
 export const managementApi = {
-  get: <T = ManagementJson>(path: string, query?: ManagementRequestOptions['query']) =>
-    request<T>('GET', path, { query }),
+  get: <T = ManagementJson>(path: string, query?: ManagementRequestOptions['query'], options: Pick<ManagementRequestOptions, 'expectedRevision'> = {}) =>
+    request<T>('GET', path, { ...options, query }),
   post: <T = ManagementJson>(
     path: string,
     body?: ManagementJson,
-    options: Pick<ManagementRequestOptions, 'timeoutMs'> = {},
+    options: Pick<ManagementRequestOptions, 'timeoutMs' | 'expectedRevision'> = {},
   ) => request<T>('POST', path, { ...options, body }),
   put: <T = ManagementJson>(path: string, body?: ManagementJson) =>
     request<T>('PUT', path, { body }),
-  patch: <T = ManagementJson>(path: string, body?: ManagementJson) =>
-    request<T>('PATCH', path, { body }),
+  patch: <T = ManagementJson>(path: string, body?: ManagementJson, options: Pick<ManagementRequestOptions, 'expectedRevision'> = {}) =>
+    request<T>('PATCH', path, { ...options, body }),
   delete: <T = ManagementJson>(
     path: string,
     options: ManagementRequestOptions = {},
   ) => request<T>('DELETE', path, options),
-  uploadAuthFile: async (file: File) => {
+  getTargetRevision: documentTarget.getRevision,
+  // Existing quota completion validation checks current identity without rebinding the document.
+  checkTargetRevision,
+  uploadAuthFile: async (file: File, isCurrentTarget: () => boolean = () => true, expectedRevision?: number) => {
+    const assertCurrentTarget = () => {
+      if (!isCurrentTarget()) throw new Error('The core connection changed; upload cancelled');
+    };
+    assertCurrentTarget();
+    // Capture native identity before reading; browser events can lag native target changes.
+    expectedRevision ??= await managementApi.getTargetRevision();
+    assertCurrentTarget();
     const data = Array.from(new Uint8Array(await file.arrayBuffer()));
+    // File reads can outlive the initiating page/connection. Never send their bytes to a new target.
+    assertCurrentTarget();
     return invoke<ManagementJson>('upload_auth_file', {
       name: file.name,
       data,
+      expectedRevision,
     });
   },
   openAuthFilesDirectory: () => invoke<void>('open_auth_files_directory'),

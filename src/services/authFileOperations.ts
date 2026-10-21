@@ -13,15 +13,15 @@ export function normalizeCredentialResults(payload: unknown): CredentialResult[]
   });
 }
 
-export async function refreshCredential(file: AuthFileRecord, api: RefreshApi = managementApi): Promise<void> {
+export async function refreshCredential(file: AuthFileRecord, options: { expectedRevision?: number } = {}, api: RefreshApi = managementApi): Promise<void> {
   if (!isOAuthCredentialFile(file) || file.disabled === true) throw new Error('Credential cannot be refreshed');
   const authIndex = authFileCooldownResetIndex(file);
-  const response = await api.post('/credentials/refresh', { name: readString(file, 'name'), ...(authIndex ? { auth_index: authIndex } : {}) }, { timeoutMs: 300_000 });
+  const response = await api.post('/credentials/refresh', { name: readString(file, 'name'), ...(authIndex ? { auth_index: authIndex } : {}) }, { timeoutMs: 300_000, ...options });
   if (!isRecord(response) || response.ok !== true) throw new Error('Invalid credential refresh response');
 }
 
-export async function refreshAllCredentials(api: RefreshApi = managementApi): Promise<CredentialResult[]> {
-  return normalizeCredentialResults(await api.post('/credentials/refresh', { all: true }, { timeoutMs: 300_000 }));
+export async function refreshAllCredentials(options: { expectedRevision?: number } = {}, api: RefreshApi = managementApi): Promise<CredentialResult[]> {
+  return normalizeCredentialResults(await api.post('/credentials/refresh', { all: true }, { timeoutMs: 300_000, ...options }));
 }
 
 /** Bounded sequential operations preserve individual failures and avoid request bursts. */

@@ -19,8 +19,14 @@ mod core_v8_contract;
 mod desktop_alias_routing;
 #[cfg(windows)]
 mod file_replace;
+#[cfg(unix)]
+mod file_permissions;
 mod instance_lock;
 mod model_aliases;
 mod platform;
 mod provider_health;
 mod support;
+
+mod core_connection;
+
+mod remote_agents;

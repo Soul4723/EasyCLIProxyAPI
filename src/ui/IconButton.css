@@ -1,0 +1,96 @@
+/* IconButton: see IconButton.tsx for props. Square, sized from the density tokens. */
+
+.ec-icon-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--ec-ctrl-h);
+  height: var(--ec-ctrl-h);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ec-r-md);
+  background: transparent;
+  color: var(--ec-fg-muted);
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.ec-icon-btn__icon {
+  display: inline-flex;
+}
+
+.ec-icon-btn__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ec-icon-btn:hover:not(:disabled) {
+  background: var(--ec-hover);
+  color: var(--ec-fg);
+}
+
+.ec-icon-btn:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 2px;
+}
+
+.ec-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* variants */
+.ec-icon-btn--outline {
+  border-color: var(--ec-input-border);
+  background: var(--ec-raised);
+  color: var(--ec-fg-2);
+}
+
+.ec-icon-btn--outline:hover:not(:disabled) {
+  background: var(--ec-hover);
+}
+
+.ec-icon-btn--primary {
+  background: var(--ec-accent);
+  border-color: var(--ec-accent);
+  color: var(--ec-accent-fg);
+}
+
+.ec-icon-btn--primary:hover:not(:disabled) {
+  background: var(--ec-accent);
+  color: var(--ec-accent-fg);
+  filter: brightness(1.06);
+}
+
+/* active = toggled on (aria-pressed) */
+.ec-icon-btn--active,
+.ec-icon-btn--active:hover:not(:disabled) {
+  background: var(--ec-field);
+  color: var(--ec-fg);
+}
+
+.ec-icon-btn--primary.ec-icon-btn--active,
+.ec-icon-btn--primary.ec-icon-btn--active:hover:not(:disabled) {
+  background: var(--ec-accent);
+  color: var(--ec-accent-fg);
+}
+
+/* sizes */
+.ec-icon-btn--sm {
+  width: var(--ec-ctrl-h-sm);
+  height: var(--ec-ctrl-h-sm);
+}
+
+.ec-icon-btn--xs {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--ec-r-sm);
+}
+
+.ec-icon-btn--xs .ec-icon-btn__icon svg {
+  width: 14px;
+  height: 14px;
+}

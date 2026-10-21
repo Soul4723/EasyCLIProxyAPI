@@ -1,0 +1,68 @@
+/* Toggle: see Toggle.tsx. Knob travel is computed from the track width so both sizes sit 2px from the edge. */
+
+.ec-toggle {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 32px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--ec-input-border);
+  border-radius: var(--ec-r-pill);
+  background: var(--ec-muted-bg);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.ec-toggle--sm {
+  width: 26px;
+  height: 16px;
+}
+
+.ec-toggle--on {
+  background: var(--ec-accent);
+  border-color: var(--ec-accent);
+}
+
+.ec-toggle:focus-visible {
+  outline: 2px solid var(--ec-ring);
+  outline-offset: 2px;
+}
+
+.ec-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ec-toggle__knob {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ec-fg-2);
+  transform: translateY(-50%);
+  transition: transform 150ms ease, background-color 150ms ease;
+}
+
+.ec-toggle--sm .ec-toggle__knob {
+  width: 10px;
+  height: 10px;
+}
+
+.ec-toggle--on .ec-toggle__knob {
+  background: var(--ec-accent-fg);
+  transform: translate(12px, -50%);
+}
+
+.ec-toggle--sm.ec-toggle--on .ec-toggle__knob {
+  transform: translate(10px, -50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-toggle,
+  .ec-toggle__knob {
+    transition: none;
+  }
+}

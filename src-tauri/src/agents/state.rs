@@ -250,7 +250,7 @@ pub(crate) fn load_agent_applied_state(
     let content = fs::read_to_string(&state_path)
         .map_err(|error| format!("Failed to read agent application state: {error}"))?;
     let value = serde_json::from_str::<serde_json::Value>(&content)
-        .map_err(|error| format!("Failed to parse agent application state: {error}"))?;
+        .map_err(|_| "Failed to parse agent application state".to_string())?;
     let version = value
         .get("version")
         .and_then(serde_json::Value::as_u64)
@@ -258,7 +258,7 @@ pub(crate) fn load_agent_applied_state(
     let version = u8::try_from(version).map_err(|_| "Unsupported agent application state version".to_string())?;
     if version == AGENT_APPLIED_STATE_VERSION || version == 3 {
         let state = serde_json::from_value::<AgentAppliedState>(value)
-            .map_err(|error| format!("Failed to parse agent application state: {error}"))?;
+            .map_err(|_| "Failed to parse agent application state".to_string())?;
         validate_agent_applied_state(client, &paths, &state)?;
         if client == AgentClient::Codex {
             write_agent_applied_state(&state_path, &state)?;
@@ -272,7 +272,7 @@ pub(crate) fn load_agent_applied_state(
     }
 
     let record = serde_json::from_value::<AgentModificationRecord>(value)
-        .map_err(|error| format!("Failed to parse legacy agent state: {error}"))?;
+        .map_err(|_| "Failed to parse legacy agent state".to_string())?;
     validate_agent_record(client, &paths, &record)?;
     let backup_files = record
         .files
@@ -423,7 +423,7 @@ pub(crate) fn load_agent_record(
         &fs::read_to_string(&state_path)
             .map_err(|error| format!("Failed to read agent backup state: {error}"))?,
     )
-    .map_err(|error| format!("Failed to parse agent backup state: {error}"))?;
+    .map_err(|_| "Failed to parse agent backup state".to_string())?;
     validate_agent_record(client, paths, &record)?;
     if record.version == LEGACY_AGENT_MODIFICATION_STATE_VERSION {
         record.version = AGENT_MODIFICATION_STATE_VERSION;
@@ -514,7 +514,7 @@ pub(crate) fn codex_record_needs_resync(
 pub(crate) fn inspect_agent_modification(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     configured: bool,
     current_model: Option<&str>,
 ) -> AgentModificationInspection {
@@ -630,7 +630,7 @@ pub(crate) fn inspect_agent_modification(
 #[cfg(test)]
 pub(crate) fn fresh_agent_contents(
     client: AgentClient,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
 ) -> Result<Vec<String>, String> {
@@ -659,7 +659,7 @@ pub(crate) fn fresh_agent_contents(
 
 pub(crate) fn fresh_agent_contents_with_oauth(
     client: AgentClient,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
     options: AgentConfigurationOptions<'_>,
@@ -671,7 +671,7 @@ pub(crate) fn fresh_agent_contents_with_oauth(
         claude_desktop_model_mappings,
         ..
     } = options;
-    let root_base = managed_core_loopback_origin(port);
+    let root_base = port.client_origin();
     let openai_base = format!("{root_base}/v1");
     match client {
         AgentClient::ClaudeCode => Ok(vec![build_claude_agent_config(
@@ -803,7 +803,7 @@ pub(crate) fn normalize_codex_config_for_legacy_compare(content: &str) -> Option
 pub(crate) fn build_legacy_agent_record(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     model: &str,
 ) -> Result<Option<AgentModificationRecord>, String> {
     let paths = agent_config_paths(client, home);
@@ -908,7 +908,7 @@ pub(crate) fn prepare_agent_record(
     let mut files = Vec::new();
     for (path, backup_path, current, _, managed_sha256) in prepared {
         let backup_result = if let Some(current) = current.as_deref() {
-            write_bytes_atomically(&backup_path, current).and_then(|_| {
+            write_private_bytes_atomically(&backup_path, current).and_then(|_| {
                 let copied = fs::read(&backup_path).map_err(|error| {
                     format!(
                         "Failed to verify agent backup {}: {error}",
@@ -1009,7 +1009,7 @@ pub(crate) fn extend_agent_record_for_updates(
     let mut next = record.clone();
     for (update, backup_path, _, current) in prepared {
         let backup_result = if let Some(current) = current.as_deref() {
-            write_bytes_atomically(&backup_path, current).and_then(|_| {
+            write_private_bytes_atomically(&backup_path, current).and_then(|_| {
                 let copied = fs::read(&backup_path).map_err(|error| {
                     format!(
                         "Failed to verify agent backup {}: {error}",
@@ -1349,7 +1349,7 @@ pub(crate) fn commit_agent_configuration(
 
 pub(crate) fn sync_codex_model_catalog_if_configured(
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     models: &[AgentModelOption],
     catalog: &str,
@@ -1380,7 +1380,7 @@ pub(crate) fn sync_codex_model_catalog_if_configured(
         validate_codex_catalog(catalog, model)?;
     } else {
         let root: serde_json::Value = serde_json::from_str(catalog)
-            .map_err(|error| format!("Invalid Codex model catalog format: {error}"))?;
+            .map_err(|_| "Invalid Codex model catalog format".to_string())?;
         if !root
             .get("models")
             .and_then(serde_json::Value::as_array)
@@ -1403,7 +1403,7 @@ pub(crate) fn sync_codex_model_catalog_if_configured(
             .map_err(|error| format!("Failed to read Codex configuration: {error}"))?;
         let mut document = content
             .parse::<toml_edit::Document>()
-            .map_err(|error| format!("Invalid Codex config.toml format: {error}"))?;
+            .map_err(|_| "Invalid Codex config.toml format".to_string())?;
         if let Some(model) = next_model {
             set_codex_table_item(document.as_table_mut(), "model", toml_edit::value(model));
         } else {
@@ -1426,7 +1426,7 @@ pub(crate) fn sync_codex_model_catalog_if_configured(
 pub(crate) fn apply_agent_configuration(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
     models: &[AgentModelOption],
@@ -1451,7 +1451,7 @@ pub(crate) fn apply_agent_configuration(
 pub(crate) fn apply_agent_configuration_with_oauth(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
     options: AgentConfigurationOptions<'_>,
@@ -1480,7 +1480,7 @@ pub(crate) fn apply_agent_configuration_with_oauth(
 pub(crate) fn reset_agent_configuration_to_default(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
     codex_catalog: Option<&str>,
@@ -1506,10 +1506,10 @@ pub(crate) fn reset_agent_configuration_to_default(
     })
 }
 
-pub(crate) struct AgentDefaultConfiguration<'a> {
+pub(crate) struct AgentDefaultConfiguration<'a, T: AgentClientOrigin = u16> {
     pub(crate) client: AgentClient,
     pub(crate) home: &'a Path,
-    pub(crate) port: u16,
+    pub(crate) port: T,
     pub(crate) api_key: &'a str,
     pub(crate) model: &'a str,
     pub(crate) models: &'a [AgentModelOption],
@@ -1520,7 +1520,7 @@ pub(crate) struct AgentDefaultConfiguration<'a> {
 }
 
 #[cfg(test)]
-pub(crate) fn reset_agent_configuration_to_default_with_oauth(request: AgentDefaultConfiguration<'_>) -> Result<AgentConfigActionResult, String> {
+pub(crate) fn reset_agent_configuration_to_default_with_oauth(request: AgentDefaultConfiguration<'_, impl AgentClientOrigin>) -> Result<AgentConfigActionResult, String> {
     let client = request.client;
     let home = request.home;
     let model = request.model.to_string();
@@ -1531,7 +1531,7 @@ pub(crate) fn reset_agent_configuration_to_default_with_oauth(request: AgentDefa
 }
 
 pub(crate) fn build_agent_template_updates(
-    request: AgentDefaultConfiguration<'_>,
+    request: AgentDefaultConfiguration<'_, impl AgentClientOrigin>,
 ) -> Result<Vec<AgentFileUpdate>, String> {
     let AgentDefaultConfiguration {
         client,
@@ -1546,10 +1546,10 @@ pub(crate) fn build_agent_template_updates(
         claude_desktop_model_mappings,
     } = request;
     if matches!(client, AgentClient::CopilotCli | AgentClient::VscodeCopilot) {
-        return build_copilot_updates(client, home, &format!("{}/v1", managed_core_loopback_origin(port)), api_key, model, models, true);
+        return build_copilot_updates(client, home, &format!("{}/v1", port.client_origin()), api_key, model, models, true);
     }
     if client == AgentClient::AntigravityCli {
-        return build_antigravity_updates(client, home, &managed_core_loopback_origin(port), api_key, model, true);
+        return build_antigravity_updates(client, home, &port.client_origin(), api_key, model, true);
     }
     let paths = agent_config_paths(client, home);
     let contents = fresh_agent_contents_with_oauth(
@@ -1710,7 +1710,7 @@ pub(crate) fn action_result(
 pub(crate) fn enable_agent_modification(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     model: &str,
     models: &[AgentModelOption],
     codex_catalog: Option<&str>,
@@ -1798,7 +1798,7 @@ pub(crate) fn enable_agent_modification(
 pub(crate) fn disable_agent_modification(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     force_restore: bool,
 ) -> Result<AgentConfigActionResult, String> {
     let paths = agent_config_paths(client, home);
@@ -1882,7 +1882,7 @@ pub(crate) fn disable_agent_modification(
 pub(crate) fn update_agent_modification(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     model: &str,
     models: &[AgentModelOption],
     codex_catalog: Option<&str>,

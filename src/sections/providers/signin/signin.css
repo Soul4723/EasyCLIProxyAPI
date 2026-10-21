@@ -1,0 +1,495 @@
+/* Sign-in dialogs (SignInDialog, BrowserPicker, VertexImportDialog). Dialogs render in a body portal, so classes are
+   prefixed ec-signin- instead of being scoped under the section root. Tokens only. */
+
+.ec-signin-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  min-width: 0;
+}
+
+.ec-signin-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ec-sp-3);
+}
+
+/* remote / info / error notes */
+.ec-signin-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ec-sp-2);
+  margin: 0;
+  padding: var(--ec-sp-2) var(--ec-sp-3);
+  border: 1px solid color-mix(in srgb, var(--ec-info) 40%, var(--ec-border));
+  border-radius: var(--ec-r-md);
+  background: color-mix(in srgb, var(--ec-info) var(--ec-tint), transparent);
+  color: var(--ec-fg-2);
+  font-size: var(--ec-fs-sm);
+  line-height: 1.45;
+}
+
+.ec-signin-note svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  color: var(--ec-info-fg);
+}
+
+.ec-signin-note--error {
+  border-color: color-mix(in srgb, var(--ec-danger) 45%, var(--ec-border));
+  background: color-mix(in srgb, var(--ec-danger) var(--ec-tint), transparent);
+}
+
+.ec-signin-note--error svg {
+  color: var(--ec-danger-fg);
+}
+
+.ec-signin-note--warn {
+  border-color: color-mix(in srgb, var(--ec-warn) 45%, var(--ec-border));
+  background: color-mix(in srgb, var(--ec-warn) var(--ec-tint), transparent);
+}
+
+.ec-signin-note--warn svg {
+  color: var(--ec-warn-fg);
+}
+
+/* browser picker */
+.ec-signin-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  min-width: 0;
+}
+
+.ec-signin-picker__label {
+  flex: none;
+  color: var(--ec-fg-muted);
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-signin-select,
+.ec-signin-input,
+.ec-signin-textarea {
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid var(--ec-input-border);
+  border-radius: var(--ec-r-md);
+  background: var(--ec-field);
+  color: var(--ec-fg);
+  font: inherit;
+  font-size: var(--ec-fs-md);
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.ec-signin-select,
+.ec-signin-input {
+  height: var(--ec-ctrl-h);
+  padding: 0 var(--ec-sp-2);
+}
+
+.ec-signin-select {
+  flex: 1 1 160px;
+  max-width: 280px;
+}
+
+.ec-signin-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: var(--ec-sp-2);
+  resize: vertical;
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-sm);
+  line-height: 1.45;
+}
+
+.ec-signin-select:focus-visible,
+.ec-signin-input:focus-visible,
+.ec-signin-textarea:focus-visible {
+  border-color: var(--ec-ring);
+  box-shadow: inset 0 0 0 1px var(--ec-ring);
+}
+
+.ec-signin-select:disabled,
+.ec-signin-input:disabled,
+.ec-signin-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ec-signin-input[aria-invalid='true'] {
+  border-color: var(--ec-danger);
+}
+
+.ec-signin-input::placeholder,
+.ec-signin-textarea::placeholder {
+  color: var(--ec-fg-subtle);
+}
+
+.ec-signin-picker__reason {
+  flex-basis: 100%;
+  color: var(--ec-fg-muted);
+  font-size: var(--ec-fs-xs);
+}
+
+a.ec-btn {
+  text-decoration: none;
+}
+
+/* numbered steps */
+.ec-signin-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ec-sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: signin-step;
+}
+
+.ec-signin-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: var(--ec-sp-3);
+  counter-increment: signin-step;
+}
+
+.ec-signin-step::before {
+  content: counter(signin-step);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--ec-r-pill);
+  background: var(--ec-muted-bg);
+  color: var(--ec-fg-2);
+  font-size: var(--ec-fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ec-signin-step--primary::before {
+  background: var(--ec-accent);
+  color: var(--ec-accent-fg);
+}
+
+.ec-signin-step__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ec-sp-2);
+  min-width: 0;
+}
+
+.ec-signin-step__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ec-sp-2);
+  min-height: 22px;
+}
+
+.ec-signin-step__title {
+  color: var(--ec-fg);
+  font-size: var(--ec-fs-md);
+  font-weight: 600;
+}
+
+.ec-signin-step__hint {
+  margin: 0;
+  color: var(--ec-fg-muted);
+  font-size: var(--ec-fs-sm);
+  line-height: 1.4;
+}
+
+/* authorization link: host highlighted */
+.ec-signin-url {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+  min-width: 0;
+  padding: 0 var(--ec-sp-1) 0 var(--ec-sp-3);
+  height: var(--ec-ctrl-h);
+  box-sizing: border-box;
+  border: 1px solid var(--ec-border);
+  border-radius: var(--ec-r-md);
+  background: var(--ec-code);
+}
+
+.ec-signin-url__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-sm);
+  color: var(--ec-fg-subtle);
+}
+
+.ec-signin-url__host {
+  color: var(--ec-fg);
+  font-weight: 600;
+}
+
+.ec-signin-url__skeleton {
+  flex: 1;
+  min-width: 0;
+}
+
+.ec-signin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ec-sp-2);
+}
+
+.ec-signin-expiry {
+  color: var(--ec-fg-subtle);
+  font-size: var(--ec-fs-xs);
+}
+
+/* device code */
+.ec-signin-code {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  min-width: 0;
+}
+
+.ec-signin-code__value {
+  flex: 1;
+  min-width: 0;
+  padding: var(--ec-sp-2) var(--ec-sp-3);
+  border: 1px dashed var(--ec-input-border);
+  border-radius: var(--ec-r-md);
+  background: var(--ec-code);
+  color: var(--ec-fg);
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-lg);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* callback step */
+.ec-signin-callback {
+  display: flex;
+  gap: var(--ec-sp-2);
+}
+
+.ec-signin-callback .ec-signin-input {
+  flex: 1;
+}
+
+.ec-signin-feedback {
+  margin: 0;
+  font-size: var(--ec-fs-sm);
+  line-height: 1.4;
+}
+
+.ec-signin-feedback--ok {
+  color: var(--ec-ok-fg);
+}
+
+.ec-signin-feedback--error {
+  color: var(--ec-danger-fg);
+}
+
+/* footer status bar */
+.ec-signin-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-3);
+  width: 100%;
+}
+
+.ec-signin-status {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  min-width: 0;
+  margin: 0;
+  color: var(--ec-fg-2);
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-signin-status__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ec-signin-status__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--ec-r-pill);
+  background: var(--ec-st-cooldown);
+  animation: ec-signin-pulse 1.6s ease-in-out infinite;
+}
+
+.ec-signin-spin {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  animation: ec-signin-rotate 900ms linear infinite;
+}
+
+.ec-signin-foot__actions {
+  display: flex;
+  flex: none;
+  gap: var(--ec-sp-2);
+}
+
+/* result views (success / failed) */
+.ec-signin-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  padding: var(--ec-sp-4) 0 var(--ec-sp-2);
+  text-align: center;
+}
+
+.ec-signin-result__mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--ec-r-pill);
+  background: color-mix(in srgb, var(--ec-ok) var(--ec-tint), transparent);
+  color: var(--ec-ok-fg);
+}
+
+.ec-signin-result__mark svg {
+  width: 22px;
+  height: 22px;
+}
+
+.ec-signin-result__title {
+  margin: 0;
+  color: var(--ec-fg);
+  font-size: var(--ec-fs-base);
+  font-weight: 600;
+}
+
+.ec-signin-result__sub {
+  margin: 0;
+  color: var(--ec-fg-muted);
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-signin-result .ec-signin-note {
+  text-align: left;
+  align-self: stretch;
+}
+
+/* vertex import */
+.ec-signin-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ec-sp-1);
+  min-width: 0;
+}
+
+.ec-signin-field__label {
+  color: var(--ec-fg);
+  font-size: var(--ec-fs-sm);
+  font-weight: 600;
+}
+
+.ec-signin-field__hint {
+  color: var(--ec-fg-subtle);
+  font-size: var(--ec-fs-xs);
+}
+
+.ec-signin-file {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-2);
+  min-width: 0;
+}
+
+.ec-signin-file__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ec-fg-muted);
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-signin-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--ec-sp-1) var(--ec-sp-3);
+  margin: 0;
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-signin-summary dt {
+  color: var(--ec-fg-muted);
+}
+
+.ec-signin-summary dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ec-fg);
+}
+
+@keyframes ec-signin-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ec-signin-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (max-width: 560px) {
+  .ec-signin-callback {
+    flex-direction: column;
+  }
+
+  .ec-signin-foot {
+    flex-wrap: wrap;
+  }
+
+  .ec-signin-foot__actions {
+    margin-left: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-signin-spin,
+  .ec-signin-status__dot {
+    animation: none;
+  }
+}
+
+.ec-signin-mode {
+  display: flex;
+}
+
+.ec-signin-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ec-sp-2);
+  padding: var(--ec-sp-3);
+  border: 1px solid var(--ec-border);
+  border-radius: var(--ec-r-md);
+  background: var(--ec-code);
+}
+
+.ec-signin-outcome .ec-signin-feedback {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-1);
+}

@@ -1,0 +1,44 @@
+/* Settings → Access tab. Scoped under .ec-sec-settings; kit tokens only. */
+.ec-sec-settings .ec-access { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-settings .ec-access-error { margin: 0; color: var(--ec-danger-fg); font-size: var(--ec-fs-xs); }
+.ec-sec-settings .ec-access-muted { color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-sec-settings .ec-access-empty { padding: var(--ec-pad); }
+.ec-sec-settings .ec-access-keys { list-style: none; margin: 0; padding: 0; }
+.ec-sec-settings .ec-access-key {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--ec-sp-4);
+  min-height: calc(var(--ec-row-h) + 8px);
+  padding: var(--ec-sp-1) var(--ec-pad);
+  border-bottom: 1px solid var(--ec-border-soft);
+}
+.ec-sec-settings .ec-access-key:last-child { border-bottom: 0; }
+.ec-sec-settings .ec-access-key-value { min-width: 0; font-size: var(--ec-fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-sec-settings .ec-access-key-remark { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ec-fs-sm); color: var(--ec-fg-2); }
+.ec-sec-settings .ec-access-key-actions { display: inline-flex; align-items: center; gap: var(--ec-sp-1); }
+.ec-sec-settings .ec-access-template { border-top: 1px solid var(--ec-border-soft); }
+.ec-sec-settings .ec-access-template .template-config-card { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: var(--ec-pad); }
+.ec-sec-settings .ec-access-template .template-config-card-dirty { box-shadow: inset 3px 0 0 var(--ec-st-limited); }
+.ec-sec-settings .ec-access-template .template-config-card > :first-child { margin-top: 0; }
+/* Dialog content renders in a portal outside .ec-sec-settings, so these rules are scoped by their own prefix. */
+.ec-access-form { display: flex; flex-direction: column; gap: var(--ec-sp-3); }
+.ec-access-form .ec-access-field { display: flex; flex-direction: column; gap: var(--ec-sp-1); font-size: var(--ec-fs-sm); }
+.ec-access-form .ec-access-input-row { display: flex; align-items: center; gap: var(--ec-sp-2); }
+.ec-access-form .ec-access-generate { align-self: flex-start; }
+.ec-access-form .ec-access-error { margin: 0; color: var(--ec-danger-fg); font-size: var(--ec-fs-xs); }
+.ec-access-input {
+  height: var(--ec-ctrl-h); min-width: 0; width: 100%; padding: 0 var(--ec-sp-3);
+  background: var(--ec-field); color: var(--ec-fg); border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm);
+  font: inherit; font-family: var(--ec-mono); font-size: var(--ec-fs-sm);
+}
+.ec-access-input.is-plain { font-family: inherit; }
+.ec-access-input:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 0; }
+.ec-access-input[aria-invalid='true'] { border-color: var(--ec-danger); }
+.ec-access-confirm-text { display: block; margin: var(--ec-sp-2) 0; }
+
+@container workspace (max-width: 760px) {
+  .ec-sec-settings .ec-access-key { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--ec-sp-1); }
+  .ec-sec-settings .ec-access-key-remark { grid-column: 1; grid-row: 2; }
+  .ec-sec-settings .ec-access-key-actions { grid-column: 2; grid-row: 1 / span 2; }
+}

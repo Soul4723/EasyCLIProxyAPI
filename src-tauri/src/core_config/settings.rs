@@ -769,17 +769,81 @@ pub(crate) fn apply_gui_managed_settings(
     Ok(updated)
 }
 
+/// Which permissions a direct write gives the file. Both modes create it 0600 so it is never readable by others
+/// between creation and the first write; they differ in what happens to a file that already exists.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DirectWriteMode {
+    /// Drop the group and other bits of an existing file (a user's own tool config) before the content is written.
+    /// Owner bits are kept and a mode is never widened.
+    DropGroupOther,
+    /// Tighten an existing file to exactly 0600 before any content is written (files the app owns).
+    Private,
+}
+
+/// Records the mode a direct write saw right after opening the file, before any chmod or content write.
+#[cfg(all(test, unix))]
+thread_local! {
+    pub(crate) static MODE_AFTER_DIRECT_OPEN: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// chmod can be refused with EPERM/ENOTSUP on filesystems without Unix modes (exFAT, vfat, drvfs, e.g. a portable
+/// install on a USB stick). Permissions are hardening, so warn and carry on instead of failing the write.
+#[cfg(unix)]
+pub(crate) fn tolerate_chmod_refusal(result: io::Result<()>, path: &Path) -> io::Result<()> {
+    match result {
+        Err(error) if matches!(error.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported) => {
+            eprintln!("Could not restrict permissions of {}: {error}", path_to_string(path));
+            Ok(())
+        }
+        other => other,
+    }
+}
+
+/// Direct write for agent configuration. A file the app creates is 0600 because it can hold the client key. When
+/// the app writes to an existing file it removes the group and other bits (0644 becomes 0600, 0755 becomes 0700),
+/// since the write is about to put the client key into it. Windows relies on the inherited per-user ACL of the
+/// profile directory.
 pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_directly_with_mode(path, content, DirectWriteMode::DropGroupOther)
+}
+
+/// Direct write for a file the app owns that holds credentials (the core config.yaml, DeepSeek credentials). An
+/// existing loose file is repaired to 0600.
+pub(crate) fn write_private_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_directly_with_mode(path, content, DirectWriteMode::Private)
+}
+
+fn write_bytes_directly_with_mode(path: &Path, content: &[u8], mode: DirectWriteMode) -> Result<(), String> {
     let directory = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
 
     let write_result = (|| -> io::Result<()> {
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(path)?;
+        let mut options = fs::OpenOptions::new();
+        options.create(true).write(true).truncate(false);
+        // The mode applies only when the file is created, and umask can only remove bits from it.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let current = file.metadata()?.permissions().mode() & 0o7777;
+            #[cfg(test)]
+            MODE_AFTER_DIRECT_OPEN.with(|recorded| recorded.set(Some(current)));
+            let wanted = match mode {
+                DirectWriteMode::Private => 0o600,
+                DirectWriteMode::DropGroupOther => current & !0o077,
+            };
+            if current != wanted {
+                tolerate_chmod_refusal(file.set_permissions(fs::Permissions::from_mode(wanted)), path)?;
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
         file.seek(SeekFrom::Start(0))?;
         file.write_all(content)?;
         file.set_len(content.len() as u64)?;
@@ -792,9 +856,53 @@ pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), St
 }
 
 pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), String> {
-    use std::sync::atomic::{AtomicU64, Ordering};
+    write_bytes_atomically_with_mode(path, content, false)
+}
 
-    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+// Avoid even a metadata notification when the file is already private. Returns whether the mode was changed; a
+// filesystem that refuses chmod leaves the file as it is and reports false.
+fn restrict_private_permissions(path: &Path) -> Result<bool, String> {
+    restrict_private_permissions_with(path, |path, permissions| fs::set_permissions(path, permissions))
+}
+
+pub(crate) fn restrict_private_permissions_with(
+    path: &Path,
+    set_permissions: impl FnOnce(&Path, fs::Permissions) -> io::Result<()>,
+) -> Result<bool, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = fs::metadata(path)
+            .map_err(|error| format!("Failed to read configuration permissions {}: {error}", path_to_string(path)))?
+            .permissions();
+        if permissions.mode() & 0o7777 != 0o600 {
+            let result = set_permissions(path, fs::Permissions::from_mode(0o600));
+            let refused = matches!(
+                &result,
+                Err(error) if matches!(error.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported)
+            );
+            tolerate_chmod_refusal(result, path).map_err(|error| {
+                format!("Failed to restrict configuration permissions {}: {error}", path_to_string(path))
+            })?;
+            return Ok(!refused);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (path, set_permissions);
+    Ok(false)
+}
+
+pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_atomically_with_mode(path, content, true)
+}
+
+fn write_bytes_atomically_with_mode(path: &Path, content: &[u8], private: bool) -> Result<(), String> {
+    if fs::read(path).ok().as_deref() == Some(content) {
+        if private && restrict_private_permissions(path)? {
+            remember_software_write(path, content);
+        }
+        return Ok(());
+    }
     let directory = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
@@ -802,14 +910,38 @@ pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), 
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("config.yaml");
+    let mut random_suffix = [0_u8; 16];
+    getrandom::fill(&mut random_suffix)
+        .map_err(|error| format!("Failed to create a temporary configuration name: {error}"))?;
+    let random_suffix = random_suffix
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     let temporary_path = directory.join(format!(
         ".{file_name}.tmp.{}.{}",
         std::process::id(),
-        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        random_suffix
     ));
 
     let write_result = (|| -> io::Result<()> {
-        let mut file = File::create(&temporary_path)?;
+        let mut options = fs::OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        if private {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary_path)?;
+        // The mode above is masked by umask; set it explicitly before the rename.
+        #[cfg(unix)]
+        if private {
+            use std::os::unix::fs::PermissionsExt;
+            if file.metadata()?.permissions().mode() & 0o7777 != 0o600 {
+                tolerate_chmod_refusal(file.set_permissions(fs::Permissions::from_mode(0o600)), &temporary_path)?;
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = private;
         file.write_all(content)?;
         file.sync_all()?;
         drop(file);
@@ -865,10 +997,23 @@ pub(crate) fn write_yaml_if_changed(path: &Path, content: &str) -> Result<bool, 
 }
 
 pub(crate) fn write_core_config_if_changed(path: &Path, content: &str) -> Result<bool, String> {
+    write_core_config_if_changed_with(path, content, |path, permissions| fs::set_permissions(path, permissions))
+}
+
+pub(crate) fn write_core_config_if_changed_with(
+    path: &Path,
+    content: &str,
+    set_permissions: impl FnOnce(&Path, fs::Permissions) -> io::Result<()>,
+) -> Result<bool, String> {
     if fs::read_to_string(path).ok().as_deref() == Some(content) {
+        // config.yaml holds the management key and provider keys; repair a loose file even when nothing changed.
+        // A file the app cannot chmod must not fail a save that changes nothing.
+        if restrict_private_permissions_with(path, set_permissions).unwrap_or(false) {
+            remember_software_write(path, content.as_bytes());
+        }
         return Ok(false);
     }
-    write_bytes_directly(path, content.as_bytes())?;
+    write_private_bytes_directly(path, content.as_bytes())?;
     Ok(true)
 }
 
@@ -1370,49 +1515,59 @@ pub(crate) fn file_modified_time(path: &Path) -> Option<SystemTime> {
     fs::metadata(path).ok()?.modified().ok()
 }
 
-pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
-    let config_path = gui_config_path()?;
-    let legacy_config_path = legacy_gui_config_path()?;
-    let gui_config_exists = config_path.is_file();
-    let legacy_config_exists = legacy_config_path.is_file();
+fn read_saved_gui_config(config_path: &Path, legacy_config_path: &Path) -> Result<(GuiConfigFile, GuiConfigPresence, bool, bool), String> {
+    let gui_config_exists = config_path.try_exists().map_err(|error| format!("Failed to inspect GUI configuration: {error}"))?;
+    let legacy_config_exists = legacy_config_path.try_exists().map_err(|error| format!("Failed to inspect old GUI configuration: {error}"))?;
     let had_existing_gui_config = gui_config_exists || legacy_config_exists;
 
-    let (mut config, presence, mut changed, gui_parse_failed) = if gui_config_exists {
-        let content = fs::read_to_string(&config_path)
-            .map_err(|err| format!("Failed to read GUI configuration {}: {err}", path_to_string(&config_path)))?;
+    let (config, presence, changed) = if gui_config_exists {
+        let content = fs::read_to_string(config_path)
+            .map_err(|err| format!("Failed to read GUI configuration {}: {err}", path_to_string(config_path)))?;
         match (
             toml::from_str::<GuiConfigFile>(&content),
             toml::from_str::<GuiConfigPresence>(&content),
         ) {
-            (Ok(config), Ok(presence)) => (config, presence, false, false),
-            _ => (
-                GuiConfigFile::default(),
-                GuiConfigPresence::default(),
-                true,
-                true,
-            ),
+            (Ok(config), Ok(presence)) => (config, presence, false),
+            _ => return Err(format!("Failed to parse saved GUI configuration {}; repair it before starting the app", path_to_string(config_path))),
         }
     } else if legacy_config_exists {
-        let content = fs::read_to_string(&legacy_config_path).map_err(|err| {
+        let content = fs::read_to_string(legacy_config_path).map_err(|err| {
             format!(
                 "Failed to read old GUI configuration {}: {err}",
-                path_to_string(&legacy_config_path)
+                path_to_string(legacy_config_path)
             )
         })?;
         let config = serde_yaml::from_str::<GuiConfigFile>(&content)
             .map_err(|err| format!("Failed to parse old GUI configuration: {err}"))?;
         let presence = serde_yaml::from_str::<GuiConfigPresence>(&content)
             .map_err(|err| format!("Failed to parse old GUI configuration field: {err}"))?;
-        (config, presence, true, false)
+        (config, presence, true)
     } else {
         (
             GuiConfigFile::default(),
             GuiConfigPresence::default(),
             true,
-            false,
         )
     };
 
+    if config.connection_mode == CoreConnectionMode::Remote {
+        crate::core_connection::connection_from_config(&config).map_err(|error| format!("Invalid saved Remote connection: {error}"))?;
+    }
+    Ok((config, presence, changed, had_existing_gui_config))
+}
+
+pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
+    let config_path = gui_config_path()?;
+    let legacy_config_path = legacy_gui_config_path()?;
+    let gui_config_exists = config_path.try_exists().map_err(|error| format!("Failed to inspect GUI configuration: {error}"))?;
+    let (mut config, presence, mut changed, had_existing_gui_config) = read_saved_gui_config(&config_path, &legacy_config_path)?;
+
+    // Installed core settings are only a migration/recovery source for Local mode.
+    let is_local = config.connection_mode == CoreConnectionMode::Local;
+    if !is_local {
+        validate_gui_config(&config)?;
+        return Ok(config);
+    }
     let saved_management_secret = presence.management_secret_key.as_deref();
 
     if gui_config_exists {
@@ -1435,7 +1590,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     let core_is_newer = file_modified_time(&core_config_path)
         .zip(file_modified_time(&config_path))
         .is_some_and(|(core, gui)| core > gui);
-    if core_is_newer && !gui_parse_failed {
+    if is_local && core_is_newer {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             apply_core_settings_to_gui_config(&mut config, &core_settings);
             apply_external_core_proxy_override(&mut config, &core_settings)?;
@@ -1466,7 +1621,7 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         || presence.max_retry_credentials.is_none()
         || presence.max_retry_interval.is_none()
         || presence.streaming_bootstrap_retries.is_none();
-    if missing_core_settings && !gui_parse_failed {
+    if is_local && missing_core_settings {
         if let Ok(core_settings) = read_installed_core_config_settings() {
             if presence.host.is_none() {
                 config.host = core_settings.host.clone();
@@ -1553,7 +1708,8 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         }
         changed = true;
     }
-    if presence.management_secret_key.is_none()
+    if is_local
+        && presence.management_secret_key.is_none()
         && (had_existing_gui_config || core_config_path.is_file())
     {
         config.management_secret_key = read_installed_core_config_settings()
@@ -1596,12 +1752,20 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     if presence.prefer_gitcode_downloads.is_none() {
         changed = true;
     }
+    if presence.connection_mode.is_none()
+        || presence.remote_management_origin.is_none()
+        || presence.remote_management_key.is_none()
+        || presence.remote_client_origin.is_none()
+        || presence.remote_client_key.is_none()
+    {
+        changed = true;
+    }
     changed |= network_proxy::initialize_override(
         &mut config,
         presence.proxy_override.is_some(),
     );
     config.prefer_gitcode_downloads = config.download_source == VersionDownloadSource::Gitcode;
-    let installed_management_secret = if saved_management_secret == Some("") {
+    let installed_management_secret = if is_local && saved_management_secret == Some("") {
         read_installed_core_config_settings()
             .ok()
             .and_then(|settings| settings.management_secret_key)
@@ -1621,12 +1785,12 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
     if changed {
         write_gui_config(&config)?;
     }
-    if management_secret_rotated {
+    if management_secret_rotated && config.connection_mode == CoreConnectionMode::Local {
         if let Err(error) = patch_core_management_secret_key(&config.management_secret_key) {
             eprintln!("Failed to update legacy CPA WebUI key; will retry the next time the kernel starts: {error}");
         }
     }
-    if !config.auth_dir.trim().is_empty() {
+    if config.connection_mode == CoreConnectionMode::Local && !config.auth_dir.trim().is_empty() {
         let install_dir = core_install_dir()?;
         let auth_dir = auth_dir_path_for_core(&config.auth_dir, &install_dir)?;
         fs::create_dir_all(&auth_dir)
@@ -1697,6 +1861,9 @@ pub(crate) fn gui_api_key_values(entries: &[GuiApiKeyEntry]) -> Vec<String> {
 }
 
 pub(crate) fn effective_agent_api_key(config: &GuiConfigFile) -> &str {
+    if config.connection_mode == CoreConnectionMode::Remote {
+        return &config.remote_client_key;
+    }
     config
         .api_keys
         .iter()
@@ -2086,7 +2253,7 @@ pub(crate) fn sanitize_gui_config_at(
         config.allow_lan = allow_lan;
         changed = true;
     }
-    if !config.auth_dir_user_selected {
+    if config.connection_mode == CoreConnectionMode::Local && !config.auth_dir_user_selected {
         match migrate_auth_dir_at(config, install_dir, persistent_auth_dir) {
             Ok(migrated) => changed |= migrated,
             Err(error) => {
@@ -2230,6 +2397,20 @@ pub(crate) fn write_gui_config_to_path(
         ("port", value(i64::from(config.port))),
         ("allow-lan", value(config.allow_lan)),
         ("host", value(config.host.as_str())),
+        ("connection-mode", value(config.connection_mode.as_str())),
+        (
+            "remote-management-origin",
+            value(config.remote_management_origin.as_str()),
+        ),
+        (
+            "remote-management-key",
+            value(config.remote_management_key.as_str()),
+        ),
+        (
+            "remote-client-origin",
+            value(config.remote_client_origin.as_str()),
+        ),
+        ("remote-client-key", value(config.remote_client_key.as_str())),
         ("run-on-startup", value(config.run_on_startup)),
         ("start-core-on-launch", value(config.start_core_on_launch)),
         ("silent-start", value(config.silent_start)),
@@ -2286,7 +2467,7 @@ pub(crate) fn write_gui_config_to_path(
         ),
         (
             "max-retry-interval",
-            value(i64::from(config.max_retry_interval)),
+            value(config.max_retry_interval),
         ),
         (
             "streaming-bootstrap-retries",
@@ -2367,9 +2548,10 @@ pub(crate) fn write_gui_config_to_path(
     toml::from_str::<GuiConfigFile>(&content)
         .map_err(|error| format!("Failed to validate GUI configuration: {error}"))?;
     if existing.as_deref() == Some(content.as_str()) {
+        restrict_private_permissions(config_path)?;
         return Ok(());
     }
-    write_bytes_directly(config_path, content.as_bytes())
+    write_private_bytes_atomically(config_path, content.as_bytes())
 }
 
 pub(crate) fn validate_gui_config(config: &GuiConfigFile) -> Result<(), String> {
@@ -2456,4 +2638,73 @@ pub(crate) fn gui_config_path() -> Result<PathBuf, String> {
 
 pub(crate) fn legacy_gui_config_path() -> Result<PathBuf, String> {
     Ok(core_base_dir()?.join(LEGACY_GUI_CONFIG_FILE))
+}
+
+#[cfg(test)]
+mod saved_config_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_saved_configuration_is_rejected_without_recovery() {
+        let root = std::env::temp_dir().join(format!("cpa-native-config-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.toml");
+        let content = "[connection-mode\nmode = 'remote'";
+        fs::write(&path, content).unwrap();
+        assert!(read_saved_gui_config(&path, &root.join("legacy.yaml")).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), content);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_saved_remote_origin_is_rejected_before_local_migration() {
+        let root = std::env::temp_dir().join(format!("cpa-native-remote-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.toml");
+        let config = GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: "https://remote.example/path".into(),
+            remote_management_key: "management-secret".into(),
+            remote_client_origin: "https://remote.example".into(),
+            ..Default::default()
+        };
+        fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+        assert!(read_saved_gui_config(&path, &root.join("legacy.yaml")).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn saved_remote_missing_key_is_rejected_without_rewriting() {
+        let root = std::env::temp_dir().join(format!("cpa-native-key-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.toml");
+        let content = "connection-mode = 'remote'\nremote-management-origin = 'https://remote.example'\nremote-client-origin = 'https://remote.example'\n";
+        fs::write(&path, content).unwrap();
+        let error = read_saved_gui_config(&path, &root.join("legacy.yaml")).err().unwrap();
+        assert!(error.contains("Management key is required"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), content);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_first_run_configuration_still_defaults_to_local() {
+        let root = std::env::temp_dir().join(format!("cpa-native-first-{}", std::process::id()));
+        let (config, _, changed, existed) = read_saved_gui_config(&root.join("config.toml"), &root.join("legacy.yaml")).unwrap();
+        assert_eq!(config.connection_mode, CoreConnectionMode::Local);
+        assert!(config.start_core_on_launch);
+        assert!(changed);
+        assert!(!existed);
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn existing_unreadable_configuration_is_not_treated_as_first_run() {
+        let root = std::env::temp_dir().join(format!("cpa-native-directory-{}", std::process::id()));
+        let path = root.join("config.toml");
+        fs::create_dir_all(&path).unwrap();
+        assert!(read_saved_gui_config(&path, &root.join("legacy.yaml")).is_err());
+        assert!(path.is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
 }

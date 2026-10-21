@@ -7,7 +7,7 @@ type Backend = {
 export type ThemePreferenceIssue = 'read' | 'save' | null;
 
 export class ThemePreferences {
-  private value = 'light';
+  private value = 'dark';
   private systemThemes: SystemThemes = { light: 'light', dark: 'dark' };
   private backend?: Backend;
   private pending = Promise.resolve();
@@ -33,11 +33,14 @@ export class ThemePreferences {
     try {
       const saved = await backend.load();
       if (saved !== null && !isThemeSelection(saved)) throw new Error('Invalid theme selection');
-      this.value = saved?.selectedId ?? 'light';
-      this.systemThemes = { light: saved?.lastLightId ?? 'light', dark: saved?.lastDarkId ?? 'dark' };
+      this.value = saved?.selectedId ?? 'dark';
+      this.systemThemes = {
+        light: saved?.lastLightId ?? 'light',
+        dark: saved?.lastDarkId ?? 'dark',
+      };
       this.report(null);
     } catch {
-      this.value = 'light';
+      this.value = 'dark';
       this.systemThemes = { light: 'light', dark: 'dark' };
       this.report('read');
     }

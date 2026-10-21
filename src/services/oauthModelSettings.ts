@@ -73,7 +73,7 @@ export const authFileExcludedRulesFromPayload = (payload: unknown): string[] => 
   if (!isRecord(metadata)) {
     throw new Error(translate(getCurrentLocale(), 'authFiles.models.invalidMetadata'));
   }
-  const rules = Object.prototype.hasOwnProperty.call(metadata, 'excluded_models')
+  const rules = Object.hasOwn(metadata, 'excluded_models')
     ? metadata.excluded_models
     : metadata['excluded-models'];
   if (rules === undefined || rules === null) return [];

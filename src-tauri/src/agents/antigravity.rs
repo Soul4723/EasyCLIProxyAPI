@@ -186,11 +186,11 @@ pub(crate) fn antigravity_has_marker(
 pub(crate) fn inspect_antigravity_config(
     _client: AgentClient,
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     let settings = parse(&paths[0], read_optional_text(&paths[0])?.as_deref())?;
-    let origin = managed_core_loopback_origin(port);
+    let origin = port.client_origin();
     let path = paths.get(1).ok_or("Antigravity CLI configuration path is missing")?;
     let connection = parse(path, read_optional_text(path)?.as_deref())?;
     let model = connection
@@ -312,7 +312,7 @@ pub(crate) fn run_antigravity_helper(args: &[std::ffi::OsString]) -> Result<i32,
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        return Err(format!("Failed to start Antigravity: {}", command.exec()));
+        Err(format!("Failed to start Antigravity: {}", command.exec()))
     }
     #[cfg(not(unix))]
     {

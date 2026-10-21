@@ -503,6 +503,7 @@ pub(crate) fn commit_config_with_mappings(
 }
 
 #[cfg(test)]
+#[allow(clippy::too_many_arguments)] // Preserve the existing command/helper interface in this behavior-neutral cleanup.
 pub(crate) fn commit_config_with_writer(
     client: &str,
     paths: &[PathBuf],
@@ -518,6 +519,7 @@ pub(crate) fn commit_config_with_writer(
     )
 }
 
+#[allow(clippy::too_many_arguments)] // Preserve the existing command/helper interface in this behavior-neutral cleanup.
 fn commit_config_transaction(
     client: &str,
     paths: &[PathBuf],
@@ -1016,7 +1018,7 @@ fn validate_unmanaged_preserved(
             }
         }
         if client == "deepseek-harness" {
-            if path == &paths[0] {
+            if path == paths[0] {
                 for key in ["apiKeyEnv", "baseURL", "models"].into_iter().chain(harness_fields("provider")) {
                     set(
                         &mut value,

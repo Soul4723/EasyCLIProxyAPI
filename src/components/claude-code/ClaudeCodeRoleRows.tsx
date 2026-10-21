@@ -1,4 +1,3 @@
-import { Switch } from '../Switch';
 import { useI18n } from '../../i18n';
 import { AgentModelPicker } from '../AgentModelPicker';
 import type { ModelOption } from '../../services/modelService';
@@ -26,7 +25,9 @@ export function ClaudeCodeRoleRows({ routes, models, loading, error, disabled, o
       <AgentModelPicker preserveValue models={models} value={routes[role]} loading={loading} error={error}
         disabled={disabled} onChange={value => onModelChange(role, value)} onRefresh={onRefresh} />
       <label className="claude-inline-context">
-        <Switch checked={routes[`${role}1m`]} disabled={disabled} aria-label={`${role} 1M`} onChange={event => onContextChange(`${role}1m`, event.currentTarget.checked)} /><span>{t('agents.claudeMapping.context1m')}</span>
+        <span className="switch-control"><input type="checkbox" role="switch" checked={routes[`${role}1m`]} disabled={disabled}
+          aria-label={`${role} 1M`} onChange={event => onContextChange(`${role}1m`, event.currentTarget.checked)} />
+        <span className="switch-track" aria-hidden="true" /></span><span>{t('agents.claudeMapping.context1m')}</span>
       </label>
     </div>)}
   </section>;

@@ -173,6 +173,7 @@ pub(crate) async fn prepare_restore_plan(
     id: &str,
 ) -> Result<RestorePlan, String> {
     let mut plan = local_restore_plan(client, home, id)?;
+    super::target::validate_restore_target(config, client, &plan.after)?;
     if let Some((mappings, models)) = desktop_restore_configuration(&plan)? {
         let before = fetch_management_config_yaml(config)
             .await
@@ -201,6 +202,7 @@ pub(crate) async fn prepare_restore_plan(
 }
 
 pub(crate) async fn execute_restore_plan(
+    state: &GuiConfigState,
     config: &GuiConfigFile,
     plan: RestorePlan,
     revision: &str,
@@ -231,12 +233,23 @@ pub(crate) async fn execute_restore_plan(
         )
     };
     match &plan.core {
+        Some(core) if config.connection_mode == CoreConnectionMode::Remote => {
+            state.ensure_target(config)?;
+            save_remote_alias_changes(state, config, &core.before, &core.after)
+                .await
+                .map_err(|_| "Remote alias restore did not complete; changes may have applied. Reload before retrying".to_string())?;
+            state.ensure_target(config)?;
+            commit().map_err(|_| "Remote aliases were restored but the local client configuration failed. Inspect both before retrying".to_string())
+        }
         Some(core) => {
             commit_management_alias_config_changes(config, &core.before, &core.after, commit)
                 .await
                 .map_err(agent_core_error)
         }
-        None => commit(),
+        None => {
+            state.ensure_target(config)?;
+            commit()
+        },
     }
 }
 
@@ -246,11 +259,14 @@ pub(crate) async fn preview_agent_config_backup(
     client: String,
     id: String,
 ) -> Result<BackupPreview, String> {
+    let _target_state = app.state::<GuiConfigState>();
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    let config = app.state::<GuiConfigState>().snapshot()?;
-    Ok(prepare_restore_plan(&config, &client, &home, &id)
-        .await?
-        .preview)
+    crate::agents::target_read_then_apply(
+        &_target_state,
+        None,
+        move |config| async move { prepare_restore_plan(&config, &client, &home, &id).await },
+        |_config, plan, _target_operation| async move { Ok(plan.preview) },
+    ).await?.ok_or_else(|| crate::agents::CORE_TARGET_CHANGED_CANCELLED.to_string())
 }
 
 #[tauri::command]
@@ -260,10 +276,12 @@ pub(crate) async fn restore_agent_config_backup(
     id: String,
     revision: String,
 ) -> Result<AgentConfigActionResult, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;
     let plan = prepare_restore_plan(&config, &client, &home, &id).await?;
-    let result = execute_restore_plan(&config, plan, &revision).await?;
+    let result = execute_restore_plan(&_target_state, &config, plan, &revision).await?;
     app.state::<AgentConfigStatusCache>().clear()?;
     Ok(result)
 }

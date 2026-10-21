@@ -1,0 +1,9 @@
+.ec-kit-section { display: flex; flex-direction: column; gap: var(--ec-sp-3); }
+.ec-kit-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ec-sp-2); }
+.ec-kit-swatches { display: flex; flex-wrap: wrap; gap: var(--ec-sp-2); }
+.ec-kit-swatch { display: inline-flex; align-items: center; gap: 6px; font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); font-family: var(--ec-mono); }
+.ec-kit-swatch i { width: 22px; height: 22px; border-radius: var(--ec-r-sm); border: 1px solid var(--ec-border); display: block; }
+.ec-kit-provider { display: inline-flex; align-items: center; gap: 8px; font-size: var(--ec-fs-sm); }
+.ec-kit-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--ec-gap); }
+.ec-kit-states { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--ec-gap); }
+.ec-kit-panel { padding: var(--ec-sp-2) 0; }

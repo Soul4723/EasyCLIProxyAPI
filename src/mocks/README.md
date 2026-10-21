@@ -3,7 +3,9 @@
 Run `bun run dev` and open the Vite URL in a regular browser. Mock IPC is installed
 only in browser development builds; Tauri and production builds use the real backend.
 No backend or upstream account is required. Data is fictional and mutations are
-in memory, isolated per page load. Reload to reset changes.
+in memory, isolated per page load, except the active connection, its revision and saved
+local process snapshot, which survive reload in per-tab session storage. Use
+**Reset mock data** to reset the fixture.
 
 Use the bottom toolbar or query parameters:
 
@@ -15,6 +17,7 @@ Use the bottom toolbar or query parameters:
 | `?mock=error` | Main backend reads fail so error and retry UI can be inspected |
 | `?mock=off` | Disable mock IPC |
 | `?mock=running&mockDelay=500` | Delay each IPC call by 500 ms (maximum 5000 ms) |
+| `?mock=running&mockRecovery=waiting` | Supervisor recovery state of the managed core (`waiting`, `restarting`, `failed`; payload has attempt, limit and delay). Stop or Start clears it |
 | `?mock=running&mockPluginPages=12` | Add 12 extra plugin pages (maximum 30) so the sidebar plugin submenu auto-collapses at normal window sizes |
 
 Plugin pages are native child webviews in the desktop app, which the browser cannot
@@ -49,10 +52,58 @@ launch real apps, write credentials to disk or make upstream API requests.
 ## Verification
 
 ```sh
-bun test tests/browserMockRuntime.test.ts tests/browserMockQuota.test.ts
-node tests/browser-mock-ui.cjs
+bun test tests/unit/mocks/browserMockRuntime.test.ts tests/unit/mocks/browserMockQuota.test.ts
+node tests/ui/mocks/browser-mock-ui.cjs
 ```
 
 The browser test uses Playwright (and Microsoft Edge on Windows), opens the real
 app, and checks quota rendering, pagination and credential mutations while blocking
 external HTTP requests. Its screenshot is saved under `bin-work/`.
+
+## Remote connection fixture
+
+Open Settings → Connection. Select Remote core and enter
+management and client origins such as `http://core.example.test:8317` and
+`http://client.example.test:8317`. Use `fixture-management-key` for the fictional
+management key and a different fictional client key. Origins exclude `/v1` and
+`/v8/management`; the application adds protocol paths. Test connection tests the
+draft without activating it. Save & connect activates it and saves the mock
+target/revision in per-tab session storage before the GUI reloads. A different
+management key simulates rejection; an origin containing `offline` simulates an
+unreachable core. Correct the values and save to recover, or select Local and save
+to restore the prior fixture process state. Reload preserves that connection and local
+process snapshot; other fixture mutations reset. **Reset mock data**, switching the
+scenario, or disabling mocks clears the saved connection. Separate tabs have independent
+mock sessions. Connection values entered here remain in the tab's session storage until
+reset or tab close.
+
+The MOCK badge remains visible. No real server is contacted, no process is started
+or stopped, and no host credential or client configuration files are written. These
+fixtures verify interaction, not native HTTP, TLS or provider OAuth completion.
+Run `node tests/run-ui.cjs settings-connection` with Playwright available for the interaction
+regression check; it blocks all external HTTP requests.
+
+## Source layout and contract tests
+
+- `src/mocks/` owns the browser adapter, runtime, scenario selection and shared
+  stateful backend simulations. `quotaMock.ts` supplies cross-section credential
+  and quota scenarios; `lightingMock.ts` supplies scheduler commands/events;
+  `pluginMock.ts` supplies management routes and the native-webview simulation.
+  These are runtime services, not section-local display fixtures.
+- `src/sections/<name>/mock.ts` owns section-specific fixture data and command or
+  management handlers, with provider subsections following the same convention.
+  `sectionMocks.ts` registers the section handlers; `sectionMockTypes.ts` defines
+  their shared host/result contract. Keep shared runtime state in `src/mocks/`
+  rather than copying it into a section.
+- Keep mock responses compatible with the real services and the UI consumers.
+  `tests/unit/mocks/browserMockRuntime.test.ts`, `tests/unit/mocks/browserMockQuota.test.ts`,
+  `tests/unit/mocks/lightingMock.test.ts` and `tests/unit/mocks/pluginMock.test.ts` guard the browser-mock contract
+  used by the UI suite: lifecycle and connection fencing, real quota parsing and
+  credential edits, lighting commands/events, and plugin routes/webview ownership.
+  They are not evidence of native backend correctness. All four are retained;
+  none tests only unconsumed private mock internals.
+
+Run `bun test --isolate` for these contracts and `node tests/run-ui.cjs` for the
+whole headless UI suite. Add fixture data locally when only one section needs it;
+add shared scenarios or simulated backend protocols here when several consumers
+must see the same state.

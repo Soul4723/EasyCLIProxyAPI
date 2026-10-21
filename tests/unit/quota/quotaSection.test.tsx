@@ -1,0 +1,178 @@
+import { describe, expect, it } from 'bun:test';
+import { buildAccount, classifyWindow, deriveStatus, groupAccounts, matchesSearch, windowsOf } from '../../../src/sections/quota/model';
+import { accountFor, renderCard, renderRow, stubLighting } from '../../helpers/quotaAccount';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { I18nProvider } from '../../../src/i18n';
+import { BigWindow } from '../../../src/sections/quota/AccountPanel';
+import { GroupHeader } from '../../../src/sections/quota/GroupHeader';
+import { quotaRowsFor, type QuotaState } from '../../../src/services/quotaService';
+
+const NOW = Date.parse('2030-01-01T12:00:00Z');
+const ok = (rows: QuotaState['rows'], extra: Partial<QuotaState> = {}): QuotaState => ({ status: 'success', rows, fetchedAt: NOW - 60_000, ...extra });
+
+describe('quota section model', () => {
+  it('classifies windows by label and falls back to the reset horizon', () => {
+    expect(classifyWindow({ label: '5-hour window', remainingPercent: 50 }, NOW, 'en').kind).toBe('5h');
+    expect(classifyWindow({ label: '7-day window', remainingPercent: 50 }, NOW, 'en').kind).toBe('weekly');
+    expect(classifyWindow({ label: 'Gemini Models Five Hour Limit', remainingPercent: 50 }, NOW, 'en').kind).toBe('5h');
+    expect(classifyWindow({ label: 'Mystery', remainingPercent: 50, resetAtMs: NOW + 3 * 3_600_000 }, NOW, 'en').kind).toBe('5h');
+    expect(classifyWindow({ label: 'Mystery', remainingPercent: 50, resetAtMs: NOW + 3 * 86_400_000 }, NOW, 'en').kind).toBe('weekly');
+    expect(classifyWindow({ label: 'Mystery', remainingPercent: 50 }, NOW, 'en').kind).toBe('other');
+  });
+
+  it('keeps the model group of each Antigravity window for the grouped account panel', () => {
+    const rows = quotaRowsFor('antigravity', { groups: [
+      { displayName: 'Gemini Models', description: 'Models within this group: Gemini Flash, Gemini Pro', buckets: [
+        { displayName: 'Five Hour Limit Remaining', remainingFraction: 1 },
+        { displayName: 'Weekly Limit Remaining', remainingFraction: 0.98 },
+      ] },
+      { displayName: 'Claude and GPT Models', buckets: [{ displayName: 'Weekly Limit Remaining', remainingFraction: 1 }] },
+    ] });
+    const windows = windowsOf(ok(rows), NOW, 'en');
+    expect(windows.map(window => window.groupLabel)).toEqual(['Gemini models', 'Gemini models', 'Claude and GPT models']);
+    expect(windows[0].groupDescription).toContain('Gemini Flash');
+    expect(windows.every(window => Boolean(window.windowLabel))).toBe(true);
+    // Providers without model groups carry no group fields.
+    const plain = windowsOf(ok([{ label: '5-hour window', remainingPercent: 50 }]), NOW, 'en');
+    expect(plain[0].groupLabel).toBeUndefined();
+  });
+
+  it('names the model group in flat meters but not under the panel heading', () => {
+    const rows = quotaRowsFor('antigravity', { groups: [
+      { displayName: 'Gemini Models', buckets: [
+        { displayName: 'Five Hour Limit Remaining', remainingFraction: 0.6 },
+        { displayName: 'Weekly Limit Remaining', remainingFraction: 0.98 },
+      ] },
+    ] });
+    const quota = ok(rows);
+    const file = { name: 'ag.json', provider: 'antigravity' };
+    expect(renderCard(file, quota)).toContain('<span class="qt-win__label">Gemini models · 5h</span>');
+    expect(renderRow(file, quota)).toContain('Gemini models · 5h');
+    const [five] = windowsOf(quota, NOW, 'en');
+    const panel = renderToStaticMarkup(<I18nProvider><BigWindow window={five} now={NOW} stale={false} /></I18nProvider>);
+    // The visible label and the bar name are just "5h"; the tooltip keeps the full raw label.
+    expect(panel).toContain('>5h</div>');
+    expect(panel).toContain('aria-label="5h"');
+  });
+
+  it('derives one status from health, cooldown and windows', () => {
+    const base = { disabled: false, healthTone: 'success' as const, healthMessage: '', cooldownActive: false };
+    const win = (leftPct: number | null) => ({ id: 'x', kind: '5h' as const, rawLabel: '5h', prefix: '', leftPct });
+    expect(deriveStatus({ ...base, disabled: true, quota: ok([]), windows: [] }).status).toBe('disabled');
+    expect(deriveStatus({ ...base, healthTone: 'error', healthMessage: 'Token expired', quota: ok([]), windows: [] }).status).toBe('expired');
+    expect(deriveStatus({ ...base, cooldownActive: true, quota: ok([]), windows: [win(80)] }).status).toBe('cooldown');
+    expect(deriveStatus({ ...base, healthTone: 'error', healthMessage: 'boom', quota: ok([]), windows: [] }).status).toBe('error');
+    expect(deriveStatus({ ...base, quota: { status: 'idle', rows: [] }, windows: [] }).status).toBe('notFetched');
+    expect(deriveStatus({ ...base, quota: ok([]), windows: [win(0)] }).status).toBe('exhausted');
+    expect(deriveStatus({ ...base, quota: ok([]), windows: [win(12)] }).status).toBe('limited');
+    expect(deriveStatus({ ...base, quota: ok([]), windows: [win(80)] }).status).toBe('available');
+  });
+
+  it('builds provider groups with a mean of the per-account bottleneck', () => {
+    const rows = (a: number, b: number) => ok([
+      { label: '5-hour window', remainingPercent: a, resetAtMs: NOW + 3_600_000 },
+      { label: '7-day window', remainingPercent: b, resetAtMs: NOW + 86_400_000 },
+    ]);
+    const accounts = [
+      accountFor({ name: 'a.json', provider: 'claude', email: 'a@example.test' }, rows(80, 40)),
+      accountFor({ name: 'b.json', provider: 'claude', email: 'b@example.test' }, rows(20, 90)),
+      accountFor({ name: 'c.json', provider: 'claude', email: 'c@example.test', disabled: true }, rows(5, 5)),
+      accountFor({ name: 'd.json', provider: 'codex' }, { status: 'idle', rows: [] }),
+    ];
+    const groups = groupAccounts(accounts);
+    expect(groups.map((group) => group.provider)).toEqual(['claude', 'codex']);
+    expect(groups[0].leftPct).toBe(30);
+    expect([groups[0].enabled, groups[0].total]).toEqual([2, 3]);
+    expect(groups[1].leftPct).toBeNull();
+    expect(groups[0].nextResetMs).toBe(NOW + 3_600_000);
+  });
+
+  it('includes explicitly advertised plugin quotas in a visible plugin summary group only', () => {
+    const pluginFile = { name: 'plugin.json', provider: 'gemini', supports_quota: true };
+    const pluginAccount = accountFor(pluginFile, ok([
+      { label: '5-hour window', remainingPercent: 64, resetAtMs: NOW + 3_600_000 },
+    ]));
+    const ordinaryGemini = { name: 'gemini.json', provider: 'gemini' };
+    const preferredBuiltIn = accountFor({ name: 'claude-plugin.json', provider: 'claude', supports_quota: true }, ok([]));
+    const groups = groupAccounts([pluginAccount, preferredBuiltIn]);
+
+    expect(buildAccount(ordinaryGemini, ok([]), NOW, 'en', { receivedAtMs: NOW })).toBeNull();
+    expect(pluginAccount.provider).toBe('plugin');
+    expect(preferredBuiltIn.provider).toBe('claude');
+    expect(groups.map(group => group.provider)).toEqual(['claude', 'plugin']);
+    expect([groups[1].total, groups[1].enabled, groups[1].leftPct]).toEqual([1, 1, 64]);
+
+    const markup = renderToStaticMarkup(<I18nProvider><GroupHeader
+      group={groups[1]} now={NOW} collapsed={false} onToggle={() => {}} onPick={() => {}}
+    /></I18nProvider>);
+    expect(markup).toContain('Plugin quotas');
+    expect(markup).toContain('64');
+  });
+
+  it('searches file name, email, plan and provider', () => {
+    const account = accountFor({ name: 'work.json', provider: 'codex', email: 'pat@example.test', plan_type: 'team' }, ok([]));
+    expect(matchesSearch(account, 'PAT@')).toBe(true);
+    expect(matchesSearch(account, 'team')).toBe(true);
+    expect(matchesSearch(account, 'claude')).toBe(false);
+  });
+});
+
+describe('quota account card and row', () => {
+  const rows = [
+    { label: '5-hour window', remainingPercent: 62, resetAtMs: NOW + 3_600_000 },
+    { label: '7-day window', remainingPercent: 41, resetAtMs: NOW + 3 * 86_400_000 },
+  ];
+  it('renders windows, status and the banked-reset badge for Codex', () => {
+    const html = renderCard({ name: 'codex.json', provider: 'codex' }, ok(rows, { resetCredits: 2, resetCreditsApplicable: 2 }));
+    expect(html).toContain('62%');
+    expect(html).toContain('41%');
+    expect(html).toContain('Available');
+    expect(html).toContain('qt-banked');
+  });
+  it('shows a fetch action for accounts that were never fetched and no windows', () => {
+    const html = renderCard({ name: 'codex.json', provider: 'codex' }, { status: 'idle', rows: [] });
+    expect(html).toContain('Not fetched');
+    expect(html).toContain('Fetch');
+  });
+  it('flags expired credentials with a link to Providers', () => {
+    const html = renderCard({ name: 'old.json', provider: 'claude', status: 'error', status_message: 'token expired' }, { status: 'idle', rows: [] });
+    expect(html).toContain('Expired');
+    expect(html).toContain('#/providers');
+  });
+  it('disables the lighting button with a reason for unsupported providers', () => {
+    const html = renderCard({ name: 'k.json', provider: 'kimi' }, ok(rows), {
+      ctx: { lighting: stubLighting({ capabilityFor: () => ({ provider: 'kimi', supported: false, defaultModel: null, allowedWindows: [], reason: 'x' }) }) },
+    });
+    expect(html).toContain('Lighting is not supported for this provider yet');
+  });
+  it('renders the compact row with fixed 5h and week columns', () => {
+    const html = renderRow({ name: 'codex.json', provider: 'codex' }, ok(rows));
+    expect(html).toContain('qt-row');
+    expect(html.match(/qt-rowmeter/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('lighting observed reset', () => {
+  const schedule = (over: Partial<import('../../../src/services/lighting').LightingSchedule> = {}) => ({
+    id: 'x', credential: { provider: 'codex', authFileName: 'a.json', authIndex: 'i' }, target: 't', enabled: true, mode: 'after_reset',
+    times: [], weekdays: [1, 2, 3, 4, 5, 6, 7], timezone: 'UTC', windowKind: '5h', model: null, activeHours: null,
+    retry: { maxAttempts: 3, intervalSeconds: 60, backoff: 2, circuitSeconds: 900 }, lastRun: null, nextRun: null,
+    observedReset: null, consumedReset: null, attempt: 0, circuitUntil: null, ...over,
+  }) as import('../../../src/services/lighting').LightingSchedule;
+  const quota = ok([
+    { label: '5-hour window', remainingPercent: 40, resetAtMs: NOW + 3_600_000 },
+    { label: '7-day window', remainingPercent: 70, resetAtMs: NOW + 86_400_000 },
+  ]);
+  it('picks the schedule window reset from a fetched snapshot', async () => {
+    const { observedResetFor } = await import('../../../src/sections/quota/useLighting');
+    expect(observedResetFor(schedule(), quota, NOW, 'en')).toBe(NOW + 3_600_000);
+    expect(observedResetFor(schedule({ windowKind: 'weekly' }), quota, NOW, 'en')).toBe(NOW + 86_400_000);
+  });
+  it('ignores drift under two minutes, unfetched data and windows that have not started', async () => {
+    const { observedResetFor } = await import('../../../src/sections/quota/useLighting');
+    expect(observedResetFor(schedule({ observedReset: NOW + 3_600_000 + 30_000 }), quota, NOW, 'en')).toBeUndefined();
+    expect(observedResetFor(schedule(), { status: 'idle', rows: [] }, NOW, 'en')).toBeUndefined();
+    const full = ok([{ label: '5-hour window', remainingPercent: 100, resetAtMs: NOW + 3_600_000 }]);
+    expect(observedResetFor(schedule(), full, NOW, 'en')).toBeUndefined();
+  });
+});

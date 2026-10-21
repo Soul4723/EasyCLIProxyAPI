@@ -56,28 +56,24 @@
 .window-controls .window-close:active { background: #a82317; color: #fff; }
 .window-content { flex: 1; min-height: 0; overflow: hidden; }
 
-/* Beginner mode has no sidebar and sizes itself to 100vh; fit it below the titlebar instead. */
-.immersive-window .app-shell.app-shell-easy-mode,
-.immersive-window .app-shell-easy-mode .workspace {
-  min-height: 100%;
+/* Application shell: preserve the full-height sidebar and reserve titlebar space only in main. */
+.immersive-window:has(.ec-app) .window-titlebar {
+  background: var(--ec-bg);
+  color: var(--ec-fg-muted);
 }
-
-/* The sidebar starts at the window edge; only the workspace reserves titlebar space. */
-@media (min-width: 901px) {
-  .immersive-window:has(.sidebar) .window-titlebar {
+@media (min-width: 721px) {
+  .immersive-window:has(.ec-sidebar) .window-titlebar {
     position: absolute;
     top: 0;
     right: 0;
-    left: var(--app-sidebar-width);
+    left: var(--ec-sidebar-w);
     height: var(--window-titlebar-height);
   }
-  .immersive-window .sidebar { height: 100%; }
-  /* Margin rather than padding so the scrollport (and its scrollbar) starts below the titlebar. */
-  .immersive-window:has(.sidebar) .workspace {
+  .immersive-window:has(.ec-sidebar) .ec-main {
     height: calc(100% - var(--window-titlebar-height));
     margin-top: var(--window-titlebar-height);
   }
 }
-@media (max-width: 900px) {
-  .immersive-window:has(.sidebar) .window-titlebar { background: var(--sidebar-bg); }
+@media (min-width: 721px) and (max-width: 1100px) {
+  .immersive-window:has(.ec-sidebar) .window-titlebar { left: 56px; }
 }

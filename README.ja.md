@@ -4,6 +4,9 @@
   <strong>日本語</strong>
 </p>
 
+> **注意 / Note:** この日本語訳は上流の EasyCLIProxyAPI について説明しており、この fork では古くなっています。[README.md](README.md)（英語）を参照してください。
+> This translation describes upstream EasyCLIProxyAPI and is outdated for this fork; see [README.md](README.md) (English).
+
 <p align="center">
   <img src="src/assets/logo.jpg" width="112" alt="EasyCLIProxyAPI Logo">
 </p>
@@ -29,8 +32,6 @@ API プロバイダー統合、プロトコル変換、認証情報管理、ク�
 
 ### ホーム画面とローカル API エンドポイント
 
-![ホーム画面とローカル API エンドポイント](docs/screenshots/jp/1.png)
-
 ホーム画面では、ローカルプロキシの稼働状況とすぐに使えるローカル API エンドポイントを確認できます。
 
 - CLIProxyAPI コアの起動、停止、再起動、状態更新。
@@ -41,8 +42,6 @@ API プロバイダー統合、プロトコル変換、認証情報管理、ク�
 コアのインストール、バージョン比較、オフラインインストールは **バージョン管理** ページで行えます。GitHub 公式、GitCode、GitHub ミラープロキシを切り替えたり、カスタム HTTPS ミラープレフィックスを追加したりできます。更新に失敗した場合は自動的に別の利用可能なソースへ切り替わります。
 
 ### OAuth アカウント認証
-
-![OAuth アカウント認証](docs/screenshots/jp/2.png)
 
 OAuth 画面では、対応プロバイダーのブラウザー認証をまとめて管理できます。
 
@@ -56,8 +55,6 @@ EasyCLIProxyAPI はブラウザーで認証ページを開きます。自動リ�
 コールバックを手動で完了することもできます。
 
 ### API 接続とプロバイダー統合
-
-![API 接続とプロバイダー統合](docs/screenshots/jp/3.png)
 
 API 接続画面では、プロトコルまたはプロバイダーごとに上流 API の認証情報と接続先を管理できます。
 
@@ -84,8 +81,6 @@ OpenAI、Claude、Gemini、およびその他の互換形式の間で変換で�
 
 ### 使用履歴と Token 統計
 
-![使用履歴と Token 統計](docs/screenshots/jp/4.png)
-
 使用履歴画面では、ローカルで発生したリクエストと Token 消費を確認できます。
 
 - リクエスト総数、Token 総量、成功率、TPS、キャッシュヒット率、推定コストを確認。
@@ -96,8 +91,6 @@ OpenAI、Claude、Gemini、およびその他の互換形式の間で変換で�
 - 起動時に旧使用履歴データベースを一度だけ移行し、移行前のバックアップを `usage-records/backups` に保存。
 
 ### エージェントクライアント設定
-
-![エージェントクライアント設定](docs/screenshots/jp/5.png)
 
 エージェント画面は、インストール済みのデスクトップクライアントと CLI クライアントを検出し、
 ローカルプロキシへの接続を支援します。対応クライアントは次のとおりです。

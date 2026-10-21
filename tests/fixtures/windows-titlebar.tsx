@@ -3,7 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
 import { WindowFrame } from '../../src/components/WindowFrame';
-import '../../src/styles.css';
+import '../../src/styles/index.css';
+// The test injects an .install-dialog-backdrop to check its stacking against the titlebar.
+import '../../src/appUpdate.css';
 
 const state = {
   calls: [] as string[],
@@ -18,6 +20,7 @@ const state = {
 Object.assign(window, { isTauri: true, titlebarTest: state });
 mockWindows('main');
 mockIPC((command, args) => {
+  if (command === 'get_management_target_revision') return 1;
   state.calls.push(command);
   if (command === 'plugin:event|listen') {
     state.listeners.set(args!.event as string, args!.handler as number);

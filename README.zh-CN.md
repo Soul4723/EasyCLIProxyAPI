@@ -4,6 +4,9 @@
   <a href="README.ja.md">日本語</a>
 </p>
 
+> **注意 / Note:** 本中文翻译描述的是上游 EasyCLIProxyAPI，对本 fork 已经过时，请参阅 [README.md](README.md)（英文）。
+> This translation describes upstream EasyCLIProxyAPI and is outdated for this fork; see [README.md](README.md) (English).
+
 <p align="center">
   <img src="src/assets/logo.jpg" width="112" alt="EasyCLIProxyAPI Logo">
 </p>
@@ -24,19 +27,9 @@ EasyCLIProxyAPI 是基于 [CLIProxyAPI](https://github.com/router-for-me/CLIProx
 软件基于 Tauri、React 和 Rust 构建，并可携带匹配版本的 CLIProxyAPI 内核压缩包，
 让首次安装和离线安装更加方便。
 
-## 赞助商
-
-[![https://go.apimart.ai/gh-easycliproxyapi](./assets/apimart-zh.png)](https://go.apimart.ai/gh-easycliproxyapi)
-
-感谢 APIMart 对本项目的赞助！
-
-APIMart 是一个低成本的 AI 图像与视频生成 API 平台——GPT-Image-2 每张图片低至 0.006 美元，1 美元可生成 160 多张图片。一个异步 API 即可处理图像和视频：提交任务、获取任务 ID，再通过轮询或回调获取结果。无需担心超时，即可批量生成数万张图片；切换模型也无需修改代码。按量付费，无月费——[立即注册](https://go.apimart.ai/gh-easycliproxyapi)即可开始使用。
-
 ## 功能导览
 
 ### 首页与本地 API 地址
-
-![首页与本地 API 地址](docs/screenshots/zh-CN/1.png)
 
 首页集中展示本地代理服务的运行情况，并提供常用的本地 API 地址：
 
@@ -53,8 +46,6 @@ APIMart 是一个低成本的 AI 图像与视频生成 API 平台——GPT-Image
 
 ### OAuth 账号授权
 
-![OAuth 账号授权](docs/screenshots/zh-CN/2.png)
-
 OAuth 页面集中管理支持的浏览器授权登录：
 
 - Codex OAuth
@@ -66,8 +57,6 @@ OAuth 页面集中管理支持的浏览器授权登录：
 EasyCLIProxyAPI 会自动打开浏览器授权页面；当浏览器无法自动跳转回来时，也支持手动完成回调流程。
 
 ### API 接入与 Provider 聚合
-
-![API 接入与 Provider 聚合](docs/screenshots/zh-CN/3.png)
 
 API 接入页面按照协议或 Provider 管理上游 API 凭证和服务地址：
 
@@ -93,8 +82,6 @@ API 接入页面按照协议或 Provider 管理上游 API 凭证和服务地址�
 
 ### 使用记录与 Token 统计
 
-![使用记录与 Token 统计](docs/screenshots/zh-CN/4.png)
-
 使用记录页面帮助你了解本地请求活动和 Token 消耗情况：
 
 - 查看请求总数、Token 总量、成功率、TPS、缓存命中率和预估成本。
@@ -105,8 +92,6 @@ API 接入页面按照协议或 Provider 管理上游 API 凭证和服务地址�
 - 启动时一次性迁移旧版使用记录数据库，并在 `usage-records/backups` 下保留迁移前备份。
 
 ### 智能体客户端配置
-
-![智能体客户端配置](docs/screenshots/zh-CN/5.png)
 
 智能体页面会检测本机已安装的桌面端和命令行客户端，并帮助它们连接本地代理。支持的客户端包括：
 

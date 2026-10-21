@@ -9,9 +9,14 @@ edition = "2021"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[dev-dependencies]
+tauri = { version = "~2.12.4", features = ["test"] }
+tokio = { version = "1", features = ["test-util"] }
+
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 flate2 = "1"
 futures-util = "0.3"
 getrandom = "0.3"
@@ -19,6 +24,8 @@ json5 = "0.4"
 notify = "7"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["gzip", "json", "multipart", "rustls-tls", "socks", "stream"] }
+# Native message box for fail-closed startup; the backend features come from tauri-plugin-dialog.
+rfd = { version = "0.16", default-features = false }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
@@ -38,9 +45,6 @@ toml_edit = "0.20"
 yaml-serde-edit = { version = "0.1", default-features = false }
 yaml-edit = "0.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-
-[dev-dependencies]
-tauri = { version = "~2.12.4", features = ["test"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

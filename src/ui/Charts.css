@@ -1,0 +1,197 @@
+/* Charts: SVG and HTML parts of Sparkline, AreaChart, HBar and ChartLegend. Colours come from tokens. */
+
+.ec-spark {
+  display: block;
+  overflow: visible;
+}
+
+.ec-area-chart {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  outline: none;
+  border-radius: var(--ec-r-sm);
+}
+
+.ec-area-chart:focus-visible {
+  box-shadow: 0 0 0 2px var(--ec-ring);
+}
+
+.ec-area-chart__svg {
+  display: block;
+  overflow: visible;
+}
+
+.ec-area-chart--empty {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--ec-input-border);
+  border-radius: var(--ec-r-md);
+  color: var(--ec-fg-subtle);
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-chart__grid {
+  stroke: var(--ec-border-soft);
+  stroke-width: 1;
+}
+
+.ec-chart__axis {
+  stroke: var(--ec-border);
+  stroke-width: 1;
+}
+
+.ec-chart__tick {
+  fill: var(--ec-fg-subtle);
+  font-family: var(--ec-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ec-area-chart__cross {
+  stroke: var(--ec-fg-subtle);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.ec-area-chart__dot {
+  stroke-width: 2;
+}
+
+.ec-area-chart__tip {
+  position: absolute;
+  top: 8px;
+  z-index: 1;
+  min-width: 140px;
+  padding: var(--ec-sp-2) var(--ec-sp-3);
+  background: var(--ec-popover);
+  color: var(--ec-fg);
+  border: 1px solid var(--ec-edge);
+  border-radius: var(--ec-r-sm);
+  box-shadow: var(--ec-shadow-pop);
+  font-size: var(--ec-fs-xs);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ec-area-chart__tip-x {
+  margin-bottom: 2px;
+  color: var(--ec-fg-muted);
+}
+
+.ec-area-chart__tip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-2);
+}
+
+.ec-area-chart__tip-v {
+  margin-left: auto;
+  padding-left: var(--ec-sp-3);
+  font-family: var(--ec-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ec-area-chart__swatch,
+.ec-chart-legend__swatch {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.ec-hbar {
+  display: grid;
+  gap: var(--ec-sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ec-hbar__line,
+.ec-hbar__btn {
+  display: grid;
+  grid-template-columns: minmax(90px, 120px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--ec-sp-3);
+  width: 100%;
+  margin: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--ec-r-sm);
+  background: transparent;
+  color: var(--ec-fg-2);
+  font: inherit;
+  text-align: start;
+}
+
+.ec-hbar__btn {
+  cursor: pointer;
+}
+
+.ec-hbar__btn:hover .ec-hbar__track {
+  background: var(--ec-hover);
+}
+
+.ec-hbar__btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--ec-ring);
+}
+
+.ec-hbar__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ec-fs-sm);
+}
+
+.ec-hbar__track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--ec-r-pill);
+  background: var(--ec-muted-bg);
+}
+
+.ec-hbar__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
+.ec-hbar__value {
+  min-width: 3ch;
+  text-align: end;
+  font-family: var(--ec-mono);
+  font-size: var(--ec-fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ec-fg-muted);
+}
+
+.ec-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ec-sp-2) var(--ec-sp-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--ec-fs-xs);
+  color: var(--ec-fg-muted);
+}
+
+.ec-chart-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ec-sp-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-hbar__fill {
+    transition: none;
+  }
+}

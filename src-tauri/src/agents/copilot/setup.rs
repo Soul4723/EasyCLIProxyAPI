@@ -41,17 +41,6 @@ fn write_setup_helper(directory: &Path) -> Result<PathBuf, String> {
     Ok(helper)
 }
 
-fn code_command(executable: &Path) -> Command {
-    #[cfg(windows)]
-    {
-        windows_command_for_executable(executable, false)
-    }
-    #[cfg(not(windows))]
-    {
-        Command::new(executable)
-    }
-}
-
 // Only remove our known files, never recursively delete a directory or follow
 // a helper-directory symlink supplied by another process.
 struct SetupRun(PathBuf);
@@ -71,20 +60,22 @@ impl Drop for SetupRun {
     }
 }
 
-fn setup_command(executable: &Path, helper: &Path) -> Command {
-    let mut command = code_command(executable);
+fn setup_command(executable: &Path, helper: &Path) -> Result<Command, String> {
     // VS Code loads this source only in a dedicated development-host window.
     // It is not installed, synced, or loaded by ordinary editor windows.
-    command.arg("--new-window").arg(format!(
-        "--extensionDevelopmentPath={}",
-        path_to_string(helper)
-    ));
+    let mut command = command_for_executable(
+        executable,
+        &[
+            "--new-window".to_string(),
+            format!("--extensionDevelopmentPath={}", path_to_string(helper)),
+        ],
+    )?;
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     configure_background_command(&mut command);
-    command
+    Ok(command)
 }
 
 fn connect(home: &Path, key: &str, executable_override: Option<&Path>) -> Result<(), String> {
@@ -118,6 +109,7 @@ fn connect(home: &Path, key: &str, executable_override: Option<&Path>) -> Result
         .map_err(|_| "Failed to prepare Copilot connection")?,
     )?;
     setup_command(&executable, &helper)
+        .map_err(|_| "COPILOT_SETUP_LAUNCH_FAILED")?
         .spawn()
         .map_err(|_| "COPILOT_SETUP_LAUNCH_FAILED")?;
     let deadline = Instant::now() + Duration::from_secs(120);
@@ -153,6 +145,7 @@ pub(crate) async fn prepare_vscode_copilot_connection(
     home: &Path,
     key: &str,
     overrides: Option<&std::collections::HashMap<String, String>>,
+    target_operation: std::sync::Arc<tokio::sync::OwnedMutexGuard<()>>,
 ) -> Result<(), String> {
     if client != AgentClient::VscodeCopilot {
         return Ok(());
@@ -163,7 +156,11 @@ pub(crate) async fn prepare_vscode_copilot_connection(
     let executable = overrides
         .and_then(|v| v.get(client.id()))
         .map(PathBuf::from);
-    tauri::async_runtime::spawn_blocking(move || connect(&home, &key, executable.as_deref()))
+    tauri::async_runtime::spawn_blocking(move || {
+        // Keep the accepted Local operation fenced even if its caller is cancelled.
+        let _target_operation = target_operation;
+        connect(&home, &key, executable.as_deref())
+    })
         .await
         .map_err(|_| "Copilot connection task failed".to_string())?
 }
@@ -186,7 +183,7 @@ mod tests {
             let helper = write_setup_helper(&run.0).unwrap();
             write_codex_private_file(&run.0.join("request.json"), b"fixture-key").unwrap();
             write_codex_private_file(&run.0.join("response.pending"), b"{}").unwrap();
-            let command = setup_command(Path::new("code"), &helper);
+            let command = setup_command(Path::new("code"), &helper).unwrap();
             let arguments = command
                 .get_args()
                 .map(|a| a.to_string_lossy().into_owned())

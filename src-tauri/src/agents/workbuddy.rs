@@ -144,7 +144,13 @@ fn read_workbuddy_bundle_executable(info_plist: &Path) -> Option<String> {
     command
         .args(["-extract", "CFBundleExecutable", "raw", "-o", "-"])
         .arg(info_plist);
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(5)).ok()??;
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(5)).ok()? {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => {
+            log_probe_timeout("WorkBuddy bundle version", &timeout);
+            return None;
+        }
+    };
     if !output.status.success() {
         return None;
     }
@@ -332,7 +338,7 @@ pub(crate) fn workbuddy_has_managed_marker(path: &Path) -> Result<bool, String> 
 
 pub(crate) fn inspect_workbuddy_agent_config(
     path: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
 ) -> Result<(bool, Option<String>), String> {
     let root = parse_workbuddy_config(read_optional_text(path)?.as_deref())?;
@@ -355,7 +361,7 @@ pub(crate) fn inspect_workbuddy_agent_config(
                 || a.iter()
                     .any(|v| v.as_str().map(workbuddy_request_model) == model)
         });
-    let expected_url = format!("{}/v1/chat/completions", managed_core_loopback_origin(port));
+    let expected_url = format!("{}/v1/chat/completions", port.client_origin());
     let configured = visible
         && managed.iter().all(|entry| {
             entry.get("url").and_then(Value::as_str) == Some(&expected_url)

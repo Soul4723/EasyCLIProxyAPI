@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import type { MessageKey } from '../i18n/resources';
 
 export const codexReasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
@@ -122,9 +121,3 @@ export function validateCodexModelConfiguration(configuration: CodexModelConfigu
   if (!configuration.input_modalities.length) return 'agents.catalog.invalidModalities';
   return null;
 }
-
-export const getCodexModelCatalogEditor = (): Promise<CodexCatalogEditorSnapshot> =>
-  invoke<CodexCatalogEditorSnapshot>('get_codex_model_catalog_editor');
-
-export const saveCodexModelCatalogEditor = (args: { request: { revision: string; review_model?: { model: string | null }; models: { slug: string; configuration: CodexModelConfiguration; }[]; }; }): Promise<CodexCatalogEditorSaveResult> =>
-  invoke<CodexCatalogEditorSaveResult>('save_codex_model_catalog_editor', args);

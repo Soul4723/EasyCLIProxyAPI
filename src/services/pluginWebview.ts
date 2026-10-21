@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './platform';
 
 export type WebviewBounds = { x: number; y: number; width: number; height: number; viewportHeight: number };
 
@@ -27,14 +27,73 @@ export const newWebviewToken = (): number => {
   return lastToken;
 };
 
-export const hidePluginWebview = (args: { token: number; }): Promise<void> =>
-  invoke<void>('hide_plugin_webview', args);
+export type PluginWebviewLabels = { back: string; reload: string; openExternal: string; move: string };
 
-export const showPluginWebview = (args: { pluginId: string; menuIndex: number; bounds: WebviewBounds; labels: { back: string; reload: string; openExternal: string; move: string; }; reload: boolean; token: number; }): Promise<string> =>
-  invoke<string>('show_plugin_webview', args);
+type BoundsSender = (bounds: WebviewBounds, token: number) => Promise<unknown>;
+type FrameScheduler = (callback: FrameRequestCallback) => number;
 
-export const setPluginWebviewBounds = (args: { bounds: WebviewBounds; token: number; }): Promise<void> =>
-  invoke<void>('set_plugin_webview_bounds', args);
+export function createBoundsUpdater(send: BoundsSender, scheduleFrame: FrameScheduler) {
+  let lastSent: { bounds: WebviewBounds; token: number } | undefined;
+  let pending: { bounds: WebviewBounds; token: number; force: boolean } | undefined;
+  let waiters: Array<{ resolve: () => void; reject: (reason: unknown) => void }> = [];
+  let scheduled = false;
+  let sending = false;
 
-export const closePluginWebview = (): Promise<void> =>
-  invoke<void>('close_plugin_webview');
+  const flush = () => {
+    scheduled = false;
+    if (sending) return;
+    const next = pending;
+    const currentWaiters = waiters;
+    pending = undefined;
+    waiters = [];
+    if (!next) {
+      currentWaiters.forEach(({ resolve }) => resolve());
+      return;
+    }
+    if (!next.force && lastSent?.token === next.token && sameBounds(lastSent.bounds, next.bounds)) {
+      currentWaiters.forEach(({ resolve }) => resolve());
+      return;
+    }
+    sending = true;
+    void send(next.bounds, next.token).then(() => {
+      lastSent = next;
+      currentWaiters.forEach(({ resolve }) => resolve());
+    }, (reason) => currentWaiters.forEach(({ reject }) => reject(reason))).finally(() => {
+      sending = false;
+      if (pending && !scheduled) {
+        scheduled = true;
+        scheduleFrame(flush);
+      }
+    });
+  };
+
+  return {
+    update(bounds: WebviewBounds, token: number, force = false): Promise<void> {
+      pending = { bounds, token, force: force || (pending?.token === token && pending.force) };
+      const result = new Promise<void>((resolve, reject) => waiters.push({ resolve, reject }));
+      if (!scheduled) {
+        scheduled = true;
+        scheduleFrame(flush);
+      }
+      return result;
+    },
+    markApplied(bounds: WebviewBounds, token: number) {
+      lastSent = { bounds, token };
+    },
+  };
+}
+
+const boundsUpdater = createBoundsUpdater(
+  (bounds, token) => invoke('set_plugin_webview_bounds', { bounds, token }),
+  (callback) => requestAnimationFrame(callback),
+);
+
+export const showPluginWebview = (args: { pluginId: string; menuIndex: number; bounds: WebviewBounds; labels: PluginWebviewLabels; reload: boolean; token: number }) => {
+  // The native side places the webview from these bounds as soon as the show starts, so later
+  // updates can be compared against them while the show is still in flight.
+  boundsUpdater.markApplied(args.bounds, args.token);
+  return invoke<string>('show_plugin_webview', args);
+};
+export const setPluginWebviewBounds = (bounds: WebviewBounds, token: number, force = false) => boundsUpdater.update(bounds, token, force);
+export const hidePluginWebview = (token: number) => invoke('hide_plugin_webview', { token });
+export const closePluginWebview = () => invoke('close_plugin_webview');

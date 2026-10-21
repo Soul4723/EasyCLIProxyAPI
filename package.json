@@ -7,16 +7,12 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
     "check": "tsc --noEmit",
+    "test": "bun test --isolate",
     "preview": "vite preview",
-    "test:ui:windows-titlebar": "node tests/windows-titlebar-ui.cjs",
-    "test:ui:accessibility": "node tests/app-shell-accessibility-ui.cjs",
-    "test:ui:api-provider-dialog": "node tests/api-provider-dialog-layout-ui.cjs",
-    "test:ui:api-access-layout": "node tests/api-access-layout-ui.cjs",
-    "test:ui:responsive": "node tests/responsive-layout-ui.cjs",
-    "test:ui:settings": "node tests/config-settings-ui.cjs",
-    "test:ui:browser-mock": "node tests/browser-mock-ui.cjs",
-    "screenshots": "node scripts/capture-readme-screenshots.cjs",
-    "tauri": "tauri"
+    "test:ui": "node tests/run-ui.cjs",
+    "test:all": "node tests/run-all.cjs",
+    "tauri": "tauri",
+    "lint": "biome lint"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -30,6 +26,7 @@
     "react-markdown": "^10.1.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
     "@tauri-apps/cli": "^2.12.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

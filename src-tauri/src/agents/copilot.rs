@@ -30,16 +30,18 @@ fn copilot_cli_version_output(output: &str) -> Option<String> {
 }
 
 fn copilot_probe_output(executable: &Path, home: &Path, args: &[&str]) -> Option<String> {
-    #[cfg(target_os = "windows")]
-    let mut command = windows_command_for_executable(executable, false);
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new(executable);
-    command.args(args);
+    let mut command = command_for_executable(executable, args).ok()?;
     configure_background_command(&mut command);
     configure_agent_command_environment(&mut command, home, executable).ok()?;
     // No input is provided to installation shims; only a successful, explicit
     // identity response counts. Do not accept prompts, generic versions or stderr.
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(5)).ok()??;
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(5)).ok()? {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => {
+            log_probe_timeout("Copilot CLI version", &timeout);
+            return None;
+        }
+    };
     output
         .status
         .success()
@@ -177,7 +179,7 @@ pub(crate) fn build_copilot_config(
                 let vision = metadata
                     .and_then(|m| m.input_modalities.as_ref())
                     .filter(|modalities| !modalities.is_empty())
-                    .map_or(true, |modalities| {
+                    .is_none_or(|modalities| {
                         modalities.iter().any(|s| s.eq_ignore_ascii_case("image"))
                     });
                 json!({"id": id, "name": id,
@@ -245,11 +247,11 @@ pub(crate) fn copilot_has_marker(client: AgentClient, paths: &[PathBuf]) -> Resu
 pub(crate) fn inspect_copilot_config(
     client: AgentClient,
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentClientOrigin,
     key: &str,
 ) -> Result<(bool, Option<String>), String> {
     let content = read_optional_text(&paths[0])?;
-    let base = format!("{}/v1", managed_core_loopback_origin(port));
+    let base = format!("{}/v1", port.client_origin());
     if client == AgentClient::CopilotCli {
         let root = parse(&paths[0], content.as_deref())?;
         let model = root
@@ -436,4 +438,9 @@ pub(crate) fn run_copilot_helper(args: &[std::ffi::OsString]) -> Result<i32, Str
         .status()
         .map(|s| s.code().unwrap_or(1))
         .map_err(|_| "Failed to start Copilot CLI".into())
+}
+
+// Backup validation uses the same target-key-bound native reference as inspection.
+pub(crate) fn copilot_backup_credential_matches(path: &Path, key: &str, reference: &Value) -> bool {
+    setup::vscode_credential_matches(path, key, reference)
 }

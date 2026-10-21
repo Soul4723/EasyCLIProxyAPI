@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import type { ReactNode } from 'react';
 
 export type TemplateText = string | { zh: string; en: string; ja?: string };
@@ -44,7 +43,7 @@ export const sameTemplateValue = (left: unknown, right: unknown): boolean => {
   if (Array.isArray(left) && Array.isArray(right)) return left.length === right.length && left.every((item, i) => sameTemplateValue(item, right[i]));
   if (left && right && typeof left === 'object' && typeof right === 'object' && !Array.isArray(left) && !Array.isArray(right)) {
     const keys = Object.keys(left);
-    return keys.length === Object.keys(right).length && keys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && sameTemplateValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
+    return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameTemplateValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
   }
   return false;
 };
@@ -52,7 +51,7 @@ export const sameTemplateValue = (left: unknown, right: unknown): boolean => {
 export function readTemplatePath(config: unknown, path: readonly string[]): { exists: boolean; value: unknown } {
   let value = config;
   for (const segment of path) {
-    if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.prototype.hasOwnProperty.call(value, segment)) return { exists: false, value: null };
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(value, segment)) return { exists: false, value: null };
     value = (value as Record<string, unknown>)[segment];
   }
   return { exists: true, value };
@@ -102,9 +101,3 @@ export function templateFieldSaveValue(field: TemplateConfigField, value: unknow
   if (field.type === 'json' && typeof value === 'string') return JSON.parse(value);
   return value;
 }
-
-export const getExtendedCoreConfig = (): Promise<Record<string, unknown>> =>
-  invoke<Record<string, unknown>>('get_extended_core_config');
-
-export const saveExtendedCoreConfig = (args: { changes: TemplateConfigChange[]; }): Promise<TemplateConfigSaveResult> =>
-  invoke<TemplateConfigSaveResult>('save_extended_core_config', args);

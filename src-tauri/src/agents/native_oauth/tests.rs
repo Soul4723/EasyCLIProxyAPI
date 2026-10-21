@@ -57,7 +57,7 @@ fn openai_proxy_switch_preserves_endpoint_auth_and_history_and_restores_override
     let auth = home.read("auth.json");
     fs::create_dir_all(home.path("sessions")).unwrap();
     fs::write(home.path("sessions/untouched.jsonl"), "original history").unwrap();
-    switch_codex_openai_provider(&home.0, true).unwrap();
+    switch_codex_openai_provider(&home.0, 8317, true).unwrap();
     assert!(codex_openai_proxy_enabled(&home.0).unwrap());
     assert!(!codex_native_oauth_enabled(&home.0).unwrap());
     let switched = home.config();
@@ -67,12 +67,12 @@ fn openai_proxy_switch_preserves_endpoint_auth_and_history_and_restores_override
     assert_eq!(home.read("sessions/untouched.jsonl"), "original history");
     assert!(inspect_codex_agent_config(&home.path("config.toml"), 8317, "test-api-key").unwrap().0);
     // Repeated enabling must not replace the saved original override.
-    switch_codex_openai_provider(&home.0, true).unwrap();
+    switch_codex_openai_provider(&home.0, 8317, true).unwrap();
     assert!(apply_cpa(&home, false).is_err());
     apply_cpa(&home, true).unwrap();
     assert!(codex_openai_proxy_enabled(&home.0).unwrap());
     assert!(current_codex_oauth_configuration(&home.0).unwrap());
-    switch_codex_openai_provider(&home.0, false).unwrap();
+    switch_codex_openai_provider(&home.0, 8317, false).unwrap();
     assert_eq!(home.config()["model_providers"]["openai"], before["model_providers"]["openai"]);
     assert_eq!(home.config()["openai_base_url"], before["openai_base_url"]);
 }
@@ -84,11 +84,11 @@ fn openai_proxy_close_and_official_round_trip_restore_correct_routing() {
     home.write("config.toml", original);
     home.write("auth.json", OAUTH);
     apply_cpa(&home, true).unwrap();
-    switch_codex_openai_provider(&home.0, true).unwrap();
+    switch_codex_openai_provider(&home.0, 8317, true).unwrap();
     close_codex_configuration(&home.0).unwrap();
     assert_eq!(home.config()["model_providers"]["openai"]["base_url"].as_str(), Some("https://example.com/v1"));
     apply_cpa(&home, true).unwrap();
-    switch_codex_openai_provider(&home.0, true).unwrap();
+    switch_codex_openai_provider(&home.0, 8317, true).unwrap();
     switch_codex_native_oauth(&home.0, true).unwrap();
     assert!(!codex_openai_proxy_enabled(&home.0).unwrap());
     assert!(home.config().get("model_providers").and_then(|p| p.get("openai")).is_none());
@@ -104,10 +104,10 @@ fn openai_proxy_requires_managed_configuration_and_rejects_profile_overrides() {
     let home = TestHome::new();
     home.write("config.toml", "model_provider = \"openai\"\n");
     let before = home.read("config.toml");
-    assert!(switch_codex_openai_provider(&home.0, true).is_err());
+    assert!(switch_codex_openai_provider(&home.0, 8317, true).is_err());
     assert_eq!(home.read("config.toml"), before);
     home.write("config.toml", CPA_CONFIG);
-    assert!(switch_codex_openai_provider(&home.0, true).is_err());
+    assert!(switch_codex_openai_provider(&home.0, 8317, true).is_err());
     assert_eq!(home.read("config.toml"), CPA_CONFIG);
 }
 
@@ -135,7 +135,7 @@ async fn openai_proxy_checks_the_credentials_the_builtin_provider_actually_sends
         });
         let config = build_codex_agent_config_with_oauth(None, &base, "test-api-key", "model", oauth).unwrap();
         let auth = if oauth { OAUTH.to_string() } else { build_codex_api_auth("test-api-key").unwrap() };
-        let result = validate_codex_openai_proxy_auth(&config, &auth).await;
+        let result = validate_codex_openai_proxy_auth(&agent_catalog_http_client(8317).unwrap(), 8317, &config, &auth).await;
         if status == 200 { assert!(result.is_ok(), "{result:?}"); }
         else { assert_eq!(result.unwrap_err(), "CPA_CODEX_OAUTH_AUTH_UNSUPPORTED"); }
         server.await.unwrap();
@@ -666,7 +666,7 @@ fn remote_compaction_defaults_off_preserves_settings_and_survives_apply() {
     assert!(!codex_remote_compaction_enabled(&home.0).unwrap());
     let before = home.config();
     let auth = home.read("auth.json");
-    switch_codex_remote_compaction(&home.0, true).unwrap();
+    switch_codex_remote_compaction(&home.0, 8317, true).unwrap();
     assert!(codex_remote_compaction_enabled(&home.0).unwrap());
     let mut expected = before.clone();
     expected["model_providers"]["cpa-gui"]["name"] = toml::Value::String("OpenAI".into());
@@ -675,12 +675,12 @@ fn remote_compaction_defaults_off_preserves_settings_and_survives_apply() {
     assert!(inspect_codex_agent_config(&home.path("config.toml"), 8317, "test-api-key").unwrap().0);
     apply_cpa(&home, false).unwrap();
     assert!(codex_remote_compaction_enabled(&home.0).unwrap());
-    switch_codex_openai_provider(&home.0, true).unwrap();
+    switch_codex_openai_provider(&home.0, 8317, true).unwrap();
     assert!(codex_openai_proxy_enabled(&home.0).unwrap());
     assert!(inspect_codex_agent_config(&home.path("config.toml"), 8317, "test-api-key").unwrap().0);
-    assert!(switch_codex_remote_compaction(&home.0, false).is_err());
-    switch_codex_openai_provider(&home.0, false).unwrap();
-    switch_codex_remote_compaction(&home.0, false).unwrap();
+    assert!(switch_codex_remote_compaction(&home.0, 8317, false).is_err());
+    switch_codex_openai_provider(&home.0, 8317, false).unwrap();
+    switch_codex_remote_compaction(&home.0, 8317, false).unwrap();
     assert!(!codex_remote_compaction_enabled(&home.0).unwrap());
     assert_eq!(home.config(), before);
 }
@@ -690,7 +690,205 @@ fn remote_compaction_rejects_unmanaged_invalid_and_profile_configs_without_writi
     let home = TestHome::new();
     for config in ["", "invalid = [", "model_provider = \"openai\"", CPA_CONFIG] {
         home.write("config.toml", config);
-        assert!(switch_codex_remote_compaction(&home.0, true).is_err());
+        assert!(switch_codex_remote_compaction(&home.0, 8317, true).is_err());
         assert_eq!(home.read("config.toml"), config);
     }
+}
+
+fn remote_config(origin: &str) -> GuiConfigFile {
+    GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: origin.into(),
+        remote_management_key: "test-management-key".into(),
+        remote_client_origin: origin.into(),
+        remote_client_key: "test-api-key".into(),
+        ..GuiConfigFile::default()
+    }
+}
+
+fn apply_remote_cpa(home: &TestHome, config: &GuiConfigFile) {
+    apply_agent_configuration_with_oauth(
+        AgentClient::Codex, &home.0, config, "test-api-key", "cpa-alias",
+        AgentConfigurationOptions {
+            models: &[], codex_catalog: Some(r#"{"models":[{"slug":"cpa-alias"}]}"#),
+            oauth_configuration: false, claude_code_model_mappings: None, claude_desktop_model_mappings: None,
+        },
+    ).unwrap();
+}
+
+#[test]
+fn remote_client_origin_is_managed_only_for_the_remote_target() {
+    let remote = remote_config("https://client.example:8443");
+    for url in ["https://client.example:8443", "HTTPS://Client.Example:8443/v1/", " https://client.example:8443/v1"] {
+        assert!(is_managed_agent_target_url(url, &remote), "{url}");
+    }
+    for url in ["https://client.example:84431/v1", "https://client.example:8443.evil.test/v1", "https://other.example/v1", "http://127.0.0.1:8317/v1"] {
+        assert!(!is_managed_agent_target_url(url, &remote), "{url}");
+    }
+    assert!(is_managed_agent_target_url("http://127.0.0.1:8317/v1", 8317));
+    assert!(!is_managed_agent_target_url("https://client.example:8443/v1", 8317));
+}
+
+#[test]
+fn remote_provider_identity_and_compaction_switch_against_the_remote_origin() {
+    let home = TestHome::new();
+    let remote = remote_config("https://client.example");
+    apply_remote_cpa(&home, &remote);
+    assert_eq!(home.config()["model_providers"]["cpa-gui"]["base_url"].as_str(), Some("https://client.example/v1"));
+    let before = home.config();
+    switch_codex_openai_provider(&home.0, &remote, true).unwrap();
+    assert!(codex_openai_proxy_enabled(&home.0).unwrap());
+    assert_eq!(home.config()["openai_base_url"].as_str(), Some("https://client.example/v1"));
+    switch_codex_openai_provider(&home.0, &remote, false).unwrap();
+    switch_codex_remote_compaction(&home.0, &remote, true).unwrap();
+    assert!(codex_remote_compaction_enabled(&home.0).unwrap());
+    switch_codex_remote_compaction(&home.0, &remote, false).unwrap();
+    assert_eq!(home.config(), before);
+}
+
+#[test]
+fn remote_switches_reject_a_configuration_written_for_another_target_without_writing() {
+    let home = TestHome::new();
+    apply_cpa(&home, false).unwrap();
+    let written = home.read("config.toml");
+    let remote = remote_config("https://client.example");
+    assert_eq!(switch_codex_openai_provider(&home.0, &remote, true).unwrap_err(),
+        "Apply the CPA configuration before changing the provider identity");
+    assert_eq!(switch_codex_remote_compaction(&home.0, &remote, true).unwrap_err(),
+        "Apply the CPA configuration before changing remote compaction");
+    assert_eq!(home.read("config.toml"), written);
+    // And the reverse: a Remote configuration is not a valid Local one.
+    let other = TestHome::new();
+    apply_remote_cpa(&other, &remote);
+    assert!(switch_codex_openai_provider(&other.0, 8317, true).is_err());
+    assert!(switch_codex_remote_compaction(&other.0, 8317, true).is_err());
+}
+
+#[test]
+fn codex_tls_origin_match_normalizes_default_https_ports() {
+    assert!(codex_client_origin_matches("https://codex.example/v1", "https://codex.example:443"));
+    assert!(codex_client_origin_matches("https://codex.example:443/v1", "https://codex.example"));
+    assert!(!codex_client_origin_matches("https://codex.example:444/v1", "https://codex.example"));
+}
+
+#[test]
+fn codex_tls_origin_match_normalizes_ipv6_literals() {
+    assert!(codex_client_origin_matches("https://[::1]/v1", "https://[0:0:0:0:0:0:0:1]:443"));
+    assert!(!codex_client_origin_matches("https://[::2]/v1", "https://[::1]"));
+}
+
+#[test]
+fn codex_tls_origin_match_normalizes_host_case_but_not_other_origins() {
+    assert!(codex_client_origin_matches("HTTPS://CODEX.EXAMPLE/v1", "https://codex.example:443"));
+    assert!(!codex_client_origin_matches("https://codex.example.evil.test/v1", "https://codex.example"));
+    assert!(!codex_client_origin_matches("http://codex.example/v1", "https://codex.example"));
+}
+
+#[tokio::test]
+async fn remote_openai_proxy_auth_check_uses_the_remote_origin_and_rejects_other_targets() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let remote = remote_config(&origin);
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = [0; 2048];
+        let n = stream.read(&mut request).await.unwrap();
+        let request = String::from_utf8_lossy(&request[..n]).to_ascii_lowercase();
+        assert!(request.starts_with("get /v1/models "));
+        assert!(request.contains("authorization: bearer test-api-key"));
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+    });
+    let config = build_codex_agent_config_with_oauth(None, &format!("{origin}/v1"), "test-api-key", "model", false).unwrap();
+    let auth = build_codex_api_auth("test-api-key").unwrap();
+    let client = agent_catalog_http_client(&remote).unwrap();
+    validate_codex_openai_proxy_auth(&client, &remote, &config, &auth).await.unwrap();
+    server.await.unwrap();
+    // Not the configured Remote origin: refused before any request is made.
+    let other = remote_config("https://client.example");
+    assert_eq!(validate_codex_openai_proxy_auth(&agent_catalog_http_client(&other).unwrap(), &other, &config, &auth).await.unwrap_err(),
+        "Apply the CPA configuration before changing the provider identity");
+    // An invalid Remote origin is rejected by the shared client before connecting.
+    assert!(agent_catalog_http_client(&remote_config("")).is_err());
+}
+
+// Kills the disposable Python server even when an assertion panics.
+struct ChildGuard(std::process::Child);
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+// A Local target whose client origin is the self-signed TLS endpoint under test.
+#[derive(Clone, Copy)]
+struct TlsLocalTarget(u16);
+impl AgentClientOrigin for TlsLocalTarget {
+    fn client_origin(self) -> String { format!("https://127.0.0.1:{}", self.0) }
+    fn validate_client_origin(self) -> Result<(), String> { Ok(()) }
+    fn local_client(self) -> bool { true }
+}
+
+// Disposable self-signed TLS endpoint standing in for a Local core with TLS enabled.
+#[tokio::test]
+async fn openai_proxy_auth_check_trusts_a_self_signed_certificate_only_for_the_client_origin() {
+    let root = crate::unique_test_temp_path("cpa-native-oauth-tls");
+    fs::create_dir_all(&root).unwrap();
+    let (cert, key) = (root.join("cert.pem"), root.join("key.pem"));
+    assert!(std::process::Command::new("openssl").args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-keyout"])
+        .arg(&key).arg("-out").arg(&cert).output().unwrap().status.success());
+    let script = r#"
+import http.server, ssl, sys
+class Handler(http.server.BaseHTTPRequestHandler):
+ def do_GET(self):
+  self.send_response(200); self.send_header('Content-Length', '2'); self.end_headers(); self.wfile.write(b'{}')
+ def log_message(self, *args): pass
+server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain(sys.argv[1], sys.argv[2])
+server.socket = ctx.wrap_socket(server.socket, server_side=True)
+print(server.server_port, flush=True)
+server.serve_forever()
+"#;
+    let mut server = ChildGuard(std::process::Command::new("python3").arg("-u").arg("-c").arg(script).arg(&cert).arg(&key)
+        .stdout(std::process::Stdio::piped()).spawn().unwrap());
+    use std::io::BufRead;
+    let mut port = String::new();
+    std::io::BufReader::new(server.0.stdout.take().unwrap()).read_line(&mut port).unwrap();
+    let port: u16 = port.trim().parse().unwrap();
+    let base = format!("https://127.0.0.1:{port}/v1");
+    let config = build_codex_agent_config_with_oauth(None, &base, "test-api-key", "model", false).unwrap();
+    let auth = build_codex_api_auth("test-api-key").unwrap();
+    let unreachable = "Unable to check CPA authentication. Ensure the core is running";
+    let own = TlsLocalTarget(port);
+    // The endpoint is the target's own origin: the relaxed client is used.
+    validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(own, true).unwrap(), own, &config, &auth).await.unwrap();
+    // Local TLS off: strict client rejects the self-signed certificate.
+    assert_eq!(validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(own, false).unwrap(), own, &config, &auth).await.unwrap_err(), unreachable);
+    // Another localhost endpoint is accepted by the Local matcher, but the relaxed client must not reach it.
+    assert!(is_managed_agent_target_url(&base, 8317u16));
+    assert_eq!(validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(8317u16, true).unwrap(), 8317u16, &config, &auth).await.unwrap_err(), unreachable);
+    // A Remote target never trusts a self-signed certificate, even with the relaxed flag.
+    let remote = remote_config(&format!("https://127.0.0.1:{port}"));
+    assert_eq!(validate_codex_openai_proxy_auth(&agent_catalog_http_client_with_tls(&remote, true).unwrap(), &remote, &config, &auth).await.unwrap_err(), unreachable);
+    drop(server);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn an_empty_or_invalid_remote_origin_never_matches_and_blocks_the_switches() {
+    let mut empty = remote_config("https://management.example");
+    empty.remote_client_origin.clear();
+    for url in ["", "/v1", "http://127.0.0.1:8317/v1"] {
+        assert!(!is_managed_agent_target_url(url, &empty), "{url:?}");
+    }
+    let home = TestHome::new();
+    apply_cpa(&home, false).unwrap();
+    let written = home.read("config.toml");
+    assert_eq!(switch_codex_openai_provider(&home.0, &empty, true).unwrap_err(), "Invalid Client origin");
+    assert_eq!(switch_codex_remote_compaction(&home.0, &empty, true).unwrap_err(), "Invalid Client origin");
+    assert_eq!(switch_codex_openai_provider(&home.0, 0u16, true).unwrap_err(), "Invalid core port");
+    assert_eq!(switch_codex_remote_compaction(&home.0, 0u16, true).unwrap_err(), "Invalid core port");
+    assert_eq!(home.read("config.toml"), written);
 }

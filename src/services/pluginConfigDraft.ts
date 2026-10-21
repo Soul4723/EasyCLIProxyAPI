@@ -49,7 +49,7 @@ export function buildPluginConfigDraft(
 
   plugin.configFields.forEach((field) => {
     values[field.name] = getFieldDraftValue(field,
-      Object.prototype.hasOwnProperty.call(currentConfig, field.name) ? currentConfig[field.name] : undefined);
+      Object.hasOwn(currentConfig, field.name) ? currentConfig[field.name] : undefined);
   });
 
   return {
@@ -110,7 +110,7 @@ export function buildPluginConfigPatch(
 
   fields.forEach((field) => {
     if (field.name === 'enabled' || field.name === 'priority'
-      || !Object.prototype.hasOwnProperty.call(draft.touchedFields, field.name)
+      || !Object.hasOwn(draft.touchedFields, field.name)
       || draft.touchedFields[field.name] !== true) return;
 
     const fieldType = normalizePluginConfigFieldType(field);

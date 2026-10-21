@@ -1,0 +1,78 @@
+/* Claude Code / Claude Desktop mapping panels. Scoped under .ec-sec-agents; the legacy AgentModelPicker is restyled here. */
+.ec-sec-agents .ag-claude { display: flex; flex-direction: column; gap: var(--ec-gap); }
+.ec-sec-agents .ag-claude > div { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; }
+.ec-sec-agents .ag-claude .ec-card__header { flex-wrap: wrap; }
+.ec-sec-agents .ag-claude-switch { display: inline-flex; align-items: center; gap: var(--ec-sp-2); font-size: var(--ec-fs-sm); color: var(--ec-fg-2); cursor: pointer; }
+.ec-sec-agents .ag-claude-error { display: flex; align-items: center; gap: var(--ec-sp-2); padding: var(--ec-sp-2) var(--ec-sp-3); border: 1px solid var(--ec-danger); border-radius: var(--ec-r-sm); color: var(--ec-danger-fg); font-size: var(--ec-fs-sm); }
+.ec-sec-agents .ag-claude-error-text { flex: 1; min-width: 0; }
+
+/* table */
+.ec-sec-agents .ag-claude-table { display: flex; flex-direction: column; min-width: 0; }
+.ec-sec-agents .ag-claude-head, .ec-sec-agents .ag-claude-row { display: grid; grid-template-columns: 120px 16px minmax(0, 1fr) 76px; align-items: center; column-gap: var(--ec-sp-3); }
+.ec-sec-agents .ag-claude-head { padding: 0 0 var(--ec-sp-2); color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-sec-agents .ag-claude-row { min-height: calc(var(--ec-row-h) + 6px); padding: var(--ec-sp-1) 0; border-top: 1px solid var(--ec-border-soft); }
+.ec-sec-agents .ag-claude-head--desktop, .ec-sec-agents .ag-claude-row--desktop { grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 76px 28px; }
+.ec-sec-agents .ag-claude-sep { height: var(--ec-sp-2); }
+.ec-sec-agents .ag-claude-name { font-weight: 500; color: var(--ec-fg); }
+.ec-sec-agents .ag-claude-arrow { color: var(--ec-fg-subtle); justify-self: center; }
+.ec-sec-agents .ag-claude-target { display: flex; flex-direction: column; gap: var(--ec-sp-1); min-width: 0; }
+.ec-sec-agents .ag-claude-ctx { display: inline-flex; align-items: center; gap: var(--ec-sp-2); font-size: var(--ec-fs-xs); color: var(--ec-fg-2); font-family: var(--ec-mono); justify-self: end; }
+.ec-sec-agents .ag-claude-entry { display: flex; flex-direction: column; border-top: 1px solid var(--ec-border-soft); }
+.ec-sec-agents .ag-claude-entry .ag-claude-row { border-top: 0; }
+.ec-sec-agents .ag-claude-notice { display: flex; align-items: flex-start; gap: var(--ec-sp-2); margin: 0 0 var(--ec-sp-2); font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); }
+.ec-sec-agents .ag-claude-notice svg { flex: none; margin-top: 2px; }
+.ec-sec-agents .ag-claude-notice--warn { color: var(--ec-warn-fg); }
+.ec-sec-agents .ag-claude-hint { font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); }
+.ec-sec-agents .ag-claude-hint--warn { color: var(--ec-warn-fg); }
+.ec-sec-agents .ag-claude-hint--error { color: var(--ec-danger-fg); }
+.ec-sec-agents .ag-claude-help { margin: 0; padding-left: var(--ec-sp-4); display: flex; flex-direction: column; gap: var(--ec-sp-3); font-size: var(--ec-fs-sm); color: var(--ec-fg-2); line-height: 1.5; }
+
+/* advanced */
+.ec-sec-agents .ag-claude-advanced { border-top: 1px solid var(--ec-border-soft); padding-top: var(--ec-sp-2); }
+.ec-sec-agents .ag-claude-advanced-toggle { display: inline-flex; align-items: center; gap: var(--ec-sp-2); padding: var(--ec-sp-1) 0; border: 0; background: transparent; color: var(--ec-fg-2); font: inherit; font-size: var(--ec-fs-sm); cursor: pointer; }
+.ec-sec-agents .ag-claude-advanced-toggle:hover { color: var(--ec-fg); }
+.ec-sec-agents .ag-claude-advanced-toggle:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 2px; border-radius: var(--ec-r-xs); }
+.ec-sec-agents .ag-claude-advanced-toggle svg { transform: rotate(-90deg); transition: transform 120ms ease; }
+.ec-sec-agents .ag-claude-advanced-toggle svg.is-open { transform: none; }
+.ec-sec-agents .ag-claude-advanced-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--ec-gap); padding: var(--ec-sp-2) 0 var(--ec-sp-1); align-items: start; }
+.ec-sec-agents .ag-claude-field { display: flex; flex-direction: column; gap: var(--ec-sp-1); font-size: var(--ec-fs-sm); color: var(--ec-fg-2); min-width: 0; }
+.ec-sec-agents .ag-claude-field.ag-claude-switch { flex-direction: row; justify-content: space-between; align-items: center; align-self: center; }
+.ec-sec-agents .ag-claude-input { display: flex; align-items: center; gap: var(--ec-sp-2); height: var(--ec-ctrl-h); padding: 0 var(--ec-sp-3); background: var(--ec-field); border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm); color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-sec-agents .ag-claude-input:focus-within { border-color: var(--ec-ring); }
+.ec-sec-agents .ag-claude-input.is-invalid { border-color: var(--ec-danger); }
+.ec-sec-agents .ag-claude-input input { flex: 1; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ec-fg); font: inherit; font-family: var(--ec-mono); font-size: var(--ec-fs-sm); }
+.ec-sec-agents .ag-claude-input input:disabled { opacity: 0.55; }
+
+/* restyled legacy AgentModelPicker */
+.ec-sec-agents .ag-claude .agent-model-picker { min-width: 0; }
+.ec-sec-agents .ag-claude .agent-model-trigger { min-height: var(--ec-ctrl-h); padding: 0 var(--ec-sp-3); gap: var(--ec-sp-2); background: var(--ec-field); border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm); color: var(--ec-fg); font-size: var(--ec-fs-sm); }
+.ec-sec-agents .ag-claude .agent-model-trigger:hover:not(:disabled), .ec-sec-agents .ag-claude .agent-model-picker.open .agent-model-trigger { background: var(--ec-hover); border-color: var(--ec-ring); }
+.ec-sec-agents .ag-claude .agent-model-trigger:disabled, .ec-sec-agents .ag-claude .agent-model-editable-trigger:has(input:disabled) { background: var(--ec-muted-bg); opacity: 0.6; }
+.ec-sec-agents .ag-claude .agent-model-trigger > span { display: flex; align-items: baseline; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-agents .ag-claude .agent-model-trigger strong { color: var(--ec-fg); font-size: var(--ec-fs-sm); font-weight: 500; font-family: var(--ec-mono); }
+.ec-sec-agents .ag-claude .agent-model-trigger small { color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-sec-agents .ag-claude .agent-model-trigger > svg, .ec-sec-agents .ag-claude .agent-model-editable-trigger > button { color: var(--ec-fg-muted); }
+.ec-sec-agents .ag-claude .agent-model-editable-trigger input { font-size: var(--ec-fs-sm); color: var(--ec-fg); font-family: var(--ec-mono); }
+.ec-sec-agents .ag-claude .agent-model-editable-trigger:focus-within { border-color: var(--ec-ring); box-shadow: none; }
+.ec-sec-agents .ag-claude .agent-model-dropdown { z-index: var(--ec-z-popover); gap: var(--ec-sp-2); padding: var(--ec-sp-2); background: var(--ec-popover); border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); box-shadow: var(--ec-shadow-pop); color: var(--ec-fg); }
+.ec-sec-agents .ag-claude .agent-model-search { background: var(--ec-field); border-color: var(--ec-input-border); border-radius: var(--ec-r-sm); color: var(--ec-fg-muted); }
+.ec-sec-agents .ag-claude .agent-model-search input { color: var(--ec-fg); font-size: var(--ec-fs-sm); }
+.ec-sec-agents .ag-claude .agent-model-list { border-color: var(--ec-border-soft); border-radius: var(--ec-r-sm); }
+.ec-sec-agents .ag-claude .agent-model-option { min-height: 0; padding: var(--ec-sp-2) var(--ec-sp-3); background: transparent; border-bottom-color: var(--ec-border-soft); color: var(--ec-fg); }
+.ec-sec-agents .ag-claude .agent-model-option:hover, .ec-sec-agents .ag-claude .agent-model-option.active { background: var(--ec-hover); }
+.ec-sec-agents .ag-claude .agent-model-option.selected { background: var(--ec-accent-soft); }
+.ec-sec-agents .ag-claude .agent-model-option strong { font-size: var(--ec-fs-sm); font-family: var(--ec-mono); font-weight: 500; }
+.ec-sec-agents .ag-claude .agent-model-option small { color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); }
+.ec-sec-agents .ag-claude .agent-model-option > svg { color: var(--ec-accent); }
+.ec-sec-agents .ag-claude .agent-model-empty, .ec-sec-agents .ag-claude .agent-model-empty strong { color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
+.ec-sec-agents .ag-claude .agent-model-empty.error, .ec-sec-agents .ag-claude .agent-model-empty.error strong, .ec-sec-agents .ag-claude .agent-model-dropdown-footer .error { color: var(--ec-danger-fg); }
+.ec-sec-agents .ag-claude .agent-model-dropdown-footer { color: var(--ec-fg-subtle); font-size: var(--ec-fs-xs); }
+
+/* narrow: rows stack (class set by useNarrowPanel) */
+.ec-sec-agents .ag-claude--narrow .ag-claude-head { display: none; }
+.ec-sec-agents .ag-claude--narrow .ag-claude-row, .ec-sec-agents .ag-claude--narrow .ag-claude-row--desktop { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--ec-sp-2); padding: var(--ec-sp-2) 0; }
+.ec-sec-agents .ag-claude--narrow .ag-claude-arrow { display: none; }
+.ec-sec-agents .ag-claude--narrow .ag-claude-name { grid-column: 1 / -1; }
+.ec-sec-agents .ag-claude--narrow .ag-claude-target { grid-column: 1 / -1; }
+.ec-sec-agents .ag-claude--narrow .ag-claude-row--desktop .ag-claude-target[data-label]::before { content: attr(data-label); font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); }
+.ec-sec-agents .ag-claude--narrow .ag-claude-ctx { grid-column: 1; justify-self: start; }

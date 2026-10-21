@@ -1,4 +1,5 @@
 use super::*;
+use tauri::Manager;
 use std::{
     fs,
     io::{Read, Write},
@@ -167,10 +168,12 @@ pub(crate) fn copy_plugin(
 
 #[tauri::command]
 pub(crate) async fn install_local_plugin(
+    app: tauri::AppHandle,
     source: String,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<String, String> {
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let value = read_management_value(super::request_plugins(&config).await?).await?;
     let dir = value
         .get("plugins_dir")
@@ -185,15 +188,46 @@ pub(crate) async fn install_local_plugin(
     };
     let (os, arch, ext) = platform()?;
     tauri::async_runtime::spawn_blocking(move || {
-        copy_plugin(Path::new(&source), &directory.join(os).join(arch), ext)
+        let state = app.state::<GuiConfigState>();
+        install_for_target(&state, &config, Path::new(&source), &directory.join(os).join(arch), ext)
     })
     .await
     .map_err(|e| format!("Local plugin installation failed: {e}"))?
 }
 
+
+// Revalidate inside the worker and hold the fence through publication, even
+// if the invoking async command is cancelled while the copy is running.
+fn install_for_target(
+    state: &GuiConfigState,
+    expected: &GuiConfigFile,
+    source: &Path,
+    directory: &Path,
+    extension: &str,
+) -> Result<String, String> {
+    let _target_operation = state.blocking_local_target_operation(expected)?;
+    copy_plugin(source, directory, extension)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn target_guard_rejects_remote_and_stale_installs_before_reading_files() {
+        let config = GuiConfigFile {
+            connection_mode: crate::CoreConnectionMode::Remote,
+            ..Default::default()
+        };
+        let state = GuiConfigState::new(config);
+        let remote = state.snapshot().unwrap();
+        let result = install_for_target(&state, &remote, Path::new("missing-source.dll"), Path::new("unused-target"), "dll");
+        assert!(result.unwrap_err().contains("only available for the local core"));
+        let mut local = remote.clone();
+        local.connection_mode = crate::CoreConnectionMode::Local;
+        state.replace_external(local).unwrap();
+        let result = install_for_target(&state, &remote, Path::new("missing-source.dll"), Path::new("unused-target"), "dll");
+        assert!(result.unwrap_err().contains("connection changed"));
+    }
     #[test]
     fn exclusive_publication_moves_complete_file_and_rejects_existing_target() {
         let root = crate::unique_test_temp_path("plugin-publication");

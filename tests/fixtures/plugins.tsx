@@ -1,24 +1,37 @@
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
-import { PluginsPage } from '../../src/pages/PluginsPage';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
+import { PluginsSection } from '../../src/sections/plugins';
+import { resetRouterForTests, useRoute } from '../../src/shell/router';
 import '../../src/styles/index.css';
+import '../../src/ui/index.css';
 
 const params = new URLSearchParams(location.search);
 localStorage.setItem('easy-cli-proxy-api.locale', params.get('locale') ?? 'en');
 document.documentElement.dataset.theme = params.get('theme') ?? 'light';
+// `?sub=store|settings` picks the sub-page; the default is the installed list (`#/plugins`).
+if (!location.hash) location.hash = `/plugins${params.get('sub') ? `/${params.get('sub')}` : ''}`;
+resetRouterForTests(location.hash);
 type Request = { method: string; path: string; query?: Record<string, string>; body?: unknown };
 const state = {
-  localSelection: '/downloads/local-demo-v1.0.0.dll' as string | null,
-  localInstallError: '',
   supported: !params.has('unsupported'),
   commands: [] as { command: string; args: unknown }[],
   requests: [] as Request[],
   installs: [] as Request[],
-  navigations: [] as unknown[],
+  resourceRequests: [] as unknown[],
   failNextList: false,
   failNextInstall: false,
-  latestReleaseVersion: '3.0.0',
+  failNextStore: false,
+  sources: [
+    { id: 'official', name: 'Official', url: 'https://official.example.test/plugins.json' },
+    { id: 'community', name: 'Community', url: 'https://registry.example.test/plugins.json' },
+    { id: 'private', name: 'Private', url: 'https://private.example.test/plugins.json' },
+    { id: 'offline', name: 'Offline source', url: 'https://offline.example.test/plugins.json' },
+    { id: 'empty', name: 'Empty registry', url: 'https://empty.example.test/plugins.json' },
+    { id: '', name: 'Community', url: 'https://url-only.example.test/plugins.json' },
+    { id: 'long', name: 'Long registry name '.repeat(20), url: 'https://long.example.test/plugins.json' },
+  ],
   holdInstall: false,
   releaseInstall: null as null | (() => void),
   settings: {
@@ -34,7 +47,6 @@ const state = {
   },
 };
 Object.assign(window, { pluginsFixture: state });
-window.addEventListener('app:navigate', (event) => state.navigations.push((event as CustomEvent).detail));
 const pluginEntries: Record<string, unknown>[] = [
   { id: 'sample..plugin', path: '/plugins/sample..plugin.dll', configured: true, registered: true,
     supports_oauth: true, oauth_provider: 'sample-sso',
@@ -69,32 +81,33 @@ const storeEntries: Record<string, unknown>[] = [
   { id: 'private', name: 'Private provider', source_id: 'private', source_name: 'Private',
     repository: 'private/provider', auth_required: true, auth_configured: false, install_type: 'github-release',
   },
+  { id: 'analytics', name: 'URL-only provider', source_id: '', source_name: 'Community',
+    source_url: 'https://url-only.example.test/plugins.json', install_type: 'direct' },
   { id: 'kiro', name: 'Kiro', source_id: 'official', source_name: 'Official',
     repository: 'router-for-me/kiro', version: '0.1.1', install_type: 'github-release', installed: false,
     description: 'A configured provider whose plugin file has not been installed.',
   },
 ];
 
-if (params.has('external-repository')) storeEntries[0].repository = 'https://github.com/rensumo/cpa-plugin-zcode';
-
-if (params.has('foreign-source')) storeEntries.unshift({ ...storeEntries[0], source_id: 'foreign', source_name: 'Foreign source',
-  repository: 'foreign/sample', install_source_status: 'different',
-});
-
 mockIPC(async (command, args) => {
+  if (command === 'get_management_target_revision') return 0; // documentTarget fences every target command
   state.commands.push({ command, args });
   if (command === 'prepare_management_request') return `install-${state.commands.length}`;
   if (command === 'cancel_management_request') return null;
   if (command === 'start_oauth_login') return { url: 'https://login.example.test/authorize?state=sample-state', state: 'sample-state' };
   if (command === 'get_oauth_status') return { status: 'wait' };
-  if (command === 'plugin:dialog|open') return state.localSelection;
-  if (command === 'install_local_plugin') {
-    if (state.localInstallError) throw new Error(state.localInstallError);
-    pluginEntries.push({ id: 'local-demo', path: '/plugins/windows/amd64/local-demo-v1.0.0.dll', configured: false, registered: false, metadata: null, menus: [], config_fields: [] });
-    return '/plugins/windows/amd64/local-demo-v1.0.0.dll';
-  }
   if (command === 'get_plugin_support') return state.supported;
-  if (command === 'get_plugin_latest_releases') return (args?.repositories as string[]).map(repository => ({ repository, version: state.latestReleaseVersion, error: null }));
+  if (command === 'get_plugin_resource_url') {
+    state.resourceRequests.push(args);
+    if (args?.pluginId !== 'sample..plugin' || args?.menuIndex !== 2) throw new Error('Wrong original menu index');
+    return `${location.origin}/tests/fixtures/plugins.html?resource=1`;
+  }
+  if (command === 'plugin:dialog|open') return (window as unknown as { pluginsFixture: { dialogFile?: string } }).pluginsFixture.dialogFile ?? null;
+  if (command === 'install_local_plugin') return `plugins/${String(args?.source).split(/[\\/]/).pop()}`;
+  if (command === 'get_plugin_latest_releases') {
+    const repositories = (args?.repositories ?? []) as string[];
+    return repositories.map(repository => ({ repository, version: repository === 'router-for-me/sample' ? '3.0.0' : null, error: null }));
+  }
   if (command === 'open_external_url' || command === 'restart_core_process') return null;
   if (command !== 'management_request') return null;
   const request = args?.request as Request;
@@ -104,16 +117,19 @@ mockIPC(async (command, args) => {
     if (state.failNextList) { state.failNextList = false; throw new Error('Fixture list temporarily unavailable'); }
     return {
       plugins_enabled: state.settings.enabled, plugins_dir: state.settings.dir,
-      plugins: (params.has('empty-installed') ? [] : pluginEntries).map(entry => ({ ...entry,
+      plugins: pluginEntries.map(entry => ({ ...entry,
         enabled: state.settings.configs[String(entry.id)]?.enabled === true,
         effective_enabled: entry.registered === true && state.settings.enabled && state.settings.configs[String(entry.id)]?.enabled === true,
       })),
     };
   }
-  if (request.path === '/plugins/store' && request.method === 'GET') return {
-    plugins_enabled: state.settings.enabled, plugins_dir: state.settings.dir, plugins: storeEntries,
-    source_errors: [{ source_id: 'offline', source_name: 'Offline source', message: 'Fixture registry unavailable' }],
-  };
+  if (request.path === '/plugins/store' && request.method === 'GET') {
+    if (state.failNextStore) { state.failNextStore = false; throw new Error('Fixture store temporarily unavailable'); }
+    return {
+      plugins_enabled: state.settings.enabled, plugins_dir: state.settings.dir, plugins: storeEntries, sources: state.sources,
+      source_errors: [{ source_id: 'offline', source_name: 'Offline source', message: 'Fixture registry unavailable' }],
+    };
+  }
   if (request.path === '/config/plugins') {
     if (request.method === 'GET') return structuredClone(state.settings);
     if (request.method === 'PATCH') { Object.assign(state.settings, request.body); return { status: 'ok' }; }
@@ -157,6 +173,11 @@ mockIPC(async (command, args) => {
   throw new Error(`Unhandled fixture request: ${request.method} ${request.path}`);
 });
 
+function Host() {
+  const route = useRoute();
+  return <PluginsSection sub={route.sub} params={route.params} />;
+}
+
 createRoot(document.getElementById('root')!).render(params.has('resource')
   ? <h1>Sample resource preview</h1>
-  : <I18nProvider><main style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}><PluginsPage /></main></I18nProvider>);
+  : <I18nProvider><CoreRuntimeProvider><Host /></CoreRuntimeProvider></I18nProvider>);

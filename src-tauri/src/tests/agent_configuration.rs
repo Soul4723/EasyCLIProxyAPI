@@ -2725,26 +2725,28 @@ fn agent_probe_command_captures_output_before_timeout() {
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut command = Command::new(windows_command_processor());
-        command.args(["/D", "/C", "echo agent 1.2.3"]);
+        command.args(["/D", "/C", "echo agent 1.2.3 & echo probe warning 1>&2"]);
         configure_background_command(&mut command);
         command
     };
     #[cfg(not(target_os = "windows"))]
     let mut command = {
         let mut command = Command::new("sh");
-        command.args(["-c", "printf 'agent 1.2.3\\n'"]);
+        command.args(["-c", "printf 'agent 1.2.3\\n'; printf 'probe warning\\n' >&2"]);
         command
     };
 
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(2))
-        .unwrap()
-        .unwrap();
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(2)).unwrap() {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("test command")),
+    };
 
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         "agent 1.2.3"
     );
+    assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "probe warning");
 }
 
 #[test]
@@ -2772,8 +2774,106 @@ fn agent_probe_command_stops_at_timeout() {
     let started = Instant::now();
     let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
 
-    assert!(output.is_none());
+    let CommandOutputOutcome::TimedOut(timeout) = output else {
+        panic!("probe unexpectedly completed before its timeout");
+    };
+    assert_eq!(timeout.timeout, Duration::from_millis(100));
     assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_probe_command_times_out_when_exited_shell_leaves_descendant_pipes() {
+    let mut command = Command::new("sh");
+    // The shell exits successfully immediately; the background child retains both pipes.
+    command.args(["-c", "sleep 5 & exit 0"]);
+    let started = Instant::now();
+    let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
+
+    assert!(matches!(output, CommandOutputOutcome::TimedOut(_)));
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn agent_probe_timeout_keeps_exited_group_leader_unreaped_while_descendant_escapes() {
+    let mut command = Command::new("sh");
+    command.args([
+        "-c",
+        "setsid sh -c 'printf escaped-descendant; sleep 5' & sleep 0.05; exit 0",
+    ]);
+    let started = Instant::now();
+    let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
+
+    let CommandOutputOutcome::TimedOut(timeout) = output else {
+        panic!("probe unexpectedly completed before its timeout");
+    };
+    assert!(String::from_utf8_lossy(&timeout.stdout).contains("escaped-descendant"));
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_probe_cleanup_signals_before_reaping_the_group_leader() {
+    let mut reaped = false;
+    let mut steps = Vec::new();
+
+    crate::agents::signal_then_reap(&mut reaped, |step| match step {
+        crate::agents::ProbeCleanupStep::Signal => {
+            steps.push("signal");
+            Ok(None)
+        }
+        crate::agents::ProbeCleanupStep::Reap => {
+            steps.push("reap");
+            Ok(Some(()))
+        }
+    })
+    .unwrap();
+
+    assert_eq!(steps, ["signal", "reap"]);
+    assert!(reaped);
+    assert!(crate::agents::signal_then_reap(
+        &mut reaped,
+        |_| -> std::io::Result<Option<()>> {
+            panic!("cleanup signalled an already-reaped probe")
+        },
+    )
+    .is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_probe_timeout_returns_bounded_diagnostics() {
+    let mut command = Command::new("sh");
+    command.args([
+        "-c",
+        "yes x | head -c 2048; yes y | head -c 2048 >&2; sleep 5",
+    ]);
+
+    let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
+    let CommandOutputOutcome::TimedOut(timeout) = output else {
+        panic!("probe unexpectedly completed before its timeout");
+    };
+
+    assert_eq!(timeout.stdout.len(), COMMAND_TIMEOUT_DIAGNOSTIC_LIMIT);
+    assert_eq!(timeout.stderr.len(), COMMAND_TIMEOUT_DIAGNOSTIC_LIMIT);
+    assert!(timeout.message("Agent executable").contains("probe timed out after 0.1s"));
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_probe_timeout_does_not_stop_an_unrelated_process() {
+    let mut unrelated = Command::new("sleep").arg("5").spawn().unwrap();
+    let mut command = Command::new("sh");
+    command.args(["-c", "sleep 5"]);
+
+    let output = command_output_with_timeout(&mut command, Duration::from_millis(100)).unwrap();
+    let unrelated_is_running = unrelated.try_wait().unwrap().is_none();
+    let _ = unrelated.kill();
+    let _ = unrelated.wait();
+
+    assert!(matches!(output, CommandOutputOutcome::TimedOut(_)));
+    assert!(unrelated_is_running, "probe timeout stopped an unrelated process");
 }
 
 #[test]
@@ -2867,46 +2967,111 @@ fn thinking_alias_prefers_codex_api_key_model_over_same_named_oauth_definition()
     assert!(!rendered.contains("oauth-model-alias"), "{rendered}");
 }
 
+#[test]
+fn native_executables_receive_arguments_verbatim() {
+    let command = command_for_executable(
+        Path::new("/opt/tools/agent"),
+        &["--task", "fix \"x\" & calc %PATH%"],
+    )
+    .unwrap();
+    assert_eq!(command.get_program(), "/opt/tools/agent");
+    assert_eq!(
+        command.get_args().collect::<Vec<_>>(),
+        ["--task", "fix \"x\" & calc %PATH%"]
+    );
+}
+
 #[cfg(target_os = "windows")]
 #[test]
-fn windows_batch_agent_commands_use_call_without_embedded_quotes() {
+fn windows_batch_agent_commands_run_through_one_quoted_cmd_line() {
     let executable = Path::new(r"C:\工具 目录\opencode.cmd");
-    let command = windows_command_for_executable(executable, true);
+    let command = command_for_executable(executable, &["--task", "a & b"]).unwrap();
+    assert_eq!(command.get_program(), windows_command_processor().as_os_str());
     let args = command
         .get_args()
-        .take(3)
         .map(|argument| argument.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
-
-    assert_eq!(
-        Path::new(command.get_program())
-            .file_name()
-            .and_then(|name| name.to_str()),
-        Some("cmd.exe")
-    );
     assert_eq!(
         args,
-        vec!["/D".to_string(), "/K".to_string(), "call".to_string(),]
+        [windows_cmd_command_line(None, &path_to_string(executable), &["--task", "a & b"], false).unwrap()]
     );
-    assert_eq!(
-        windows_batch_executable_argument(executable),
-        r#""C:\工具 目录\opencode.cmd""#
-    );
+    assert!(args[0].starts_with("/D /E:ON /V:OFF /S /C \"\"C:\\工具 目录\\opencode.cmd\" --task \"a & b\"\""));
 
-    let batch = windows_command_for_executable(Path::new(r"C:\tools\agent.bat"), false);
-    let batch_args = batch
-        .get_args()
-        .map(|argument| argument.to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
-    assert_eq!(batch_args[1], "/C");
-    assert_eq!(batch_args[2], "call");
+    let native = command_for_executable(Path::new(r"C:\tools\agent.exe"), &["--task", "a & b"]).unwrap();
+    assert_eq!(native.get_program(), r"C:\tools\agent.exe");
+    assert_eq!(native.get_args().collect::<Vec<_>>(), ["--task", "a & b"]);
+}
 
-    let native = windows_command_for_executable(Path::new(r"C:\tools\agent.exe"), true);
-    assert_eq!(
-        native.get_program().to_string_lossy(),
-        r"C:\tools\agent.exe"
-    );
-    assert_eq!(native.get_args().count(), 0);
+/// Runs a real `.cmd` shim through the real `cmd.exe` with hostile text and checks that the
+/// text arrives unchanged and that nothing in it ran.
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_batch_shims_receive_hostile_arguments_as_data() {
+    let Some(node) = env::var_os("PATH").and_then(|path| {
+        env::split_paths(&path).find_map(|directory| {
+            let candidate = directory.join("node.exe");
+            candidate.is_file().then_some(candidate)
+        })
+    }) else {
+        eprintln!("node.exe not found; skipping the end-to-end batch argument test");
+        return;
+    };
+    let directory = agent_test_home("batch-hostile").join("100% shim [dir] & more");
+    fs::create_dir_all(&directory).unwrap();
+    let marker = directory.join("pwned.txt");
+    fs::write(
+        directory.join("args.js"),
+        "require('fs').writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)))",
+    )
+    .unwrap();
+    // The shape of an npm shim: the arguments are forwarded with %*.
+    fs::write(
+        directory.join("shim.cmd"),
+        format!(
+            "@echo off\r\n\"{}\" \"%~dp0args.js\" \"%~dp0out.json\" %*\r\n",
+            node.display()
+        ),
+    )
+    .unwrap();
+    let marker_text = marker.display().to_string();
+    let hostile = vec![
+        "plain".to_string(),
+        "two words".to_string(),
+        "& calc".to_string(),
+        "a&calc".to_string(),
+        format!("\" & echo owned> \"{marker_text}\" & \""),
+        format!("x & echo owned> \"{marker_text}\""),
+        format!("x | echo owned> \"{marker_text}\""),
+        "%PATH%".to_string(),
+        "100%".to_string(),
+        "%COMSPEC% /c calc".to_string(),
+        "^&^|".to_string(),
+        "a>b".to_string(),
+        "(x)".to_string(),
+        "!PATH!".to_string(),
+        "say \"hi\"".to_string(),
+        "trailing\\".to_string(),
+        "\u{2018}; calc; \u{2019}".to_string(),
+        "\u{201C}smart\u{201D}".to_string(),
+        "工具 目录".to_string(),
+    ];
+    let mut command = command_for_executable(&directory.join("shim.cmd"), &hostile).unwrap();
+    command.current_dir(&directory);
+    configure_background_command(&mut command);
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(30)).unwrap() {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("batch shim")),
+    };
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(!marker.exists(), "an argument ran as a command");
+    let received: Vec<String> =
+        serde_json::from_slice(&fs::read(directory.join("out.json")).unwrap()).unwrap();
+    assert_eq!(received, hostile);
+
+    let multiline = vec!["first\nsecond".to_string()];
+    assert!(command_for_executable(&directory.join("shim.cmd"), &multiline).is_err());
+    fs::remove_dir_all(directory.parent().unwrap()).unwrap();
 }
 
 #[test]

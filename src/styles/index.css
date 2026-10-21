@@ -1,18 +1,9 @@
-@import '../styles.css';
-@import './feature-pages.css';
-@import './surfaces.css';
-@import './ui-refinements.css';
-@import './responsive-shell-usage.css';
-@import './sidebar.css';
-@import './responsive-providers.css';
-@import './responsive-agents.css';
-@import './responsive-settings.css';
-@import './config-settings.css';
-@import '../pages/UsageEventsView.css';
-@import './usage-subpages.css';
-@import '../components/SelectMenu.css';
-@import '../pages/AgentClientList.css';
-@import './workspace-white.css';
-@import './theme-surfaces.css';
-@import './theme-backdrop.css';
-@import './theme-window-material.css';
+/*
+ * Global stylesheets of the pre-kit components (src/components/*, dialogs): imported once from src/main.tsx, before src/ui/index.css.
+ * The order is the cascade order. Anything that styles a single component lives next to that component instead.
+ */
+@import './legacy-tokens.css'; /* legacy colour variables, light and dark */
+@import './base.css'; /* typography, reset, page background, focus ring */
+@import './controls.css'; /* class-based buttons, icon button, switch and spin shared by several components */
+@import './theme-backdrop.css'; /* gradient theme backdrop */
+@import './theme-window-material.css'; /* native window material for translucent themes */

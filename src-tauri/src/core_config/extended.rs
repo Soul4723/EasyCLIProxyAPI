@@ -798,7 +798,7 @@ fn remove_yaml_path(mapping: &yaml_edit::Mapping, path: &[String]) {
             mapping.remove(key.as_str());
         } else if let Some(node) = mapping.get(key.as_str()) {
             if let Some(child) = node.as_mapping() {
-                remove_yaml_path(&child, rest);
+                remove_yaml_path(child, rest);
             }
         }
     }
@@ -928,14 +928,12 @@ fn prepare_patch(
             }
         }
     }
-    if changed("credentials/in-flight/snapshot-interval")
-        || changed("credentials/in-flight/stale-after")
-    {
-        if duration("credentials/in-flight/snapshot-interval", 2_000_000_000)
+    if (changed("credentials/in-flight/snapshot-interval")
+        || changed("credentials/in-flight/stale-after"))
+        && duration("credentials/in-flight/snapshot-interval", 2_000_000_000)
             > duration("credentials/in-flight/stale-after", 10_000_000_000) / 3
-        {
-            return Err("Credential stale-after must be at least three snapshot intervals".into());
-        }
+    {
+        return Err("Credential stale-after must be at least three snapshot intervals".into());
     }
     if ["max-part-bytes", "max-part-count", "max-revision-bytes"]
         .iter()
@@ -1086,7 +1084,27 @@ fn prepare_patch(
 }
 
 #[tauri::command]
-pub(crate) fn get_extended_core_config() -> Result<Json, String> {
+pub(crate) async fn get_extended_core_config(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
+) -> Result<Json, String> {
+    if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
+        return crate::agents::target_read_only(&gui_config_state, expected_revision, |config| async move {
+            let content = crate::core_connection::read_remote_yaml(&config).await?;
+            let document = serde_norway::from_str(&content).map_err(|_| "Invalid remote kernel YAML".to_string())?;
+            extended_config_view(&document)
+        }).await;
+    }
+    let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        let content = crate::core_connection::read_remote_yaml(&config).await?;
+        gui_config_state.ensure_target(&config)?;
+        let document = serde_norway::from_str(&content).map_err(|_| "Invalid remote kernel YAML".to_string())?;
+        return extended_config_view(&document);
+    }
     let _guard = lock_core_config_file()?;
     let path = core_install_dir()?.join(CORE_CONFIG_FILE);
     let content = fs::read_to_string(&path)
@@ -1097,10 +1115,23 @@ pub(crate) fn get_extended_core_config() -> Result<Json, String> {
 }
 
 #[tauri::command]
-pub(crate) fn save_extended_core_config(
+pub(crate) async fn save_extended_core_config(
     gui_config_state: tauri::State<'_, GuiConfigState>,
+    expected_revision: u64,
     changes: Vec<ExtendedConfigChange>,
 ) -> Result<ExtendedConfigResult, String> {
+    let config = gui_config_state.snapshot()?;
+    let _target_operation = gui_config_state.target_operation.lock().await;
+    gui_config_state.ensure_target(&config)?;
+    gui_config_state.ensure_revision(expected_revision)?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        let content = crate::core_connection::read_remote_yaml(&config).await?;
+        let (updated, result) = prepare_patch(&content, &changes)?;
+        gui_config_state.ensure_target(&config)?;
+        crate::core_connection::write_remote_yaml(&gui_config_state, &config, &content, &updated).await?;
+        gui_config_state.ensure_target(&config)?;
+        return Ok(result);
+    }
     let _guard = lock_core_config_file()?;
     let path = core_install_dir()?.join(CORE_CONFIG_FILE);
     let content = fs::read_to_string(&path)

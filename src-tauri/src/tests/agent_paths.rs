@@ -165,12 +165,12 @@ fn unix_cli_search_requires_executable_permissions() {
     fs::write(&executable, "exit 1\n").unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o644)).unwrap();
     assert_eq!(
-        find_named_agent_executable_in_directories(&[home.clone()], &["agent"]),
+        find_named_agent_executable_in_directories(std::slice::from_ref(&home), &["agent"]),
         None
     );
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(
-        find_named_agent_executable_in_directories(&[home.clone()], &["agent"]),
+        find_named_agent_executable_in_directories(std::slice::from_ref(&home), &["agent"]),
         Some(executable)
     );
     fs::remove_dir_all(home).unwrap();

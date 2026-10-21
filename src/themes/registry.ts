@@ -1,9 +1,9 @@
 import { isThemeId, isThemeLabel, themeOpacityTokenProperties, themeTokenProperties, type SystemThemes, type ThemeAppearance, type ThemeDefinition, type ThemeLabel, type ThemePreview } from './types';
+import { light } from './light';
+import { dark } from './dark';
 import { warmSand } from './warmSand';
 import { graphite } from './graphite';
 import { midnight } from './midnight';
-import { light } from './light';
-import { dark } from './dark';
 import { sakura } from './sakura';
 import { backdropImage, normalizeBackdrop } from './backdrop';
 
@@ -20,8 +20,8 @@ export function normalizeTheme(definition: ThemeDefinition): ThemeDefinition {
   if (!definition.tokens || typeof definition.tokens !== 'object') throw new Error(`Invalid theme tokens: ${definition.id}`);
   const tokens: Record<string, string> = {};
   for (const [key, value] of Object.entries(definition.tokens)) {
-    if (!Object.prototype.hasOwnProperty.call(themeTokenProperties, key)) continue;
-    const valid = typeof value === 'string' && (Object.prototype.hasOwnProperty.call(themeOpacityTokenProperties, key)
+    if (!Object.hasOwn(themeTokenProperties, key)) continue;
+    const valid = typeof value === 'string' && (Object.hasOwn(themeOpacityTokenProperties, key)
       ? /^(?:\d+(?:\.\d+)?)%$/.test(value) && Number(value.slice(0, -1)) <= 100
       : /^#(?:[\da-f]{6}|[\da-f]{8})$/i.test(value));
     if (!valid) throw new Error(`Invalid theme color: ${definition.id}.${key}`);
@@ -59,7 +59,9 @@ export function createThemeRegistry(definitions: readonly ThemeDefinition[]) {
   };
 }
 
-export const builtinThemes: readonly ThemeDefinition[] = [light, dark, warmSand, graphite, midnight, sakura];
+// Ember Dark (`dark`, default) and Ember Light (`light`) lead the list; the upstream themes stay selectable so saved
+// selections keep working. src/themes/semanticTokenBridge.ts maps every theme's tokens onto the --ec-* layer.
+export const builtinThemes: readonly ThemeDefinition[] = [dark, light, warmSand, graphite, midnight, sakura];
 export const themeRegistry = createThemeRegistry(builtinThemes);
 export type ThemeRegistry = ReturnType<typeof createThemeRegistry>;
 

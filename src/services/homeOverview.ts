@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './platform';
 import { dedupeAuthFiles, isOAuthCredentialFile } from './authFiles';
 import { authFileHealth, normalizeAuthFileCooldowns } from './authFileHealth';
 import type { CoreHealthModel } from './coreHealthCheck';

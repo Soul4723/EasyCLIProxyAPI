@@ -1,20 +1,10 @@
-import type { TemplateText } from './templateConfig';
 import { generalTemplateGroups, requestTemplateGroups, routingTemplateGroups } from './generalTemplateFields';
 import { oauthTemplateGroups } from './oauthTemplateFields';
 import { extensionTemplateGroups } from './extensionTemplateFields';
 import { payloadTemplateGroups } from './payloadTemplateFields';
+import type { TemplateConfigGroup } from './templateConfig';
+import { navigate, routePath } from '../shell/router';
 
-const text = (zh: string, en: string, ja: string): TemplateText => ({ zh, en, ja });
-export const settingsCategories = [
-  { id: 'general', title: text('服务与访问', 'Service & access', 'サービスとアクセス') },
-  { id: 'aliases', title: text('模型别名', 'Model aliases', 'モデル別名') },
-  { id: 'routing', title: text('路由与稳定性', 'Routing & reliability', 'ルーティングと安定性') },
-  { id: 'requests', title: text('模型与请求', 'Models & requests', 'モデルとリクエスト') },
-  { id: 'oauth', title: text('上游与凭据', 'Upstreams & credentials', '上流と認証情報') },
-  { id: 'diagnostics', title: text('日志与诊断', 'Logs & diagnostics', 'ログと診断') },
-  { id: 'software', title: text('应用偏好', 'App preferences', 'アプリの設定') },
-] as const;
-export type SettingsCategory = typeof settingsCategories[number]['id'];
 export const settingsTemplateGroups = {
   general: generalTemplateGroups.filter(group => group.id === 'management'),
   aliases: [],
@@ -26,34 +16,42 @@ export const settingsTemplateGroups = {
   software: [],
 };
 export const allSettingsTemplateGroups = Object.values(settingsTemplateGroups).flat();
-export const settingsMessages = {
-  title: text('高级设置', 'Advanced settings', '詳細設定'),
-  search: text('搜索设置', 'Search settings', '設定を検索'),
-  searchHint: text('搜索设置…', 'Search settings…', '設定を検索…'),
-  clearSearch: text('清空搜索', 'Clear search', '検索をクリア'),
-  results: text('搜索结果', 'Search results', '検索結果'),
-  noResults: text('没有找到匹配的设置，试试其他关键词。', 'No matching settings. Try another keyword.', '一致する設定がありません。別のキーワードをお試しください。'),
-  restart: text('保存后重启内核', 'Core restarts after saving', '保存後にコアを再起動'),
-  automatic: text('自动保存', 'Auto-save', '自動保存'),
-  dirty: text('有未保存修改', 'Unsaved changes', '未保存の変更'),
-  nativeNetwork: text('监听与上游代理', 'Listening & upstream proxy', '待ち受けと上流プロキシ'),
-  nativeRouting: text('凭据选择与会话', 'Credential selection & sessions', '認証情報の選択とセッション'),
-  nativeRetry: text('重试与冷却', 'Retries & cooldowns', '再試行とクールダウン'),
-} satisfies Record<string, TemplateText>;
-
-// The settings page is mounted only while active, so another page hands over the
-// field to open once instead of dispatching an event nobody is listening to yet.
-let requestedSettingPath: string | null = null;
-export const openSettingField = (path: readonly string[]) => {
-  requestedSettingPath = path.join('.');
-  window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'config' }));
+/** Settings tab that renders each template group set above (the tab ids are `settingsSubs`). */
+const templateGroupTabs: Partial<Record<keyof typeof settingsTemplateGroups, string>> = {
+  general: 'access', routing: 'routing', requests: 'models', oauth: 'models', diagnostics: 'logs',
 };
-export const takeRequestedSettingField = () => {
-  const path = requestedSettingPath;
-  requestedSettingPath = null;
-  for (const category of settingsCategories) for (const group of settingsTemplateGroups[category.id]) {
-    const index = group.fields.findIndex(field => field.path.join('.') === path);
-    if (index >= 0) return { category: category.id, target: `config-group-${group.id}`, field: `template-field-${group.id}-${index}` };
+
+/** Fields the tabs render natively (not from a template group): dotted config path → tab. Rows carry the same path in `data-field-path`. */
+export const settingsNativeFields: Readonly<Record<string, string>> = {
+  'routing.strategy': 'routing',
+  'routing.session-affinity': 'routing',
+  'routing.session-affinity-ttl': 'routing',
+  'observability.usage.redis-usage-queue-retention-seconds': 'logs',
+};
+
+export type SettingFieldTarget = { tab: string; key: string; group: keyof typeof settingsTemplateGroups | null };
+
+/** Resolves a config field path to the tab (and template group set) that renders it; null when no tab does. */
+export function resolveSettingField(path: readonly string[] | string): SettingFieldTarget | null {
+  const key = typeof path === 'string' ? path : path.join('.');
+  const native = settingsNativeFields[key];
+  if (native) return { tab: native, key, group: null };
+  for (const [group, groups] of Object.entries(settingsTemplateGroups) as [keyof typeof settingsTemplateGroups, readonly TemplateConfigGroup[]][]) {
+    const tab = templateGroupTabs[group];
+    if (tab && groups.some((entry) => entry.fields.some((field) => field.path.join('.') === key))) return { tab, key, group };
   }
   return null;
+}
+
+/** `/settings/<tab>?field=<path>` for a field, or null when it has no tab. */
+export function settingFieldRoute(path: readonly string[] | string): string | null {
+  const target = resolveSettingField(path);
+  return target ? routePath('settings', target.tab, { field: target.key }) : null;
+}
+
+/** Opens Settings on the tab that renders the field; Settings then scrolls to, focuses and highlights it. Goes through the navigation guard. */
+export const openSettingField = (path: readonly string[]) => {
+  const route = settingFieldRoute(path);
+  if (route) navigate(route);
+  else window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'config' }));
 };

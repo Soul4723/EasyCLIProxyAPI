@@ -42,31 +42,39 @@ function topModal() {
 }
 
 type DialogFocusOptions = {
+  active?: boolean;
   onEscape?: () => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   preventEscape?: boolean;
 };
 
 export function useDialogFocusTrap<T extends HTMLElement>({
+  active = true,
   onEscape,
   initialFocusRef,
+  returnFocusRef,
   preventEscape = false,
 }: DialogFocusOptions = {}) {
   const dialogRef = useRef<T>(null);
   const escapeRef = useRef(onEscape);
   const initialFocus = useRef(initialFocusRef);
   const preventEscapeRef = useRef(preventEscape);
-  const previousFocusRef = useRef<HTMLElement | null>(
-    typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null,
-  );
+  const wasActiveRef = useRef(false);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
+  if (active && !wasActiveRef.current && typeof document !== 'undefined') {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  }
+  wasActiveRef.current = active;
   escapeRef.current = onEscape;
   initialFocus.current = initialFocusRef;
   preventEscapeRef.current = preventEscape;
 
   useEffect(() => {
+    if (!active) return undefined;
     const dialog = dialogRef.current;
     if (!dialog) return undefined;
 
@@ -74,7 +82,6 @@ export function useDialogFocusTrap<T extends HTMLElement>({
       ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const unlockBodyScroll = lockBodyScroll();
     const frame = window.requestAnimationFrame(() => {
-      if (dialog.contains(document.activeElement) && document.activeElement !== dialog) return;
       const requested = initialFocus.current?.current;
       const autoFocus = dialog.querySelector<HTMLElement>('[autofocus]');
       const first = focusableElements(dialog)[0];
@@ -117,12 +124,11 @@ export function useDialogFocusTrap<T extends HTMLElement>({
       window.cancelAnimationFrame(frame);
       document.removeEventListener('keydown', handleKeyDown, true);
       unlockBodyScroll();
-      if (!dialog.isConnected) {
-        if (previousFocus?.isConnected) previousFocus.focus();
-        previousFocusRef.current = null;
-      }
+      const restoreFocus = returnFocusRef?.current ?? previousFocus;
+      if (restoreFocus?.isConnected) restoreFocus.focus();
+      previousFocusRef.current = null;
     };
-  }, []);
+  }, [active]);
 
   return dialogRef;
 }

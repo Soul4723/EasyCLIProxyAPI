@@ -1,0 +1,64 @@
+/* Legacy rules for the custom date range of FilterBar; the .ec-sec-usage rules further down take precedence. */
+.usage-custom-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--theme-eeeae2);
+  color: var(--theme-8a847c);
+  font-size: var(--font-size-caption);
+}
+
+.usage-custom-range input {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--theme-d5d2cb);
+  border-radius: 6px;
+  background: var(--theme-fff);
+  color: var(--theme-2d2a26);
+  font-size: var(--font-size-caption);
+}
+
+@media (max-width: 520px) {
+
+  .usage-custom-range {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@container workspace (max-width: 540px) {
+
+  .usage-custom-range {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.usage-custom-range input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Usage section styles. Every rule is scoped under .ec-sec-usage (kit ec-* classes + --ec-* tokens only). */
+.ec-sec-usage .usage-body { min-width: 0; }
+.ec-sec-usage .usage-collector { display: inline-flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; }
+.ec-sec-usage .usage-collector-resume { background: none; border: 0; padding: 0; color: var(--ec-accent); font: inherit; font-size: var(--ec-fs-xs); cursor: pointer; text-decoration: underline; }
+.ec-sec-usage .usage-collector-error { color: var(--ec-danger-fg); font-size: var(--ec-fs-xs); }
+.ec-sec-usage .usage-period { display: inline-flex; align-items: center; gap: var(--ec-sp-1); }
+
+.ec-sec-usage .usage-filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ec-sp-2); }
+.ec-sec-usage .usage-select { position: relative; display: inline-flex; align-items: center; }
+.ec-sec-usage .usage-select select {
+  appearance: none; height: var(--ec-ctrl-h-sm, var(--ec-ctrl-h)); max-width: 220px; padding: 0 28px 0 var(--ec-sp-3);
+  background: var(--ec-field); color: var(--ec-fg); border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm);
+  font: inherit; font-size: var(--ec-fs-sm); cursor: pointer;
+}
+.ec-sec-usage .usage-select[data-active='true'] select { border-color: var(--ec-accent); background: var(--ec-accent-soft); }
+.ec-sec-usage .usage-select select:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 1px; }
+.ec-sec-usage .usage-select svg { position: absolute; right: 8px; pointer-events: none; color: var(--ec-fg-muted); }
+.ec-sec-usage .usage-custom-range { display: inline-flex; align-items: center; gap: var(--ec-sp-2); color: var(--ec-fg-muted); font-size: var(--ec-fs-sm); }
+.ec-sec-usage .usage-custom-range input {
+  height: var(--ec-ctrl-h-sm, var(--ec-ctrl-h)); padding: 0 var(--ec-sp-2); background: var(--ec-field); color: var(--ec-fg);
+  border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm); font: inherit; font-size: var(--ec-fs-sm);
+}

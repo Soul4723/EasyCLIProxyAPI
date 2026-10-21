@@ -1,0 +1,80 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "defaultBranch": "origin/dev"
+  },
+  "files": {
+    "includes": [
+      "src/**/*.{ts,tsx,js,cjs}",
+      "tests/**/*.{ts,tsx,js,cjs}",
+      "scripts/**/*.{ts,tsx,js,cjs}"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "jsxQuoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "es5"
+    }
+  },
+  "assist": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "noNonNullAssertion": "off",
+        "useTemplate": "off",
+        "useImportType": "off",
+        "useExponentiationOperator": "off"
+      },
+      "complexity": {
+        "useOptionalChain": "off"
+      },
+      "suspicious": {
+        "useIterableCallbackReturn": "off",
+        "noArrayIndexKey": "warn",
+        "noControlCharactersInRegex": "warn"
+      },
+      "correctness": {
+        "useExhaustiveDependencies": "warn"
+      },
+      "a11y": {
+        "useSemanticElements": "warn",
+        "useButtonType": "warn",
+        "noLabelWithoutControl": "warn",
+        "noStaticElementInteractions": "warn",
+        "useAriaPropsSupportedByRole": "warn",
+        "useValidAriaRole": "warn",
+        "useKeyWithClickEvents": "warn",
+        "noNoninteractiveTabindex": "warn",
+        "useAriaPropsForRole": "warn",
+        "noSvgWithoutTitle": "warn",
+        "noAutofocus": "warn",
+        "noAriaHiddenOnFocusable": "warn"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["tests/**"],
+      "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+    },
+    {
+      "includes": ["tests/fixtures/**"],
+      "linter": { "rules": { "suspicious": { "noAssignInExpressions": "off" } } }
+    }
+  ]
+}

@@ -1,19 +1,50 @@
-.model-discovery-dialog.auth-batch-dialog {
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  min-height: 0;
-  height: min(620px, calc(100dvh - 48px));
+.ec-auth-batch-toolbar,
+.ec-auth-batch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-sp-2);
 }
 
-.auth-batch-dialog .model-discovery-content {
-  min-height: 0;
-  overflow: auto;
+.ec-auth-batch-toolbar {
+  padding-bottom: var(--ec-sp-2);
+  border-bottom: 1px solid var(--ec-border);
+  color: var(--ec-fg-2);
 }
 
-.auth-batch-dialog .model-discovery-actions {
+.ec-auth-batch-actions {
+  display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ec-sp-2);
 }
 
-.auth-batch-dialog .model-discovery-actions button {
-  min-width: 0;
-  flex: 1 1 auto;
+.ec-auth-batch-list {
+  display: grid;
+  gap: var(--ec-sp-1);
+  max-height: min(48dvh, 420px);
+  overflow: auto;
+  padding: var(--ec-sp-2) 0;
+}
+
+.ec-auth-batch-row {
+  min-height: 36px;
+  padding: 0 var(--ec-sp-2);
+  border-radius: var(--ec-r-sm);
+  overflow-wrap: anywhere;
+}
+
+.ec-auth-batch-row:hover {
+  background: var(--ec-muted-bg);
+}
+
+.ec-auth-batch-error {
+  color: var(--ec-danger);
+}
+
+.ec-auth-batch-result {
+  overflow-wrap: anywhere;
+}
+
+.ec-auth-batch-result small {
+  color: var(--ec-fg-muted);
 }

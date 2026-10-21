@@ -323,6 +323,7 @@ fn bracket_host(host: &str) -> String {
 }
 
 #[cfg(any(target_os = "linux", test))]
+#[allow(clippy::too_many_arguments)] // Preserve the existing command/helper interface in this behavior-neutral cleanup.
 fn gnome_manual_proxy(
     mode: &str,
     https_host: &str,
@@ -458,16 +459,10 @@ fn detect_system_proxy() -> Result<String, String> {
         }
     }
     if kde_desktop || !gnome_desktop {
-        match kde_system_proxy() {
-            Ok(Some(url)) => return Ok(url),
-            Ok(None) | Err(_) => {}
-        }
+        if let Ok(Some(url)) = kde_system_proxy() { return Ok(url) }
     }
     if !gnome_desktop {
-        match gnome_system_proxy() {
-            Ok(Some(url)) => return Ok(url),
-            Ok(None) | Err(_) => {}
-        }
+        if let Ok(Some(url)) = gnome_system_proxy() { return Ok(url) }
     }
     Ok(String::new())
 }
@@ -513,6 +508,7 @@ fn apply(state: &GuiConfigState) -> Result<GuiConfigFile, String> {
         .lock()
         .map_err(|_| "Proxy configuration lock is poisoned".to_string())?
         .clone();
+    if snapshot.connection_mode == CoreConnectionMode::Remote { return Ok(snapshot); }
     let detected = if snapshot.proxy_override {
         None
     } else {
@@ -522,6 +518,9 @@ fn apply(state: &GuiConfigState) -> Result<GuiConfigFile, String> {
         .inner
         .lock()
         .map_err(|_| "Proxy configuration lock is poisoned".to_string())?;
+    if current.connection_mode == CoreConnectionMode::Remote {
+        return Ok(current.clone());
+    }
     let mut next = current.clone();
     next.proxy_url = if next.proxy_override {
         next.proxy_url.clone()
@@ -568,6 +567,7 @@ pub(crate) fn set_manual(state: &GuiConfigState, proxy_url: String) -> Result<()
         .inner
         .lock()
         .map_err(|_| "Proxy configuration lock is poisoned".to_string())?;
+    crate::core_connection::require_local(&current)?;
     let mut next = current.clone();
     next.proxy_override = !proxy_url.is_empty();
     next.proxy_url = if next.proxy_override {
@@ -579,7 +579,8 @@ pub(crate) fn set_manual(state: &GuiConfigState, proxy_url: String) -> Result<()
 }
 
 pub(crate) async fn verify_core_proxy(config: &GuiConfigFile) -> Result<(), String> {
-    let client = management_api::management_http_client()?;
+    crate::core_connection::require_local(config)?;
+    let client = management_api::management_http_client_for(config)?;
     let mut updated = false;
     for attempt in 0..10 {
         let response = client

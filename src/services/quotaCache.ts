@@ -17,6 +17,11 @@ const getSnapshot = () => cache;
 export const getQuotaCacheSnapshot = getSnapshot;
 export const captureQuotaCacheGeneration = () => generation;
 
+export const invalidateQuotaCache = () => {
+  generation += 1;
+  updateQuotaCache({});
+};
+
 export const commitQuotaCacheIfCurrent = (expectedGeneration: number, commit: () => void) => {
   if (generation !== expectedGeneration) return false;
   commit();
@@ -37,10 +42,11 @@ export const pruneQuotaCache = (validKeys: Set<string>) => {
         .filter(([key]) => validKeys.has(key))
         .map(([key, value]) => [
           key,
-          value.status === 'loading' ? { status: 'idle', rows: [] } : value,
+          value.status === 'loading' ? { ...value, status: 'idle' } : value,
         ]),
     ) as QuotaCache;
-    const unchanged = Object.keys(next).length === Object.keys(current).length;
+    const unchanged = Object.keys(next).length === Object.keys(current).length
+      && Object.entries(next).every(([key, value]) => value === current[key]);
     if (unchanged) return current;
     generation += 1;
     return next;

@@ -1,0 +1,174 @@
+.config-network-input {
+  width: 100%;
+  height: 38px;
+  min-width: 0;
+  padding: 0 11px;
+  border: 1px solid var(--theme-d5d2cb);
+  border-radius: 6px;
+  outline: none;
+  background: var(--theme-fffdf8);
+  color: var(--theme-2d2a26);
+  font: inherit;
+  font-size: var(--font-size-body);
+}
+
+.config-network-input:focus {
+  border-color: var(--theme-777067);
+  box-shadow: 0 0 0 3px rgba(119, 112, 103, 0.12);
+}
+
+.config-network-input.error {
+  border-color: var(--theme-b64132);
+  box-shadow: 0 0 0 3px rgba(182, 65, 50, 0.1);
+}
+
+.config-network-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.config-secret-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 7px;
+}
+
+.config-secret-input input {
+  width: 100%;
+  height: 42px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--theme-d5d2cb);
+  border-radius: 6px;
+  background: var(--theme-ffffff);
+  color: var(--theme-2d2a26);
+}
+
+.config-secret-input input[aria-invalid='true'] {
+  border-color: var(--theme-a83f32);
+}
+
+.config-secret-input input:disabled {
+  cursor: not-allowed;
+  background: var(--theme-f4f1ea);
+}
+
+/*
+ * Extended-config template groups (Access keys, Routing, Logs, Models): same look as the rest of Settings —
+ * card with a header, label/control rows, per-group Save in a footer. Markup and class names are unchanged
+ * (TemplateConfigSection is shared); only --ec-* tokens are used here.
+ */
+.template-config-section { display: flex; flex-direction: column; gap: var(--ec-gap); min-width: 0; margin-top: var(--ec-gap); }
+.template-config-section[hidden], .template-config-card[hidden] { display: none; }
+.template-config-card {
+  min-width: 0; padding: 0; overflow: hidden; scroll-margin-top: var(--ec-sp-4);
+  border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface); color: var(--ec-fg);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.template-config-card-dirty { border-color: var(--ec-accent); box-shadow: inset 3px 0 0 var(--ec-accent); }
+.template-config-heading {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ec-sp-1) var(--ec-sp-3);
+  padding: var(--ec-sp-3) var(--ec-pad); border-bottom: 1px solid var(--ec-border-soft);
+}
+.template-config-heading-main { display: flex; align-items: center; gap: var(--ec-sp-1); flex: 1 1 220px; min-width: 0; }
+.template-config-heading h3 { min-width: 0; margin: 0; color: var(--ec-fg); font-size: var(--ec-fs-md); font-weight: 600; overflow-wrap: anywhere; }
+.template-config-restart-hint { display: inline-flex; align-items: center; gap: var(--ec-sp-1); min-width: 0; color: var(--ec-fg-muted); font-size: var(--ec-fs-xs); overflow-wrap: anywhere; }
+.template-config-restart-hint svg { flex: none; }
+
+.template-config-fields { display: flex; flex-direction: column; }
+.template-config-field {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--ec-sp-4); row-gap: var(--ec-sp-1);
+  min-width: 0; min-height: calc(var(--ec-row-h) + 12px); padding: var(--ec-sp-2) var(--ec-pad);
+  border-bottom: 1px solid var(--ec-border-soft);
+}
+.template-config-field:last-child { border-bottom: 0; }
+.template-config-field-wide { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+.template-config-field-dirty > .template-config-label { color: var(--ec-accent); }
+.template-config-field-dirty .config-network-input, .template-config-field-dirty .template-config-custom { border-color: var(--ec-accent); }
+.template-config-label { display: flex; align-items: center; gap: var(--ec-sp-2); min-width: 0; color: var(--ec-fg); font-size: var(--ec-fs-sm); }
+.template-config-label label, .template-config-label > span:first-child { overflow-wrap: anywhere; }
+.template-config-label-tools { display: flex; align-items: center; gap: var(--ec-sp-1); flex: none; }
+.template-config-control { display: flex; justify-content: flex-end; min-width: 0; width: min(280px, 100%); }
+.template-config-field-wide > .template-config-control { width: 100%; justify-content: stretch; }
+.template-config-toggle > .template-config-control { width: auto; }
+.template-config-field > small { grid-column: 1 / -1; font-size: var(--ec-fs-xs); line-height: 1.5; }
+.template-config-field > .template-config-link-hint { color: var(--ec-fg-muted); }
+
+/* inputs: the Settings input look (.ec-set-input) */
+.template-config-control > input, .template-config-control > select, .template-config-control > textarea { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; }
+.template-config-control .config-network-input {
+  height: var(--ec-ctrl-h); padding: 0 var(--ec-sp-3); background: var(--ec-field); color: var(--ec-fg);
+  border: 1px solid var(--ec-input-border); border-radius: var(--ec-r-sm); font: inherit; font-size: var(--ec-fs-sm);
+}
+.template-config-control .config-network-input:focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 0; }
+.template-config-control .config-network-input[aria-invalid='true'] { border-color: var(--ec-danger); }
+.template-config-control .config-network-input:disabled { opacity: 0.55; cursor: not-allowed; }
+.template-config-textarea { resize: vertical; line-height: 1.6; font-family: var(--ec-mono); }
+.template-config-control > textarea.template-config-textarea { height: auto; min-height: 86px; padding: var(--ec-sp-2) var(--ec-sp-3); }
+.template-config-secret > input.config-network-input { padding: 0 var(--ec-sp-3); }
+.template-config-directory { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ec-sp-2); min-width: 0; width: 100%; }
+.template-config-directory > input { flex: 1 1 140px; min-width: 0; width: auto; }
+.template-config-directory > button { flex: 0 1 auto; white-space: normal; }
+.template-config-directory > .template-config-secret { flex: 1 1 140px; min-width: 0; }
+.template-config-secret { display: flex; align-items: center; gap: var(--ec-sp-1); width: 100%; }
+.template-config-custom { width: 100%; min-width: 0; border: 1px solid var(--ec-border); border-radius: var(--ec-r-sm); padding: var(--ec-sp-2) var(--ec-sp-3); background: var(--ec-surface); box-sizing: border-box; }
+.template-config-custom > summary { cursor: pointer; color: var(--ec-accent); font-size: var(--ec-fs-xs); }
+.template-config-custom[open] > summary { margin-bottom: var(--ec-sp-3); }
+
+/* switch: the kit Toggle look on the existing checkbox markup */
+.template-config-switch, .template-config-switch.switch-control { position: relative; display: inline-flex; flex: none; width: 32px; height: 20px; margin: 0; cursor: pointer; }
+.template-config-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.template-config-switch .switch-track {
+  position: relative; display: block; box-sizing: border-box; width: 32px; height: 20px; border: 1px solid var(--ec-input-border);
+  border-radius: var(--ec-r-pill); background: var(--ec-muted-bg); transition: background-color 150ms ease, border-color 150ms ease;
+}
+.template-config-switch .switch-track::after {
+  content: ''; position: absolute; top: 50%; left: 2px; width: 14px; height: 14px; border-radius: var(--ec-r-pill);
+  background: var(--ec-knob); transform: translateY(-50%); transition: transform 150ms ease;
+}
+.template-config-switch input:checked + .switch-track { background: var(--ec-accent); border-color: var(--ec-accent); }
+.template-config-switch input:checked + .switch-track::after { transform: translate(12px, -50%); }
+.template-config-switch input:focus-visible + .switch-track { outline: 2px solid var(--ec-ring); outline-offset: 2px; }
+.template-config-switch input:disabled + .switch-track { opacity: 0.5; }
+
+.template-config-reset {
+  display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: none; padding: 0;
+  border: 0; border-radius: var(--ec-r-sm); background: transparent; color: var(--ec-fg-muted); cursor: pointer;
+}
+.template-config-reset svg { flex: none; }
+.template-config-reset:hover:not(:disabled) { background: var(--ec-hover); color: var(--ec-accent); }
+.template-config-reset:disabled { opacity: .5; cursor: default; }
+
+/* footer: status + Discard / Save, like the Settings save bar */
+.template-config-actions {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ec-sp-3);
+  padding: var(--ec-sp-2) var(--ec-pad); border-top: 1px solid var(--ec-border-soft); background: var(--ec-muted-bg);
+}
+.template-config-actions > span { min-width: 0; font-size: var(--ec-fs-xs); color: var(--ec-fg-muted); overflow-wrap: anywhere; }
+.template-config-actions > .template-config-action-status-dirty { color: var(--ec-accent); font-weight: 600; }
+.template-config-actions > .template-config-action-status-saved { color: var(--ec-ok-fg); }
+.template-config-actions > div { display: flex; flex-wrap: wrap; gap: var(--ec-sp-2); margin-left: auto; }
+.template-config-card :is(.primary-button, .secondary-button, .compact-button) {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--ec-sp-1); margin: 0; min-height: var(--ec-ctrl-h); height: var(--ec-ctrl-h);
+  padding: 0 var(--ec-sp-3); border-radius: var(--ec-r-sm); font: inherit; font-size: var(--ec-fs-sm); font-weight: 500; cursor: pointer;
+}
+.template-config-card .secondary-button { border: 1px solid var(--ec-input-border); background: transparent; color: var(--ec-fg); }
+.template-config-card .secondary-button:hover:not(:disabled) { background: var(--ec-hover); }
+.template-config-card .primary-button { border: 1px solid var(--ec-accent); background: var(--ec-accent); color: var(--ec-accent-fg); }
+.template-config-card :is(.primary-button, .secondary-button):disabled { opacity: .5; cursor: not-allowed; }
+.template-config-card :is(button, summary):focus-visible { outline: 2px solid var(--ec-ring); outline-offset: 2px; }
+.template-config-notice {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ec-sp-3); padding: var(--ec-sp-3);
+  border: 1px solid var(--ec-border); border-radius: var(--ec-r-md); background: var(--ec-surface); color: var(--ec-fg);
+}
+.template-config-error, .template-config-field small.template-config-error { color: var(--ec-danger-fg); overflow-wrap: anywhere; }
+p.template-config-error { margin: 0; padding: var(--ec-sp-2) var(--ec-pad); font-size: var(--ec-fs-xs); }
+@media (max-width: 680px) {
+  .template-config-field { grid-template-columns: minmax(0, 1fr); }
+  .template-config-control, .template-config-toggle > .template-config-control { width: 100%; justify-content: flex-start; }
+  .template-config-heading-main { flex-basis: 180px; }
+  .template-config-actions > div { width: 100%; }
+  .template-config-actions button { flex: 1 1 auto; white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) { .template-config-card { transition: none; } }

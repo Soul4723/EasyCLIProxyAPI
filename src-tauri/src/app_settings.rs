@@ -17,17 +17,17 @@ pub(crate) fn get_usage_view_preferences() -> Result<UsageViewPreferences, Strin
 pub(crate) fn save_usage_view_preferences(values: UsageViewPreferences) -> Result<(), String> {
     if values.iter().any(|(key, value)| {
         !(key.starts_with("cpa-gui.usage-") || key == "cpa-gui.pricing-sync-source.v1")
-            || key.len() > 128 || value.len() > 16_384
-    }) || values.len() > 100 {
+            || key.len() > 128
+            || value.len() > 16_384
+    }) || values.len() > 100
+    {
         return Err("Invalid usage preferences".into());
     }
     let content = serde_json::to_vec_pretty(&values).map_err(|error| error.to_string())?;
-    write_bytes_atomically(&core_base_dir()?.join("usage-view-preferences.json"), &content)
-}
-
-#[tauri::command]
-pub(crate) fn health_check() -> &'static str {
-    "EasyCLIProxyAPI Rust backend is ready"
+    write_bytes_atomically(
+        &core_base_dir()?.join("usage-view-preferences.json"),
+        &content,
+    )
 }
 
 #[tauri::command]
@@ -37,18 +37,52 @@ pub(crate) fn detect_core_platform() -> Result<CorePlatform, String> {
 
 #[tauri::command]
 pub(crate) async fn get_core_status(app: tauri::AppHandle) -> Result<CoreStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let config = app.state::<GuiConfigState>().snapshot()?;
-        current_core_status(
-            Some(app.state::<CoreProcessState>().inner()),
-            Some(config.port),
-        )
-    })
-    .await
-    .map_err(|error| format!("Kernel status background task failed: {error}"))?
+    let config = app.state::<GuiConfigState>().snapshot()?;
+    let status = if config.connection_mode == CoreConnectionMode::Remote {
+        let connection = core_connection::connection_from_config(&config)?;
+        let result = core_connection::test_core_connection(connection.clone()).await?;
+        core_connection::remote_status(&connection, result)
+    } else {
+        let process_app = app.clone();
+        let port = config.port;
+        tauri::async_runtime::spawn_blocking(move || {
+            current_core_status(
+                Some(process_app.state::<CoreProcessState>().inner()),
+                Some(port),
+            )
+        })
+        .await
+        .map_err(|_| "Kernel status background task failed".to_string())??
+    };
+    app.state::<GuiConfigState>().ensure_target(&config)?;
+    // The caller already gets the status as the return value; a periodic poll must not
+    // re-broadcast an unchanged status to every listener.
+    if remember_emitted_core_status(&status) {
+        emit_core_status_unrecorded(&app, &status);
+    }
+    Ok(status)
+}
+
+static LAST_EMITTED_CORE_STATUS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+// Returns whether `status` differs from the last emitted one, and records it.
+fn remember_emitted_core_status(status: &CoreStatus) -> bool {
+    let Ok(serialized) = serde_json::to_string(status) else { return true };
+    let Ok(mut last) = LAST_EMITTED_CORE_STATUS.lock() else { return true };
+    if last.as_deref() == Some(serialized.as_str()) {
+        return false;
+    }
+    *last = Some(serialized);
+    true
 }
 
 pub(crate) fn emit_core_status(app: &tauri::AppHandle, status: &CoreStatus) {
+    app.state::<usage::UsageCollectorState>().request_readiness_check();
+    remember_emitted_core_status(status);
+    emit_core_status_unrecorded(app, status);
+}
+
+fn emit_core_status_unrecorded(app: &tauri::AppHandle, status: &CoreStatus) {
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     update_windows_tray_status(app, status);
     let _ = app.emit(CORE_STATUS_EVENT, status);
@@ -80,7 +114,7 @@ pub(crate) fn save_api_access_remark(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<(), String> {
     gui_config_state.update(|config| apply_api_access_remark_update(config, update))?;
-    Ok(())
+    crate::usage::invalidate_sources_cache_after_success(Ok(()))
 }
 
 fn api_access_locator_identity(
@@ -290,6 +324,79 @@ fn apply_api_access_remark_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_core_status_is_not_rebroadcast() {
+        let status = |message: &str| CoreStatus {
+            installed: true, running: true, ready: true, starting: false, managed: false,
+            process_id: Some(1), current_version: None, install_dir: String::new(), binary_path: None,
+            connection_mode: None, remote_origin: None, message: message.into(), recovery: None,
+        };
+        assert!(remember_emitted_core_status(&status("first")));
+        assert!(!remember_emitted_core_status(&status("first")));
+        assert!(remember_emitted_core_status(&status("second")));
+        assert!(remember_emitted_core_status(&status("first")));
+    }
+
+    #[test]
+    fn locale_update_does_not_wait_for_target_lease() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let _lease = state.target_operation.blocking_lock();
+        let config = set_locale_for_tray(&state, "zh-CN".into()).unwrap();
+        assert_eq!(config.locale, "zh-CN");
+    }
+
+    #[test]
+    fn locale_publication_holds_target_lease_through_status_selection() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let expected = state.snapshot().unwrap();
+        let published = with_target_locale_publication(&state, &expected, |_| {
+            assert!(state.target_operation.try_lock().is_err());
+            "published"
+        })
+        .unwrap();
+        assert_eq!(published, "published");
+    }
+
+    #[test]
+    fn remote_locale_publication_runs_without_local_core_requirements() {
+        let remote = GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: "https://remote.example".into(),
+            remote_management_key: "management-only-key".into(),
+            ..Default::default()
+        };
+        let state = GuiConfigState::new(remote);
+        let expected = state.snapshot().unwrap();
+        let published = with_target_locale_publication(&state, &expected, |target| {
+            assert_eq!(target.connection_mode, CoreConnectionMode::Remote);
+            true
+        })
+        .unwrap();
+        assert!(published);
+    }
+
+    #[test]
+    fn stale_remote_locale_publication_is_rejected_before_callback() {
+        let remote = GuiConfigFile {
+            connection_mode: CoreConnectionMode::Remote,
+            remote_management_origin: "https://remote.example".into(),
+            remote_management_key: "management-only-key".into(),
+            ..Default::default()
+        };
+        let state = GuiConfigState::new(remote);
+        let expected = state.snapshot().unwrap();
+        let mut replacement = expected.clone();
+        replacement.remote_management_key.push_str("-changed");
+        state.replace_external(replacement).unwrap();
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let callback_called = called.clone();
+        assert!(with_target_locale_publication(&state, &expected, |_| {
+            callback_called.store(true, std::sync::atomic::Ordering::Release);
+        })
+        .is_err());
+        assert!(!called.load(std::sync::atomic::Ordering::Acquire));
+    }
 
     fn locator(base_url: &str, api_keys: &[&str]) -> ApiAccessRemarkLocator {
         ApiAccessRemarkLocator {
@@ -758,14 +865,49 @@ pub(crate) fn set_app_locale(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     locale: String,
 ) -> Result<String, String> {
-    let config = gui_config_state.set_locale(locale)?;
+    let selected = super::normalize_app_locale(&locale);
+    if gui_config_state.snapshot()?.locale == selected {
+        return Ok(selected.to_string());
+    }
+    let config = set_locale_for_tray(gui_config_state.inner(), locale)?;
+    let selected_locale = config.locale.clone();
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    if let Ok(status) = current_core_status(Some(process_state.inner()), Some(config.port)) {
-        update_windows_tray_locale(&app, &config.locale, &status);
+    {
+        // Keep the synchronous UI command free of target-operation waits. The
+        // worker fences selection and publication as one target-lease scope.
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let state = app_handle.state::<GuiConfigState>();
+            let _ = with_target_locale_publication(&state, &config, |target| {
+                update_windows_tray_locale(&app_handle, target);
+            });
+        });
+        let _ = process_state;
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     let _ = (app, process_state);
-    Ok(config.locale)
+    Ok(selected_locale)
+}
+
+// Locale is a GUI preference, so it must not synchronously wait for the target
+// lease: tray workers hold that lease while Tauri menu calls synchronously hop
+// to the main thread. Revalidate the revision before publishing target status.
+fn set_locale_for_tray(
+    gui_config_state: &GuiConfigState,
+    locale: String,
+) -> Result<GuiConfigFile, String> {
+    let config = gui_config_state.set_locale(locale)?;
+    gui_config_state.ensure_target(&config)?;
+    Ok(config)
+}
+
+fn with_target_locale_publication<R>(
+    gui_config_state: &GuiConfigState,
+    expected: &GuiConfigFile,
+    publish: impl FnOnce(&GuiConfigFile) -> R,
+) -> Result<R, String> {
+    let _target = gui_config_state.blocking_target_operation(expected)?;
+    Ok(publish(expected))
 }
 
 #[tauri::command]

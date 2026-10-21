@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import '../appNotice.css';
 
 type NoticeHost = { element: HTMLDivElement; users: number; dispose: () => void };
 const hosts = new WeakMap<Document, NoticeHost>();
@@ -12,9 +13,11 @@ function acquireHost(doc: Document) {
     let observedDialog: Element | undefined;
     const resizeObserver = new ResizeObserver(() => placeHost());
     const placeHost = () => {
-      const dialogs = Array.from(doc.querySelectorAll('[role="dialog"], [role="alertdialog"]'))
+      const nativeDialogs = doc.querySelectorAll('dialog:modal');
+      const nativeDialog = nativeDialogs[nativeDialogs.length - 1];
+      const dialogs = Array.from((nativeDialog ?? doc).querySelectorAll('dialog[open], [role="dialog"], [role="alertdialog"]'))
         .filter(dialog => dialog.getBoundingClientRect().height > 0);
-      const dialog = dialogs[dialogs.length - 1];
+      const dialog = dialogs[dialogs.length - 1] ?? nativeDialog;
       const parent = dialog ?? doc.body;
       if (element.parentElement !== parent) parent.appendChild(element);
       if (dialog !== observedDialog) {

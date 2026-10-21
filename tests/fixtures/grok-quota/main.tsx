@@ -1,8 +1,7 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../../src/i18n';
-import { QuotaPage } from '../../../src/pages/QuotaPage';
+import { QuotaSection } from '../../../src/sections/quota';
 import '../../../src/styles/index.css';
 
 // Fictional billing and subscription responses; no upstream calls or real credentials.
@@ -22,4 +21,4 @@ mockIPC(async (command, args) => {
     ? { currentPeriod: { type: 'weekly', end: '2030-01-08T00:00:00Z' }, prepaidBalance: { val: 250 } }
     : { monthlyLimit: 15000, used: 3000, billingPeriodEnd: '2030-02-01T00:00:00Z' } } };
 });
-createRoot(document.getElementById('root')!).render(<I18nProvider><QuotaPage /></I18nProvider>);
+createRoot(document.getElementById('root')!).render(<I18nProvider><QuotaSection sub={null} params={new URLSearchParams()} /></I18nProvider>);

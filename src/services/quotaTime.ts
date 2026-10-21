@@ -1,5 +1,4 @@
-import { pollWhileActive } from './windowActivity';
-import { useSyncExternalStore } from 'react';
+import { formatNumericDateTime24 } from './format';
 import { getCurrentLocale, translate, type AppLocale } from '../i18n';
 
 export const quotaResetInstant = (value: unknown): number | undefined => {
@@ -40,9 +39,7 @@ export const formatQuotaReset = (
   nowMs = Date.now(),
 ): string => {
   if (resetAtMs === undefined || !Number.isFinite(resetAtMs)) return fallback || '';
-  const absolute = new Intl.DateTimeFormat(locale, {
-    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(resetAtMs);
+  const absolute = formatNumericDateTime24(resetAtMs, locale);
   const delta = resetAtMs - nowMs;
   if (delta <= 0) return `${absolute} · ${translate(locale, 'quota.resetPassed')}`;
   const minutes = Math.max(1, Math.floor(delta / 60000));
@@ -52,25 +49,3 @@ export const formatQuotaReset = (
       : relative.format(minutes, 'minute');
   return `${absolute} · ${label}`;
 };
-
-let now = Date.now();
-let stopClock: (() => void) | undefined;
-const listeners = new Set<() => void>();
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  if (!stopClock) {
-    now = Date.now();
-    stopClock = pollWhileActive(() => {
-      now = Date.now();
-      listeners.forEach((notify) => notify());
-    }, 60_000);
-  }
-  return () => {
-    listeners.delete(listener);
-    if (!listeners.size) {
-      stopClock?.();
-      stopClock = undefined;
-    }
-  };
-};
-export const useQuotaClock = () => useSyncExternalStore(subscribe, () => now, () => now);

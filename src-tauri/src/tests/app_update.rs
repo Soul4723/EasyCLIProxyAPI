@@ -1380,3 +1380,53 @@ fn release_asset_names_cover_the_six_supported_gui_targets() {
         );
     }
 }
+
+#[test]
+fn github_update_without_gitcode_discards_optional_mirrors_from_both_catalogs() {
+    let mut manifest = portable_update_test_manifest("1.2.3");
+    for asset in manifest.assets.values_mut() {
+        asset.fallback_urls = vec!["https://unconfigured.example/mirror".to_string()];
+    }
+    manifest.full_assets = Some(manifest.assets.clone());
+    let prepared = prepare_portable_update_manifest(manifest, None).unwrap();
+    for asset in prepared
+        .assets
+        .values()
+        .chain(prepared.full_assets.as_ref().unwrap().values())
+    {
+        assert!(asset.fallback_urls.is_empty());
+        assert_eq!(
+            portable_update_download_urls(
+                asset,
+                &VersionDownloadCandidate::builtin(VersionDownloadSource::Github),
+            ),
+            vec![asset.url.clone()]
+        );
+    }
+}
+
+#[test]
+fn github_update_without_gitcode_still_rejects_an_untrusted_primary_asset() {
+    let mut manifest = portable_update_test_manifest("1.2.3");
+    let asset = manifest.assets.values_mut().next().unwrap();
+    asset.url = "https://untrusted.example/application.zip".to_string();
+    asset.fallback_urls = vec!["https://unconfigured.example/mirror".to_string()];
+    assert!(prepare_portable_update_manifest(manifest, None)
+        .unwrap_err()
+        .contains("Untrusted application update download URL"));
+}
+
+#[tokio::test]
+async fn selected_gitcode_source_reports_missing_configuration_without_network_requests() {
+    if gitcode_version_source_available() {
+        return;
+    }
+    let error = fetch_portable_update_manifest(
+        &reqwest::Client::new(),
+        VersionDownloadCandidate::builtin(VersionDownloadSource::Gitcode),
+        &[],
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error, "GitCode application update source is not configured for this build");
+}

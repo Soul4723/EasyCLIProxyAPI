@@ -1,5 +1,12 @@
 use super::*;
 
+pub(crate) fn ensure_codex_control_revision(
+    state: &GuiConfigState,
+    expected_revision: u64,
+) -> Result<(), String> {
+    state.ensure_revision(expected_revision)
+}
+
 mod backups;
 mod commands;
 mod configuration;
@@ -32,3 +39,40 @@ pub(crate) use antigravity::*;
 pub(crate) use copilot::*;
 #[cfg(target_os = "windows")]
 pub(crate) use windows_probe::*;
+
+// The same explicit client target flows through writers, inspection and catalog
+// requests. A port remains accepted for isolated legacy/local helpers and tests.
+pub(crate) trait AgentClientOrigin: Copy + Send + Sync {
+    fn client_origin(self) -> String;
+    fn validate_client_origin(self) -> Result<(), String>;
+    fn local_client(self) -> bool;
+}
+
+impl AgentClientOrigin for u16 {
+    fn client_origin(self) -> String { managed_core_loopback_origin(self) }
+    fn validate_client_origin(self) -> Result<(), String> {
+        if self == 0 { Err("Invalid core port".into()) } else { Ok(()) }
+    }
+    fn local_client(self) -> bool { true }
+}
+
+impl AgentClientOrigin for &GuiConfigFile {
+    fn client_origin(self) -> String {
+        if self.connection_mode == CoreConnectionMode::Remote {
+            self.remote_client_origin.trim_end_matches('/').to_string()
+        } else { managed_core_loopback_origin(self.port) }
+    }
+    fn validate_client_origin(self) -> Result<(), String> {
+        if self.connection_mode == CoreConnectionMode::Local {
+            return self.port.validate_client_origin();
+        }
+        crate::core_connection::connection_from_config(self).map(|_| ())
+    }
+    fn local_client(self) -> bool { self.connection_mode == CoreConnectionMode::Local }
+}
+
+impl AgentClientOrigin for &&GuiConfigFile {
+    fn client_origin(self) -> String { (*self).client_origin() }
+    fn validate_client_origin(self) -> Result<(), String> { (*self).validate_client_origin() }
+    fn local_client(self) -> bool { (*self).local_client() }
+}

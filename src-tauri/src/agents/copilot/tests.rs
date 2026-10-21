@@ -108,7 +108,7 @@ fn copilot_vscode_preserves_provider_groups_and_secret_references() {
     assert_eq!(root[0], other);
     assert!(root[1].get("apiKey").is_none());
     assert!(
-        !inspect_copilot_config(client, &[path.clone()], 8317, "fixture-key")
+        !inspect_copilot_config(client, std::slice::from_ref(&path), 8317, "fixture-key")
             .unwrap()
             .0
     );
@@ -124,7 +124,7 @@ fn copilot_vscode_preserves_provider_groups_and_secret_references() {
         .unwrap()
         .contains("fixture-key"));
     assert!(
-        inspect_copilot_config(client, &[path.clone()], 8317, "fixture-key")
+        inspect_copilot_config(client, std::slice::from_ref(&path), 8317, "fixture-key")
             .unwrap()
             .0
     );
@@ -133,8 +133,8 @@ fn copilot_vscode_preserves_provider_groups_and_secret_references() {
         .unwrap()
         .push(json!({"name": "New provider", "vendor": "ollama"}));
     home.save(&path, &root);
-    let current = config_images(&[path.clone()]).unwrap();
-    let restored = prepare_recorded_integration_restore(client, &[path.clone()], &current)
+    let current = config_images(std::slice::from_ref(&path)).unwrap();
+    let restored = prepare_recorded_integration_restore(client, std::slice::from_ref(&path), &current)
         .unwrap()
         .unwrap();
     let value = read_groups(&path, text(restored[0].1.as_deref()).unwrap()).unwrap();
@@ -208,7 +208,8 @@ fn copilot_detection_requires_product_identity_and_actual_chat_extension() {
     for output in ["1.141.0", "Cannot find GitHub Copilot CLI (https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli)\nInstall GitHub Copilot CLI? (y/N):", "GitHub Copilot CLI is not installed", "GitHub Copilot CLI 1.0.96. Install now?"] {
         assert_eq!(copilot_cli_version_output(output), None);
     }
-    for client in [AgentClient::CopilotCli] {
+    {
+        let client = AgentClient::CopilotCli;
         assert!(!agent_installation_detected(client, None, true, true));
         assert!(!agent_installation_detected(
             client,
@@ -279,8 +280,8 @@ fn copilot_native_credential_rotation_and_template_preserve_user_models() {
     assert!(!content.contains("fixture-key"));
     let root = read_groups(&path, Some(&content)).unwrap();
     assert_eq!(root[1]["apiKey"], reference);
-    assert!(inspect_copilot_config(AgentClient::VscodeCopilot, &[path.clone()], 8317, "fixture-key").unwrap().0);
-    assert!(!inspect_copilot_config(AgentClient::VscodeCopilot, &[path.clone()], 8317, "rotated-key").unwrap().0);
+    assert!(inspect_copilot_config(AgentClient::VscodeCopilot, std::slice::from_ref(&path), 8317, "fixture-key").unwrap().0);
+    assert!(!inspect_copilot_config(AgentClient::VscodeCopilot, std::slice::from_ref(&path), 8317, "rotated-key").unwrap().0);
     assert!(setup::cached_vscode_secret(&path, "rotated-key").is_none());
     let updates = build_copilot_updates(AgentClient::VscodeCopilot, &home.0,
         "http://127.0.0.1:8317/v1", "fixture-key", "new-model", &[], true).unwrap();
@@ -526,4 +527,49 @@ fn copilot_vscode_uses_codex_context_parameters_and_reserves_output_budget() {
         let output = model["maxOutputTokens"].as_u64().unwrap();
         assert!(output > 0 && output < expected);
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn remote_copilot_launch_environment_reaches_child_without_management_key() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = Home::new();
+    let target = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: "https://management.example.test".into(),
+        remote_management_key: "fixture-management-never-client".into(),
+        remote_client_origin: "https://client.example.test:9443".into(),
+        remote_client_key: "fixture-client-key".into(),
+        ..GuiConfigFile::default()
+    };
+    let client = AgentClient::CopilotCli;
+    apply_agent_configuration_with_oauth(client, &home.0, &target,
+        effective_agent_api_key(&target), "fixture-model", AgentConfigurationOptions {
+            models: &[], codex_catalog: None, oauth_configuration: false,
+            claude_code_model_mappings: None, claude_desktop_model_mappings: None,
+        }).unwrap();
+    let executable = home.0.join("copilot stub");
+    // No network or real client: report precisely the environment seen by the child.
+    fs::write(&executable, "#!/bin/sh\nprintf 'COPILOT_PROVIDER_BASE_URL=%s\nCOPILOT_PROVIDER_API_KEY=%s\nCOPILOT_MODEL=%s\nCOPILOT_PROVIDER_TYPE=%s\nCOPILOT_PROVIDER_WIRE_API=%s\n' \"$COPILOT_PROVIDER_BASE_URL\" \"$COPILOT_PROVIDER_API_KEY\" \"$COPILOT_MODEL\" \"$COPILOT_PROVIDER_TYPE\" \"$COPILOT_PROVIDER_WIRE_API\"\n").unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let path = copilot_config_paths(client, &home.0).remove(0);
+    let args = ["cpa".into(), "--cpa-copilot-cli".into(), path.into_os_string(), executable.into_os_string()];
+    let mut command = copilot_helper_command(&args).unwrap();
+    let removed = ["COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_API_KEY_COMMAND",
+        "COPILOT_PROVIDER_HEADERS", "COPILOT_PROVIDER_MODEL_ID",
+        "COPILOT_PROVIDER_WIRE_MODEL", "COPILOT_PROVIDER_TRANSPORT"];
+    let envs = command.get_envs().collect::<std::collections::HashMap<_, _>>();
+    for key in removed {
+        assert_eq!(envs[std::ffi::OsStr::new(key)], None, "{key} must not override managed routing");
+    }
+    let output = command.output().unwrap();
+    assert!(output.status.success());
+    let environment = String::from_utf8(output.stdout).unwrap();
+    for expected in ["COPILOT_PROVIDER_BASE_URL=https://client.example.test:9443/v1",
+        "COPILOT_PROVIDER_API_KEY=fixture-client-key", "COPILOT_MODEL=fixture-model",
+        "COPILOT_PROVIDER_TYPE=openai", "COPILOT_PROVIDER_WIRE_API=completions"] {
+        assert!(environment.lines().any(|line| line == expected), "missing {expected}");
+    }
+    assert!(!environment.contains("fixture-management-never-client"));
+    assert!(!environment.contains("management.example.test"));
 }

@@ -1,79 +1,10 @@
-import { createTraditionalMessages } from './traditional';
-import { jaOverrides } from './ja';
+import { zhTW } from './locales/zh-TW';
+import { jaOverrides } from './locales/ja';
 import { en } from './locales/en';
 import { zhCN, type MessageKey } from './locales/zh-CN';
 
-export { en, zhCN };
+export { en, zhCN, zhTW };
 export type { MessageKey };
 export type MessageVariables = Record<string, string | number>;
 
-export const zhTW: Record<MessageKey, string> = {
-  ...createTraditionalMessages(zhCN),
-  "app.theme.lightGroup": "淺色主題",
-  "app.theme.darkGroup": "深色主題",
-  'app.theme.triggerLabel': '外觀',
-  'app.theme.custom.openFolder': '開啟主題資料夾',
-  'app.theme.custom.openFailed': '無法開啟主題資料夾。',
-  'app.theme.custom.loadFailed': '無法讀取自訂主題，已保留目前的主題列表。',
-  'app.theme.custom.skipped': '已略過無效的主題檔案：{files}',
-  'app.theme.custom.omitted': '另有 {count} 個主題檔案超出 64 個的上限，未讀取。',
-
-  'app.theme.triggerHint': '切換日夜模式與主題外觀',
-
-  "app.theme.current": "主題：{name}",
-  "app.theme.unavailable": "主題無法使用",
-  "app.theme.unavailableHint": "已儲存的主題無法使用，目前使用亮色。請選擇其他主題。",
-  "app.theme.readFailed": "無法讀取主題設定，目前使用亮色。重新選擇主題後將儲存新設定。",
-  "app.theme.saveFailed": "主題已暫時套用，但無法儲存。",
-  "app.theme.retrySave": "重試儲存",
-  'app.theme.warmSand.name': '暖砂',
-  'app.theme.warmSand.description': '奶油紙色與陶土色，溫潤清晰',
-  'app.theme.graphite.name': '石墨',
-  'app.theme.graphite.description': '炭灰底色與柔和藍調，沉穩清晰',
-  'app.theme.midnight.name': '午夜藍',
-  'app.theme.midnight.description': '墨藍漸層至靛藍，搭配輕透面板與霧紫藍點綴',
-  'app.theme.sakura.name': '櫻語紅粉',
-  'app.theme.sakura.description': '淡櫻粉漸層至奶油白，搭配輕透面板與灰黑文字',
-  'oauth.vertex.title': 'Vertex JSON 登入',
-  'app.privacy.enable': '開啟隱私模式，隱藏帳號信箱等身分資訊',
-  'app.privacy.disable': '關閉隱私模式，顯示完整帳號資訊',
-  'oauth.vertex.locationPlaceholder': 'us-central1',
-  'oauth.vertex.cardHint': '透過匯入 Google 服務帳號 JSON 登入 Vertex AI。',
-  'oauth.vertex.chooseFile': '選擇檔案',
-  'oauth.vertex.noFile': '尚未選擇檔案',
-  'oauth.vertex.description': '上傳 Google 服務帳號 JSON，核心將儲存為 auth-dir/vertex-<project>.json。同一專案再次匯入會更新現有憑證。',
-  'oauth.vertex.location': 'GCP 區域',
-  'oauth.vertex.locationHint': '留空預設使用 us-central1，例如 asia-east1 或 global。',
-  'oauth.vertex.file': '服務帳號 JSON 檔案',
-  'oauth.vertex.fileRequired': '請選擇 Google 服務帳號 JSON 檔案。',
-  'oauth.vertex.invalidFile': '請選擇包含 JSON 物件的 .json 檔案。',
-  'oauth.vertex.invalidResponse': '核心未傳回有效的 Vertex 匯入結果。',
-  'oauth.vertex.success': 'Vertex 憑證匯入成功',
-  'oauth.vertex.project': '專案 ID',
-  'oauth.vertex.email': '服務帳號信箱',
-  'oauth.vertex.authFile': '憑證檔案',
-  'oauth.vertex.import': '匯入 Vertex 憑證',
-  'oauth.vertex.importing': '正在匯入…',
-  'authFiles.cooldown.resetButton': '清除冷卻',
-  'authFiles.cooldown.resetHint': '清除此憑證的本機路由冷卻狀態',
-  'authFiles.cooldown.resetTitle': '清除憑證冷卻？',
-  'authFiles.cooldown.resetConfirm': '確定清除「{name}」的本機路由冷卻狀態嗎？清除後此憑證可能立即再次參與請求，但不會恢復上游額度。',
-  'authFiles.cooldown.resetSuccess': '已清除 {name} 的冷卻狀態。',
-  'authFiles.cooldown.resetFailed': '無法清除 {name} 的冷卻狀態：{message}',
-  'authFiles.cooldown.resetting': '正在清除…',
-  'authFiles.cooldown.missingIndex': '憑證缺少有效的驗證索引，無法清除冷卻。請重新整理列表後重試。',
-  'authFiles.cooldown.invalidResponse': '核心未傳回有效的清除結果，請重新整理列表確認冷卻狀態。',
-  'app.contact.title': '加入 Discord 伺服器',
-  'app.contact.label': '加入 Discord 伺服器',
-  'config.diagnostics.description': '啟用後將記錄呼叫出錯的請求，成功的請求不會記錄，請及時關閉「**寫入日誌檔案**」，避免占用過多儲存空間。',
-  'appUpdate.notes.title': '軟體更新說明',
-  'appUpdate.notes.expand': '展開',
-  'appUpdate.notes.collapse': '收合',
-  'appUpdate.notes.publishedAt': '{date}發布',
-  'appUpdate.notes.openRelease': '查看完整發布說明',
-  'appUpdate.notes.empty': '尚未取得目前語言的更新說明。',
-  'appUpdate.notes.loading': '正在取得更新說明…',
-  'appUpdate.notes.failed': '暫時無法取得更新說明，請稍後重新檢查。',
-  'appUpdate.notes.notChecked': '檢查軟體更新後，將顯示最新版的更新說明。',
-};
 export const ja: Record<MessageKey, string> = jaOverrides;

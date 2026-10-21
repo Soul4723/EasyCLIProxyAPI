@@ -1,0 +1,24 @@
+/* Global baseline for the new shell. Keep tiny: everything else is scoped under ec-* classes. */
+html, body, #root { background: var(--ec-bg) !important; }
+body { color: var(--ec-fg); }
+.ec-mono { font-family: var(--ec-mono); font-variant-numeric: tabular-nums; }
+.ec-num { font-variant-numeric: tabular-nums; }
+.ec-muted { color: var(--ec-fg-muted); }
+.ec-trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* Gradient-backdrop themes (e.g. Sakura) make --ec-surface/--ec-raised translucent: floating panels stay opaque. */
+html[data-theme-backdrop] :is(.ec-dialog, .ec-side-panel) { background: var(--ec-popover); }
+html[data-theme-backdrop] .ec-page-header { background: var(--theme-sticky-background, var(--ec-bg)); }
+html[data-theme-backdrop] .ec-app { background: var(--theme-sticky-background, var(--ec-bg)); }
+
+/*
+ * Native window materials (vibrancy, mica, acrylic, liquid glass). The platform layer sets
+ * html[data-window-material="<name>"]; the shell chrome then lets the window material show through, the way the
+ * legacy .app-shell/.sidebar/.workspace did. Cards and dialogs keep their (themed) fills for legibility.
+ */
+html[data-window-material], html[data-window-material] body, html[data-window-material] #root { background: transparent !important; }
+html[data-window-material] :is(.ec-app, .ec-main, .ec-sidebar, .ec-page-header) { background: transparent; }
+html[data-window-material] .ec-sidebar { border-right-color: transparent; }
+
+/* Placeholders keep AA contrast on the (lighter) field fill; never faded further by the UA. */
+.ec-app :is(input, textarea)::placeholder { color: var(--ec-placeholder); opacity: 1; }

@@ -1,12 +1,13 @@
 import { themeTokenProperties, type PlatformWindowMaterial, type ThemeDefinition } from './types';
 import { backdropImage } from './backdrop';
+import { semanticTokenBridgeProperties, themeSemanticTokens } from './semanticTokenBridge';
 import { themeMaterialTokens, themeOverlayRules, themeOverlayPalette } from './materials';
 
 export const themeWindowMaterial = (theme: ThemeDefinition, platform: PlatformWindowMaterial | null) =>
   theme.windowMaterial === 'translucent' ? platform : null;
 
 export function createThemeApplicator(document: Document, platformMaterial: () => PlatformWindowMaterial | null = () => null) {
-  const ownedProperties = [...Object.values(themeTokenProperties).flat(),
+  const ownedProperties = [...Object.values(themeTokenProperties).flat(), ...semanticTokenBridgeProperties,
     '--theme-backdrop-image', '--theme-backdrop-color', '--theme-backdrop-sidebar',
     '--theme-backdrop-panel', '--theme-sticky-background', '--theme-sticky-hover-background'];
   let overlayStyle = document.querySelector<HTMLStyleElement>('style[data-theme-materials]') ?? undefined;
@@ -21,12 +22,13 @@ export function createThemeApplicator(document: Document, platformMaterial: () =
     const material = themeWindowMaterial(theme, platformMaterial());
     if (material) root.dataset.windowMaterial = material;
     for (const [key, value] of Object.entries(themeMaterialTokens(theme))) {
-      if (!Object.prototype.hasOwnProperty.call(themeTokenProperties, key)) continue;
+      if (!Object.hasOwn(themeTokenProperties, key)) continue;
       const properties = themeTokenProperties[key as keyof typeof themeTokenProperties];
       for (const property of properties) {
         root.style.setProperty(property, value);
       }
     }
+    for (const [property, value] of Object.entries(themeSemanticTokens(theme))) root.style.setProperty(property, value);
     const overlayRules = themeOverlayRules(theme);
     if (overlayRules) {
       const palette = themeOverlayPalette(theme);
