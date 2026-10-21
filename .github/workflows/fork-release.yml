@@ -3,7 +3,7 @@ run-name: Fork ${{ inputs.channel || (github.ref_name == 'dev' && 'dev') || (git
 
 on:
   push:
-    branches: [main, staging, dev, feat/release-channels]
+    branches: [main, staging, dev]
   workflow_dispatch:
     inputs:
       channel:
@@ -55,7 +55,7 @@ jobs:
           set -euo pipefail
           if [ -z "$CHANNEL" ]; then
             case "$GITHUB_REF_NAME" in
-              main|feat/release-channels) CHANNEL=stable ;;
+              main) CHANNEL=stable ;;
               staging) CHANNEL=beta ;;
               dev) CHANNEL=dev ;;
               *) exit 1 ;;
@@ -184,6 +184,17 @@ jobs:
         run: Compress-Archive -Path "release/$env:STEM" -DestinationPath "$env:STEM.zip"
       - uses: actions/upload-artifact@v7
         with:
+          name: config-${{ env.STEM }}
+          path: |
+            src-tauri/tauri.conf.json
+            src-tauri/tauri.channel.conf.json
+            src-tauri/Cargo.toml
+            src-tauri/icons/icon.png
+            src-tauri/icons/channel/*/icon.png
+            src-tauri/target/release/bundle/macos/*/Contents/Info.plist
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
           name: ${{ env.STEM }}
           path: ${{ env.STEM }}.${{ matrix.suffix }}
           if-no-files-found: error
@@ -209,6 +220,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
+          pattern: EasyCLIProxyAPI-*
           merge-multiple: true
       - name: Generate existing portable updater manifests
         shell: bash

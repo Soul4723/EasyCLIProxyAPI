@@ -2561,8 +2561,8 @@ pub(crate) fn replace_macos_application(descriptor: &MacosUpdateDescriptor) -> R
         .current_app
         .parent()
         .ok_or_else(|| "Invalid macOS application update target path".to_string())?;
-    let replacement_app = app_parent.join(format!(".{APP_BUNDLE_NAME}.update-new.app"));
-    let legacy_replacement_app = app_parent.join(".EasyCLIProxyAPI.app.update-new");
+    let replacement_app = app_parent.join(format!(".{}-update-new.app", APP_BUNDLE_NAME.trim_end_matches(".app")));
+    let legacy_replacement_app = app_parent.join(format!(".{APP_BUNDLE_NAME}.update-new"));
     if legacy_replacement_app.exists() {
         fs::remove_dir_all(&legacy_replacement_app)
             .map_err(|error| format!("Failed to clean up legacy macOS update staging data: {error}"))?;
