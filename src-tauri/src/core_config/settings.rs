@@ -1413,8 +1413,9 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         )
     };
 
+    // Keep Remote selected if its saved target needs repair. Falling back to
+    // Local here could start a local process instead. Requests validate the target.
     if config.connection_mode == CoreConnectionMode::Remote {
-        validate_gui_config(&config)?;
         return Ok(config);
     }
 

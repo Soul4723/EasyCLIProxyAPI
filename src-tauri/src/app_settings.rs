@@ -40,7 +40,13 @@ pub(crate) async fn get_core_status(app: tauri::AppHandle) -> Result<CoreStatus,
     let config = app.state::<GuiConfigState>().snapshot()?;
     if config.connection_mode == CoreConnectionMode::Remote {
         let connection = core_connection::CoreConnection::from(&config);
-        let result = core_connection::test_core_connection(connection.clone()).await?;
+        let result = core_connection::test_core_connection(connection.clone())
+            .await
+            .unwrap_or_else(|message| core_connection::CoreConnectionTestResult {
+                connected: false,
+                version: None,
+                message,
+            });
         let status = core_connection::remote_status(&connection, result);
         emit_core_status(&app, &status);
         return Ok(status);
