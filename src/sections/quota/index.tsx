@@ -87,7 +87,7 @@ export function QuotaSection(_props: SectionPageProps) {
   const providerParam = params.get('provider');
   useEffect(() => {
     if (!providerParam) return;
-    const id = providerInfo(providerParam).id;
+    const id = providerParam === 'plugin' ? 'plugin' : providerInfo(providerParam).id;
     if (!(PROVIDER_ORDER as readonly string[]).includes(id)) return;
     setProvider(id);
     setCollapsed((current) => { const next = new Set(current); next.delete(id); return next; });
@@ -123,7 +123,7 @@ export function QuotaSection(_props: SectionPageProps) {
     { value: 'all', label: t('sec.quota.filter.all'), count: accounts.length },
     ...PROVIDER_ORDER.filter((id) => counts.has(id)).map((id) => ({
       value: id,
-      label: providerInfo(id).name,
+      label: id === 'plugin' ? t('quota.pluginCategory') : providerInfo(id).name,
       count: counts.get(id),
       color: `var(${providerInfo(id).colorVar.replace(/^var\(|\)$/g, '')})`,
       icon: <ProviderLogo provider={id} size={14} />,

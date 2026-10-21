@@ -14,6 +14,7 @@ import { ResetTime, WindowMeter, tightest, windowLabel } from './WindowMeter';
 const MAX_CARD_WINDOWS = 3;
 
 function Identity({ account, ctx, selected, grouped, plan = true }: { account: QuotaAccount; ctx: ControlsContext; selected: boolean; grouped?: boolean; plan?: boolean }) {
+  const { t } = useI18n();
   return (
     <button type="button" className="qt-identity" aria-pressed={selected} onClick={() => ctx.actions.open(account)}>
       <ProviderLogo provider={account.provider} size={28} />
@@ -26,7 +27,7 @@ function Identity({ account, ctx, selected, grouped, plan = true }: { account: Q
         ) : (
           <>
             <span className="qt-identity__top">
-              <span className="qt-identity__provider"><ProviderName provider={account.provider} /></span>
+              <span className="qt-identity__provider">{account.provider === 'plugin' ? t('quota.pluginCategory') : <ProviderName provider={account.provider} />}</span>
               {account.plan ? <Chip size="sm"><Masked value={account.plan} identities={account.identities} /></Chip> : null}
             </span>
             <Masked className="qt-identity__sub ec-trunc" value={account.label} identities={account.identities} />

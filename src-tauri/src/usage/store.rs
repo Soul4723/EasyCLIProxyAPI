@@ -121,7 +121,7 @@ pub(crate) async fn save_usage_storage_settings(
     app.state::<UsageCollectorState>()
         .set_total_records(settings.total_records);
     if settings.deleted_records > 0 {
-        let _ = app.emit(USAGE_UPDATED_EVENT, Local::now().to_rfc3339());
+        emit_usage_updated(&app, Local::now().to_rfc3339());
     }
     Ok(settings)
 }
@@ -143,7 +143,7 @@ pub(crate) async fn shrink_usage_database(
     app.state::<UsageCollectorState>()
         .set_total_records(settings.total_records);
     if settings.deleted_records > 0 {
-        let _ = app.emit(USAGE_UPDATED_EVENT, Local::now().to_rfc3339());
+        emit_usage_updated(&app, Local::now().to_rfc3339());
     }
     Ok(settings)
 }

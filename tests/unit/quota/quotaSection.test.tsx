@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { classifyWindow, deriveStatus, groupAccounts, matchesSearch, windowsOf } from '../../../src/sections/quota/model';
+import { buildAccount, classifyWindow, deriveStatus, groupAccounts, matchesSearch, windowsOf } from '../../../src/sections/quota/model';
 import { accountFor, renderCard, renderRow, stubLighting } from '../../helpers/quotaAccount';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { I18nProvider } from '../../../src/i18n';
 import { BigWindow } from '../../../src/sections/quota/AccountPanel';
+import { GroupHeader } from '../../../src/sections/quota/GroupHeader';
 import { quotaRowsFor, type QuotaState } from '../../../src/services/quotaService';
 
 const NOW = Date.parse('2030-01-01T12:00:00Z');
@@ -84,6 +85,28 @@ describe('quota section model', () => {
     expect([groups[0].enabled, groups[0].total]).toEqual([2, 3]);
     expect(groups[1].leftPct).toBeNull();
     expect(groups[0].nextResetMs).toBe(NOW + 3_600_000);
+  });
+
+  it('includes explicitly advertised plugin quotas in a visible plugin summary group only', () => {
+    const pluginFile = { name: 'plugin.json', provider: 'gemini', supports_quota: true };
+    const pluginAccount = accountFor(pluginFile, ok([
+      { label: '5-hour window', remainingPercent: 64, resetAtMs: NOW + 3_600_000 },
+    ]));
+    const ordinaryGemini = { name: 'gemini.json', provider: 'gemini' };
+    const preferredBuiltIn = accountFor({ name: 'claude-plugin.json', provider: 'claude', supports_quota: true }, ok([]));
+    const groups = groupAccounts([pluginAccount, preferredBuiltIn]);
+
+    expect(buildAccount(ordinaryGemini, ok([]), NOW, 'en', { receivedAtMs: NOW })).toBeNull();
+    expect(pluginAccount.provider).toBe('plugin');
+    expect(preferredBuiltIn.provider).toBe('claude');
+    expect(groups.map(group => group.provider)).toEqual(['claude', 'plugin']);
+    expect([groups[1].total, groups[1].enabled, groups[1].leftPct]).toEqual([1, 1, 64]);
+
+    const markup = renderToStaticMarkup(<I18nProvider><GroupHeader
+      group={groups[1]} now={NOW} collapsed={false} onToggle={() => {}} onPick={() => {}}
+    /></I18nProvider>);
+    expect(markup).toContain('Plugin quotas');
+    expect(markup).toContain('64');
   });
 
   it('searches file name, email, plan and provider', () => {

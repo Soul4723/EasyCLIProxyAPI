@@ -55,7 +55,7 @@ export function GroupHeader({
       <button type="button" className="qt-group__title" aria-expanded={!collapsed} onClick={onToggle}>
         <ChevronDown size={14} className={collapsed ? 'qt-chev qt-chev--closed' : 'qt-chev'} aria-hidden="true" />
         <ProviderLogo provider={group.provider} size={22} />
-        <h2><ProviderName provider={group.provider} /></h2>
+        <h2>{group.provider === 'plugin' ? t('quota.pluginCategory') : <ProviderName provider={group.provider} />}</h2>
         <Badge count={group.total} />
       </button>
       <div className="qt-group__pct" title={t('sec.quota.leftAggregate')}>

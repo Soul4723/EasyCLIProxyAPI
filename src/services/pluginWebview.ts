@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './platform';
 
 export type WebviewBounds = { x: number; y: number; width: number; height: number; viewportHeight: number };
 

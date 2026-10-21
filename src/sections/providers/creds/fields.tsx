@@ -10,6 +10,8 @@ import { Button, IconButton } from '../../../ui';
 import { isRecord } from '../../../services/managementApi';
 import { headerEntries, showsClaudeCredentialSettings } from '../../../components/CredentialAdvancedFields';
 import type { BooleanOverride } from '../../../services/authFileSettings';
+import { credentialAdvancedShape } from '../../../services/credentialAdvancedSettings';
+import { StructuredConfigEditor } from '../../../components/StructuredConfigEditor';
 import './creds.css';
 
 type Advanced = Record<string, unknown>;
@@ -104,9 +106,25 @@ export function AdvancedFields({ provider, advanced, modelIds, disabled, onChang
       </select>
     </Field>
   );
+  const policyKeys = ['request_retry', 'request_scoped_errors', ...(provider === 'xai' ? ['using_api'] : [])];
+  const policyFields = Object.fromEntries(policyKeys.flatMap((key) => {
+    const shape = credentialAdvancedShape.fields?.[key];
+    return shape ? [[key, shape]] : [];
+  }));
 
   return (
     <>
+      <details className="ec-cred-subsection">
+        <summary>{t('authFiles.policy.title')}</summary>
+        <p className="ec-cred-note">{t('authFiles.policy.hint')}</p>
+        <StructuredConfigEditor shape={{ type: 'object', fields: policyFields }} value={advanced} disabled={disabled}
+          onChange={(value) => {
+            if (!isRecord(value)) return;
+            const next = { ...advanced };
+            policyKeys.forEach((key) => { delete next[key]; });
+            onChange({ ...next, ...value });
+          }} />
+      </details>
       <div className="ec-cred-subsection">
         <div className="ec-cred-subsection__head">
           <h4>{t('authFiles.settings.aliases')}</h4>

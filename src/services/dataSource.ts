@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { listen } from './platform';
+import { windowActivity } from './windowActivity';
 
 // updatedAt records the last published successful value, not every successful poll.
 export type SourceSnapshot<T> = { data: T | undefined; error: string | null; updatedAt: number; loading: boolean };
@@ -46,13 +47,16 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
   let failures = 0;
   let dirty = true;
   let queued = false;
+  let queuedExplicit = false;
+  let refreshAfterCurrent = false;
   let request: Promise<void> | null = null;
   let startedAt = -Infinity;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let throttle: ReturnType<typeof setTimeout> | undefined;
   let stopEvents: (() => void) | undefined;
+  let stopActivity: (() => void) | undefined;
   const listeners = new Set<() => void>();
-  const visible = () => typeof document === 'undefined' || !document.hidden;
+  const visible = () => windowActivity.active();
   const publish = (next: SourceSnapshot<T>) => {
     const data = structurallyEqual(snapshot.data, next.data) ? snapshot.data : next.data;
     if (Object.is(data, snapshot.data) && next.error === snapshot.error && next.loading === snapshot.loading) return;
@@ -63,11 +67,15 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
     clearTimeout(timer);
     const base = typeof options.pollMs === 'function' ? options.pollMs() : options.pollMs;
     if (!base || !listeners.size || !visible()) return;
-    timer = setTimeout(() => { void refresh(); }, Math.min(base * 2 ** failures, options.maxPollMs ?? base * 4));
+    timer = setTimeout(() => { void read(false); }, Math.min(base * 2 ** failures, options.maxPollMs ?? base * 4));
   };
-  const refresh = (): Promise<void> => {
+  const read = (explicit: boolean): Promise<void> => {
     dirty = true;
-    if (request) { queued = true; return request; }
+    // Automatic work waits for visibility. Explicit action reads must still
+    // complete with fresh data (OAuth completion and plugin reconciliation).
+    if (!explicit && !visible()) return Promise.resolve();
+    if (request) { queued = true; queuedExplicit ||= explicit; return request; }
+    refreshAfterCurrent = false;
     clearTimeout(timer); clearTimeout(throttle); throttle = undefined;
     startedAt = Date.now();
     const current = generation;
@@ -77,36 +85,57 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
       try {
         const data = await options.load();
         if (current !== generation) return;
+        if (!visible()) { dirty = true; if (!explicit) return; }
         failures = 0;
         lastSuccessfulAt = Date.now();
         publish({ data, error: null, updatedAt: lastSuccessfulAt, loading: false });
       } catch (error) {
         if (current !== generation) return;
+        if (!visible()) { dirty = true; if (!explicit) return; }
         failures++;
         publish({ ...snapshot, error: error instanceof Error ? error.message : String(error), loading: false });
       }
     })().finally(async () => {
       request = null;
-      if (queued) { queued = false; await refresh(); }
+      if (queuedExplicit || ((queued || refreshAfterCurrent) && visible())) {
+        const explicitNext = queuedExplicit;
+        queued = false; queuedExplicit = false; refreshAfterCurrent = false;
+        await read(explicitNext);
+      }
+      else if (!visible()) queued = false;
       else poll();
     });
     return request;
   };
   const invalidateAfter = (eventDelayMs: number) => {
     dirty = true;
-    if (!listeners.size) return;
+    if (request && !visible()) refreshAfterCurrent = true;
+    if (!listeners.size || !visible()) return;
     const delay = Math.max(eventDelayMs, (options.minIntervalMs ?? 0) - (Date.now() - startedAt));
     if (delay) {
-      throttle ??= setTimeout(() => { throttle = undefined; void refresh(); }, delay);
-    } else void refresh();
+      throttle ??= setTimeout(() => { throttle = undefined; void read(false); }, delay);
+    } else void read(false);
   };
   const invalidate = () => invalidateAfter(0);
   const invalidateFromEvent = () => invalidateAfter(options.eventDelayMs ?? 0);
   const onVisible = () => {
-    if (!visible()) { clearTimeout(timer); return; }
+    if (!visible()) {
+      clearTimeout(timer); clearTimeout(throttle); throttle = undefined;
+      // Automatic completions while hidden are discarded; shared sources
+      // refresh once on resume to cover changes without events.
+      // Infinity opts component-owned queries/session checks out of implicit
+      // resume reads; their owner or the existing polling cadence refreshes them.
+      if (options.focusMs !== Infinity || request) dirty = true;
+      if (request) refreshAfterCurrent = true;
+      return;
+    }
     if (request || throttle) return;
-    if (Date.now() - lastSuccessfulAt > (options.focusMs ?? 30_000)) invalidate();
+    if (dirty || Date.now() - lastSuccessfulAt > (options.focusMs ?? 30_000)) invalidate();
     else poll();
+  };
+  const onFocus = () => {
+    if (!visible() || request || throttle) return;
+    if (Date.now() - lastSuccessfulAt > (options.focusMs ?? 30_000)) invalidate();
   };
   const subscribe = (fn: () => void) => {
     listeners.add(fn);
@@ -120,23 +149,25 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
       }
       const customStop = options.subscribeEvents?.(invalidateFromEvent);
       stopEvents = () => { disposed = true; stops.forEach(stop => stop()); customStop?.(); };
-      if (typeof window !== 'undefined') window.addEventListener('focus', onVisible);
-      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
-      if (dirty || !lastSuccessfulAt) { if (!request) void refresh(); }
+      stopActivity = windowActivity.subscribe(onVisible);
+      if (typeof window !== 'undefined') window.addEventListener('focus', onFocus);
+      if (dirty || !lastSuccessfulAt) { if (!request && visible()) void read(false); }
       else poll();
     }
     return () => {
       listeners.delete(fn);
       if (listeners.size) return;
       clearTimeout(timer); clearTimeout(throttle); throttle = undefined;
+      queued = queuedExplicit; refreshAfterCurrent = false;
       stopEvents?.();
-      if (typeof window !== 'undefined') window.removeEventListener('focus', onVisible);
-      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
+      stopActivity?.(); stopActivity = undefined;
+      if (typeof window !== 'undefined') window.removeEventListener('focus', onFocus);
     };
   };
   return {
-    getSnapshot: () => snapshot, subscribe, refresh, invalidate,
-    load: () => request ?? (dirty || !lastSuccessfulAt ? refresh() : Promise.resolve()),
+    getSnapshot: () => snapshot, subscribe, refresh: () => read(true), invalidate,
+    load: () => !visible() && (request || dirty || !lastSuccessfulAt)
+      ? read(true) : request ?? (dirty || !lastSuccessfulAt ? read(true) : Promise.resolve()),
     mutate(updater: (data: T | undefined) => T) {
       generation++;
       lastSuccessfulAt = Date.now();
@@ -145,9 +176,10 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
     },
     reset() {
       generation++; failures = 0; lastSuccessfulAt = 0; dirty = true; queued = !!request && listeners.size > 0;
+      refreshAfterCurrent = false; queuedExplicit = false;
       clearTimeout(timer); clearTimeout(throttle); throttle = undefined;
       publish(initial);
-      if (listeners.size && !request) void refresh();
+      if (listeners.size && !request) void read(false);
     },
   };
 }

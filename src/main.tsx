@@ -11,10 +11,12 @@ import { I18nProvider } from './i18n';
 import { initializeTheme, initializeThemePreferences, reloadCustomThemes } from './theme';
 import { initializeUsagePreferences } from './services/usagePreferences';
 import { initializePrivacyMode } from './privacy';
+import { initializeWindowActivity } from './services/windowActivity';
 import { initializeDensity } from './density';
 import './ui/index.css';
 
 async function bootstrap() {
+  await initializeWindowActivity();
   await Promise.all([initializeUsagePreferences(), initializeThemePreferences().then(() => initializeTheme()), initializePrivacyMode()]);
   if (import.meta.env.DEV && !isTauri()) {
     const { installBrowserMock } = await import('./mocks/browserMock');

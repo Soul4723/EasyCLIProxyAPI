@@ -6,6 +6,8 @@ import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/resources';
 import { isRecord } from '../services/managementApi';
 import { normalizeOAuthProvider } from '../services/authFiles';
+import { StructuredConfigEditor } from './StructuredConfigEditor';
+import { credentialAdvancedShape } from '../services/credentialAdvancedSettings';
 
 type Advanced = Record<string, unknown>;
 type AliasRow = Record<string, unknown>;
@@ -60,6 +62,7 @@ export function CredentialAdvancedFields({
   const showClaude = showsClaudeCredentialSettings(resolvedProvider, advanced);
   const aliases = aliasRows(advanced.model_aliases);
   const aliasesSet = Array.isArray(advanced.model_aliases);
+  const policyKeys = ['request_retry', 'request_scoped_errors', ...(resolvedProvider === 'xai' ? ['using_api'] : [])];
   const [wordsDraft, setWordsDraft] = useState<string | null>(null);
   const [expandedAlias, setExpandedAlias] = useState<number | null>(null);
   const setField = (key: string, value: unknown) => onChange(withoutKey(advanced, key, value));
@@ -98,6 +101,18 @@ export function CredentialAdvancedFields({
 
   return (
     <>
+      <details className="credential-settings-section">
+        <summary>{t('authFiles.policy.title')}</summary>
+        <p className="credential-settings-lead">{t('authFiles.policy.hint')}</p>
+        <StructuredConfigEditor shape={{ type: 'object', fields: Object.fromEntries(
+          policyKeys.flatMap((key) => credentialAdvancedShape.fields?.[key] ? [[key, credentialAdvancedShape.fields[key]]] : []),
+        ) }} value={advanced} disabled={disabled} onChange={(value) => {
+          if (!isRecord(value)) return;
+          const next = { ...advanced };
+          policyKeys.forEach((key) => { delete next[key]; });
+          onChange({ ...next, ...value });
+        }} />
+      </details>
       <section className="credential-settings-section">
         <h3>{t('authFiles.settings.aliases')}</h3>
         <p className="credential-settings-lead">{t('authFiles.settings.aliasesHint')}</p>

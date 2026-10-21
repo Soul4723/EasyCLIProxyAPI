@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { startSessionPolling } from '../../../src/services/sessionPolling';
+import { initializeWindowActivity } from '../../../src/services/windowActivity';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -55,6 +56,7 @@ test('hidden sessions do not poll and resume only after the interval', async () 
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
   const doc = Object.assign(new EventTarget(), { hidden: true });
   Object.defineProperty(globalThis, 'document', { value: doc, configurable: true });
+  await initializeWindowActivity();
   let reads = 0;
   const stop = startSessionPolling({ intervalMs: 10, check: async () => { reads++; return true; }, onError: () => {} });
   try {

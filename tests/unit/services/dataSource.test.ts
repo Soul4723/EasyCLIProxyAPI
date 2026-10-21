@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { createDataSource } from '../../../src/services/dataSource';
+import { initializeWindowActivity } from '../../../src/services/windowActivity';
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -121,10 +122,11 @@ describe('stable source snapshots', () => {
   });
 });
 
-test('focus staleness uses the last successful refresh, including silent reloads', async () => {
-  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
-  const focusTarget = new EventTarget();
-  Object.defineProperty(globalThis, 'window', { value: focusTarget, configurable: true });
+test('resume freshness uses the last successful refresh, including silent reloads', async () => {
+  const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const doc = Object.assign(new EventTarget(), { hidden: false });
+  Object.defineProperty(globalThis, 'document', { value: doc, configurable: true });
+  await initializeWindowActivity();
   let now = 1_000;
   const clock = spyOn(Date, 'now').mockImplementation(() => now);
   let calls = 0;
@@ -136,18 +138,20 @@ test('focus staleness uses the last successful refresh, including silent reloads
     now = 1_500;
     await source.refresh();
     expect(source.getSnapshot()).toBe(previous);
-    now = 2_001;
-    focusTarget.dispatchEvent(new Event('focus'));
-    await source.load();
-    expect(calls).toBe(2);
-    now = 2_501;
-    focusTarget.dispatchEvent(new Event('focus'));
+    now = 1_501;
+    doc.hidden = true; doc.dispatchEvent(new Event('visibilitychange'));
+    doc.hidden = false; doc.dispatchEvent(new Event('visibilitychange'));
     await source.load();
     expect(calls).toBe(3);
+    now = 1_502;
+    doc.hidden = true; doc.dispatchEvent(new Event('visibilitychange'));
+    doc.hidden = false; doc.dispatchEvent(new Event('visibilitychange'));
+    await source.load();
+    expect(calls).toBe(4);
   } finally {
     off(); clock.mockRestore();
-    if (windowDescriptor) Object.defineProperty(globalThis, 'window', windowDescriptor);
-    else Reflect.deleteProperty(globalThis, 'window');
+    if (documentDescriptor) Object.defineProperty(globalThis, 'document', documentDescriptor);
+    else Reflect.deleteProperty(globalThis, 'document');
   }
 });
 
@@ -174,4 +178,117 @@ test('event coalescing uses one fixed trailing window; explicit refresh bypasses
     await pause(45);
     expect(reads).toBe(3); // refresh consumed the pending event invalidation
   } finally { off(); }
+});
+
+test('hidden background work pauses but awaited action refresh/load reads stay fresh', async () => {
+  const { windowActivity } = await import('../../../src/services/windowActivity');
+  let active = false;
+  const transitions = new Set<() => void>();
+  const activity = spyOn(windowActivity, 'active').mockImplementation(() => active);
+  const subscription = spyOn(windowActivity, 'subscribe').mockImplementation(listener => {
+    transitions.add(listener); return () => { transitions.delete(listener); };
+  });
+  let reads = 0;
+  let fail = false;
+  const source = createDataSource({ pollMs: 10, load: async () => {
+    reads++;
+    if (fail) throw new Error('action read failed');
+    return reads;
+  } });
+  const off = source.subscribe(() => {});
+  try {
+    source.invalidate();
+    await pause(25);
+    expect(reads).toBe(0);
+    await source.refresh();
+    expect(source.getSnapshot().data).toBe(1);
+    source.invalidate();
+    await source.load();
+    expect(source.getSnapshot().data).toBe(2);
+    fail = true;
+    await source.refresh();
+    expect(source.getSnapshot().error).toBe('action read failed');
+    expect(source.getSnapshot().data).toBe(2);
+    await pause(25);
+    expect(reads).toBe(3); // Explicit reads did not restart hidden polling.
+    fail = false;
+    active = true; transitions.forEach(listener => listener());
+    await source.load();
+    expect(source.getSnapshot().data).toBe(4);
+  } finally { off(); activity.mockRestore(); subscription.mockRestore(); }
+});
+
+test('an action read queued behind a hidden automatic read awaits its fresh result', async () => {
+  const { windowActivity } = await import('../../../src/services/windowActivity');
+  let active = true;
+  const transitions = new Set<() => void>();
+  const activity = spyOn(windowActivity, 'active').mockImplementation(() => active);
+  const subscription = spyOn(windowActivity, 'subscribe').mockImplementation(listener => {
+    transitions.add(listener); return () => { transitions.delete(listener); };
+  });
+  const first = deferred<number>();
+  let reads = 0;
+  const source = createDataSource({ load: () => ++reads === 1 ? first.promise : Promise.resolve(reads) });
+  const off = source.subscribe(() => {});
+  try {
+    active = false; transitions.forEach(listener => listener());
+    const action = source.load();
+    first.resolve(1);
+    await action;
+    expect(reads).toBe(2);
+    expect(source.getSnapshot().data).toBe(2);
+    source.reset();
+    const pending = source.refresh();
+    await pending;
+    expect(source.getSnapshot().data).toBe(3);
+  } finally { off(); activity.mockRestore(); subscription.mockRestore(); }
+});
+
+test('component-owned queries retain explicit resume ownership', async () => {
+  const { windowActivity } = await import('../../../src/services/windowActivity');
+  let active = true;
+  const transitions = new Set<() => void>();
+  const activity = spyOn(windowActivity, 'active').mockImplementation(() => active);
+  const subscription = spyOn(windowActivity, 'subscribe').mockImplementation(listener => {
+    transitions.add(listener); return () => { transitions.delete(listener); };
+  });
+  let reads = 0;
+  const source = createDataSource({ focusMs: Infinity, load: async () => ++reads });
+  const off = source.subscribe(() => {});
+  try {
+    await source.load();
+    active = false; transitions.forEach(listener => listener());
+    active = true; transitions.forEach(listener => listener());
+    await source.load();
+    expect(reads).toBe(1); // Usage's owner invalidates the query once on resume.
+    await source.refresh();
+    expect(reads).toBe(2);
+  } finally { off(); activity.mockRestore(); subscription.mockRestore(); }
+});
+
+test('active stale-focus refreshes coalesce and stop after unsubscribe', async () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const win = new EventTarget();
+  Object.defineProperty(globalThis, 'window', { value: win, configurable: true });
+  let now = 1_000;
+  const clock = spyOn(Date, 'now').mockImplementation(() => now);
+  let reads = 0;
+  const source = createDataSource({ focusMs: 1_000, load: async () => ++reads });
+  const off = source.subscribe(() => {});
+  try {
+    await source.load();
+    win.dispatchEvent(new Event('focus'));
+    expect(reads).toBe(1);
+    now = 2_001;
+    for (let i = 0; i < 20; i++) win.dispatchEvent(new Event('focus'));
+    await source.load();
+    expect(reads).toBe(2);
+    off(); now = 4_000;
+    win.dispatchEvent(new Event('focus'));
+    expect(reads).toBe(2);
+  } finally {
+    off(); clock.mockRestore();
+    if (previous) Object.defineProperty(globalThis, 'window', previous);
+    else Reflect.deleteProperty(globalThis, 'window');
+  }
 });

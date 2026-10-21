@@ -1,5 +1,5 @@
 import { createDataSource } from './dataSource';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './platform';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type LightingCredential = {

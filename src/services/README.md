@@ -2,9 +2,13 @@
 
 - Use a module-owned `createDataSource` for each shared resource. Subscribe with
   `useDataSource`; events invalidate it and explicit refreshes go through it. Poll
-  only when events cannot report a change. Polling stops with the last subscriber
-  or a hidden document, backs off on errors, and preserves equal snapshots and the
-  last good value. `mutate` fences reads when a write returns authoritative data.
+  only when events cannot report a change. Polling and event-driven loads stop with
+  the last subscriber or an inactive native window; invalidations are retained and
+  one refresh runs on resume. Explicit action `refresh()`/`load()` reads still
+  complete while hidden, including OAuth completion and bounded plugin reconciliation. Browser-only initialization falls back to Page
+  Visibility, while uninitialized standalone fixtures remain active. Sources back
+  off on errors, refresh stale data on focus while active, and preserve equal snapshots and the last good value. `mutate`
+  fences reads when a write returns authoritative data.
 - Use `useResource(load, dependencies)` for component-owned, parameterized queries.
   Dependencies must include every request input and target identity. It isolates old
   requests while retaining the displayed value during reload/error. The owner
@@ -13,9 +17,12 @@
   a background read with retained data (for example the Requests refresh indicator).
 - Timing is not data: `refreshTiming` provides `subscribeFixedWindowEvent` (a fixed
   trailing window that continuous events cannot postpone), `startStaleFocusRefresh`
-  (one freshness owner, explicitly marked fresh on query/manual changes), and
-  `useVisibleInterval` (no initial/catch-up tick, paused while hidden or disabled).
-  Usage records use a 2 s window and 30 s focus freshness; the relative-range clock
+  (one freshness owner, explicitly marked fresh on query/manual changes; stale reads
+  are refreshed when a native window resumes; browser fallback retains the stale
+  threshold), and `useVisibleInterval` (no
+  initial/catch-up tick, paused while inactive or disabled). A pending fixed-window
+  event is consumed once on resume. Usage records use a 2 s window and refresh on
+  every native resume (30 s stale threshold in browser fallback); the relative-range clock
   ticks every 60 s only while the core is ready. Collector status remains a data
   source with 30 s polling, 120 s error backoff, and `eventDelayMs: 2000` for its
   event reads; keeping that option lets its refresh consume pending invalidations.

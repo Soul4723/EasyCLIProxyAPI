@@ -71,7 +71,10 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     assert.equal(await page.locator('main#main.ec-main').count(), 1, `${route}: main landmark`);
     if (sub && id === 'settings') {
       // Settings sub-pages are a vertical nav (links with aria-current), not header tabs.
-      assert.equal(await page.locator(`[data-settings-tab="${sub}"][aria-current="page"]`).count(), 1, `${route}: settings sub-page is current`);
+      const currentSettingsTab = page.locator(`[data-settings-tab="${sub}"][aria-current="page"]`);
+      // The shell's lazy fallback already has the Settings title; wait for the real section navigation.
+      await currentSettingsTab.waitFor();
+      assert.equal(await currentSettingsTab.count(), 1, `${route}: settings sub-page is current`);
     } else if (sub) {
       const selected = await page.getByRole('tab', { selected: true }).count() ? page.getByRole('tab', { selected: true }).first() : null;
       assert.ok(selected, `${route}: sub-page tab is selected`);

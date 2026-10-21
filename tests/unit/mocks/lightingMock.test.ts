@@ -1,7 +1,7 @@
 // guards the browser-mock contract used by the UI suite
 // Lighting commands, revision checks and run-result events support quota-ui.cjs.
 import { afterEach, expect, spyOn, test } from 'bun:test';
-import * as tauriCore from '@tauri-apps/api/core';
+import * as tauriCore from '../../../src/services/platform';
 import { createBrowserMockRuntime } from '../../../src/mocks/browserMockRuntime';
 import {
   deleteLightingSchedule,

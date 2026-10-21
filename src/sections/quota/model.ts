@@ -6,13 +6,13 @@ import { authFileIdentities, authFileName, parseAuthFilePriority } from '../../s
 import { normalizeAuthIndex, readString } from '../../services/managementApi';
 import { hasPendingClaudeReset } from '../../services/quotaActions';
 import {
-  providerForFile, quotaKey, quotaResetExpiries,
-  type AuthFile, type QuotaProvider, type QuotaRow, type QuotaState,
+  quotaProviderForFile, quotaKey, quotaResetExpiries,
+  type AuthFile, type QuotaDisplayProvider, type QuotaProvider, type QuotaRow, type QuotaState,
 } from '../../services/quotaService';
 import { quotaResetInstant } from '../../services/quotaTime';
 import type { CredentialStatus } from '../../ui';
 
-export const PROVIDER_ORDER: readonly QuotaProvider[] = ['claude', 'codex', 'antigravity', 'xai', 'kimi', 'devin'];
+export const PROVIDER_ORDER: readonly QuotaDisplayProvider[] = ['claude', 'codex', 'antigravity', 'xai', 'kimi', 'devin', 'plugin'];
 /** Quota data older than this is drawn striped ("stale"). */
 export const STALE_AFTER_MS = 30 * 60_000;
 /** A banked reset expiring sooner than this gets a "use soon" hint. */
@@ -62,7 +62,7 @@ export type AccountCooldown = {
 export type QuotaAccount = {
   key: string;
   file: AuthFile;
-  provider: QuotaProvider;
+  provider: QuotaDisplayProvider;
   fileName: string;
   authIndex: string;
   /** Email or account label; never used for requests. */
@@ -93,7 +93,7 @@ export type QuotaAccount = {
 };
 
 export type ProviderGroup = {
-  provider: QuotaProvider;
+  provider: QuotaDisplayProvider;
   accounts: QuotaAccount[];
   /** Mean of the effective remaining % across accounts that have data and are enabled; null if none. */
   leftPct: number | null;
@@ -224,7 +224,7 @@ export function buildAccount(
   locale: AppLocale,
   cooldowns: CooldownInput,
 ): QuotaAccount | null {
-  const provider = providerForFile(file);
+  const provider = quotaProviderForFile(file);
   if (!provider) return null;
   const health = authFileHealth(file);
   const windows = windowsOf(quota, now, locale);
@@ -266,7 +266,7 @@ export function buildAccount(
     fetchedAt,
     stale: quota.status === 'success' && fetchedAt !== undefined && now - fetchedAt > STALE_AFTER_MS,
     loading: quota.status === 'loading',
-    banked: bankedOf(provider, file, quota, now),
+    banked: provider === 'plugin' ? null : bankedOf(provider, file, quota, now),
     cooldown,
     creditBalance: quota.creditBalance,
     creditsUnlimited: quota.creditsUnlimited,
@@ -301,7 +301,7 @@ export function stabilizeAccounts(previous: readonly QuotaAccount[], next: Quota
 }
 
 export function groupAccounts(accounts: QuotaAccount[]): ProviderGroup[] {
-  const byProvider = new Map<QuotaProvider, QuotaAccount[]>();
+  const byProvider = new Map<QuotaDisplayProvider, QuotaAccount[]>();
   accounts.forEach((account) => {
     byProvider.set(account.provider, [...(byProvider.get(account.provider) ?? []), account]);
   });

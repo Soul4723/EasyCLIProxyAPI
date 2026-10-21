@@ -12,11 +12,12 @@ import {
   CredentialFilters, CredentialList, ModelExclusions, defaultCredentialFilter, useCredentials,
   type CredentialFilterValue, type CredentialsController,
 } from './creds';
-import { emptyStatusCounts } from './creds/model';
+import { emptyStatusCounts, filterCredentials } from './creds/model';
 import { resolveBrands, type Brand } from './model';
 import { ProviderCard, type BrandSummary } from './ProviderCard';
 import { useOAuthSignIn, type OAuthSignInController } from './signin';
 import { providersSubs } from './subs';
+import { AuthFileBatchDialog } from '../../components/AuthFileBatchDialog';
 
 type Kind = 'all' | 'accounts' | 'keys';
 
@@ -229,7 +230,9 @@ function AllCredentials({ creds, api }: { creds: CredentialsController; api: Api
   const { t } = useI18n();
   const [filter, setFilter] = useState<CredentialFilterValue>(defaultCredentialFilter);
   const [kind, setKind] = useState<Kind>('all');
+  const [batchOpen, setBatchOpen] = useState(false);
   const brand = filter.provider === 'all' ? undefined : filter.provider;
+  const filteredCredentials = filterCredentials(creds.rows, filter);
   if (!creds.loading && !api.loading && creds.rows.length + api.rows.length === 0) {
     return <EmptyState title={t('sec.providers.all.empty')} />;
   }
@@ -246,6 +249,8 @@ function AllCredentials({ creds, api }: { creds: CredentialsController; api: Api
             { value: 'keys', label: t('sec.providers.all.kindKeys'), count: api.rows.length },
           ]}
         />
+        <Button size="sm" variant="outline" disabled={kind === 'keys' || !filteredCredentials.some((row) => row.editable) || creds.busy}
+          onClick={() => setBatchOpen(true)}>{t('authFiles.operations.title')}</Button>
       </div>
       <CredentialFilters controller={creds} value={filter} onChange={setFilter} />
       {kind !== 'keys' ? (
@@ -260,6 +265,8 @@ function AllCredentials({ creds, api }: { creds: CredentialsController; api: Api
           <ApiKeyList controller={api} brand={brand} query={filter.query} />
         </section>
       ) : null}
+      {batchOpen ? <AuthFileBatchDialog files={filteredCredentials.map((row) => row.file)} onClose={() => setBatchOpen(false)}
+        onChanged={async () => { await creds.refresh(); }} /> : null}
     </>
   );
 }

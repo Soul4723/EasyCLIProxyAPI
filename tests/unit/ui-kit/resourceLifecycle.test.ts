@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createDataSource } from '../../../src/services/dataSource';
+import { initializeWindowActivity } from '../../../src/services/windowActivity';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -7,6 +8,7 @@ test('process status owner coalesces readers, pauses hidden and stops after deta
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
   const doc = Object.assign(new EventTarget(), { hidden: false });
   Object.defineProperty(globalThis, 'document', { value: doc, configurable: true });
+  await initializeWindowActivity();
   let reads = 0;
   const source = createDataSource({ pollMs: 20, load: async () => { reads++; return { running: false }; } });
   const close = source.subscribe(() => {});
