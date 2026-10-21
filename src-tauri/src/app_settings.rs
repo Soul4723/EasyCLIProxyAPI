@@ -47,6 +47,13 @@ pub(crate) async fn get_core_status(app: tauri::AppHandle) -> Result<CoreStatus,
                 version: None,
                 message,
             });
+        // Do not publish an old target response after Save has selected another core.
+        let gui_config_state = app.state::<GuiConfigState>();
+        let current = gui_config_state.inner.lock()
+            .map_err(|_| "GUI configuration status lock is poisoned")?;
+        if core_connection::CoreConnection::from(&*current) != connection {
+            return Err("Core connection changed; refresh status".into());
+        }
         let status = core_connection::remote_status(&connection, result);
         emit_core_status(&app, &status);
         return Ok(status);

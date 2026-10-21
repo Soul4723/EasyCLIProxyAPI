@@ -2,7 +2,7 @@ use crate::{CoreConnectionMode, CoreStatus, GuiConfigFile, GuiConfigState};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CoreConnection {
     pub(crate) mode: CoreConnectionMode,
