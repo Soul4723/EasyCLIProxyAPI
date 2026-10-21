@@ -89,22 +89,12 @@ function PluginWebviewPage({ entry, reloadToken }: { entry: PluginNavEntry; relo
     wantedRef.current = initialWanted;
     const labels = { back: pt('pageBack'), reload: pt('pageReload'), openExternal: pt('openExternal'), move: pt('pageMove') };
     showPluginWebview({ pluginId: entry.pluginID, menuIndex: entry.menuIndex, bounds: initialWanted, labels, reload, token: mine })
-      .then(() => {
-        if (cancelled) return;
-        // The host can finish laying out while the native child is being built. Re-measure once
-        // the show completes so the initial child position cannot remain stuck at a stale rect.
-        const currentBounds = effectiveBounds({ active: true, overlay, bounds: measure() });
-        if (!sameBounds(currentBounds, initialWanted)) {
-          void setPluginWebviewBounds(currentBounds, mine).catch((reason) => setError(message(reason)));
-        }
-        setReady(true);
-      })
+      .then(() => { if (!cancelled) setReady(true); })
       .catch((reason) => { if (!cancelled) setError(message(reason)); });
     return () => { cancelled = true; };
   }, [entry.pluginID, entry.menuIndex, reloadToken, attempt, locale]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!ready) return;
     const force = forceBoundsUpdate.current;
     forceBoundsUpdate.current = false;
     void setPluginWebviewBounds(wanted, token.current, force).catch((reason) => setError(message(reason)));

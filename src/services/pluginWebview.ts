@@ -88,11 +88,12 @@ const boundsUpdater = createBoundsUpdater(
   (callback) => requestAnimationFrame(callback),
 );
 
-export const showPluginWebview = (args: { pluginId: string; menuIndex: number; bounds: WebviewBounds; labels: PluginWebviewLabels; reload: boolean; token: number }) =>
-  invoke<string>('show_plugin_webview', args).then((url) => {
-    boundsUpdater.markApplied(args.bounds, args.token);
-    return url;
-  });
+export const showPluginWebview = (args: { pluginId: string; menuIndex: number; bounds: WebviewBounds; labels: PluginWebviewLabels; reload: boolean; token: number }) => {
+  // The native side places the webview from these bounds as soon as the show starts, so later
+  // updates can be compared against them while the show is still in flight.
+  boundsUpdater.markApplied(args.bounds, args.token);
+  return invoke<string>('show_plugin_webview', args);
+};
 export const setPluginWebviewBounds = (bounds: WebviewBounds, token: number, force = false) => boundsUpdater.update(bounds, token, force);
 export const hidePluginWebview = (token: number) => invoke('hide_plugin_webview', { token });
 export const closePluginWebview = () => invoke('close_plugin_webview');
