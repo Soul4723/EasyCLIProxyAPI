@@ -355,17 +355,18 @@ jobs:
   core-integration:
     name: Real CLIProxyAPI Local and Remote integration
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - name: Detect real-app observation hook
+      - name: Install required CI-only real-app observation hook
         id: observer
         run: |
-          if [[ ! -f scripts/dev-observe.mjs || ! -d scripts/dev-observe ]]; then
-            echo 'supported=false' >> "$GITHUB_OUTPUT"
-            echo 'Source has no dev-observe hook; real-core scenarios will be skipped.'
-          else
-            echo 'supported=true' >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          python3 .github/ci/install-observer.py
+          test -f scripts/dev-observe.mjs
+          test -d scripts/dev-observe
+          test -f src-tauri/src/dev_observe.rs
+          echo 'supported=true' >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         if: steps.observer.outputs.supported == 'true'
         with:
@@ -379,7 +380,7 @@ jobs:
           sudo apt-get install --yes \
             build-essential curl file libssl-dev libayatana-appindicator3-dev \
             librsvg2-dev libxdo-dev libwebkit2gtk-4.1-dev pkg-config \
-            dbus-x11 xvfb fuse3 x11-apps imagemagick
+            dbus-x11 xvfb fuse3
       - uses: actions/cache@v4
         if: steps.observer.outputs.supported == 'true'
         with:
@@ -441,97 +442,9 @@ jobs:
         if: steps.observer.outputs.supported == 'true'
         run: |
           set -euo pipefail
-          python3 - "$RUNNER_TEMP/core-integration/observe" <<'PY'
-          import re, shutil, sys
-          from pathlib import Path
-          target = Path(sys.argv[1])
-          target.mkdir(parents=True)
-          shutil.copy2('scripts/dev-observe.mjs', target / 'dev-observe.mjs')
-          shutil.copytree('scripts/dev-observe', target / 'dev-observe')
-          script = target / 'dev-observe.mjs'
-          text = script.read_text()
-          # Patch the generated test config, not its source template. This tolerates
-          # formatting/template changes in dev-observe and is safe if already applied.
-          config_marker = 'CI_LOCAL_MANAGEMENT_CONFIG'
-          if config_marker not in text:
-              fifo_anchor = re.compile(r"(?m)^(?P<indent>[ \t]*)const fifo = path\.join\(sandbox, ['\"]control\.fifo['\"]\);")
-              match = fifo_anchor.search(text)
-              if not match:
-                  raise SystemExit('Observer hook has no control FIFO setup anchor')
-              indent = match.group('indent')
-              config_patch = f'''{indent}if (mode === 'local') {{
-          {indent}  // {config_marker}: inject the isolated Local management key after config creation.
-          {indent}const localConfigPath = path.join(sandbox, 'config.toml');
-          {indent}let localConfig = fs.readFileSync(localConfigPath, 'utf8');
-          {indent}const localManagementKey = JSON.stringify(process.env.CPA_TEST_MANAGEMENT_KEY || '');
-          {indent}if (/^management-secret-key\\s*=/m.test(localConfig)) {{
-          {indent}  localConfig = localConfig.replace(/^management-secret-key\\s*=.*$/m, 'management-secret-key = ' + localManagementKey);
-          {indent}}} else {{
-          {indent}  localConfig += 'management-secret-key = ' + localManagementKey + '\\n';
-          {indent}}}
-          {indent}fs.writeFileSync(localConfigPath, localConfig, {{ mode: 0o600 }});
-          {indent}}}
-          '''
-              text = text[:match.start()] + config_patch + text[match.start():]
-          # A previously-patched hook is left intact; otherwise insert the scenario
-          # before route observations, after initial app/core readiness setup.
-          restart_marker = "args.includes('--restart-check')"
-          if restart_marker not in text:
-              restart_check = r'''if (mode === 'local' && args.includes('--restart-check')) {
-          const managementRead = async which => {
-            const marker = `RESTART_CHECK management read ${which} restart`;
-            const revisionPrefix = `RESTART_REVISION ${which} `;
-            send(`window.__TAURI_INTERNALS__.invoke('get_management_target_revision').then(r=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(revisionPrefix)}+r})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(revisionPrefix + 'ERROR ')}+String(e)}));`);
-            const revisionReport = await waitReport(revisionPrefix, 5000);
-            if (revisionReport.includes('ERROR')) throw Error(revisionReport);
-            const revision = Number(revisionReport.slice(revisionPrefix.length));
-            if (!Number.isSafeInteger(revision) || revision < 0) throw Error('Invalid management target revision');
-            send(`window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'/credentials',expectedRevision:${revision}}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
-            const result = await waitReport(marker, 5000);
-            if (result.includes('ERROR')) throw Error(result);
-          };
-          await managementRead('before');
-          const restartStarted = Date.now();
-          const restartMarker = 'RESTART_CHECK restart command';
-          send(`window.__TAURI_INTERNALS__.invoke('restart_core_process').then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(restartMarker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(restartMarker + ' ERROR ')}+String(e)}));`);
-          const restartResult = await waitReport(restartMarker, 5000);
-          if (restartResult.includes('ERROR')) throw Error(restartResult);
-          const restartDeadline = restartStarted + 10000;
-          let recovered = false;
-          let statusProbe = 0;
-          while (Date.now() < restartDeadline) {
-            const probeId = ++statusProbe;
-            const prefix = `RESTART_STATUS ${probeId} `;
-            send(`window.__TAURI_INTERNALS__.invoke('get_core_status').then(s=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(prefix)}+JSON.stringify(s)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(prefix + 'ERROR ')}+String(e)}));`);
-            try {
-              const statusReport = await waitReport(prefix, Math.min(1500, Math.max(250, restartDeadline - Date.now())));
-              if (!statusReport.includes('ERROR')) {
-                const status = JSON.parse(statusReport.slice(prefix.length));
-                if (status.running && status.ready) {
-                  recovered = true;
-                  send(report(`RESTART_CHECK ready after ${Date.now() - restartStarted}ms`));
-                  await waitReport('RESTART_CHECK ready after ');
-                  break;
-                }
-              }
-            } catch (error) {
-              if (Date.now() >= restartDeadline) break;
-            }
-            await sleep(Math.min(250, Math.max(0, restartDeadline - Date.now())));
-          }
-          if (!recovered) throw Error('Local core did not report running and ready within 10000ms after app restart');
-          await managementRead('after');
-          }
-          '''
-              route_anchor = re.compile(r"(?m)^(?P<indent>[ \t]*)for\s*\(\s*const\s+\w+\s+of\s+routes\s*\)\s*\{")
-              match = route_anchor.search(text)
-              if not match:
-                  raise SystemExit('Observer hook has no route-observation insertion point')
-              indent = match.group('indent')
-              block = '\n'.join(indent + line if line else '' for line in restart_check.splitlines()) + '\n'
-              text = text[:match.start()] + block + text[match.start():]
-          script.write_text(text)
-          PY
+          mkdir -p "$RUNNER_TEMP/core-integration/observe"
+          cp scripts/dev-observe.mjs "$RUNNER_TEMP/core-integration/observe/"
+          cp -r scripts/dev-observe "$RUNNER_TEMP/core-integration/observe/"
           management_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           client_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           echo "::add-mask::$management_key"
@@ -545,7 +458,7 @@ jobs:
           chmod 700 "$RUNNER_TEMP/core-integration/observe/dev-observe.mjs"
       - name: Local app auto-starts and manages the verified core
         id: local_integration
-        if: steps.observer.outputs.supported == 'true'
+        if: ${{ !cancelled() && steps.app_build.outcome == 'success' && steps.core_setup.outcome == 'success' }}
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/core-integration"
@@ -560,18 +473,18 @@ jobs:
           node "$root/observe/dev-observe.mjs" --mode local --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
             --no-build \
             --core "$CPA_TEST_CORE" --core-config "$CPA_TEST_TEMPLATE" \
-            --name core-local --out "$root/logs/local/observe" \
-            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/local/scenario.log"
-          cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local/core.log" 2>/dev/null || true
+            --name core-local --out "$root/logs/local/observe" 2>&1 | tee "$root/logs/local/scenario.log"
           python3 - "$root/logs/local/observe/ipc.log" <<'PY'
           import json, sys
           statuses = [json.loads(line.split('REPORT CORE ', 1)[1]) for line in open(sys.argv[1]) if 'REPORT CORE ' in line]
+          if any(line.split()[1:2] == ['start_core_process'] for line in open(sys.argv[1])):
+              raise SystemExit('Local auto-start must not be replaced by an explicit start IPC')
           if not any(s.get('running') and s.get('ready') and s.get('managed') and s.get('connectionMode') == 'local' for s in statuses):
               raise SystemExit('In-app Local status did not report a running, ready, managed core')
           PY
       - name: Local app restarts core and reuses management connection
         id: local_restart_integration
-        if: steps.observer.outputs.supported == 'true'
+        if: ${{ !cancelled() && steps.app_build.outcome == 'success' && steps.core_setup.outcome == 'success' }}
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/core-integration"
@@ -586,30 +499,28 @@ jobs:
           node "$root/observe/dev-observe.mjs" --mode local --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
             --no-build --restart-check \
             --core "$CPA_TEST_CORE" --core-config "$CPA_TEST_TEMPLATE" \
-            --name core-local-restart --out "$root/logs/local-restart/observe" \
-            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/local-restart/scenario.log"
-          cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local-restart/core.log" 2>/dev/null || true
+            --name core-local-restart --out "$root/logs/local-restart/observe" 2>&1 | tee "$root/logs/local-restart/scenario.log"
           python3 - "$root/logs/local-restart/observe/ipc.log" <<'PY'
           import sys
           text = open(sys.argv[1]).read()
           lines = text.splitlines()
           positions = {marker: next((i for i, line in enumerate(lines) if marker in line), -1) for marker in (
-              'REPORT RESTART_REVISION before ',
+              'REPORT RESTART_CHECK management read before restart started',
               'REPORT RESTART_CHECK management read before restart succeeded',
               'REPORT RESTART_CHECK restart command succeeded',
               'REPORT RESTART_CHECK ready after ',
-              'REPORT RESTART_REVISION after ',
+              'REPORT RESTART_CHECK management read after restart started',
               'REPORT RESTART_CHECK management read after restart succeeded',
           )}
           if any(position < 0 for position in positions.values()):
               raise SystemExit(f'Missing restart assertion evidence: {positions}')
           for start, end, label in (
-              ('REPORT RESTART_REVISION before ', 'REPORT RESTART_CHECK management read before restart succeeded', 'before restart'),
-              ('REPORT RESTART_REVISION after ', 'REPORT RESTART_CHECK management read after restart succeeded', 'after restart'),
+              ('REPORT RESTART_CHECK management read before restart started', 'REPORT RESTART_CHECK management read before restart succeeded', 'before restart'),
+              ('REPORT RESTART_CHECK management read after restart started', 'REPORT RESTART_CHECK management read after restart succeeded', 'after restart'),
           ):
               if not any('management_request GET /credentials' in line for line in lines[positions[start] + 1:positions[end]]):
                   raise SystemExit(f'No authenticated GET /credentials was observed {label}')
-          if not positions['REPORT RESTART_CHECK management read before restart succeeded'] < positions['REPORT RESTART_CHECK restart command succeeded'] < positions['REPORT RESTART_CHECK ready after '] < positions['REPORT RESTART_REVISION after ']:
+          if not positions['REPORT RESTART_CHECK management read before restart succeeded'] < positions['REPORT RESTART_CHECK restart command succeeded'] < positions['REPORT RESTART_CHECK ready after '] < positions['REPORT RESTART_CHECK management read after restart started']:
               raise SystemExit('Expected app restart command and readiness recovery between the two management reads')
           for marker in (
               'RESTART_CHECK management read before restart succeeded',
@@ -621,7 +532,7 @@ jobs:
           PY
       - name: Start standalone remote core with isolated test config
         id: remote_core
-        if: steps.observer.outputs.supported == 'true'
+        if: ${{ !cancelled() && steps.app_build.outcome == 'success' && steps.core_setup.outcome == 'success' }}
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/core-integration"
@@ -663,7 +574,7 @@ jobs:
           exit 1
       - name: Remote app authenticates and reads management status
         id: remote_integration
-        if: steps.observer.outputs.supported == 'true'
+        if: ${{ !cancelled() && steps.app_build.outcome == 'success' && steps.core_setup.outcome == 'success' }}
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/core-integration"
@@ -680,12 +591,13 @@ jobs:
             --no-build \
             --name core-remote --out "$root/logs/remote/observe" \
             --management-origin "http://127.0.0.1:$port" --client-origin "http://127.0.0.1:$port" \
-            --management-key-file "$root/remote/management.key" --client-key-file "$root/remote/client.key" \
-            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/remote/scenario.log"
+            --management-key-file "$root/remote/management.key" --client-key-file "$root/remote/client.key" 2>&1 | tee "$root/logs/remote/scenario.log"
           python3 - "$root/logs/remote/observe/ipc.log" <<'PY'
           import json, sys
           statuses = [json.loads(line.split('REPORT CORE ', 1)[1]) for line in open(sys.argv[1]) if 'REPORT CORE ' in line]
-          if not any(s.get('running') and s.get('ready') and s.get('connectionMode') == 'remote' for s in statuses):
+          if 'REPORT REMOTE authenticated management read succeeded' not in open(sys.argv[1]).read():
+              raise SystemExit('Missing successful in-app Remote management read')
+          if not any(s.get('running') and s.get('ready') and not s.get('managed') and s.get('connectionMode') == 'remote' for s in statuses):
               raise SystemExit('In-app Remote status did not report authenticated management readiness')
           PY
       - name: Stop standalone test core by recorded PID
@@ -714,18 +626,16 @@ jobs:
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import os
-          print('### Real CLIProxyAPI integration')
-          if os.environ.get('OBSERVER_SUPPORTED') != 'true':
-              print('- Local auto-start: **skipped: source has no dev-observe hook**')
-              print('- Local restart: **skipped: source has no dev-observe hook**')
-              print('- Remote connection: **skipped: source has no dev-observe hook**')
-          else:
-              print(f"- Source-pinned core: **{os.environ.get('CPA_TEST_VERSION', 'unknown')}**; verified checksums.txt: **{os.environ['CORE_SETUP_RESULT']}**")
-              print(f"- Debug app build: **{os.environ['APP_BUILD_RESULT']}**")
-              print(f"- Local auto-start: **{os.environ['LOCAL_RESULT']}** — app starts the core on launch and its in-app status hook asserts running + ready.")
-              print(f"- Local restart: **{os.environ['LOCAL_RESTART_RESULT']}** — authenticated management reads before/after app restart; in-app running + ready within 10 seconds.")
-              print('- Usage collector readiness timing: **not asserted**; dev-observe exposes core status but not collector state.')
-              print(f"- Remote connection: **{os.environ['REMOTE_RESULT']}** (standalone core startup: **{os.environ['REMOTE_CORE_RESULT']}**) — app status hook asserts authenticated management readiness.")
+          print('### Real CLIProxyAPI integration (required, no skip fallback)')
+          print(f"- Source-pinned core: **{os.environ.get('CPA_TEST_VERSION', 'unknown')}**; checksum verification: **{os.environ['CORE_SETUP_RESULT']}**")
+          print(f"- Debug app build: **{os.environ['APP_BUILD_RESULT']}**")
+          print(f"- Local auto-start: **{os.environ['LOCAL_RESULT']}** — no start IPC; in-app status asserts running + ready + managed.")
+          print(f"- Local restart: **{os.environ['LOCAL_RESTART_RESULT']}** — authenticated reads through the cached management client before/after restart; new PID and readiness within 10 seconds.")
+          print(f"- Remote: **{os.environ['REMOTE_RESULT']}**; standalone core: **{os.environ['REMOTE_CORE_RESULT']}** — in-app readiness and authenticated management read.")
+          print('- Usage collector timing is not asserted.')
+          required = ['APP_BUILD_RESULT', 'CORE_SETUP_RESULT', 'LOCAL_RESULT', 'LOCAL_RESTART_RESULT', 'REMOTE_CORE_RESULT', 'REMOTE_RESULT']
+          if os.environ.get('OBSERVER_SUPPORTED') != 'true' or any(os.environ[k] != 'success' for k in required):
+              raise SystemExit('Every real-core scenario is required; missing, skipped or failed scenarios cannot pass')
           PY
       - name: Upload integration logs
         if: always()
