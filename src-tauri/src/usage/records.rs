@@ -344,13 +344,13 @@ pub(super) fn usage_source_api_value(
     api_key_hash: &str,
     config: &GuiConfigFile,
 ) -> String {
-    let source = source.trim();
-    let is_key = usage_source_looks_like_key(source)
-        || (!api_key_hash.is_empty() && hash_text(source) == api_key_hash)
-        || config.api_keys.iter().any(|entry| entry.key == source);
+    let normalized = source.trim();
+    let is_key = usage_source_looks_like_key(normalized)
+        || (!api_key_hash.is_empty() && hash_text(normalized) == api_key_hash)
+        || config.api_keys.iter().any(|entry| entry.key == normalized);
     if !is_key {
         return source.to_string();
     }
-    let hash = hash_text(source);
-    format!("{} · #{}", mask_api_key(source), &hash[..8])
+    let hash = hash_text(normalized);
+    format!("{} · #{}", mask_api_key(normalized), &hash[..8])
 }

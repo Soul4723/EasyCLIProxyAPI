@@ -1223,7 +1223,7 @@
         let mut second = sample_record("source-key-2", "2026-10-12T00:00:00Z", "model");
         second.source = key.to_string();
         let mut ordinary = sample_record("source-account", "2026-10-10T00:00:00Z", "model");
-        ordinary.source = "account@example.com".to_string();
+        ordinary.source = " account@example.com ".to_string();
         insert_usage_records(&mut connection, &[first, second, ordinary]).unwrap();
 
         let page = load_usage_events(&connection, &UsageQuery::default(), &config).unwrap();
@@ -1244,7 +1244,7 @@
         assert!(first_source.contains(&hash_text(key)[..8]));
         assert_eq!(
             page.items.iter().find(|item| item.id == "source-account").unwrap().source,
-            "account@example.com"
+            " account@example.com "
         );
         let response = serde_json::to_string(&page.items).unwrap();
         assert!(!response.contains(key));
