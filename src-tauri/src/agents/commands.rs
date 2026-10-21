@@ -233,8 +233,8 @@ pub(crate) async fn resolve_pi_default_model(
 pub(crate) async fn check_pi_provider_update(
     app: tauri::AppHandle,
 ) -> Result<PiProviderUpdateStatus, String> {
-    let target_state = app.state::<GuiConfigState>();
-    let _target_operation = target_state.target_operation.lock().await;
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     let home = app
         .path()
         .home_dir()
@@ -400,9 +400,9 @@ pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), Strin
 pub(crate) async fn update_codex_model_catalog_inner(
     app: &tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
+    let _target_state = app.state::<GuiConfigState>();
+    let _target_operation = _target_state.target_operation.lock().await;
     let _update_guard = CODEX_CATALOG_UPDATE_LOCK.lock().await;
-    let target_state = app.state::<GuiConfigState>();
-    let _target_operation = target_state.target_operation.lock().await;
     let config = app.state::<GuiConfigState>().snapshot()?;
     let proxy_url = config.proxy_url;
     let client = build_http_client_with_proxy(
