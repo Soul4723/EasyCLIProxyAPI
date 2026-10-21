@@ -178,7 +178,8 @@ function AppContent() {
   const localBlocked = !status || status.connectionMode === 'remote';
   const remoteDisabled = (pageId: string) => localBlocked && isRemoteDisabledPage(pageId);
   const [navElement, setNavElement] = useState<HTMLElement | null>(null);
-  const { entries: pluginEntries, fetched: pluginEntriesFetched } = usePluginNavEntries(coreReady);
+  const pluginTarget = !status ? null : status.connectionMode === 'remote' ? status.remoteOrigin ?? null : 'local';
+  const { entries: pluginEntries, fetched: pluginEntriesFetched } = usePluginNavEntries(coreReady, pluginTarget);
   const pluginEntry = findPluginNavEntry(pluginEntries, active);
   const navPages = pages.filter((page) => page.id !== 'easy');
   const { layout: autoPluginLayout, compact: navCompact } = usePluginNavLayout(navElement, navPages.length, pluginEntries.length);

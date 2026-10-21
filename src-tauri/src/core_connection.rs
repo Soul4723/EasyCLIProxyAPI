@@ -3,6 +3,7 @@ use crate::{
     GuiConfigFile, GuiConfigState,
 };
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use tauri::Manager;
 
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -68,10 +69,25 @@ pub(crate) async fn remote_core_config_document(
     if config.connection_mode != CoreConnectionMode::Remote {
         return Ok(None);
     }
-    let content = crate::core_config::fetch_management_raw_config_yaml(config).await?;
-    serde_norway::from_str(&content)
-        .map(Some)
-        .map_err(|error| format!("Failed to parse the remote core configuration: {error}"))
+    // One short-lived snapshot for simultaneous settings getters and model probes. Holding the
+    // async lock across the read coalesces in-flight requests; credentials are part of the target.
+    // Cache failures too, so a failing target is not read again by every queued caller.
+    type Snapshot = (CoreConnection, Instant, Result<serde_norway::Value, String>);
+    static CACHE: tokio::sync::Mutex<Option<Snapshot>> = tokio::sync::Mutex::const_new(None);
+    let target = CoreConnection::from(config);
+    let mut cache = CACHE.lock().await;
+    if let Some((cached_target, fetched_at, document)) = cache.as_ref() {
+        if *cached_target == target && fetched_at.elapsed() < Duration::from_secs(5) {
+            return document.clone().map(Some);
+        }
+    }
+    let document = match crate::core_config::fetch_management_raw_config_yaml(config).await {
+        Ok(content) => serde_norway::from_str(&content)
+            .map_err(|error| format!("Failed to parse the remote core configuration: {error}")),
+        Err(error) => Err(error),
+    };
+    *cache = Some((target, Instant::now(), document.clone()));
+    document.map(Some)
 }
 
 /// Settings view of a remote core. Key remarks are GUI metadata of this computer, so none are shown.
@@ -166,6 +182,19 @@ pub(crate) struct CoreConnectionTestResult {
 pub(crate) async fn test_core_connection(
     connection: CoreConnection,
 ) -> Result<CoreConnectionTestResult, String> {
+    check_remote_connection(connection, true).await
+}
+
+pub(crate) async fn poll_core_connection(
+    connection: CoreConnection,
+) -> Result<CoreConnectionTestResult, String> {
+    check_remote_connection(connection, false).await
+}
+
+async fn check_remote_connection(
+    connection: CoreConnection,
+    full_config: bool,
+) -> Result<CoreConnectionTestResult, String> {
     let connection = normalize_connection(connection)?;
     let config = GuiConfigFile {
         connection_mode: CoreConnectionMode::Remote,
@@ -175,7 +204,8 @@ pub(crate) async fn test_core_connection(
     };
     let response = crate::management_api::management_http_client_for(&config)?
         .get(crate::management_api::management_endpoint(
-            &config, "config",
+            &config,
+            if full_config { "config" } else { "config/config-version" },
         )?)
         .header(
             "Authorization",
@@ -202,9 +232,11 @@ pub(crate) async fn test_core_connection(
                 .await
                 .ok()
                 .and_then(|value| {
-                    value
-                        .get("config-version")
-                        .and_then(serde_json::Value::as_u64)
+                    if full_config {
+                        value.get("config-version")?.as_u64()
+                    } else {
+                        value.as_u64()
+                    }
                 })
                 == Some(8);
             result.connected = valid;

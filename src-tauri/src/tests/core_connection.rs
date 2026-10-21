@@ -1,7 +1,8 @@
 use super::support::*;
 use super::*;
 use crate::core_connection::{
-    normalize_connection, normalize_origin, require_local, test_core_connection, CoreConnection,
+    normalize_connection, normalize_origin, poll_core_connection, require_local, test_core_connection,
+    CoreConnection,
 };
 use std::io::{Read, Write};
 
@@ -104,14 +105,29 @@ fn remote_targeting_and_local_lifecycle_refusal() {
 
 #[tokio::test]
 async fn connection_test_maps_v8_auth_errors_and_redirects_without_saving() {
+    check_connection_responses(true).await;
+    check_connection_responses(false).await;
+}
+
+async fn check_connection_responses(full_config: bool) {
     for (status, body, connected, message) in [
         (200, r#"{"config-version":8}"#, true, "Connected"),
         (200, r#"{"config-version":7}"#, false, "v8 configuration"),
+        (200, "8", false, "v8 configuration"),
+        (200, "not json", false, "v8 configuration"),
         (401, "{}", false, "rejected"),
         (403, "{}", false, "forbidden"),
         (404, "{}", false, "v8 management API"),
         (302, "{}", false, "HTTP 302"),
     ] {
+        let body = if full_config { body } else {
+            match body {
+                r#"{"config-version":8}"# => "8",
+                r#"{"config-version":7}"# => "7",
+                "8" => r#"{"config-version":8}"#,
+                other => other,
+            }
+        };
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
@@ -127,17 +143,21 @@ async fn connection_test_maps_v8_auth_errors_and_redirects_without_saving() {
                 request.extend_from_slice(&buffer[..count]);
             }
             let request = String::from_utf8(request).unwrap().to_ascii_lowercase();
-            assert!(request.starts_with("get /v8/management/config http/1.1"));
+            let path = if full_config { "config" } else { "config/config-version" };
+            assert!(request.starts_with(&format!("get /v8/management/{path} http/1.1")));
             assert!(request.contains("authorization: bearer test-remote-key\r\n"));
             write!(socket, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nX-CPA-VERSION: v8.0.35\r\nLocation: http://127.0.0.1:1/not-followed\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
         });
-        let result = test_core_connection(CoreConnection {
+        let connection = CoreConnection {
             mode: CoreConnectionMode::Remote,
             management_origin: origin.clone(),
             management_key: "test-remote-key".into(),
-        })
-        .await
-        .unwrap();
+        };
+        let result = if full_config {
+            test_core_connection(connection).await
+        } else {
+            poll_core_connection(connection).await
+        }.unwrap();
         server.join().unwrap();
         assert_eq!(result.connected, connected);
         assert!(result.message.contains(message), "{}", result.message);
@@ -155,13 +175,16 @@ async fn connection_test_maps_v8_auth_errors_and_redirects_without_saving() {
         assert!(status.install_dir.is_empty());
         assert_eq!(status.remote_origin.as_deref(), Some(origin.as_str()));
     }
-    let result = test_core_connection(CoreConnection {
+    let connection = CoreConnection {
         mode: CoreConnectionMode::Remote,
         management_origin: "http://127.0.0.1:1".into(),
         management_key: "test-remote-key".into(),
-    })
-    .await
-    .unwrap();
+    };
+    let result = if full_config {
+        test_core_connection(connection).await
+    } else {
+        poll_core_connection(connection).await
+    }.unwrap();
     assert!(!result.connected);
     assert_eq!(result.message, "Unable to reach the core");
 }
