@@ -77,7 +77,7 @@ const chip = (page, group, label) => page.getByRole('group', { name: group }).ge
     assert.equal(await panel(page).getByLabel('Exclusion rules (one per line)').isVisible(), true, 'excluded-model rules textarea');
     assert.equal(await panel(page).locator('[data-section=cooldown]').isVisible(), true);
     await panel(page).locator('[data-section=advanced] > summary').click();
-    const policy = panel(page).locator('details').filter({ has: page.getByText('Request policies', { exact: true }) });
+    const policy = panel(page).locator('details.ec-cred-subsection').filter({ has: page.getByText('Request policies', { exact: true }) });
     assert.equal(await policy.getAttribute('open'), null, 'request policies are collapsed by default');
     await policy.locator('summary').click();
     assert.equal(await policy.getByText('Request retries', { exact: true }).isVisible(), true, 'request policy fields are editable in the advanced section');

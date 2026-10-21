@@ -4,7 +4,8 @@
   `useDataSource`; events invalidate it and explicit refreshes go through it. Poll
   only when events cannot report a change. Polling and event-driven loads stop with
   the last subscriber or an inactive native window; invalidations are retained and
-  one refresh runs on resume. Browser-only initialization falls back to Page
+  one refresh runs on resume. Explicit action `refresh()`/`load()` reads still
+  complete while hidden, including OAuth completion and bounded plugin reconciliation. Browser-only initialization falls back to Page
   Visibility, while uninitialized standalone fixtures remain active. Sources back
   off on errors and preserve equal snapshots and the last good value. `mutate`
   fences reads when a write returns authoritative data.

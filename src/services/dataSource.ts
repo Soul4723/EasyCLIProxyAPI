@@ -47,6 +47,7 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
   let failures = 0;
   let dirty = true;
   let queued = false;
+  let queuedExplicit = false;
   let refreshAfterCurrent = false;
   let request: Promise<void> | null = null;
   let startedAt = -Infinity;
@@ -66,14 +67,14 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
     clearTimeout(timer);
     const base = typeof options.pollMs === 'function' ? options.pollMs() : options.pollMs;
     if (!base || !listeners.size || !visible()) return;
-    timer = setTimeout(() => { void refresh(); }, Math.min(base * 2 ** failures, options.maxPollMs ?? base * 4));
+    timer = setTimeout(() => { void read(false); }, Math.min(base * 2 ** failures, options.maxPollMs ?? base * 4));
   };
-  const refresh = (): Promise<void> => {
+  const read = (explicit: boolean): Promise<void> => {
     dirty = true;
-    // Keep invalidations made while hidden, but never start IPC or event-driven
-    // loads until the native window becomes active again.
-    if (!visible()) return Promise.resolve();
-    if (request) { queued = true; return request; }
+    // Automatic work waits for visibility. Explicit action reads must still
+    // complete with fresh data (OAuth completion and plugin reconciliation).
+    if (!explicit && !visible()) return Promise.resolve();
+    if (request) { queued = true; queuedExplicit ||= explicit; return request; }
     refreshAfterCurrent = false;
     clearTimeout(timer); clearTimeout(throttle); throttle = undefined;
     startedAt = Date.now();
@@ -84,21 +85,22 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
       try {
         const data = await options.load();
         if (current !== generation) return;
-        if (!visible()) { dirty = true; return; }
+        if (!visible()) { dirty = true; if (!explicit) return; }
         failures = 0;
         lastSuccessfulAt = Date.now();
         publish({ data, error: null, updatedAt: lastSuccessfulAt, loading: false });
       } catch (error) {
         if (current !== generation) return;
-        if (!visible()) { dirty = true; return; }
+        if (!visible()) { dirty = true; if (!explicit) return; }
         failures++;
         publish({ ...snapshot, error: error instanceof Error ? error.message : String(error), loading: false });
       }
     })().finally(async () => {
       request = null;
-      if ((queued || refreshAfterCurrent) && visible()) {
-        queued = false; refreshAfterCurrent = false;
-        await refresh();
+      if (queuedExplicit || ((queued || refreshAfterCurrent) && visible())) {
+        const explicitNext = queuedExplicit;
+        queued = false; queuedExplicit = false; refreshAfterCurrent = false;
+        await read(explicitNext);
       }
       else if (!visible()) queued = false;
       else poll();
@@ -111,17 +113,19 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
     if (!listeners.size || !visible()) return;
     const delay = Math.max(eventDelayMs, (options.minIntervalMs ?? 0) - (Date.now() - startedAt));
     if (delay) {
-      throttle ??= setTimeout(() => { throttle = undefined; void refresh(); }, delay);
-    } else void refresh();
+      throttle ??= setTimeout(() => { throttle = undefined; void read(false); }, delay);
+    } else void read(false);
   };
   const invalidate = () => invalidateAfter(0);
   const invalidateFromEvent = () => invalidateAfter(options.eventDelayMs ?? 0);
   const onVisible = () => {
     if (!visible()) {
       clearTimeout(timer); clearTimeout(throttle); throttle = undefined;
-      // A request that completes while hidden is intentionally discarded; all
-      // sources also refresh once on resume to cover changes without events.
-      dirty = true;
+      // Automatic completions while hidden are discarded; shared sources
+      // refresh once on resume to cover changes without events.
+      // Infinity opts component-owned queries/session checks out of implicit
+      // resume reads; their owner or the existing polling cadence refreshes them.
+      if (options.focusMs !== Infinity || request) dirty = true;
       if (request) refreshAfterCurrent = true;
       return;
     }
@@ -142,20 +146,22 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
       const customStop = options.subscribeEvents?.(invalidateFromEvent);
       stopEvents = () => { disposed = true; stops.forEach(stop => stop()); customStop?.(); };
       stopActivity = windowActivity.subscribe(onVisible);
-      if (dirty || !lastSuccessfulAt) { if (!request && visible()) void refresh(); }
+      if (dirty || !lastSuccessfulAt) { if (!request && visible()) void read(false); }
       else poll();
     }
     return () => {
       listeners.delete(fn);
       if (listeners.size) return;
       clearTimeout(timer); clearTimeout(throttle); throttle = undefined;
+      queued = queuedExplicit; refreshAfterCurrent = false;
       stopEvents?.();
       stopActivity?.(); stopActivity = undefined;
     };
   };
   return {
-    getSnapshot: () => snapshot, subscribe, refresh, invalidate,
-    load: () => request ?? (dirty || !lastSuccessfulAt ? refresh() : Promise.resolve()),
+    getSnapshot: () => snapshot, subscribe, refresh: () => read(true), invalidate,
+    load: () => !visible() && (request || dirty || !lastSuccessfulAt)
+      ? read(true) : request ?? (dirty || !lastSuccessfulAt ? read(true) : Promise.resolve()),
     mutate(updater: (data: T | undefined) => T) {
       generation++;
       lastSuccessfulAt = Date.now();
@@ -164,10 +170,10 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
     },
     reset() {
       generation++; failures = 0; lastSuccessfulAt = 0; dirty = true; queued = !!request && listeners.size > 0;
-      refreshAfterCurrent = false;
+      refreshAfterCurrent = false; queuedExplicit = false;
       clearTimeout(timer); clearTimeout(throttle); throttle = undefined;
       publish(initial);
-      if (listeners.size && !request) void refresh();
+      if (listeners.size && !request) void read(false);
     },
   };
 }

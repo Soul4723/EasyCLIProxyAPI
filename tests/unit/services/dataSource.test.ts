@@ -179,3 +179,89 @@ test('event coalescing uses one fixed trailing window; explicit refresh bypasses
     expect(reads).toBe(3); // refresh consumed the pending event invalidation
   } finally { off(); }
 });
+
+test('hidden background work pauses but awaited action refresh/load reads stay fresh', async () => {
+  const { windowActivity } = await import('../../../src/services/windowActivity');
+  let active = false;
+  const transitions = new Set<() => void>();
+  const activity = spyOn(windowActivity, 'active').mockImplementation(() => active);
+  const subscription = spyOn(windowActivity, 'subscribe').mockImplementation(listener => {
+    transitions.add(listener); return () => { transitions.delete(listener); };
+  });
+  let reads = 0;
+  let fail = false;
+  const source = createDataSource({ pollMs: 10, load: async () => {
+    reads++;
+    if (fail) throw new Error('action read failed');
+    return reads;
+  } });
+  const off = source.subscribe(() => {});
+  try {
+    source.invalidate();
+    await pause(25);
+    expect(reads).toBe(0);
+    await source.refresh();
+    expect(source.getSnapshot().data).toBe(1);
+    source.invalidate();
+    await source.load();
+    expect(source.getSnapshot().data).toBe(2);
+    fail = true;
+    await source.refresh();
+    expect(source.getSnapshot().error).toBe('action read failed');
+    expect(source.getSnapshot().data).toBe(2);
+    await pause(25);
+    expect(reads).toBe(3); // Explicit reads did not restart hidden polling.
+    fail = false;
+    active = true; transitions.forEach(listener => listener());
+    await source.load();
+    expect(source.getSnapshot().data).toBe(4);
+  } finally { off(); activity.mockRestore(); subscription.mockRestore(); }
+});
+
+test('an action read queued behind a hidden automatic read awaits its fresh result', async () => {
+  const { windowActivity } = await import('../../../src/services/windowActivity');
+  let active = true;
+  const transitions = new Set<() => void>();
+  const activity = spyOn(windowActivity, 'active').mockImplementation(() => active);
+  const subscription = spyOn(windowActivity, 'subscribe').mockImplementation(listener => {
+    transitions.add(listener); return () => { transitions.delete(listener); };
+  });
+  const first = deferred<number>();
+  let reads = 0;
+  const source = createDataSource({ load: () => ++reads === 1 ? first.promise : Promise.resolve(reads) });
+  const off = source.subscribe(() => {});
+  try {
+    active = false; transitions.forEach(listener => listener());
+    const action = source.load();
+    first.resolve(1);
+    await action;
+    expect(reads).toBe(2);
+    expect(source.getSnapshot().data).toBe(2);
+    source.reset();
+    const pending = source.refresh();
+    await pending;
+    expect(source.getSnapshot().data).toBe(3);
+  } finally { off(); activity.mockRestore(); subscription.mockRestore(); }
+});
+
+test('component-owned queries retain explicit resume ownership', async () => {
+  const { windowActivity } = await import('../../../src/services/windowActivity');
+  let active = true;
+  const transitions = new Set<() => void>();
+  const activity = spyOn(windowActivity, 'active').mockImplementation(() => active);
+  const subscription = spyOn(windowActivity, 'subscribe').mockImplementation(listener => {
+    transitions.add(listener); return () => { transitions.delete(listener); };
+  });
+  let reads = 0;
+  const source = createDataSource({ focusMs: Infinity, load: async () => ++reads });
+  const off = source.subscribe(() => {});
+  try {
+    await source.load();
+    active = false; transitions.forEach(listener => listener());
+    active = true; transitions.forEach(listener => listener());
+    await source.load();
+    expect(reads).toBe(1); // Usage's owner invalidates the query once on resume.
+    await source.refresh();
+    expect(reads).toBe(2);
+  } finally { off(); activity.mockRestore(); subscription.mockRestore(); }
+});
