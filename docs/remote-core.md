@@ -64,8 +64,7 @@ shows the host's process ID. When the core is down but the host answers,
 status reads **Stopped on remote host**. If the host does not answer, the
 buttons stay disabled and Home shows the reason.
 
-Start and Stop on the host behave exactly like pressing them there, including
-remembering whether the core should run when that app starts.
+Start, Stop and Restart on the host behave exactly like pressing them there.
 
 ### Security model
 
@@ -133,8 +132,8 @@ These stay visible in place but are disabled, with a short reason:
 
 - Start, Stop and Restart (Home and the plugin page's Restart core) without
   [remote host control](#remote-host-control), or while the host does not answer.
-- Start Core on Launch: there is no local core to start. The host's own setting
-  follows its last Start or Stop.
+- Start Core on Launch: there is no local core to start; the host app keeps its
+  own setting.
 - The tray's start, stop and restart: the tray stays a local-core control.
 - Agent Configuration, Beginner Mode and Codex tools: machine and agent
   configuration stays local for now.
