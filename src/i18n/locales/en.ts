@@ -405,7 +405,6 @@ export const en: Record<MessageKey, string> = {
   'quota.refreshAll': 'Refresh Quota',
   'common.confirm': 'Confirm',
   'quota.service.xaiPaidAccount': 'Paid API account',
-  'quota.service.xaiPaidHealth': 'Paid API chat is available. xAI does not currently provide total quota data for this OAuth credential.',
   'quota.service.xaiPaidQuotaUnavailable': 'Remaining quota is not provided for this account.',
   'quota.claude.confirm': 'Reset the Claude quota for “{name}”?',
   'quota.claude.warning': 'This consumes one Claude reset grant to clear eligible usage windows.',

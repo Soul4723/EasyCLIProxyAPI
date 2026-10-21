@@ -48,10 +48,9 @@ export interface XaiProductUsageSummary {
 }
 
 export interface XaiBillingSummary {
-  mode: 'billing' | 'paid-health';
-  source?: 'cli-chat-proxy' | 'api.x.ai-fallback';
+  mode: 'billing';
+  source?: 'cli-chat-proxy';
   planType?: 'paid';
-  healthStatus?: 'chat-ok';
   userId?: string;
   teamId?: string;
   periodType: XaiBillingPeriodType;

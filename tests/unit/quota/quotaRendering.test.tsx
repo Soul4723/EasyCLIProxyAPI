@@ -40,12 +40,12 @@ describe('quota card rendering', () => {
     expect(html).toContain('aria-label="Refresh quota"');
   });
 
-  it('xAI 探测成功显示可用说明，100% 额度保留刷新按钮', () => {
-    const healthy = render({
-      status: 'success', rows: quotaRowsFor('xai', { mode: 'paid-health' }),
+  it('xAI 付费账号显示额度不可用说明，100% 额度保留刷新按钮', () => {
+    const paid = render({
+      status: 'success', rows: quotaRowsFor('xai', { mode: 'paid-info' }),
     }, 'xai');
-    expect(healthy).toContain('Paid API chat is available');
-    expect(healthy).not.toMatch(/width:\d+%/);
+    expect(paid).toContain('Remaining quota is not provided for this account.');
+    expect(paid).not.toMatch(/width:\d+%/);
     const full = render({
       status: 'success', rows: quotaRowsFor('xai', { config: { creditUsagePercent: 0 } }),
     }, 'xai');

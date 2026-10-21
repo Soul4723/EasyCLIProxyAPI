@@ -48,7 +48,7 @@ test('edge accounts expose exhausted, unknown, disabled and upstream-error state
   expect((await quota('codex-exhausted.json')).rows[0].remainingPercent).toBe(0);
   expect((await quota('codex-unknown-quota.json')).rows[0].remainingPercent).toBeNull();
   expect((await quota('antigravity-empty-quota.json')).status).toBe('error');
-  expect((await quota('xai-paid-api.json')).rows[0].remainingPercent).toBeNull();
+  expect(await quota('xai-paid-api.json')).toMatchObject({ status: 'success', plan: 'Paid', rows: [{ remainingPercent: null }] });
   expect((await quota('codex-disabled.json')).status).toBe('error');
   // The message is localized with the module-level locale, which other test files can leave non-English.
   expect(await quota('claude-expired.json')).toMatchObject({ status: 'error', error: translate(getCurrentLocale(), 'management.error.upstreamHttpDetail', { status: 401, message: 'Mock OAuth token expired' }) });

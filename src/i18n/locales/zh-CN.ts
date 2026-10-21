@@ -389,7 +389,6 @@ export const zhCN = {
   'quota.refreshAll': '刷新额度',
   'common.confirm': '确认',
   'quota.service.xaiPaidAccount': '付费 API 账号',
-  'quota.service.xaiPaidHealth': '付费 API 对话可用。xAI 暂不为此 OAuth 凭证提供额度总量数据。',
   'quota.service.xaiPaidQuotaUnavailable': '此账号不提供剩余额度。',
   'quota.claude.confirm': '确认重置“{name}”的 Claude 额度吗？',
   'quota.claude.warning': '将消耗 1 次 Claude 储备重置权益，清除符合条件的用量窗口。',

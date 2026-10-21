@@ -103,6 +103,7 @@ export function createQuotaMock() {
       dailyQuotaResetAtUnix: Math.floor(Date.now() / 1000) + 3600, weeklyQuotaResetAtUnix: Math.floor(Date.now() / 1000) + 259200,
       planEnd: future(24 * 30),
     } } });
+    if (url.hostname === 'api.x.ai' && path === '/v1/me') return success({ user_id: 'mock-xai-user', team_id: 'mock-xai-team' });
     if (path.endsWith('/billing')) return success({ currentPeriod: { type: 'weekly', start: future(-120), end: future(48) }, creditUsagePercent: 36, productUsage: [{ product: 'Grok Code', usagePercent: 31 }] });
     return undefined;
   };
