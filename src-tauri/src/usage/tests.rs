@@ -1128,7 +1128,9 @@
         let query = UsageQuery::default();
         let analysis = load_usage_analysis_with_notes(&connection, &query, &config, &notes).unwrap();
         assert_eq!(analysis.sources.iter().find(|c| c.key == "account@example.com").unwrap().label, "Grok credential note");
-        assert_eq!(analysis.sources.iter().find(|c| c.key == "sk-upstream-test").unwrap().label, "Grok API note");
+        let source = analysis.sources.iter().find(|c| c.label == "Grok API note").unwrap();
+        assert_eq!(source.key, usage_source_api_value("sk-upstream-test", &hash_text("sk-upstream-test"), &config));
+        assert!(!serde_json::to_string(&analysis).unwrap().contains("sk-upstream-test"));
         assert_eq!(analysis.api_keys[0].label, "Client note");
         assert_eq!(analysis.upstreams.iter().find(|c| c.category.key == "auth:grok-file").unwrap().category.label, "account@example.com");
         let events = load_usage_events_with_notes(&connection, &query, &config, &notes).unwrap();
@@ -1271,6 +1273,49 @@
             )
             .unwrap();
         assert_eq!(stored, key);
+    }
+
+    #[test]
+    fn resolved_usage_event_json_keeps_remarks_and_never_exposes_raw_source_keys() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&connection).unwrap();
+        let key = "sk-oauth-source-secret-1234567890";
+        let mut config = GuiConfigFile {
+            api_keys: vec![crate::GuiApiKeyEntry {
+                key: key.to_string(),
+                remark: "Configured key".to_string(),
+            }],
+            ..Default::default()
+        };
+        config.api_access_remarks.push(crate::GuiApiAccessRemark {
+            provider_section: "codex-api-key".to_string(),
+            api_key_hash: hash_text(key),
+            record_hash: String::new(),
+            remark: "OAuth source remark".to_string(),
+        });
+        let mut record = sample_record("source-oauth-key", "2026-10-11T00:00:00Z", "model");
+        record.source = key.to_string();
+        record.provider = "codex".to_string();
+        record.auth_type = "oauth".to_string();
+        record.auth_index = "retired-codex-oauth".to_string();
+        insert_usage_records(&mut connection, &[record]).unwrap();
+
+        let mut page = load_usage_events_unmasked_with_notes(
+            &connection,
+            &UsageQuery::default(),
+            &config,
+            &HashMap::new(),
+        )
+        .unwrap();
+        sources::apply_events(&mut page, &HashMap::new(), &config);
+        mask_usage_event_sources(&mut page, &config);
+
+        let event = &page.items[0];
+        assert_eq!(event.source_display, "OAuth source remark");
+        assert_eq!(event.source, usage_source_api_value(key, &hash_text(key), &config));
+        let events_json = serde_json::to_string(&page).unwrap();
+        assert!(!events_json.contains(key));
+        assert!(events_json.contains("OAuth source remark"));
     }
 
     #[test]
