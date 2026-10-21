@@ -9,3 +9,12 @@
 :root[data-window-material] .ec-sidebar {
   background: color-mix(in srgb, var(--ec-sidebar) var(--theme-window-material-sidebar-opacity), transparent);
 }
+
+:root[data-window-material] .immersive-window {
+  background: transparent;
+}
+
+:root[data-window-material] .immersive-window:has(.ec-app) .window-titlebar {
+  /* The Windows titlebar sits over the main pane and takes the same tint (transparent without the token). */
+  background: color-mix(in srgb, var(--ec-bg) var(--theme-window-material-workspace-opacity), transparent);
+}

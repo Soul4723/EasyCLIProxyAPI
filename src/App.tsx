@@ -1,3 +1,4 @@
+import { WindowFrame } from './components/WindowFrame';
 import { CoreRuntimeProvider } from './coreRuntime';
 import { CoreUpdateProvider } from './coreUpdate';
 import { AppUpdateProvider } from './appUpdate';
@@ -8,7 +9,7 @@ function App() {
     <AppUpdateProvider>
       <CoreRuntimeProvider>
         <CoreUpdateProvider>
-          <Shell />
+          <WindowFrame><Shell /></WindowFrame>
         </CoreUpdateProvider>
       </CoreRuntimeProvider>
     </AppUpdateProvider>
