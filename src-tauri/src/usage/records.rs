@@ -321,16 +321,39 @@ pub(super) fn usage_source_display(config: &GuiConfigFile, provider: &str, sourc
     if let Some(remark) = config.api_access_remark_for_source(provider, source) {
         return remark.to_string();
     }
-    let character_count = source.chars().count();
-    let looks_like_secret = !source.contains('@')
-        && !source.chars().any(char::is_whitespace)
-        && (source.starts_with("sk-")
-            || source.starts_with("AIza")
-            || source.starts_with("key-")
-            || character_count >= 48);
-    if looks_like_secret {
+    if usage_source_looks_like_key(source) {
         mask_api_key(source)
     } else {
         source.to_string()
     }
+}
+
+pub(super) fn usage_source_looks_like_key(source: &str) -> bool {
+    let source = source.trim();
+    !source.contains('@')
+        && !source.chars().any(char::is_whitespace)
+        && (source.starts_with("sk-")
+            || source.starts_with("AIza")
+            || source.starts_with("key-")
+            || source.chars().count() >= 48)
+}
+
+/// Safe API/CSV representation that preserves stable grouping without exposing the key.
+pub(super) fn usage_source_api_value(
+    source: &str,
+    api_key_hash: &str,
+    config: &GuiConfigFile,
+) -> String {
+    let normalized = source.trim();
+    if normalized.is_empty() {
+        return source.to_string();
+    }
+    let is_key = usage_source_looks_like_key(normalized)
+        || (!api_key_hash.is_empty() && hash_text(normalized) == api_key_hash)
+        || config.api_keys.iter().any(|entry| entry.key == normalized);
+    if !is_key {
+        return source.to_string();
+    }
+    let hash = hash_text(normalized);
+    format!("{} · #{}", mask_api_key(normalized), &hash[..8])
 }

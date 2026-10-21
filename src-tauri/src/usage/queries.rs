@@ -333,6 +333,7 @@ pub(super) fn load_usage_analysis_with_notes(
     let mut key_labels = HashMap::<String, (String, String)>::new();
     let mut source_labels = HashMap::<String, String>::new();
     let mut source_notes = HashMap::<String, Option<String>>::new();
+    let mut key_sources = HashSet::<String>::new();
     let read_result = (|| -> rusqlite::Result<()> {
         while let Some(row) = rows.next()? {
             let requests = from_sql_i64(row.get(6)?);
@@ -340,7 +341,11 @@ pub(super) fn load_usage_analysis_with_notes(
             let tokens = from_sql_i64(row.get(8)?);
             let provider: String = row.get(1)?;
             let source: String = row.get(2)?;
+            let api_key_hash: String = row.get(3)?;
             let auth_index: String = row.get(9)?;
+            if usage_source_api_value(&source, &api_key_hash, config) != source {
+                key_sources.insert(source.clone());
+            }
             if let Some(note) = notes.get(&auth_index) {
                 // Historical indexes can disappear after reimporting a file.
                 // Only conflicting known notes make a source ambiguous.
@@ -392,10 +397,17 @@ pub(super) fn load_usage_analysis_with_notes(
     let sources = sources
         .into_iter()
         .map(|mut category| {
+            let raw_key = category.key.clone();
             if let Some(Some(note)) = source_notes.get(&category.key) {
                 category.label = note.clone();
             } else if let Some(label) = source_labels.get(&category.key) {
                 category.label = label.clone();
+            }
+            if key_sources.contains(&raw_key) {
+                category.key = usage_source_api_value(&raw_key, &hash_text(raw_key.trim()), config);
+                if category.label.contains(&raw_key) {
+                    category.label = category.label.replace(&raw_key, &mask_api_key(&raw_key));
+                }
             }
             category
         })
@@ -576,13 +588,35 @@ pub(crate) async fn get_usage_events(
     run_usage_task(move || {
         let connection = open_usage_database_for(&config)?;
         let registry = sources::resolve(&connection, metadata)?;
-        let mut events = load_usage_events_with_notes(&connection, &query, &config, &HashMap::new())?;
-        sources::apply_events(&mut events, &registry, &config);
-        Ok(events)
+        load_resolved_usage_events(&connection, &query, &config, &registry)
     }).await
 }
 
+/// Labels come from the raw source, so mask only after `apply_events` has resolved them.
+pub(super) fn load_resolved_usage_events(
+    connection: &Connection,
+    query: &UsageQuery,
+    config: &GuiConfigFile,
+    registry: &HashMap<String, sources::Source>,
+) -> Result<UsageEventPage, String> {
+    let mut events = load_usage_events_unmasked_with_notes(connection, query, config, &HashMap::new())?;
+    sources::apply_events(&mut events, registry, config);
+    mask_usage_event_sources(&mut events, config);
+    Ok(events)
+}
+
 pub(super) fn load_usage_events_with_notes(
+    connection: &Connection,
+    query: &UsageQuery,
+    config: &GuiConfigFile,
+    notes: &HashMap<String, String>,
+) -> Result<UsageEventPage, String> {
+    let mut page = load_usage_events_unmasked_with_notes(connection, query, config, notes)?;
+    mask_usage_event_sources(&mut page, config);
+    Ok(page)
+}
+
+pub(super) fn load_usage_events_unmasked_with_notes(
     connection: &Connection,
     query: &UsageQuery,
     config: &GuiConfigFile,
@@ -655,6 +689,18 @@ pub(super) fn load_usage_events_with_notes(
         page_size,
         total_pages,
     })
+}
+
+pub(super) fn mask_usage_event_sources(page: &mut UsageEventPage, config: &GuiConfigFile) {
+    for item in &mut page.items {
+        let safe_source = usage_source_api_value(&item.source, &item.api_key_hash, config);
+        if safe_source != item.source {
+            item.source_display = item
+                .source_display
+                .replace(&item.source, &mask_api_key(&item.source));
+            item.source = safe_source;
+        }
+    }
 }
 
 pub(super) fn usage_record_from_row(row: &Row<'_>) -> rusqlite::Result<UsageRecord> {
