@@ -331,20 +331,36 @@ pub(crate) async fn preview_agent_config_template(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
 ) -> Result<TemplatePreview, String> {
     let _target_state = app.state::<GuiConfigState>();
-    let _target_operation = _target_state.target_operation.lock().await;
-    let config = app.state::<GuiConfigState>().snapshot()?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
-    Ok(prepare_template_plan(
-        &config,
-        &home,
-        &client,
-        &model,
+    preview_agent_config_template_for_target(
+        &_target_state,
+        home,
+        client,
+        model,
         oauth_configuration,
         claude_code_model_mappings,
         claude_desktop_model_mappings,
-    )
-    .await?
-    .preview)
+    ).await
+}
+
+pub(crate) async fn preview_agent_config_template_for_target(
+    target_state: &GuiConfigState,
+    home: PathBuf,
+    client: String,
+    model: String,
+    oauth_configuration: bool,
+    claude_code_model_mappings: Option<ClaudeDesktopModelMappings>,
+    claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
+) -> Result<TemplatePreview, String> {
+    super::target_read_then_apply(
+        target_state,
+        None,
+        move |config| async move {
+            prepare_template_plan(&config, &home, &client, &model, oauth_configuration,
+                claude_code_model_mappings, claude_desktop_model_mappings).await
+        },
+        |_config, plan, _target_operation| async move { Ok(plan.preview) },
+    ).await?.ok_or_else(|| super::CORE_TARGET_CHANGED_CANCELLED.to_string())
 }
 
 #[tauri::command]

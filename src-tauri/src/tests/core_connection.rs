@@ -582,6 +582,90 @@ async fn stale_document_revision_rejects_typed_and_alias_commands_before_target_
 }
 
 #[tokio::test]
+async fn remote_alias_read_cancels_after_switch_while_yaml_fetch_is_paused() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let app = tauri::test::mock_builder().manage(GuiConfigState::new(GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: origin.clone(),
+        remote_management_key: "fixture-management".into(),
+        remote_client_origin: origin,
+        ..GuiConfigFile::default()
+    })).build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let state = app.state::<GuiConfigState>();
+    let revision = state.snapshot().unwrap().target_revision;
+    let (arrived_tx, arrived_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0; 4096];
+        let _ = socket.read(&mut request).await.unwrap();
+        arrived_tx.send(()).unwrap();
+        release_rx.await.unwrap();
+        socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/yaml\r\nContent-Length: 3\r\nConnection: close\r\n\r\n{}\n").await.unwrap();
+    });
+    let call = crate::agents::get_thinking_aliases(app.state(), revision);
+    tokio::pin!(call);
+    tokio::select! {
+        result = &mut call => panic!("alias read finished before the remote core answered: {result:?}"),
+        arrived = arrived_rx => arrived.unwrap(),
+    }
+    assert!(state.target_operation.try_lock().is_ok(), "remote YAML fetch held the target fence");
+    let mut changed = state.snapshot().unwrap();
+    changed.remote_management_origin = "http://target-b.invalid".into();
+    changed.remote_management_key = "target-b-management".into();
+    state.replace_external(changed).unwrap();
+    release_tx.send(()).unwrap();
+    let error = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap().unwrap_err();
+    assert!(error.contains("request cancelled"), "{error}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn get_core_config_settings_cancels_after_switch_while_yaml_fetch_is_paused() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let app = tauri::test::mock_builder().manage(GuiConfigState::new(GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: origin.clone(),
+        remote_management_key: "fixture-management".into(),
+        remote_client_origin: origin,
+        ..GuiConfigFile::default()
+    })).build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let state = app.state::<GuiConfigState>();
+    let revision = state.snapshot().unwrap().target_revision;
+    let (arrived_tx, arrived_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0; 4096];
+        let _ = socket.read(&mut request).await.unwrap();
+        arrived_tx.send(()).unwrap();
+        release_rx.await.unwrap();
+        let body = "config-version: 8\nserver: {host: 127.0.0.1, port: 8317}\n";
+        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/yaml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+    });
+    let call = get_core_config_settings(app.state(), revision);
+    tokio::pin!(call);
+    tokio::select! {
+        result = &mut call => panic!("settings read finished before the remote core answered: {}", if result.is_ok() { "success" } else { "error" }),
+        arrived = arrived_rx => arrived.unwrap(),
+    }
+    assert!(state.target_operation.try_lock().is_ok(), "remote YAML fetch held the target fence");
+    let mut changed = state.snapshot().unwrap();
+    changed.remote_management_origin = "http://target-b.invalid".into();
+    changed.remote_management_key = "target-b-management".into();
+    state.replace_external(changed).unwrap();
+    release_tx.send(()).unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap();
+    let error = match result { Ok(_) => panic!("settings read returned after the target changed"), Err(error) => error };
+    assert!(error.contains("request cancelled"), "{error}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn queued_typed_and_alias_commands_revalidate_revision_before_dispatch() {
     let app = tauri::test::mock_builder().manage(GuiConfigState::new(GuiConfigFile {
         connection_mode: CoreConnectionMode::Remote,

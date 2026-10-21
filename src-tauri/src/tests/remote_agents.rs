@@ -321,6 +321,58 @@ async fn remote_models_command_uses_client_auth_and_fences_old_target_response()
 }
 
 #[tokio::test]
+async fn preview_agent_config_template_cancels_after_switch_while_models_fetch_is_paused() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let mut target = remote_target(&origin, "fixture-client");
+    target.remote_management_origin = origin.clone();
+    let app = tauri::test::mock_builder().manage(GuiConfigState::new(target))
+        .build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let home = AgentTestHome::new("preview-template-cancel");
+    let state = app.state::<GuiConfigState>();
+    let (arrived_tx, arrived_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // Claude Code fetches /v1/models, then reads management YAML to mark
+        // configured aliases. Pause the first request, then serve both reads.
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0; 4096];
+        let request_len = socket.read(&mut request).await.unwrap();
+        assert!(String::from_utf8_lossy(&request[..request_len]).contains("/v1/models"));
+        arrived_tx.send(()).unwrap();
+        release_rx.await.unwrap();
+        let body = r#"{"data":[{"id":"fixture-model"}]}"#;
+        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+
+        let (mut config_socket, _) = listener.accept().await.unwrap();
+        let mut config_request = [0; 4096];
+        let config_len = config_socket.read(&mut config_request).await.unwrap();
+        assert!(String::from_utf8_lossy(&config_request[..config_len]).contains("/v8/management/config.yaml"));
+        let config_body = "{}\n";
+        config_socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/yaml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{config_body}", config_body.len()).as_bytes()).await.unwrap();
+    });
+    let call = crate::agents::preview_agent_config_template_for_target(
+        state.inner(), home.path().to_path_buf(), "claude-code".into(), "fixture-model".into(), false, None, None,
+    );
+    tokio::pin!(call);
+    tokio::select! {
+        result = &mut call => panic!("template preview finished before the model server answered: {}", if result.is_ok() { "success" } else { "error" }),
+        arrived = arrived_rx => arrived.unwrap(),
+    }
+    assert!(state.target_operation.try_lock().is_ok(), "model fetch held the target fence");
+    let mut changed = state.snapshot().unwrap();
+    changed.remote_client_origin = "http://target-b.invalid:8317".into();
+    changed.remote_client_key = "target-b-client".into();
+    state.replace_external(changed).unwrap();
+    release_tx.send(()).unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), call).await.unwrap();
+    let error = match result { Ok(_) => panic!("template preview returned after the target changed"), Err(error) => error };
+    assert!(error.contains("request cancelled"), "{error}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn remote_model_errors_and_redirects_cannot_echo_or_forward_keys() {
     for response in [
         "HTTP/1.1 401 Unauthorized\r\nContent-Length: 14\r\nConnection: close\r\n\r\nfixture-client",

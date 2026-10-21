@@ -6,6 +6,24 @@ pub(super) fn agent_test_home(name: &str) -> PathBuf {
     path
 }
 
+pub(super) struct AgentTestHome(PathBuf);
+
+impl AgentTestHome {
+    pub(super) fn new(name: &str) -> Self {
+        Self(agent_test_home(name))
+    }
+
+    pub(super) fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for AgentTestHome {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 pub(super) fn test_agent_models(names: &[&str]) -> Vec<AgentModelOption> {
     names
         .iter()
