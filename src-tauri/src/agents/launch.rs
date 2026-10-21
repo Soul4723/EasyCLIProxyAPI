@@ -23,6 +23,35 @@ fn program_on_path(program: &str) -> Option<PathBuf> {
     })
 }
 
+fn spawn_with_etxtbsy_retry(command: &mut Command) -> std::io::Result<std::process::Child> {
+    #[cfg(unix)]
+    {
+        retry_executable_busy(|| command.spawn(), || {
+            thread::sleep(Duration::from_millis(10));
+        })
+    }
+    #[cfg(not(unix))]
+    command.spawn()
+}
+
+#[cfg(unix)]
+fn retry_executable_busy<T>(
+    mut attempt: impl FnMut() -> std::io::Result<T>,
+    mut pause: impl FnMut(),
+) -> std::io::Result<T> {
+    for retry in 0..=100 {
+        match attempt() {
+            Err(error)
+                if error.kind() == std::io::ErrorKind::ExecutableFileBusy && retry < 100 =>
+            {
+                pause();
+            }
+            result => return result,
+        }
+    }
+    unreachable!()
+}
+
 #[cfg(target_os = "macos")]
 fn macos_iterm2_installed() -> bool {
     Path::new("/Applications/iTerm.app").is_dir()
@@ -1321,7 +1350,7 @@ fn launch_vscode_directory(executable: &Path, directory: &Path) -> Result<(), St
     command.arg(directory).current_dir(directory)
         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     configure_background_command(&mut command);
-    command.spawn().map(|_| ())
+    spawn_with_etxtbsy_retry(&mut command).map(|_| ())
         .map_err(|error| format!("Failed to start VSCode Copilot: {error}"))
 }
 
@@ -1353,8 +1382,7 @@ fn launch_desktop_agent(executable: &Path, label: &str) -> Result<(), String> {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         configure_background_command(&mut command);
-        command
-            .spawn()
+        spawn_with_etxtbsy_retry(&mut command)
             .map(|_| ())
             .map_err(|error| format!("Failed to start {label}: {error}"))
     }
@@ -1668,6 +1696,43 @@ fn launch_cli_agent(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn executable_busy_retries_are_bounded_and_other_errors_are_unchanged() {
+        for (code, expected_attempts) in [(libc::ETXTBSY, 101), (libc::EACCES, 1), (libc::ENOENT, 1)] {
+            let mut attempts = 0;
+            let result: std::io::Result<()> = retry_executable_busy(
+                || {
+                    attempts += 1;
+                    Err(std::io::Error::from_raw_os_error(code))
+                },
+                || {},
+            );
+            assert_eq!(result.unwrap_err().raw_os_error(), Some(code));
+            assert_eq!(attempts, expected_attempts);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn executable_busy_retry_succeeds_after_transient_failure() {
+        let mut attempts = 0;
+        let mut pauses = 0;
+        let result = retry_executable_busy(
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(std::io::Error::from_raw_os_error(libc::ETXTBSY))
+                } else {
+                    Ok(42)
+                }
+            },
+            || pauses += 1,
+        );
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!((attempts, pauses), (3, 2));
+    }
 
     #[cfg(unix)]
     #[test]
