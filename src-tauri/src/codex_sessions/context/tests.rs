@@ -3089,3 +3089,96 @@
         assert_eq!(fs::read_to_string(&path).unwrap(), original.trim_end());
         fs::remove_dir_all(root).unwrap();
     }
+
+    fn seed_paged_rollout(root: &Path, session_id: &str, pairs: usize) -> PathBuf {
+        fs::create_dir_all(root.join("sessions")).unwrap();
+        let rollout = root
+            .join("sessions")
+            .join(format!("rollout-{session_id}.jsonl"));
+        let mut records = vec![json!({"type":"session_meta","payload":{"id":session_id}})];
+        for index in 0..pairs {
+            records.push(json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":format!("Question {index}")}]}}));
+            records.push(json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":format!("Answer {index}")}]}}));
+        }
+        // The call sits in the first page of a 4-message window, its output far behind it.
+        records.insert(2, json!({"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{}","call_id":"call-1"}}));
+        records.push(json!({"type":"response_item","payload":{"type":"function_call_output","output":"Output 1","call_id":"call-1"}}));
+        fs::write(&rollout, serialize_jsonl(&records, "\n").unwrap()).unwrap();
+        rollout
+    }
+
+    #[test]
+    fn session_context_pages_return_consecutive_slices_of_the_same_snapshot() {
+        let root = test_root("context-paging");
+        let session_id = "019f1234-abcd-7000-8000-000000000a01";
+        seed_paged_rollout(&root, session_id, 5);
+        let full = get_codex_session_context_from_home(&root, session_id).unwrap();
+        assert_eq!(full.messages.len(), 12);
+        assert_eq!(full.total_messages, 12);
+
+        let mut paged = Vec::new();
+        for offset in (0..full.total_messages).step_by(5) {
+            let page =
+                get_codex_session_context_page_from_home(&root, session_id, offset, 5).unwrap();
+            assert_eq!(page.message_offset, offset);
+            assert_eq!(page.total_messages, 12);
+            assert_eq!(page.messages.len(), 5.min(12 - offset));
+            // Whole-file facts do not depend on the page.
+            assert_eq!(page.rollout_sha256, full.rollout_sha256);
+            assert_eq!(page.stats.total_lines, full.stats.total_lines);
+            assert_eq!(page.stats.user_message_count, 5);
+            assert_eq!(page.stats.tool_count, 2);
+            // The export text rides with the first page only.
+            assert_eq!(page.raw_jsonl.is_some(), offset == 0);
+            paged.extend(page.messages);
+        }
+        let lines = |messages: &[CodexSessionMessageItem]| -> Vec<usize> {
+            messages.iter().map(|message| message.line_number).collect()
+        };
+        assert_eq!(lines(&paged), lines(&full.messages));
+        assert_eq!(
+            paged.iter().map(|m| m.content.as_str()).collect::<Vec<_>>(),
+            full.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>()
+        );
+
+        let past_end =
+            get_codex_session_context_page_from_home(&root, session_id, 50, 5).unwrap();
+        assert!(past_end.messages.is_empty());
+        assert_eq!(past_end.total_messages, 12);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn session_context_page_links_tool_partners_outside_the_page() {
+        let root = test_root("context-paging-links");
+        let session_id = "019f1234-abcd-7000-8000-000000000a02";
+        seed_paged_rollout(&root, session_id, 5);
+        let first = get_codex_session_context_page_from_home(&root, session_id, 0, 4).unwrap();
+        let call = first.messages.iter().find(|m| m.role == "tool").unwrap();
+        assert_eq!(call.line_number, 2);
+        // The output is the last line of the rollout, on a page that has not been loaded.
+        assert_eq!(call.linked_lines, vec![2, first.stats.total_lines - 1]);
+        let plain = first.messages.iter().find(|m| m.role == "user").unwrap();
+        assert!(plain.linked_lines.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn small_session_fits_one_default_page() {
+        let root = test_root("context-paging-small");
+        let session_id = "019f1234-abcd-7000-8000-000000000a03";
+        seed_paged_rollout(&root, session_id, 3);
+        let full = get_codex_session_context_from_home(&root, session_id).unwrap();
+        let page = get_codex_session_context_page_from_home(
+            &root,
+            session_id,
+            0,
+            DEFAULT_CONTEXT_PAGE_SIZE,
+        )
+        .unwrap();
+        assert_eq!(page.messages.len(), page.total_messages);
+        assert_eq!(page.messages.len(), full.messages.len());
+        assert!(page.raw_jsonl_available);
+        assert_eq!(page.raw_jsonl, full.raw_jsonl);
+        fs::remove_dir_all(root).unwrap();
+    }

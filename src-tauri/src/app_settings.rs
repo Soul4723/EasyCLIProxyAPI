@@ -114,7 +114,7 @@ pub(crate) fn save_api_access_remark(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<(), String> {
     gui_config_state.update(|config| apply_api_access_remark_update(config, update))?;
-    Ok(())
+    crate::usage::invalidate_sources_cache_after_success(Ok(()))
 }
 
 fn api_access_locator_identity(

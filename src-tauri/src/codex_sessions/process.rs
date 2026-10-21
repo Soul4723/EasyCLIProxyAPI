@@ -1,23 +1,59 @@
 use super::*;
 
-pub(super) fn ensure_codex_apps_stopped() -> Result<(), String> {
-    let running = codex_app_process_ids()?;
+#[cfg(test)]
+thread_local! {
+    /// Stands in for the process table: entries are process names and their process ids.
+    pub(super) static FAKE_CODEX_PROCESSES: std::cell::RefCell<Option<Vec<(String, u32)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn running_codex_process_ids() -> Result<Vec<u32>, String> {
+    #[cfg(test)]
+    if let Some(processes) = FAKE_CODEX_PROCESSES.with(|fake| fake.borrow().clone()) {
+        return Ok(processes
+            .into_iter()
+            .filter(|(name, _)| is_codex_process_name(name))
+            .map(|(_, id)| id)
+            .collect());
+    }
+    codex_app_process_ids()
+}
+
+pub(super) fn ensure_codex_apps_stopped(action: &str) -> Result<(), String> {
+    let running = running_codex_process_ids()?;
     if running.is_empty() {
         return Ok(());
     }
     Err(format!(
-        "Codex App / ChatGPT is still running (process: {}). Exit it completely, then preview and clean again",
+        "Codex is still running (app, CLI or IDE extension; process: {}). Quit it completely, then {} again.",
         running
             .iter()
             .map(u32::to_string)
             .collect::<Vec<_>>()
-            .join("、")
+            .join("、"),
+        action
     ))
 }
 
 #[cfg(target_os = "windows")]
 fn codex_app_process_ids() -> Result<Vec<u32>, String> {
+    // tasklist's IMAGENAME matching is case-insensitive; codex.exe is covered by Codex.exe.
     windows_app_process_ids(&["ChatGPT.exe", "Codex.exe"])
+}
+
+#[cfg(test)]
+fn is_codex_process_name(name: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        matches!(
+            name.to_ascii_lowercase().as_str(),
+            "chatgpt.exe" | "codex.exe"
+        )
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        matches!(name, "ChatGPT" | "Codex" | "codex")
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -62,7 +98,8 @@ pub(super) fn parse_windows_tasklist_process_ids(output: &[u8]) -> Vec<u32> {
 
 #[cfg(not(target_os = "windows"))]
 fn codex_app_process_ids() -> Result<Vec<u32>, String> {
-    unix_app_process_ids(&["ChatGPT", "Codex"])
+    // pgrep -x is case-sensitive; cover the app, CLI, and IDE extension app-server processes.
+    unix_app_process_ids(&["ChatGPT", "Codex", "codex"])
 }
 
 #[cfg(not(target_os = "windows"))]

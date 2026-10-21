@@ -32,6 +32,7 @@ static NEXT_CLIENT_ACCESS: AtomicU64 = AtomicU64::new(1);
 const MAX_MANAGEMENT_CLIENTS: usize = 8;
 // Keep this aligned with PLUGIN_SESSION_MAX_MS and MAX_SESSION_MS (30 minutes).
 const DEFAULT_OAUTH_SESSION_TTL: Duration = Duration::from_secs(30 * 60);
+const MAX_MANAGEMENT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 struct RuntimeToken {
     generation: u64,
@@ -217,6 +218,7 @@ async fn management_request_inner(
         return Err("Invalid management API path".to_string());
     }
     let read_only = is_read_only_request(&method, path);
+    let invalidates_sources = method != reqwest::Method::GET;
 
     let oauth_state = match (method.as_str(), path.trim_start_matches('/')) {
         ("GET", "oauth/status") | ("DELETE", "oauth/session") => {
@@ -271,7 +273,11 @@ async fn management_request_inner(
             forget_oauth_session(gui_config_state, &state)?;
         }
     }
-    Ok(value)
+    if invalidates_sources {
+        crate::usage::invalidate_sources_cache_after_success(Ok(value))
+    } else {
+        Ok(value)
+    }
 }
 
 // `requests/api-call` is the core's proxy to a provider's own API (quota, model lists): it
@@ -342,7 +348,7 @@ async fn import_vertex_credential_for_target(
         .map_err(|error| format_management_request_error("Failed to import Vertex credential", &error))?;
     let value = read_management_value(response).await;
     gui_config_state.ensure_target(&config)?;
-    value
+    crate::usage::invalidate_sources_cache_after_success(value)
 }
 
 #[tauri::command]
@@ -393,7 +399,7 @@ async fn upload_auth_file_for_target(
         .map_err(|err| format_management_request_error("Failed to upload credential file", &err))?;
     let value = read_management_value(response).await;
     gui_config_state.ensure_target(&config)?;
-    value
+    crate::usage::invalidate_sources_cache_after_success(value)
 }
 
 #[tauri::command]
@@ -576,14 +582,18 @@ pub(crate) async fn get_oauth_status(
     if status != "wait" || payload.error.is_some() || payload.error_message.is_some() {
         forget_oauth_session(&gui_config_state, &state)?;
     }
-    Ok(OAuthStatusResult {
+    let result = OAuthStatusResult {
         status,
         error: payload
             .error
             .or(payload.error_message)
             .map(|value| if config.connection_mode == super::CoreConnectionMode::Remote { "Remote OAuth authorization failed; start authorization again".to_string() } else { value.trim().to_string() })
             .filter(|value| !value.is_empty()),
-    })
+    };
+    if matches!(result.status.as_str(), "ok" | "success") {
+        return crate::usage::invalidate_sources_cache_after_success(Ok(result));
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -624,18 +634,13 @@ pub(crate) async fn submit_oauth_callback(
         }
     };
     let status = response.status();
-    let text = match response.text().await {
-        Ok(text) => text,
-        Err(err) => {
-            return Err(format_management_request_error("Failed to read OAuth callback response", &err));
-        }
-    };
+    let text = read_management_body(response, "Failed to read OAuth callback response").await?;
     gui_config_state.ensure_target(&config)?;
     forget_oauth_callback_if_terminal(&gui_config_state, &callback_state, status)?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
-    Ok(())
+    crate::usage::invalidate_sources_cache_after_success(Ok(()))
 }
 
 pub(crate) fn management_http_client_for(config: &GuiConfigFile) -> Result<reqwest::Client, String> {
@@ -904,10 +909,7 @@ where
     T: for<'de> Deserialize<'de>,
 {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read management API response", &err))?;
+    let text = read_management_body(response, "Failed to read management API response").await?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
@@ -921,10 +923,7 @@ pub(crate) async fn read_management_value(
     response: reqwest::Response,
 ) -> Result<serde_json::Value, String> {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read management API response", &err))?;
+    let text = read_management_body(response, "Failed to read management API response").await?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
@@ -939,14 +938,39 @@ pub(crate) async fn read_management_value(
 
 pub(crate) async fn read_management_text(response: reqwest::Response) -> Result<String, String> {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read management API response", &err))?;
+    let text = read_management_body(response, "Failed to read management API response").await?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
     Ok(text)
+}
+
+async fn read_management_body(response: reqwest::Response, context: &str) -> Result<String, String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_MANAGEMENT_RESPONSE_BYTES as u64)
+    {
+        return Err(format!(
+            "Management API response exceeds the {} MiB size limit",
+            MAX_MANAGEMENT_RESPONSE_BYTES / (1024 * 1024)
+        ));
+    }
+    let mut response = response;
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|err| format_management_request_error(context, &err))?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_MANAGEMENT_RESPONSE_BYTES {
+            return Err(format!(
+                "Management API response exceeds the {} MiB size limit",
+                MAX_MANAGEMENT_RESPONSE_BYTES / (1024 * 1024)
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    String::from_utf8(body).map_err(|_| "Management API response is not valid UTF-8".to_string())
 }
 
 fn format_management_error(status: u16, body: &str) -> String {
@@ -965,6 +989,33 @@ fn format_management_error(status: u16, body: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn management_response_body_is_capped_from_content_length() {
+        use tokio::io::AsyncWriteExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let _ = stream.readable().await;
+            let mut request = [0_u8; 1024];
+            let _ = stream.try_read(&mut request);
+            let body = vec![b'x'; MAX_MANAGEMENT_RESPONSE_BYTES + 1];
+            stream.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").await.unwrap();
+            stream.write_all(format!("{:x}\r\n", body.len()).as_bytes()).await.unwrap();
+            stream.write_all(&body).await.unwrap();
+            stream.write_all(b"\r\n0\r\n\r\n").await.unwrap();
+        });
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap();
+        let error = read_management_value(response).await.unwrap_err();
+        assert!(error.contains("16 MiB size limit"));
+        server.await.unwrap();
+    }
 
     struct SelfSignedTlsServer {
         child: std::process::Child,

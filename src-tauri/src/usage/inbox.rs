@@ -100,24 +100,23 @@ pub(super) fn is_ignorable_usage_message(raw: &str) -> bool {
             .is_some_and(|enabled| enabled)
 }
 
-pub(super) fn persist_raw_usage_message_from_source(
-    root: &Path,
-    source: &str,
-    raw_message: String,
-    config: &GuiConfigFile,
-) -> Result<UsagePersistOutcome, String> {
-    persist_raw_usage_messages_from_source(root, source, vec![raw_message], config)
-}
-
 pub(super) fn persist_raw_usage_messages_from_source(
     root: &Path,
     source: &str,
     raw_messages: Vec<String>,
     config: &GuiConfigFile,
 ) -> Result<UsagePersistOutcome, String> {
-    let mut connection = open_usage_database_at(root)?;
-    enqueue_usage_raw_messages(&mut connection, source, raw_messages)?;
-    process_usage_inbox(&mut connection, config)
+    persist_raw_usage_messages_on(&mut open_usage_database_at(root)?, source, raw_messages, config)
+}
+
+pub(super) fn persist_raw_usage_messages_on(
+    connection: &mut Connection,
+    source: &str,
+    raw_messages: Vec<String>,
+    config: &GuiConfigFile,
+) -> Result<UsagePersistOutcome, String> {
+    enqueue_usage_raw_messages(connection, source, raw_messages)?;
+    process_usage_inbox(connection, config)
 }
 
 pub(super) fn process_usage_inbox(

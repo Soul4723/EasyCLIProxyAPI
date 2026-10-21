@@ -1169,6 +1169,7 @@ fn sync_prepared_codex_model_catalog(
                     .iter()
                     .map(|path| path_to_string(path))
                     .collect(),
+                scopes: vec!["agent"],
                 errors: Vec::new(),
             },
         );

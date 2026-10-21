@@ -45,6 +45,33 @@ fn wait_for_config_file_stability(path: &Path) {
     }
 }
 
+const MAX_SETTLE_ATTEMPTS: usize = 3;
+
+// Wait for the files to stop changing without the fence, then take it. If the core
+// target was replaced meanwhile (a connection save or external GUI config edit), the
+// stability observed is stale, so release the fence and wait again; the last attempt
+// proceeds regardless, as the old wait gave up after its sample limit.
+fn lock_target_when_settled<'a>(
+    state: &'a GuiConfigState,
+    paths: &[PathBuf],
+    mut wait: impl FnMut(&Path),
+) -> tokio::sync::MutexGuard<'a, ()> {
+    let mut attempt = 1;
+    loop {
+        let revision = state.snapshot().ok().map(|config| config.target_revision);
+        for path in paths {
+            wait(path);
+        }
+        let guard = state.target_operation.blocking_lock();
+        let current = state.snapshot().ok().map(|config| config.target_revision);
+        if current == revision || attempt >= MAX_SETTLE_ATTEMPTS {
+            return guard;
+        }
+        drop(guard);
+        attempt += 1;
+    }
+}
+
 fn patch_core_from_gui_config_if_valid(config: &GuiConfigFile) -> Result<(), String> {
     if config.connection_mode == super::CoreConnectionMode::Remote { return Ok(()); }
     let _guard = lock_core_config_file()?;
@@ -98,6 +125,29 @@ fn record_content_change(known: &mut HashMap<PathBuf, Option<Vec<u8>>>, path: &P
     changed
 }
 
+// File kinds in a change set. Names alone cannot tell them apart (the GUI config and several
+// agent configs are all `config.toml`), so the frontend filters on these instead of on paths.
+fn config_change_scopes(
+    paths: &[PathBuf],
+    is_gui_path: impl Fn(&Path) -> bool,
+    is_core_path: impl Fn(&Path) -> bool,
+) -> Vec<&'static str> {
+    let mut scopes = Vec::new();
+    for path in paths {
+        let scope = if is_gui_path(path) {
+            "gui"
+        } else if is_core_path(path) {
+            "core"
+        } else {
+            "agent"
+        };
+        if !scopes.contains(&scope) {
+            scopes.push(scope);
+        }
+    }
+    scopes
+}
+
 fn handle_configuration_file_changes(
     app: &tauri::AppHandle,
     changed_paths: Vec<PathBuf>,
@@ -110,23 +160,26 @@ fn handle_configuration_file_changes(
         .map(|path| path.join(CORE_CONFIG_FILE));
     let gui_state = app.state::<GuiConfigState>();
     let cache = app.state::<AgentConfigStatusCache>();
+    let candidates: Vec<PathBuf> = changed_paths
+        .iter()
+        .filter_map(|path| {
+            tracked_paths
+                .iter()
+                .find(|tracked| paths_refer_to_same_file(path, tracked))
+                .cloned()
+        })
+        .collect();
     // The watcher runs on its own OS thread; serialize external changes with
-    // accepted target operations, including queued Local writes.
-    let _target_operation = gui_state.target_operation.blocking_lock();
+    // accepted target operations, including queued Local writes. The stability
+    // wait happens before the fence is taken.
+    let _target_operation =
+        lock_target_when_settled(&gui_state, &candidates, wait_for_config_file_stability);
     let mut payload_paths = Vec::new();
     let mut errors = Vec::new();
     let mut refresh_agents = false;
     let mut tracked_changes: Vec<PathBuf> = Vec::new();
 
-    for path in changed_paths {
-        let Some(tracked_path) = tracked_paths
-            .iter()
-            .find(|tracked| paths_refer_to_same_file(&path, tracked))
-            .cloned()
-        else {
-            continue;
-        };
-        wait_for_config_file_stability(&tracked_path);
+    for tracked_path in candidates {
         let software_write = consume_software_write(&tracked_path);
         let content_changed = record_content_change(known_contents, &tracked_path);
         if software_write || !content_changed {
@@ -245,6 +298,7 @@ fn handle_configuration_file_changes(
             CONFIG_FILES_CHANGED_EVENT,
             ConfigFilesChangedPayload {
                 paths: payload_paths,
+                scopes: config_change_scopes(&tracked_changes, is_gui_path, is_core_path),
                 errors,
             },
         );
@@ -437,6 +491,95 @@ mod tests {
         Event, EventKind,
     };
 
+    fn switch_target(state: &GuiConfigState) {
+        let mut changed = state.snapshot().unwrap();
+        changed.management_secret_key.push_str("-changed");
+        changed.remote_management_key.push_str("-changed");
+        assert!(state.replace_external(changed).unwrap());
+    }
+
+    #[test]
+    fn target_fence_is_free_during_the_stability_wait() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let paths = vec![PathBuf::from("/config/gui.toml")];
+        let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (state_ref, paths_ref) = (&state, &paths);
+        std::thread::scope(|scope| {
+            let watcher = scope.spawn(move || {
+                let (state, paths) = (state_ref, paths_ref);
+                let mut waits = 0;
+                let guard = lock_target_when_settled(state, paths, |_| {
+                    waits += 1;
+                    waiting_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                });
+                assert_eq!(waits, 1);
+                assert!(state.target_operation.try_lock().is_err());
+                drop(guard);
+            });
+            waiting_rx.recv().unwrap();
+            let operation = state.target_operation.try_lock();
+            assert!(operation.is_ok(), "the watcher held the fence while waiting");
+            drop(operation);
+            release_tx.send(()).unwrap();
+            watcher.join().unwrap();
+        });
+        assert!(state.target_operation.try_lock().is_ok());
+    }
+
+    #[test]
+    fn target_change_during_the_wait_is_detected_and_waited_out_again() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let paths = vec![PathBuf::from("/config/gui.toml"), PathBuf::from("/config/core.yaml")];
+        let mut waits = 0;
+        let guard = lock_target_when_settled(&state, &paths, |_| {
+            waits += 1;
+            if waits == 1 {
+                switch_target(&state);
+            }
+        });
+        // The stale round and one clean round over both files.
+        assert_eq!(waits, 4);
+        assert!(state.target_operation.try_lock().is_err());
+        drop(guard);
+    }
+
+    #[test]
+    fn a_target_that_keeps_changing_cannot_starve_the_watcher() {
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let paths = vec![PathBuf::from("/config/gui.toml")];
+        let mut waits = 0;
+        let guard = lock_target_when_settled(&state, &paths, |_| {
+            waits += 1;
+            switch_target(&state);
+        });
+        assert_eq!(waits, MAX_SETTLE_ATTEMPTS);
+        assert!(state.target_operation.try_lock().is_err());
+        drop(guard);
+    }
+
+    #[test]
+    fn settled_files_are_waited_on_once_and_applied_under_the_fence() {
+        let root = std::env::temp_dir().join(format!("cpa-watch-settled-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.toml");
+        fs::write(&path, "locale = 'en'\n").unwrap();
+        let state = GuiConfigState::new(GuiConfigFile::default());
+        let paths = vec![path.clone(), root.join("missing.toml")];
+        let mut waited = Vec::new();
+        let guard = lock_target_when_settled(&state, &paths, |path| {
+            waited.push(path.to_path_buf());
+            wait_for_config_file_stability(path);
+        });
+        assert_eq!(waited, paths);
+        assert!(state.target_operation.try_lock().is_err());
+        let mut known = HashMap::new();
+        assert!(record_content_change(&mut known, &path));
+        drop(guard);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn ancestor_metadata_events_do_not_mark_tracked_files() {
         let directory = std::env::temp_dir().join("cpa-watch-directory-metadata");
@@ -469,6 +612,21 @@ mod tests {
                 .add_path(tracked.clone()), &[(tracked.clone(), tracked.clone())]));
             assert!(pending.paths.is_empty());
         }
+    }
+
+    #[test]
+    fn change_scopes_classify_gui_core_and_agent_files_once() {
+        let gui = PathBuf::from("/app/config.toml");
+        let core = PathBuf::from("/app/cpa-core/config.yaml");
+        let codex = PathBuf::from("/home/u/.codex/config.toml");
+        let kimi = PathBuf::from("/home/u/.kimi/config.toml");
+        let is_gui = |path: &Path| path == gui;
+        let is_core = |path: &Path| path == core;
+        assert!(config_change_scopes(&[], is_gui, is_core).is_empty());
+        assert_eq!(config_change_scopes(&[codex.clone(), kimi.clone()], is_gui, is_core), ["agent"]);
+        assert_eq!(config_change_scopes(&[core.clone()], is_gui, is_core), ["core"]);
+        assert_eq!(config_change_scopes(&[codex, gui.clone(), core.clone(), kimi], is_gui, is_core), ["agent", "gui", "core"]);
+        assert_eq!(config_change_scopes(&[gui.clone()], is_gui, is_core), ["gui"]);
     }
 
     #[test]

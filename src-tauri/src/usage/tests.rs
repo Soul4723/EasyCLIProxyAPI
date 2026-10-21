@@ -1,6 +1,20 @@
     use super::*;
 
     #[test]
+    fn successful_mutations_invalidate_source_metadata_but_errors_do_not() {
+        let invalidations = std::sync::atomic::AtomicUsize::new(0);
+        assert_eq!(after_success(Ok(()), || {
+            invalidations.fetch_add(1, Ordering::SeqCst);
+        }), Ok(()));
+        assert_eq!(invalidations.load(Ordering::SeqCst), 1);
+
+        assert!(after_success::<()>(Err("mutation failed".into()), || {
+            invalidations.fetch_add(1, Ordering::SeqCst);
+        }).is_err());
+        assert_eq!(invalidations.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn empty_remote_queue_polling_backs_off_to_a_cap() {
         let mut seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
         let mut waits = Vec::new();
@@ -562,7 +576,7 @@
                 fetches.set(fetches.get() + 1);
                 std::future::ready(Ok(Vec::new()))
             }).await.is_none());
-            assert!(PendingRemoteUsageBatch::persist(&mut pending).is_err());
+            assert!(PendingRemoteUsageBatch::persist(&mut pending, &mut CollectorDatabase::default()).is_err());
             let batch = pending.as_ref().unwrap();
             assert_eq!(batch.messages, messages);
             assert_eq!(batch.config.remote_management_origin, config.remote_management_origin);
@@ -3437,4 +3451,122 @@
                 .err()
                 .unwrap();
         assert!(local_error.contains("remote"), "{local_error}");
+    }
+
+    fn write_marker(connection: &mut Connection, value: &str) -> Result<(), String> {
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO usage_metadata (key, value) VALUES ('collector_test', ?1)",
+                params![value],
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    fn read_marker(root: &Path) -> Option<String> {
+        open_usage_database_at(root)
+            .unwrap()
+            .query_row("SELECT value FROM usage_metadata WHERE key = 'collector_test'", [], |row| row.get(0))
+            .optional()
+            .unwrap()
+    }
+
+    #[test]
+    fn collector_database_is_opened_once_in_steady_state() {
+        let root = test_root("collector-db-steady");
+        initialize_usage_storage_at(&root).unwrap();
+        let mut database = CollectorDatabase::default();
+        for tick in 0..5 {
+            database.with(&root, |connection| write_marker(connection, &tick.to_string())).unwrap();
+        }
+        assert_eq!(database.opens, 1);
+        assert_eq!(read_marker(&root).as_deref(), Some("4"));
+        // The pragmas applied at open time are still in force on the reused connection.
+        let (foreign_keys, synchronous): (i64, i64) = database
+            .with(&root, |connection| {
+                let foreign_keys = connection.query_row("PRAGMA foreign_keys", [], |row| row.get(0));
+                let synchronous = connection.query_row("PRAGMA synchronous", [], |row| row.get(0));
+                foreign_keys.and_then(|f| synchronous.map(|s| (f, s))).map_err(|error| error.to_string())
+            })
+            .unwrap();
+        assert_eq!((foreign_keys, synchronous), (1, 1));
+        assert_eq!(database.opens, 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collector_database_reopens_at_a_changed_storage_root() {
+        let first = test_root("collector-db-root-a");
+        let second = test_root("collector-db-root-b");
+        initialize_usage_storage_at(&first).unwrap();
+        initialize_usage_storage_at(&second).unwrap();
+        let mut database = CollectorDatabase::default();
+        database.with(&first, |connection| write_marker(connection, "first")).unwrap();
+        database.with(&second, |connection| write_marker(connection, "second")).unwrap();
+        assert_eq!(database.opens, 2);
+        assert_eq!(read_marker(&first).as_deref(), Some("first"));
+        assert_eq!(read_marker(&second).as_deref(), Some("second"));
+        database.with(&first, |connection| write_marker(connection, "again")).unwrap();
+        assert_eq!(database.opens, 3);
+        assert_eq!(read_marker(&first).as_deref(), Some("again"));
+        assert_eq!(read_marker(&second).as_deref(), Some("second"));
+        fs::remove_dir_all(first).unwrap();
+        fs::remove_dir_all(second).unwrap();
+    }
+
+    #[test]
+    fn collector_database_reopens_after_an_error_or_a_missing_file() {
+        let root = test_root("collector-db-error");
+        initialize_usage_storage_at(&root).unwrap();
+        let mut database = CollectorDatabase::default();
+        database.with(&root, |connection| write_marker(connection, "before")).unwrap();
+        let failed: Result<(), String> = database.with(&root, |_| Err("database is locked".to_string()));
+        assert_eq!(failed.unwrap_err(), "database is locked");
+        assert!(database.open.is_none(), "a failed operation drops the connection");
+        database.with(&root, |connection| write_marker(connection, "after")).unwrap();
+        assert_eq!(database.opens, 2);
+        assert_eq!(read_marker(&root).as_deref(), Some("after"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    // Windows cannot delete or replace a database file that a connection still has open.
+    #[cfg(unix)]
+    #[test]
+    fn collector_database_reopens_when_the_database_file_was_replaced() {
+        let root = test_root("collector-db-replaced");
+        initialize_usage_storage_at(&root).unwrap();
+        let mut database = CollectorDatabase::default();
+        database.with(&root, |connection| write_marker(connection, "before")).unwrap();
+        for suffix in ["", "-wal", "-shm"] {
+            let mut path = root.join(USAGE_DATABASE_FILE).into_os_string();
+            path.push(suffix);
+            let _ = fs::remove_file(PathBuf::from(path));
+        }
+        initialize_usage_storage_at(&root).unwrap();
+        database.with(&root, |connection| write_marker(connection, "recreated")).unwrap();
+        assert_eq!(database.opens, 2);
+        assert_eq!(read_marker(&root).as_deref(), Some("recreated"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collector_database_close_and_drop_release_the_connection() {
+        let root = test_root("collector-db-close");
+        initialize_usage_storage_at(&root).unwrap();
+        let mut wal = root.join(USAGE_DATABASE_FILE).into_os_string();
+        wal.push("-wal");
+        let wal = PathBuf::from(wal);
+        for stop_by_drop in [false, true] {
+            let mut database = CollectorDatabase::default();
+            database.with(&root, |connection| write_marker(connection, "open")).unwrap();
+            assert!(wal.exists(), "an open WAL connection keeps its -wal file");
+            if stop_by_drop {
+                drop(database);
+            } else {
+                database.close();
+                assert!(database.open.is_none());
+            }
+            assert!(!wal.exists(), "closing the last connection checkpoints and removes the -wal file");
+        }
+        fs::remove_dir_all(root).unwrap();
     }
