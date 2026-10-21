@@ -474,7 +474,16 @@
             );
             assert_eq!(
                 canonical(actual.sources),
-                canonical(load_source_categories(&connection, &query, &config).unwrap())
+                canonical(
+                    load_source_categories(&connection, &query, &config)
+                        .unwrap()
+                        .into_iter()
+                        .map(|mut category| {
+                            category.key = usage_source_api_value(&category.key, "", &config);
+                            category
+                        })
+                        .collect()
+                )
             );
             assert_eq!(
                 canonical(actual.api_keys),
