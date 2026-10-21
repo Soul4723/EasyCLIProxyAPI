@@ -26,6 +26,9 @@ const chip = (page, group, label) => page.getByRole('group', { name: group }).ge
     assert.match(await rowOf(page, 'cooling@').locator('.ec-cred-status__time').innerText(), /^\d+m( \d+s)?$/, 'cooldown shows a live countdown');
     assert.equal(await rowOf(page, 'gemini-runtime').getByText('Runtime', { exact: true }).count(), 1);
     assert.equal(await rowOf(page, 'gemini-runtime').getByRole('switch').count(), 0, 'no account switch in the list; Quota owns enable/disable');
+    await rowOf(page, 'primary-account').getByRole('button', { name: /^Actions:/ }).click();
+    assert.equal(await page.getByRole('button', { name: 'Refresh credentials', exact: true }).isEnabled(), true, 'enabled OAuth files expose per-file refresh');
+    await page.keyboard.press('Escape');
     await rowOf(page, 'gemini-runtime').getByRole('button', { name: /^Actions:/ }).click();
     assert.equal(await page.getByRole('button', { name: 'Disable', exact: true }).isDisabled(), true, 'runtime credentials cannot be toggled');
     await page.keyboard.press('Escape');
@@ -74,6 +77,10 @@ const chip = (page, group, label) => page.getByRole('group', { name: group }).ge
     assert.equal(await panel(page).getByLabel('Exclusion rules (one per line)').isVisible(), true, 'excluded-model rules textarea');
     assert.equal(await panel(page).locator('[data-section=cooldown]').isVisible(), true);
     await panel(page).locator('[data-section=advanced] > summary').click();
+    const policy = panel(page).locator('details').filter({ has: page.getByText('Request policies', { exact: true }) });
+    assert.equal(await policy.getAttribute('open'), null, 'request policies are collapsed by default');
+    await policy.locator('summary').click();
+    assert.equal(await policy.getByText('Request retries', { exact: true }).isVisible(), true, 'request policy fields are editable in the advanced section');
     assert.equal(await panel(page).getByRole('button', { name: 'Add model' }).isVisible(), true, 'aliases');
     assert.equal(await panel(page).getByRole('button', { name: 'Add header' }).isVisible(), true, 'custom headers');
     assert.equal(await panel(page).getByText('Credential timezone').isVisible(), true);

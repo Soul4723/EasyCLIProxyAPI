@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './platform';
 import { open } from '@tauri-apps/plugin-dialog';
 
 /** Native plugin libraries the core can load. */

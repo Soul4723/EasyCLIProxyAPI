@@ -571,7 +571,7 @@ pub(super) async fn usage_collector_loop(app: tauri::AppHandle, token: Cancellat
                         &format!("Restored {saved} pending records"),
                         Some(collected_at.clone()),
                     );
-                    let _ = app.emit(USAGE_UPDATED_EVENT, collected_at);
+                    emit_usage_updated(&app, collected_at);
                     retry_seconds = 1;
                     continue;
                 }
@@ -911,7 +911,7 @@ pub(super) fn publish_collected_records(app: &tauri::AppHandle, outcome: UsagePe
         (saved > 0).then_some(collected_at.clone()),
     );
     if saved > 0 {
-        let _ = app.emit(USAGE_UPDATED_EVENT, collected_at);
+        emit_usage_updated(app, collected_at);
     }
 }
 

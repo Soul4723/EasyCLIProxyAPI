@@ -17,7 +17,7 @@ import {
   pruneQuotaCache, useQuotaCache,
 } from '../../services/quotaCache';
 import {
-  idleQuota, providerForFile, quotaKey, type AuthFile, type QuotaState,
+  idleQuota, quotaProviderForFile, quotaKey, type AuthFile, type QuotaState,
 } from '../../services/quotaService';
 import { useNow } from '../../ui';
 import { buildAccount, sortAccounts, stabilizeAccounts, type QuotaAccount } from './model';
@@ -39,7 +39,7 @@ export function useQuotaData({ askConfirmation, onFetched }: QuotaDataOptions) {
   const now = useNow(NOW_TICK_MS);
   const source = useDataSource(credentialsSource);
   const snapshot: FileSnapshot = useMemo(() => ({
-    files: (source.data?.files ?? []).filter(file => providerForFile(file)),
+    files: (source.data?.files ?? []).filter(file => quotaProviderForFile(file)),
     receivedAtMs: source.data?.receivedAtMs ?? 0, observedAt: source.data?.observedAt,
   }), [source.data]);
   const loading = source.loading;

@@ -1,6 +1,7 @@
-import { invoke as nativeInvoke, type InvokeArgs, type InvokeOptions } from '@tauri-apps/api/core';
+import type { InvokeArgs, InvokeOptions } from './platform';
+import type { invoke } from './platform';
 
-type Transport = typeof nativeInvoke;
+type Transport = typeof invoke;
 const changed = () => new Error('The core connection changed; reload before continuing');
 
 /** One WebView document owns one revision. Never refresh it for a later request. */
@@ -47,6 +48,4 @@ export function createDocumentTarget(transport: Transport) {
   };
 }
 
-export const documentTarget = createDocumentTarget(nativeInvoke);
-export const invoke = documentTarget.invoke;
-export const isDocumentTargetBlocked = documentTarget.isBlocked;
+export { documentTarget, invokeTarget as invoke, isDocumentTargetBlocked } from './platform';

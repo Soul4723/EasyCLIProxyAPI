@@ -86,6 +86,14 @@ const USAGE_FAILURE_MIGRATION_KEY: &str = "failure_details_v4";
 const USAGE_EVENT_KEY_MIGRATION_KEY: &str = "event_key_v5";
 const USAGE_DATABASE_MAX_MB_KEY: &str = "max_database_size_mb";
 const USAGE_UPDATED_EVENT: &str = "usage-records-updated";
+
+fn emit_usage_updated(app: &tauri::AppHandle, collected_at: String) {
+    // #493: collection persists in Rust while hidden; do not keep feeding JS
+    // events into the suspended WebView. The UI fetches current data on resume.
+    if crate::window_activity::is_active(app) {
+        let _ = app.emit_to("main", USAGE_UPDATED_EVENT, collected_at);
+    }
+}
 const USAGE_SCHEMA_VERSION: u8 = 1;
 const USAGE_DATABASE_SCHEMA_VERSION: i64 = 6;
 const MAX_USAGE_FAILURE_BODY_CHARS: usize = 2_000;

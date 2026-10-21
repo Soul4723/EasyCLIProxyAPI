@@ -21,7 +21,7 @@ import {
 } from '../../../services/authFileHealth';
 import { readString } from '../../../services/managementApi';
 import { codexMetadataFor } from '../../../services/quotaMetadata';
-import { providerForFile } from '../../../services/quotaService';
+import { quotaProviderForFile } from '../../../services/quotaService';
 
 export type AuthFile = Record<string, unknown>;
 
@@ -44,6 +44,8 @@ export type CredentialRow = {
   identities: string[];
   plan: string;
   status: CredentialStatus;
+  /** Includes warning/error health states and active cooldowns for the Problems filter. */
+  problem: boolean;
   /** Cooldown time left / the core's status message, already privacy-neutral text (callers mask). */
   statusDetail?: string;
   /** Epoch ms when the earliest active cooldown ends; set only for `cooldown`. */
@@ -118,6 +120,7 @@ export function buildCredentialRow(file: AuthFile, snapshot: Pick<CredentialSnap
   const authIndex = authFileCooldownResetIndex(file);
   const identities = authFileIdentities(file);
   const status = credentialStatus(file, snapshot.receivedAtMs, nowMs, snapshot.observedAt);
+  const health = authFileHealth(file);
   const stats = authFileRequestStats(file);
   const hasTotals = stats.success !== null || stats.failure !== null;
   return {
@@ -128,6 +131,8 @@ export function buildCredentialRow(file: AuthFile, snapshot: Pick<CredentialSnap
     identities,
     plan: credentialPlan(file),
     status: status.status,
+    problem: status.status === 'cooldown' || status.status === 'expired' || status.status === 'error'
+      || health.tone === 'warning' || health.tone === 'error',
     statusDetail: status.detail,
     cooldownUntilMs: status.cooldownUntilMs,
     disabled: status.status === 'disabled',
@@ -135,7 +140,7 @@ export function buildCredentialRow(file: AuthFile, snapshot: Pick<CredentialSnap
     editable: isOAuthCredentialFile(file),
     priority: parseAuthFilePriority(file.priority) ?? 0,
     requests: hasTotals ? { ok: stats.success ?? 0, fail: stats.failure ?? 0 } : undefined,
-    quotaProvider: providerForFile(file),
+    quotaProvider: quotaProviderForFile(file),
     authIndex,
     file,
   };
@@ -166,7 +171,7 @@ export const defaultCredentialFilter: CredentialFilterValue = { query: '', provi
 
 export function matchesStatus(row: CredentialRow, status: CredentialStatusFilter): boolean {
   if (status === 'all') return true;
-  if (status === 'problems') return PROBLEM_STATUSES.includes(row.status);
+  if (status === 'problems') return row.problem;
   return row.status === status;
 }
 
@@ -179,7 +184,7 @@ export function filterCredentials(
     if (provider && provider !== 'all' && row.provider !== provider) return false;
     if (status && !matchesStatus(row, status)) return false;
     if (!needle) return true;
-    return [row.name, providerInfo(row.provider).name, row.identity, row.plan]
+    return [row.name, providerInfo(row.provider).name, row.identity, row.plan, readString(row.file, 'note'), readString(row.file, 'prefix')]
       .join(' ').toLowerCase().includes(needle);
   });
 }
@@ -191,7 +196,7 @@ export function statusFilterCounts(rows: readonly CredentialRow[]): Record<Crede
   return {
     all: rows.length,
     ...counts,
-    problems: PROBLEM_STATUSES.reduce((total, status) => total + counts[status], 0),
+    problems: rows.filter((row) => row.problem).length,
   };
 }
 

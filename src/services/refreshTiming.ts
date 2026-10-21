@@ -1,7 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { listen } from './platform';
+import { windowActivity } from './windowActivity';
 
-/** A fixed trailing window: the first event starts it; later events never move it. */
+/** A fixed trailing window: the first event starts it; later events never move it.
+ * Hidden windows retain one pending refresh and consume it immediately on resume.
+ */
 export function subscribeFixedWindowEvent(
   event: string,
   delayMs: number,
@@ -10,45 +13,65 @@ export function subscribeFixedWindowEvent(
   subscribe = listen,
 ) {
   let disposed = false;
+  let pending = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let unlisten: (() => void) | undefined;
+  const schedule = () => {
+    if (!pending || timer !== undefined || !windowActivity.active()) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      if (disposed || !pending) return;
+      if (!windowActivity.active()) return;
+      pending = false;
+      refresh();
+    }, delayMs);
+  };
+  const stopActivity = windowActivity.subscribe(() => {
+    if (!windowActivity.active()) {
+      clearTimeout(timer);
+      timer = undefined;
+    } else if (pending) {
+      // If a trailing window was interrupted by hiding, do one catch-up refresh.
+      pending = false;
+      refresh();
+    }
+  });
   void subscribe(event, () => {
-    if (disposed || timer !== undefined) return;
-    timer = setTimeout(() => { timer = undefined; refresh(); }, delayMs);
+    if (disposed) return;
+    if (!pending) pending = true;
+    schedule();
   }).then(stop => { if (disposed) stop(); else unlisten = stop; }).catch(error => { if (!disposed) onError(error); });
   return {
-    pending: () => timer !== undefined,
+    pending: () => pending,
     stop() {
       if (disposed) return;
-      disposed = true; clearTimeout(timer); unlisten?.();
+      disposed = true; clearTimeout(timer); stopActivity(); unlisten?.();
     },
   };
 }
 
 /** No initial or catch-up interval tick. Hidden time does not count toward the next interval. */
 export function startVisibleInterval(tick: () => void, intervalMs: number, onVisible?: () => void) {
-  if (typeof document === 'undefined') {
-    const timer = setInterval(tick, intervalMs);
-    return () => clearInterval(timer);
-  }
-
   let timer: ReturnType<typeof setInterval> | undefined;
   let initialized = false;
-  const onVisibility = () => {
-    clearInterval(timer);
+  let wasActive = false;
+  const update = () => {
+    if (timer !== undefined) clearInterval(timer);
     timer = undefined;
-    if (initialized && !document.hidden) onVisible?.();
-    initialized = true;
-    if (!document.hidden) {
+    const active = windowActivity.active();
+    if (active) {
+      if (initialized && !wasActive) onVisible?.();
       timer = setInterval(tick, intervalMs);
     }
+    wasActive = active;
+    initialized = true;
   };
-  document.addEventListener('visibilitychange', onVisibility);
-  onVisibility();
-  return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); };
+  const unsubscribe = windowActivity.subscribe(update);
+  update();
+  return () => { if (timer !== undefined) clearInterval(timer); unsubscribe(); };
 }
 
-/** Runs only while enabled and visible; callback changes do not restart its clock. */
+/** Runs only while enabled and in an active native/browser window. */
 export function useVisibleInterval(tick: () => void, intervalMs: number, enabled: boolean) {
   const latest = useRef(tick);
   latest.current = tick;
@@ -57,19 +80,28 @@ export function useVisibleInterval(tick: () => void, intervalMs: number, enabled
   }, [intervalMs, enabled]);
 }
 
-/** One focus owner. Query changes and explicit refreshes call markFresh without invalidating again. */
+/** One freshness owner. Query changes and explicit refreshes call markFresh without invalidating again. */
 export function startStaleFocusRefresh(refresh: () => void, staleMs: number, pending: () => boolean) {
   let refreshedAt = Date.now();
-  const markFresh = () => { refreshedAt = Date.now(); };
-  const onFocus = () => {
-    if (document.hidden || pending() || Date.now() - refreshedAt <= staleMs) return;
-    markFresh();
-    refresh();
+  let wasActive = windowActivity.active();
+  let freshRevision = 0;
+  let freshRevisionAtHide = freshRevision;
+  const markFresh = () => { refreshedAt = Date.now(); freshRevision++; };
+  const onActivity = () => {
+    const active = windowActivity.active();
+    if (!active && wasActive) {
+      freshRevisionAtHide = freshRevision;
+    } else if (active && !wasActive && !pending()) {
+      const needsRefresh = windowActivity.native()
+        ? freshRevision === freshRevisionAtHide
+        : Date.now() - refreshedAt > staleMs;
+      if (needsRefresh) {
+        markFresh();
+        refresh();
+      }
+    }
+    wasActive = active;
   };
-  window.addEventListener('focus', onFocus);
-  document.addEventListener('visibilitychange', onFocus);
-  return {
-    markFresh,
-    stop() { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus); },
-  };
+  const unsubscribe = windowActivity.subscribe(onActivity);
+  return { markFresh, stop: unsubscribe };
 }

@@ -76,6 +76,20 @@ h.runUiTest('providers', async ({ base, newPage }) => {
   await page.waitForTimeout(300);
   const names = await page.locator('table tbody tr').allInnerTexts();
   assert.ok(names.length > 0 && names.every((text) => /codex/i.test(text)), 'search narrows to codex rows');
+  await page.getByRole('button', { name: 'Batch management' }).click();
+  const batch = page.getByRole('dialog', { name: 'Batch management' });
+  await batch.waitFor();
+  const batchChecks = batch.locator('input[type=checkbox]');
+  assert.ok(await batchChecks.count() > 0, 'batch management shows the currently filtered credentials');
+  await batchChecks.first().check();
+  assert.equal(await batch.getByRole('button', { name: 'Refresh credentials', exact: true }).isEnabled(), true);
+  assert.equal(await batch.getByRole('button', { name: 'Enable', exact: true }).isEnabled(), true);
+  assert.equal(await batch.getByRole('button', { name: 'Disable', exact: true }).isEnabled(), true);
+  assert.equal(await batch.getByRole('button', { name: 'Delete', exact: true }).isEnabled(), true);
+  await batch.getByRole('button', { name: 'Refresh credentials', exact: true }).click();
+  await batch.getByRole('status').waitFor();
+  assert.match(await batch.getByRole('status').innerText(), /0 failed/);
+  await batch.getByRole('button', { name: 'Close', exact: true }).click();
   noErrors(page, 'all credentials');
   await page.context().close();
 

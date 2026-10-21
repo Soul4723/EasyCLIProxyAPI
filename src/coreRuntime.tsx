@@ -6,6 +6,7 @@ import { pluginListSource } from './services/pluginList';
 import { lightingSource } from './services/lighting';
 import { invalidateQuotaCache } from './services/quotaCache';
 import { invalidateQuotaRequests } from './services/quotaService';
+import { windowActivity } from './services/windowActivity';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from './services/platform';
 import { listen } from './services/platform';
@@ -59,7 +60,9 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
       let stop: (() => void) | undefined;
       // get_core_status emits this event too: publish its payload, never invalidate/refetch it.
       void listen<CoreStatus>('core-status-changed', event => {
-        if (!disposed) source.mutate(() => event.payload);
+        if (disposed) return;
+        if (windowActivity.active()) source.mutate(() => event.payload);
+        else source.invalidate();
       }).then(off => { if (disposed) off(); else stop = off; });
       return () => { disposed = true; stop?.(); };
     },
@@ -96,6 +99,7 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
     return () => { disposed = true; stop?.(); };
   }, [source]);
   const publishStatus = useCallback((status: CoreStatus | null) => {
+    if (!windowActivity.active()) { source.invalidate(); return; }
     if (status) source.mutate(() => status); else source.reset();
   }, [source]);
   const value = useMemo(() => ({

@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from 'bun:test';
 import { startStaleFocusRefresh, startVisibleInterval, subscribeFixedWindowEvent } from '../../../src/services/refreshTiming';
 import type { listen } from '../../../src/services/platform';
+import { initializeWindowActivity, windowActivity } from '../../../src/services/windowActivity';
 
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 function fakeIntervals() {
@@ -24,19 +25,12 @@ function fakeIntervals() {
   };
 }
 
-function browser() {
-  const descriptors = ['window', 'document'].map(key => Object.getOwnPropertyDescriptor(globalThis, key));
-  const win = new EventTarget();
-  const doc = Object.assign(new EventTarget(), { hidden: false });
-  Object.defineProperty(globalThis, 'window', { value: win, configurable: true });
-  Object.defineProperty(globalThis, 'document', { value: doc, configurable: true });
-  return { win, doc, restore() {
-    ['window', 'document'].forEach((key, i) => {
-      if (descriptors[i]) Object.defineProperty(globalThis, key, descriptors[i]!);
-      else Reflect.deleteProperty(globalThis, key);
-    });
-  } };
-}
+const browserWindow = new EventTarget();
+const browserDocument = Object.assign(new EventTarget(), { hidden: false });
+Object.defineProperty(globalThis, 'window', { value: browserWindow, configurable: true });
+Object.defineProperty(globalThis, 'document', { value: browserDocument, configurable: true });
+void initializeWindowActivity();
+function browser() { return { win: browserWindow, doc: browserDocument, restore() { browserDocument.hidden = false; } }; }
 
 test('continuous events cannot postpone the fixed window; stop cancels pending work', async () => {
   let emit!: () => void;
@@ -78,6 +72,29 @@ test('late event subscription is disposed after unmount and cannot schedule work
   await pause(0); emit(); await pause(15);
   expect(stopped).toBe(true);
   expect(calls).toBe(0);
+});
+
+test('fixed-window event waits while inactive and refreshes once on resume', async () => {
+  let emit!: () => void;
+  const subscribe: typeof listen = async (_event, handler) => {
+    emit = () => handler({} as never);
+    return () => {};
+  };
+  let calls = 0;
+  const subscription = subscribeFixedWindowEvent('records', 1_000, () => { calls++; }, () => {}, subscribe);
+  try {
+    await pause(0);
+    browserDocument.hidden = true; browserDocument.dispatchEvent(new Event('visibilitychange'));
+    emit();
+    expect(subscription.pending()).toBe(true);
+    await pause(10);
+    expect(calls).toBe(0);
+    browserDocument.hidden = false; browserDocument.dispatchEvent(new Event('visibilitychange'));
+    expect(calls).toBe(1);
+    expect(subscription.pending()).toBe(false);
+    await pause(10);
+    expect(calls).toBe(1);
+  } finally { subscription.stop(); browserDocument.hidden = false; }
 });
 
 test('visible interval pauses, refreshes immediately on return, and cleans up on cadence changes', () => {
@@ -126,11 +143,12 @@ test('visible interval falls back to a plain interval without document', () => {
   } finally {
     stop?.();
     if (descriptor) Object.defineProperty(globalThis, 'document', descriptor);
+    else Object.defineProperty(globalThis, 'document', { value: browserDocument, configurable: true });
     timers.restore();
   }
 });
 
-test('focus refresh is strictly stale, visible, not event-pending, and query/manual freshness resets it', () => {
+test('activity-resume refresh is strictly stale, not event-pending, and query/manual freshness resets it', () => {
   const env = browser();
   let now = 1_000;
   const clock = spyOn(Date, 'now').mockImplementation(() => now);
@@ -139,14 +157,63 @@ test('focus refresh is strictly stale, visible, not event-pending, and query/man
   const focus = startStaleFocusRefresh(() => { calls++; }, 30_000, () => pending);
   try {
     now += 30_000; env.win.dispatchEvent(new Event('focus')); expect(calls).toBe(0);
-    now++; env.win.dispatchEvent(new Event('focus')); expect(calls).toBe(1);
+    now++; env.doc.hidden = true; env.doc.dispatchEvent(new Event('visibilitychange'));
+    env.doc.hidden = false; env.doc.dispatchEvent(new Event('visibilitychange')); expect(calls).toBe(1);
     now += 20_000; focus.markFresh();
-    now += 20_000; env.win.dispatchEvent(new Event('focus')); expect(calls).toBe(1);
+    now += 20_000; env.doc.hidden = true; env.doc.dispatchEvent(new Event('visibilitychange'));
+    env.doc.hidden = false; env.doc.dispatchEvent(new Event('visibilitychange')); expect(calls).toBe(1);
     now += 11_000; pending = true;
-    env.win.dispatchEvent(new Event('focus')); expect(calls).toBe(1);
-    pending = false; env.doc.hidden = true;
-    env.win.dispatchEvent(new Event('focus')); expect(calls).toBe(1);
+    pending = false; env.doc.hidden = true; env.doc.dispatchEvent(new Event('visibilitychange'));
     env.doc.hidden = false; env.doc.dispatchEvent(new Event('visibilitychange')); expect(calls).toBe(2);
     focus.stop(); now += 31_000; env.win.dispatchEvent(new Event('focus')); expect(calls).toBe(2);
   } finally { focus.stop(); clock.mockRestore(); env.restore(); }
+});
+
+test('native activity resumes refresh even when the browser stale threshold has not elapsed', () => {
+  const native = spyOn(windowActivity, 'native').mockReturnValue(true);
+  const env = browser();
+  let calls = 0;
+  const focus = startStaleFocusRefresh(() => { calls++; }, 30_000, () => false);
+  try {
+    env.doc.hidden = true; env.doc.dispatchEvent(new Event('visibilitychange'));
+    env.doc.hidden = false; env.doc.dispatchEvent(new Event('visibilitychange'));
+    expect(calls).toBe(1);
+  } finally { focus.stop(); native.mockRestore(); env.restore(); }
+});
+
+test('native resume consumes a pending event without a second freshness refresh', async () => {
+  const native = spyOn(windowActivity, 'native').mockReturnValue(true);
+  const env = browser();
+  let emit!: () => void;
+  const subscribe: typeof listen = async (_event, handler) => {
+    emit = () => handler({} as never);
+    return () => {};
+  };
+  let calls = 0;
+  let focus: ReturnType<typeof startStaleFocusRefresh> | undefined;
+  const event = subscribeFixedWindowEvent('records', 1_000, () => { calls++; focus?.markFresh(); }, () => {}, subscribe);
+  focus = startStaleFocusRefresh(() => { calls++; }, 30_000, event.pending);
+  try {
+    await pause(0);
+    env.doc.hidden = true; env.doc.dispatchEvent(new Event('visibilitychange'));
+    emit();
+    env.doc.hidden = false; env.doc.dispatchEvent(new Event('visibilitychange'));
+    expect(calls).toBe(1);
+  } finally { event.stop(); focus.stop(); native.mockRestore(); env.restore(); }
+});
+
+test('standalone timing remains active without a document or activity initialization', () => {
+  const timers = fakeIntervals();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Reflect.deleteProperty(globalThis, 'document');
+  let ticks = 0;
+  const stop = startVisibleInterval(() => { ticks++; }, 1_000);
+  try {
+    expect(timers.active()).toHaveLength(1);
+    timers.tick(); expect(ticks).toBe(1);
+  } finally {
+    stop(); timers.restore();
+    if (descriptor) Object.defineProperty(globalThis, 'document', descriptor);
+    else Object.defineProperty(globalThis, 'document', { value: browserDocument, configurable: true });
+  }
 });

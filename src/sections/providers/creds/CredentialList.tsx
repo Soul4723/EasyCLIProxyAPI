@@ -6,6 +6,8 @@ import { usePrivacyMask } from '../../../privacy';
 import { routeHref } from '../../../shell/router';
 import { authFileCooldownResetIndex } from '../../../services/authFiles';
 import { normalizeAuthFileCooldowns } from '../../../services/authFileHealth';
+import { refreshCredential } from '../../../services/authFileOperations';
+import { managementApi } from '../../../services/managementApi';
 import {
   Button,
   Chip,
@@ -44,10 +46,23 @@ function RowMenu({ row, controller }: { row: CredentialRow; controller: Credenti
   const { t } = useI18n();
   const mask = usePrivacyMask();
   const [open, setOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const close = () => setOpen(false);
   const name = mask.text(row.name, row.identities);
   const run = (action: () => void) => () => { close(); action(); };
+  const refresh = async () => {
+    if (refreshing || controller.busy || row.disabled || !row.editable) return;
+    setRefreshing(true);
+    try {
+      const expectedRevision = await managementApi.getTargetRevision();
+      await refreshCredential(row.file, { expectedRevision });
+      controller.notify(t('authFiles.operations.done', { success: 1, failed: 0 }));
+      await controller.refresh();
+    } catch (reason) {
+      controller.notify(reason instanceof Error ? reason.message : String(reason), 'error');
+    } finally { setRefreshing(false); }
+  };
   return (
     <>
       <IconButton ref={anchor} size="sm" label={`${t('authFiles.list.actions')}: ${name}`} icon={<MoreHorizontal size={16} />}
@@ -62,6 +77,8 @@ function RowMenu({ row, controller }: { row: CredentialRow; controller: Credenti
         <PopoverItem icon={<Copy size={14} />} onClick={run(() => void controller.copyName(row))}>
           {t('authFiles.copyName')}
         </PopoverItem>
+        {row.editable ? <PopoverItem icon={<RotateCcw size={14} />} disabled={refreshing || controller.busy || row.disabled}
+          onClick={run(() => void refresh())}>{t('authFiles.operations.refresh')}</PopoverItem> : null}
         {/* Quota is the one home for enable/disable; credentials it does not list keep the switch here. */}
         {!row.quotaProvider ? (
           <PopoverItem icon={<Power size={14} />} disabled={controller.busy || !row.editable} onClick={run(() => void controller.toggle(row))}>

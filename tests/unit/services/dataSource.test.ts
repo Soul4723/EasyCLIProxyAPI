@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { createDataSource } from '../../../src/services/dataSource';
+import { initializeWindowActivity } from '../../../src/services/windowActivity';
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -121,10 +122,11 @@ describe('stable source snapshots', () => {
   });
 });
 
-test('focus staleness uses the last successful refresh, including silent reloads', async () => {
-  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
-  const focusTarget = new EventTarget();
-  Object.defineProperty(globalThis, 'window', { value: focusTarget, configurable: true });
+test('resume freshness uses the last successful refresh, including silent reloads', async () => {
+  const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const doc = Object.assign(new EventTarget(), { hidden: false });
+  Object.defineProperty(globalThis, 'document', { value: doc, configurable: true });
+  await initializeWindowActivity();
   let now = 1_000;
   const clock = spyOn(Date, 'now').mockImplementation(() => now);
   let calls = 0;
@@ -136,18 +138,20 @@ test('focus staleness uses the last successful refresh, including silent reloads
     now = 1_500;
     await source.refresh();
     expect(source.getSnapshot()).toBe(previous);
-    now = 2_001;
-    focusTarget.dispatchEvent(new Event('focus'));
-    await source.load();
-    expect(calls).toBe(2);
-    now = 2_501;
-    focusTarget.dispatchEvent(new Event('focus'));
+    now = 1_501;
+    doc.hidden = true; doc.dispatchEvent(new Event('visibilitychange'));
+    doc.hidden = false; doc.dispatchEvent(new Event('visibilitychange'));
     await source.load();
     expect(calls).toBe(3);
+    now = 1_502;
+    doc.hidden = true; doc.dispatchEvent(new Event('visibilitychange'));
+    doc.hidden = false; doc.dispatchEvent(new Event('visibilitychange'));
+    await source.load();
+    expect(calls).toBe(4);
   } finally {
     off(); clock.mockRestore();
-    if (windowDescriptor) Object.defineProperty(globalThis, 'window', windowDescriptor);
-    else Reflect.deleteProperty(globalThis, 'window');
+    if (documentDescriptor) Object.defineProperty(globalThis, 'document', documentDescriptor);
+    else Reflect.deleteProperty(globalThis, 'document');
   }
 });
 

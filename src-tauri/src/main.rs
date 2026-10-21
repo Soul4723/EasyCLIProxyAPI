@@ -27,7 +27,7 @@ mod core_connection;
 mod core_recovery;
 mod desktop_theme;
 mod instance_lock;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 mod linux_graphics;
 mod management_api;
 mod lighting;
@@ -57,6 +57,7 @@ mod usage;
 #[cfg(target_os = "windows")]
 mod windows_frame;
 mod window_material;
+mod window_activity;
 
 #[cfg(test)]
 use configuration_watcher::nearest_existing_watch_directory;
@@ -208,6 +209,16 @@ fn main() {
     let initial_window_position = configured_window_position(&gui_config);
     let start_hidden = should_start_hidden(&gui_config);
 
+    let context = tauri::generate_context!();
+    #[cfg(target_os = "linux")]
+    let context = {
+        let mut context = context;
+        // Prevent #491's partial blank rendering on Linux (AMD and NVIDIA): disable native
+        // transparency before build creates the window, not later in setup.
+        linux_graphics::configure_main_window(context.config_mut());
+        context
+    };
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
@@ -221,6 +232,7 @@ fn main() {
         )
         .manage(CoreDownloadState::default())
         .manage(AppUpdateState::default())
+        .manage(window_activity::WindowActivity::default())
         .manage(CoreProcessState::new(gui_config.start_core_on_launch))
         .manage(DeepSeekHarnessProcessState::default())
         .manage(usage::UsageCollectorState::default())
@@ -235,6 +247,10 @@ fn main() {
     let app = app.on_window_event(|window, event| {
         if window.label() != "main" {
             return;
+        }
+
+        if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_)) {
+            window_activity::sync(window.app_handle());
         }
 
         if let tauri::WindowEvent::Moved(position) = event {
@@ -278,7 +294,7 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 set_macos_dock_visible(window.app_handle(), false);
-                if let Err(error) = window.hide() {
+                if let Err(error) = window_activity::hide(window) {
                     eprintln!("Failed to hide main window: {error}");
                     set_macos_dock_visible(window.app_handle(), true);
                 }
@@ -473,6 +489,7 @@ fn main() {
         })
         .invoke_handler({
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+                window_activity::main_window_active,
                 desktop_theme::get_linux_system_theme,
                 desktop_theme::list_custom_themes,
                 desktop_theme::open_custom_themes_directory,
@@ -654,7 +671,7 @@ fn main() {
             let handler = dev_observe::wrap(handler);
             handler
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("failed to build app");
 
     app.run(|app_handle, event| match event {

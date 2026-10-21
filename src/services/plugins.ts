@@ -280,7 +280,7 @@ export function mergePluginConfigPatch(
 }
 
 export const pluginsApi = {
-  list: async (): Promise<PluginListResponse> => normalizePluginList(await managementApi.get('/plugins')),
+  list: async (expectedRevision?: number): Promise<PluginListResponse> => normalizePluginList(await managementApi.get('/plugins', undefined, { expectedRevision })),
 
   updateEnabled: (id: string, enabled: boolean) =>
     managementApi.put(`/config/plugins/configs/${pluginPathID(id)}/enabled`, enabled),

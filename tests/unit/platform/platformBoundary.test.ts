@@ -37,6 +37,12 @@ function nativeFencedCommands(): string[] {
 }
 
 describe('platform boundary', () => {
+  test('only platform.ts imports the native core API, including service wrappers', () => {
+    expect(sources.filter(f => !f.endsWith('/services/platform.ts'))
+      .filter(f => /@tauri-apps\/api\/core/.test(readFileSync(f, 'utf8')))
+      .map(f => relative(root, f))).toEqual([]);
+  });
+
   test('no @tauri-apps import outside src/services and src/mocks', () => {
     const offenders = sources
       .map((f) => relative(root, f))

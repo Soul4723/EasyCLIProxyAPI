@@ -1,3 +1,4 @@
+import { isOAuthCredentialFile } from '../services/authFiles';
 import { isThemeSelection, type ThemeSelection } from '../themes/types';
 import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type TemplateConfigChange } from '../services/templateConfig';
 import type { CoreConnection } from '../services/coreConnection';
@@ -886,6 +887,16 @@ function managementResponse(state: BrowserMockState, payload: JsonObject) {
   if (method === 'GET' && path === '/credentials') {
     return { files: clone(state.authFiles), observed_at: new Date().toISOString() };
   }
+  if (method === 'POST' && path === '/credentials/refresh') {
+    const target = asObject(body);
+    if (target.all === true) return { ok: true, results: state.authFiles
+      .filter(file => isOAuthCredentialFile(file) && file.disabled !== true)
+      .map(file => ({ id: file.name, success: true })) };
+    const file = state.authFiles.find(file => file.name === target.name
+      && (target.auth_index === undefined || file.auth_index === target.auth_index));
+    if (!file || !isOAuthCredentialFile(file) || file.disabled === true) throw new Error('Browser Mock credential cannot be refreshed');
+    return { ok: true };
+  }
   if (method === 'GET' && path === '/credentials/download') {
     const file = findAuthFile(state, readString(query.name));
     if (!file) throw new Error(`Browser Mock credential not found: ${readString(query.name)}`);
@@ -1162,6 +1173,7 @@ export function createBrowserMockRuntime(
         return clone(connection);
       }
       case 'get_core_status': return clone(state.coreStatus);
+      case 'main_window_active': return !document.hidden;
       case 'start_core_process': {
         if (connection.mode === 'remote') throw new Error('Local lifecycle is disabled in remote mode');
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');

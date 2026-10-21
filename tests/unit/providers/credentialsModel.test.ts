@@ -99,6 +99,7 @@ describe('credential rows', () => {
     expect(credentialBrand({})).toBe('other');
     expect(row({ provider: 'codex' }).quotaProvider).toBe('codex');
     expect(row({ provider: 'gemini' }).quotaProvider).toBeNull();
+    expect(row({ provider: 'custom-provider', supports_quota: true, auth_index: 'plugin-index' }).quotaProvider).toBe('plugin');
   });
 
   it('reads the Codex plan from token metadata when the file has no plan field', () => {
@@ -134,6 +135,13 @@ describe('summaries and filters', () => {
     expect(filterCredentials(rows, { query: ' THREE@' }).map((item) => item.name)).toEqual(['claude-1.json']);
     expect(filterCredentials(rows, { query: 'kimi' }).map((item) => item.name)).toEqual(['kimi-1.json']);
     expect(filterCredentials(rows, { provider: 'codex', status: 'problems' }).map((item) => item.name)).toEqual(['codex-2.json']);
+  });
+
+  it('searches credential notes and prefixes and includes warning health in Problems', () => {
+    const annotated = row({ name: 'pending.json', status: 'pending', note: 'team staging', prefix: 'shared-' });
+    expect(filterCredentials([annotated], { query: 'TEAM staging' })).toEqual([annotated]);
+    expect(filterCredentials([annotated], { query: 'shared-' })).toEqual([annotated]);
+    expect(filterCredentials([annotated], { status: 'problems' })).toEqual([annotated]);
   });
 
   it('counts chips for the other active filters', () => {
