@@ -30,6 +30,7 @@ static RUNTIME_TOKENS: LazyLock<Mutex<HashMap<tokio::runtime::Id, Weak<RuntimeTo
 static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
 static NEXT_CLIENT_ACCESS: AtomicU64 = AtomicU64::new(1);
 const MAX_MANAGEMENT_CLIENTS: usize = 8;
+const MAX_MANAGEMENT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 struct RuntimeToken {
     generation: u64,
@@ -603,10 +604,7 @@ pub(crate) async fn submit_oauth_callback(
         .await
         .map_err(|err| format_management_request_error("Failed to submit OAuth callback", &err))?;
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read OAuth callback response", &err))?;
+    let text = read_management_body(response, "Failed to read OAuth callback response").await?;
     gui_config_state.ensure_target(&config)?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
@@ -853,10 +851,7 @@ where
     T: for<'de> Deserialize<'de>,
 {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read management API response", &err))?;
+    let text = read_management_body(response, "Failed to read management API response").await?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
@@ -870,10 +865,7 @@ pub(crate) async fn read_management_value(
     response: reqwest::Response,
 ) -> Result<serde_json::Value, String> {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read management API response", &err))?;
+    let text = read_management_body(response, "Failed to read management API response").await?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
@@ -888,14 +880,39 @@ pub(crate) async fn read_management_value(
 
 pub(crate) async fn read_management_text(response: reqwest::Response) -> Result<String, String> {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read management API response", &err))?;
+    let text = read_management_body(response, "Failed to read management API response").await?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
     Ok(text)
+}
+
+async fn read_management_body(response: reqwest::Response, context: &str) -> Result<String, String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_MANAGEMENT_RESPONSE_BYTES as u64)
+    {
+        return Err(format!(
+            "Management API response exceeds the {} MiB size limit",
+            MAX_MANAGEMENT_RESPONSE_BYTES / (1024 * 1024)
+        ));
+    }
+    let mut response = response;
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|err| format_management_request_error(context, &err))?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_MANAGEMENT_RESPONSE_BYTES {
+            return Err(format!(
+                "Management API response exceeds the {} MiB size limit",
+                MAX_MANAGEMENT_RESPONSE_BYTES / (1024 * 1024)
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    String::from_utf8(body).map_err(|_| "Management API response is not valid UTF-8".to_string())
 }
 
 fn format_management_error(status: u16, body: &str) -> String {
@@ -914,6 +931,33 @@ fn format_management_error(status: u16, body: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn management_response_body_is_capped_from_content_length() {
+        use tokio::io::AsyncWriteExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let _ = stream.readable().await;
+            let mut request = [0_u8; 1024];
+            let _ = stream.try_read(&mut request);
+            let body = vec![b'x'; MAX_MANAGEMENT_RESPONSE_BYTES + 1];
+            stream.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").await.unwrap();
+            stream.write_all(format!("{:x}\r\n", body.len()).as_bytes()).await.unwrap();
+            stream.write_all(&body).await.unwrap();
+            stream.write_all(b"\r\n0\r\n\r\n").await.unwrap();
+        });
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap();
+        let error = read_management_value(response).await.unwrap_err();
+        assert!(error.contains("16 MiB size limit"));
+        server.await.unwrap();
+    }
 
     struct SelfSignedTlsServer {
         child: std::process::Child,
