@@ -1,0 +1,738 @@
+name: Fork verification
+
+on:
+  push:
+    branches:
+      - 'ci/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-unit:
+    name: Typecheck and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        id: typecheck
+        run: |
+          set -o pipefail
+          if node -e "process.exit(require('./package.json').scripts?.check ? 0 : 1)"; then
+            bun run check 2>&1 | tee typecheck.log
+          elif [ -f tsconfig.json ]; then
+            bunx tsc --noEmit 2>&1 | tee typecheck.log
+          else
+            echo 'No typecheck script or tsconfig; skipped.' | tee typecheck.log
+          fi
+      - name: Unit tests
+        id: unit_tests
+        run: |
+          set -o pipefail
+          bun test --isolate 2>&1 | tee unit-tests.log
+      - name: Summarize frontend results
+        if: always()
+        env:
+          TYPECHECK_RESULT: ${{ steps.typecheck.outcome }}
+          UNIT_TEST_RESULT: ${{ steps.unit_tests.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import re
+          from pathlib import Path
+
+          text = Path('unit-tests.log').read_text() if Path('unit-tests.log').exists() else ''
+          count = lambda label: int(re.search(rf'^\s*(\d+) {label}$', text, re.M).group(1)) if re.search(rf'^\s*(\d+) {label}$', text, re.M) else 0
+          print('### Frontend and unit tests')
+          print(f"- Typecheck: **{__import__('os').environ['TYPECHECK_RESULT']}**")
+          print(f"- Unit tests: {count('pass')} passed, {count('skip')} skipped, {count('fail')} failed (step: **{__import__('os').environ['UNIT_TEST_RESULT']}**)")
+          PY
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-unit-logs
+          path: '*.log'
+          if-no-files-found: ignore
+
+  ui:
+    name: Playwright UI suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/playwright" playwright
+          "$RUNNER_TEMP/playwright/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Run complete UI suite
+        id: ui_tests
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/playwright/node_modules/playwright
+        run: |
+          set -uo pipefail
+          if [ -f tests/run-ui.cjs ]; then
+            node tests/run-ui.cjs 2>&1 | tee ui-tests.log
+          else
+            mapfile -t ui_scripts < <(node -e "
+              const scripts = require('./package.json').scripts || {};
+              for (const name of Object.keys(scripts).filter(name => name.startsWith('test:ui:')).sort()) console.log(name);
+            ")
+            if [ ${#ui_scripts[@]} -eq 0 ]; then
+              echo 'No complete UI runner or package.json test:ui:* scripts found; no UI checks are available.' | tee ui-tests.log
+              echo 'UI scripts: 0/0 passed' | tee -a ui-tests.log
+              exit 0
+            fi
+            : > ui-tests.log
+            passed=0
+            failed=0
+            for script_name in "${ui_scripts[@]}"; do
+              echo "### $script_name" | tee -a ui-tests.log
+              if bun run "$script_name" 2>&1 | tee -a ui-tests.log; then
+                passed=$((passed + 1))
+                echo "UI_SCRIPT_RESULT: $script_name PASS" | tee -a ui-tests.log
+              else
+                failed=$((failed + 1))
+                echo "UI_SCRIPT_RESULT: $script_name FAIL" | tee -a ui-tests.log
+              fi
+            done
+            echo "UI scripts: $passed/$((passed + failed)) passed" | tee -a ui-tests.log
+            [ "$failed" -eq 0 ]
+          fi
+      - name: Summarize UI results
+        if: always()
+        env:
+          UI_TEST_RESULT: ${{ steps.ui_tests.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import os
+          import re
+          from pathlib import Path
+
+          text = Path('ui-tests.log').read_text() if Path('ui-tests.log').exists() else ''
+          match = re.search(r'(\d+)/(\d+) UI tests passed', text)
+          if match:
+              passed, total = map(int, match.groups())
+              label = 'UI tests'
+          else:
+              match = re.search(r'UI scripts: (\d+)/(\d+) passed', text)
+              passed, total = (map(int, match.groups()) if match else (0, 0))
+              label = 'UI scripts'
+          print('### Playwright UI suite')
+          print(f"- {label}: {passed} passed, {total - passed} failed (step: **{os.environ['UI_TEST_RESULT']}**)")
+          if label == 'UI scripts':
+              print('\nPer-script results:')
+              for name, result in re.findall(r'^UI_SCRIPT_RESULT: (\S+) (PASS|FAIL)$', text, re.M):
+                  print(f"- `{name}`: **{result}**")
+          PY
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-logs
+          path: '*.log'
+          if-no-files-found: ignore
+
+  rust:
+    name: Rust tests and Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential curl file libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libwebkit2gtk-4.1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: Install frontend dependencies and build assets
+        run: |
+          set -o pipefail
+          bun install --frozen-lockfile
+          bun run build 2>&1 | tee frontend-build.log
+      - name: Cargo tests
+        id: cargo_tests
+        run: |
+          set -o pipefail
+          cargo_manifest=src-tauri/Cargo.toml
+          if [ ! -f "$cargo_manifest" ]; then cargo_manifest=Cargo.toml; fi
+          if [ ! -f "$cargo_manifest" ]; then
+            echo 'No Cargo.toml found; skipping Rust tests.' | tee cargo-tests.log
+          else
+            env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_DATA_DIRS \
+              cargo test --manifest-path "$cargo_manifest" --bin cpa-gui 2>&1 | tee cargo-tests.log
+          fi
+      - name: Clippy (warnings are reported, not treated as errors)
+        id: clippy
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          cargo_manifest=src-tauri/Cargo.toml
+          if [ ! -f "$cargo_manifest" ]; then cargo_manifest=Cargo.toml; fi
+          if [ ! -f "$cargo_manifest" ]; then
+            echo 'No Cargo.toml found; skipping Clippy.' | tee clippy.jsonl
+            exit 0
+          fi
+          cargo clippy --manifest-path "$cargo_manifest" --all-targets --message-format=json 2>&1 | tee clippy.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          count = 0
+          for line in Path('clippy.jsonl').read_text().splitlines():
+              try:
+                  item = json.loads(line)
+              except json.JSONDecodeError:
+                  continue
+              if item.get('reason') == 'compiler-message' and item.get('message', {}).get('level') == 'warning':
+                  count += 1
+          print(f'Clippy warning count: {count}')
+          PY
+      - name: Summarize Rust results
+        if: always()
+        env:
+          CARGO_TEST_RESULT: ${{ steps.cargo_tests.outcome }}
+          CLIPPY_RESULT: ${{ steps.clippy.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          test_log = Path('cargo-tests.log')
+          text = test_log.read_text() if test_log.exists() else ''
+          matches = re.findall(r'test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored', text)
+          passed, failed, ignored = map(int, matches[-1]) if matches else (0, 0, 0)
+          warnings = 0
+          clippy_log = Path('clippy.jsonl')
+          if clippy_log.exists():
+              for line in clippy_log.read_text().splitlines():
+                  try:
+                      item = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if item.get('reason') == 'compiler-message' and item.get('message', {}).get('level') == 'warning':
+                      warnings += 1
+          print('### Rust tests and Clippy')
+          print(f"- Cargo tests: {passed} passed, {failed} failed, {ignored} ignored (step: **{os.environ['CARGO_TEST_RESULT']}**)")
+          print(f"- Clippy: step **{os.environ['CLIPPY_RESULT']}**, {warnings} warnings")
+          PY
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-logs
+          path: |
+            frontend-build.log
+            cargo-tests.log
+            clippy.jsonl
+          if-no-files-found: ignore
+
+  app-smoke:
+    name: Tauri app headless smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri and headless runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential curl file libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libwebkit2gtk-4.1-dev pkg-config \
+            dbus-x11 xvfb
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: app-smoke-${{ runner.os }}-${{ hashFiles('bun.lock', 'src-tauri/Cargo.lock') }}
+          restore-keys: app-smoke-${{ runner.os }}-
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+      - name: Build debug app
+        id: app_build
+        run: |
+          set -o pipefail
+          if node -e "process.exit(require('./package.json').scripts?.tauri ? 0 : 1)"; then
+            bun run tauri build --debug --no-bundle 2>&1 | tee app-build.log
+          else
+            echo 'No Tauri script; skipping app smoke build.' | tee app-build.log
+          fi
+      - name: Start app against isolated test data under Xvfb
+        id: app_start
+        run: |
+          if [ ! -x src-tauri/target/debug/cpa-gui ]; then
+            echo 'No built cpa-gui executable; skipping isolated app startup.'
+            exit 0
+          fi
+          set -euo pipefail
+          smoke_home="$RUNNER_TEMP/app-smoke-home"
+          mkdir -p "$smoke_home/.config" "$smoke_home/.local/share" "$smoke_home/.cache" "$smoke_home/auth"
+          printf 'connection-mode = "local"\nport = 18317\nhost = "127.0.0.1"\nstart-core-on-launch = false\nrun-on-startup = false\nlocale = "en"\nauth-dir = "%s/auth"\n' "$smoke_home" > "$smoke_home/config.toml"
+          export HOME="$smoke_home"
+          export XDG_CONFIG_HOME="$smoke_home/.config"
+          export XDG_DATA_HOME="$smoke_home/.local/share"
+          export XDG_CACHE_HOME="$smoke_home/.cache"
+          export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          dbus-run-session -- xvfb-run -a bash -c '
+            set -euo pipefail
+            "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" > "$RUNNER_TEMP/app-smoke.log" 2>&1 &
+            app_pid=$!
+            trap "kill $app_pid 2>/dev/null || true; wait $app_pid 2>/dev/null || true" EXIT
+            for attempt in $(seq 1 30); do
+              if ! kill -0 "$app_pid" 2>/dev/null; then cat "$RUNNER_TEMP/app-smoke.log"; exit 1; fi
+              sleep 1
+            done
+            echo 'App remained alive for 30 seconds with isolated HOME and no managed core.'
+          '
+      - name: Summarize smoke results
+        if: always()
+        env:
+          APP_BUILD_RESULT: ${{ steps.app_build.outcome }}
+          APP_START_RESULT: ${{ steps.app_start.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import os
+
+          results = [os.environ['APP_BUILD_RESULT'], os.environ['APP_START_RESULT']]
+          passed = results.count('success')
+          failed = len(results) - passed
+          print('### Tauri headless smoke')
+          print(f"- Smoke checks: {passed} passed, {failed} failed")
+          print(f"- Debug build: **{results[0]}**; isolated Xvfb startup: **{results[1]}**")
+          PY
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-smoke-logs
+          path: ${{ runner.temp }}/*.log
+          if-no-files-found: ignore
+
+  core-integration:
+    name: Real CLIProxyAPI Local and Remote integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect real-app observation hook
+        id: observer
+        run: |
+          if [[ ! -f scripts/dev-observe.mjs || ! -d scripts/dev-observe ]]; then
+            echo 'supported=false' >> "$GITHUB_OUTPUT"
+            echo 'Source has no dev-observe hook; real-core scenarios will be skipped.'
+          else
+            echo 'supported=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: oven-sh/setup-bun@v2
+        if: steps.observer.outputs.supported == 'true'
+        with:
+          bun-version: 1.3.14
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.observer.outputs.supported == 'true'
+      - name: Install Tauri and headless runtime dependencies
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential curl file libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libwebkit2gtk-4.1-dev pkg-config \
+            dbus-x11 xvfb fuse3 x11-apps imagemagick
+      - uses: actions/cache@v4
+        if: steps.observer.outputs.supported == 'true'
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: core-integration-${{ runner.os }}-${{ hashFiles('bun.lock', 'src-tauri/Cargo.lock') }}
+          restore-keys: core-integration-${{ runner.os }}-
+      - name: Install dependencies and build debug app
+        id: app_build
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run tauri build --debug --no-bundle 2>&1 | tee "$RUNNER_TEMP/core-integration-build.log"
+      - name: Download and verify source-pinned core release
+        id: core_setup
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < core-version.txt)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          asset="CLIProxyAPI_${version}_linux_amd64.tar.gz"
+          release="https://github.com/router-for-me/CLIProxyAPI/releases/download/v${version}"
+          root="$RUNNER_TEMP/core-integration"
+          mkdir -p "$root/release" "$root/logs" "$RUNNER_TEMP/core-integration-cache"
+          curl --fail --location --retry 5 --retry-all-errors --connect-timeout 15 --max-time 180 \
+            "$release/$asset" --output "$root/release/$asset"
+          curl --fail --location --retry 5 --retry-all-errors --connect-timeout 15 --max-time 60 \
+            "$release/checksums.txt" --output "$root/release/checksums.txt"
+          python3 - "$root/release/checksums.txt" "$asset" <<'PY'
+          import re, sys
+          from pathlib import Path
+          lines = Path(sys.argv[1]).read_text().splitlines()
+          matches = [m.group(1).lower() for line in lines
+                     if (m := re.fullmatch(r"\s*([0-9a-fA-F]{64})\s+\*?" + re.escape(sys.argv[2]) + r"\s*", line))]
+          if len(matches) != 1:
+              raise SystemExit(f"Expected exactly one checksum entry for {sys.argv[2]}, found {len(matches)}")
+          Path(sys.argv[1] + '.expected').write_text(matches[0] + '  ' + sys.argv[2] + '\n')
+          PY
+          (cd "$root/release" && sha256sum --check "checksums.txt.expected")
+          tar -xzf "$root/release/$asset" -C "$root/release"
+          core="$(find "$root/release" -type f -name cli-proxy-api -print -quit)"
+          template="$(find "$root/release" -type f -name config.example.yaml -print -quit)"
+          test -n "$core" && test -n "$template"
+          install_dir="$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-core"
+          mkdir -p "$install_dir" "$install_dir/auth"
+          install -m 700 "$core" "$install_dir/cli-proxy-api"
+          install -m 600 "$template" "$install_dir/config.example.yaml"
+          printf '{"version":"v%s","assetName":"%s","installedAtUnix":0}\n' "$version" "$asset" > "$install_dir/cpa-gui-meta.json"
+          echo "CPA_TEST_VERSION=$version" >> "$GITHUB_ENV"
+          echo "CPA_TEST_ROOT=$root" >> "$GITHUB_ENV"
+          echo "CPA_TEST_CORE=$install_dir/cli-proxy-api" >> "$GITHUB_ENV"
+          echo "CPA_TEST_TEMPLATE=$install_dir/config.example.yaml" >> "$GITHUB_ENV"
+          echo "CPA_TEST_INSTALL_DIR=$install_dir" >> "$GITHUB_ENV"
+      - name: Prepare isolated app observer and random local credentials
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/core-integration/observe" <<'PY'
+          import re, shutil, sys
+          from pathlib import Path
+          target = Path(sys.argv[1])
+          target.mkdir(parents=True)
+          shutil.copy2('scripts/dev-observe.mjs', target / 'dev-observe.mjs')
+          shutil.copytree('scripts/dev-observe', target / 'dev-observe')
+          script = target / 'dev-observe.mjs'
+          text = script.read_text()
+          # Patch the generated test config, not its source template. This tolerates
+          # formatting/template changes in dev-observe and is safe if already applied.
+          config_marker = 'CI_LOCAL_MANAGEMENT_CONFIG'
+          if config_marker not in text:
+              fifo_anchor = re.compile(r"(?m)^(?P<indent>[ \t]*)const fifo = path\.join\(sandbox, ['\"]control\.fifo['\"]\);")
+              match = fifo_anchor.search(text)
+              if not match:
+                  raise SystemExit('Observer hook has no control FIFO setup anchor')
+              indent = match.group('indent')
+              config_patch = f'''{indent}if (mode === 'local') {{
+          {indent}  // {config_marker}: inject the isolated Local management key after config creation.
+          {indent}const localConfigPath = path.join(sandbox, 'config.toml');
+          {indent}let localConfig = fs.readFileSync(localConfigPath, 'utf8');
+          {indent}const localManagementKey = JSON.stringify(process.env.CPA_TEST_MANAGEMENT_KEY || '');
+          {indent}if (/^management-secret-key\\s*=/m.test(localConfig)) {{
+          {indent}  localConfig = localConfig.replace(/^management-secret-key\\s*=.*$/m, 'management-secret-key = ' + localManagementKey);
+          {indent}}} else {{
+          {indent}  localConfig += 'management-secret-key = ' + localManagementKey + '\\n';
+          {indent}}}
+          {indent}fs.writeFileSync(localConfigPath, localConfig, {{ mode: 0o600 }});
+          {indent}}}
+          '''
+              text = text[:match.start()] + config_patch + text[match.start():]
+          # A previously-patched hook is left intact; otherwise insert the scenario
+          # before route observations, after initial app/core readiness setup.
+          restart_marker = "args.includes('--restart-check')"
+          if restart_marker not in text:
+              restart_check = r'''if (mode === 'local' && args.includes('--restart-check')) {
+          const managementRead = async which => {
+            const marker = `RESTART_CHECK management read ${which} restart`;
+            const revisionPrefix = `RESTART_REVISION ${which} `;
+            send(`window.__TAURI_INTERNALS__.invoke('get_management_target_revision').then(r=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(revisionPrefix)}+r})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(revisionPrefix + 'ERROR ')}+String(e)}));`);
+            const revisionReport = await waitReport(revisionPrefix, 5000);
+            if (revisionReport.includes('ERROR')) throw Error(revisionReport);
+            const revision = Number(revisionReport.slice(revisionPrefix.length));
+            if (!Number.isSafeInteger(revision) || revision < 0) throw Error('Invalid management target revision');
+            send(`window.__TAURI_INTERNALS__.invoke('management_request',{request:{method:'GET',path:'/credentials',expectedRevision:${revision}}}).then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(marker + ' ERROR ')}+String(e)}));`);
+            const result = await waitReport(marker, 5000);
+            if (result.includes('ERROR')) throw Error(result);
+          };
+          await managementRead('before');
+          const restartStarted = Date.now();
+          const restartMarker = 'RESTART_CHECK restart command';
+          send(`window.__TAURI_INTERNALS__.invoke('restart_core_process').then(()=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(restartMarker + ' succeeded')}})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(restartMarker + ' ERROR ')}+String(e)}));`);
+          const restartResult = await waitReport(restartMarker, 5000);
+          if (restartResult.includes('ERROR')) throw Error(restartResult);
+          const restartDeadline = restartStarted + 10000;
+          let recovered = false;
+          let statusProbe = 0;
+          while (Date.now() < restartDeadline) {
+            const probeId = ++statusProbe;
+            const prefix = `RESTART_STATUS ${probeId} `;
+            send(`window.__TAURI_INTERNALS__.invoke('get_core_status').then(s=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(prefix)}+JSON.stringify(s)})).catch(e=>window.__TAURI_INTERNALS__.invoke('dev_report',{text:${JSON.stringify(prefix + 'ERROR ')}+String(e)}));`);
+            try {
+              const statusReport = await waitReport(prefix, Math.min(1500, Math.max(250, restartDeadline - Date.now())));
+              if (!statusReport.includes('ERROR')) {
+                const status = JSON.parse(statusReport.slice(prefix.length));
+                if (status.running && status.ready) {
+                  recovered = true;
+                  send(report(`RESTART_CHECK ready after ${Date.now() - restartStarted}ms`));
+                  await waitReport('RESTART_CHECK ready after ');
+                  break;
+                }
+              }
+            } catch (error) {
+              if (Date.now() >= restartDeadline) break;
+            }
+            await sleep(Math.min(250, Math.max(0, restartDeadline - Date.now())));
+          }
+          if (!recovered) throw Error('Local core did not report running and ready within 10000ms after app restart');
+          await managementRead('after');
+          }
+          '''
+              route_anchor = re.compile(r"(?m)^(?P<indent>[ \t]*)for\s*\(\s*const\s+\w+\s+of\s+routes\s*\)\s*\{")
+              match = route_anchor.search(text)
+              if not match:
+                  raise SystemExit('Observer hook has no route-observation insertion point')
+              indent = match.group('indent')
+              block = '\n'.join(indent + line if line else '' for line in restart_check.splitlines()) + '\n'
+              text = text[:match.start()] + block + text[match.start():]
+          script.write_text(text)
+          PY
+          management_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          client_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::add-mask::$management_key"
+          echo "::add-mask::$client_key"
+          printf 'CPA_TEST_MANAGEMENT_KEY=%s\nCPA_TEST_CLIENT_KEY=%s\n' "$management_key" "$client_key" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/core-integration/remote"
+          install -m 600 /dev/null "$RUNNER_TEMP/core-integration/remote/management.key"
+          install -m 600 /dev/null "$RUNNER_TEMP/core-integration/remote/client.key"
+          printf '%s\n' "$management_key" > "$RUNNER_TEMP/core-integration/remote/management.key"
+          printf '%s\n' "$client_key" > "$RUNNER_TEMP/core-integration/remote/client.key"
+          chmod 700 "$RUNNER_TEMP/core-integration/observe/dev-observe.mjs"
+      - name: Local app auto-starts and manages the verified core
+        id: local_integration
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-integration"
+          mkdir -p "$root/logs/local"
+          export HOME="$root/local-home"
+          mkdir -p "$HOME" "$root/local-runtime"
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+          export XDG_RUNTIME_DIR="$root/local-runtime"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          export CPA_TEST_MANAGEMENT_KEY CPA_TEST_CLIENT_KEY EASYCLI_OBSERVE_CACHE="$root/cache"
+          node "$root/observe/dev-observe.mjs" --mode local --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
+            --no-build \
+            --core "$CPA_TEST_CORE" --core-config "$CPA_TEST_TEMPLATE" \
+            --name core-local --out "$root/logs/local/observe" \
+            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/local/scenario.log"
+          cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local/core.log" 2>/dev/null || true
+          python3 - "$root/logs/local/observe/ipc.log" <<'PY'
+          import json, sys
+          statuses = [json.loads(line.split('REPORT CORE ', 1)[1]) for line in open(sys.argv[1]) if 'REPORT CORE ' in line]
+          if not any(s.get('running') and s.get('ready') and s.get('managed') and s.get('connectionMode') == 'local' for s in statuses):
+              raise SystemExit('In-app Local status did not report a running, ready, managed core')
+          PY
+      - name: Local app restarts core and reuses management connection
+        id: local_restart_integration
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-integration"
+          mkdir -p "$root/logs/local-restart"
+          export HOME="$root/local-restart-home"
+          mkdir -p "$HOME" "$root/local-restart-runtime"
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+          export XDG_RUNTIME_DIR="$root/local-restart-runtime"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          export CPA_TEST_MANAGEMENT_KEY CPA_TEST_CLIENT_KEY EASYCLI_OBSERVE_CACHE="$root/cache"
+          node "$root/observe/dev-observe.mjs" --mode local --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
+            --no-build --restart-check \
+            --core "$CPA_TEST_CORE" --core-config "$CPA_TEST_TEMPLATE" \
+            --name core-local-restart --out "$root/logs/local-restart/observe" \
+            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/local-restart/scenario.log"
+          cp "$CPA_TEST_INSTALL_DIR/core-start-output.log" "$root/logs/local-restart/core.log" 2>/dev/null || true
+          python3 - "$root/logs/local-restart/observe/ipc.log" <<'PY'
+          import sys
+          text = open(sys.argv[1]).read()
+          lines = text.splitlines()
+          positions = {marker: next((i for i, line in enumerate(lines) if marker in line), -1) for marker in (
+              'REPORT RESTART_REVISION before ',
+              'REPORT RESTART_CHECK management read before restart succeeded',
+              'REPORT RESTART_CHECK restart command succeeded',
+              'REPORT RESTART_CHECK ready after ',
+              'REPORT RESTART_REVISION after ',
+              'REPORT RESTART_CHECK management read after restart succeeded',
+          )}
+          if any(position < 0 for position in positions.values()):
+              raise SystemExit(f'Missing restart assertion evidence: {positions}')
+          for start, end, label in (
+              ('REPORT RESTART_REVISION before ', 'REPORT RESTART_CHECK management read before restart succeeded', 'before restart'),
+              ('REPORT RESTART_REVISION after ', 'REPORT RESTART_CHECK management read after restart succeeded', 'after restart'),
+          ):
+              if not any('management_request GET /credentials' in line for line in lines[positions[start] + 1:positions[end]]):
+                  raise SystemExit(f'No authenticated GET /credentials was observed {label}')
+          if not positions['REPORT RESTART_CHECK management read before restart succeeded'] < positions['REPORT RESTART_CHECK restart command succeeded'] < positions['REPORT RESTART_CHECK ready after '] < positions['REPORT RESTART_REVISION after ']:
+              raise SystemExit('Expected app restart command and readiness recovery between the two management reads')
+          for marker in (
+              'RESTART_CHECK management read before restart succeeded',
+              'RESTART_CHECK management read after restart succeeded',
+              'RESTART_CHECK ready after ',
+          ):
+              if marker not in text:
+                  raise SystemExit(f'Missing restart assertion evidence: {marker}')
+          PY
+      - name: Start standalone remote core with isolated test config
+        id: remote_core
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-integration"
+          mkdir -p "$root/remote/auth" "$root/logs/remote"
+          chmod 700 "$root/remote" "$root/remote/auth"
+          python3 - "$root/remote" "$CPA_TEST_MANAGEMENT_KEY" "$CPA_TEST_CLIENT_KEY" <<'PY'
+          import secrets, socket, sys
+          from pathlib import Path
+          root, management, client = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          def free_high_port():
+              for _ in range(100):
+                  port = secrets.randbelow(65535 - 49152 + 1) + 49152
+                  with socket.socket() as sock:
+                      try: sock.bind(('127.0.0.1', port))
+                      except OSError: continue
+                  return port
+              raise SystemExit('Could not reserve a free high localhost port')
+          port = free_high_port()
+          (root / 'port').write_text(str(port))
+          config = f'''config-version: 8\nserver:\n  host: "127.0.0.1"\n  port: {port}\nmanagement:\n  allow-remote: true\n  secret-key: "{management}"\n  disable-control-panel: true\naccess:\n  api-keys: ["{client}"]\noauth:\n  auth-dir: "{root / 'auth'}"\nobservability:\n  usage:\n    usage-statistics-enabled: false\n'''
+          (root / 'config.yaml').write_text(config)
+          (root / 'config.yaml').chmod(0o600)
+          PY
+          port="$(cat "$root/remote/port")"
+          "$CPA_TEST_CORE" -config "$root/remote/config.yaml" > "$root/logs/remote/core.log" 2>&1 &
+          core_pid=$!
+          echo "$core_pid" > "$root/remote/core.pid"
+          echo "CPA_REMOTE_CORE_PID=$core_pid" >> "$GITHUB_ENV"
+          for attempt in $(seq 1 30); do
+            if ! kill -0 "$core_pid" 2>/dev/null; then cat "$root/logs/remote/core.log"; exit 1; fi
+            if curl --silent --show-error --fail --max-time 2 -H "Authorization: Bearer $CPA_TEST_MANAGEMENT_KEY" \
+              "http://127.0.0.1:$port/v8/management/config" >/dev/null; then
+              echo "Remote test core ready on 127.0.0.1:$port (PID $core_pid)"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$root/logs/remote/core.log"
+          exit 1
+      - name: Remote app authenticates and reads management status
+        id: remote_integration
+        if: steps.observer.outputs.supported == 'true'
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/core-integration"
+          port="$(cat "$root/remote/port")"
+          mkdir -p "$root/logs/remote"
+          export HOME="$root/remote-home"
+          mkdir -p "$HOME" "$root/remote-runtime"
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+          export XDG_RUNTIME_DIR="$root/remote-runtime"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          export CPA_TEST_MANAGEMENT_KEY CPA_TEST_CLIENT_KEY EASYCLI_OBSERVE_CACHE="$root/cache"
+          node "$root/observe/dev-observe.mjs" --mode remote --binary "$GITHUB_WORKSPACE/src-tauri/target/debug/cpa-gui" \
+            --no-build \
+            --name core-remote --out "$root/logs/remote/observe" \
+            --management-origin "http://127.0.0.1:$port" --client-origin "http://127.0.0.1:$port" \
+            --management-key-file "$root/remote/management.key" --client-key-file "$root/remote/client.key" \
+            --routes /overview --settle 1 --seconds 1 2>&1 | tee "$root/logs/remote/scenario.log"
+          python3 - "$root/logs/remote/observe/ipc.log" <<'PY'
+          import json, sys
+          statuses = [json.loads(line.split('REPORT CORE ', 1)[1]) for line in open(sys.argv[1]) if 'REPORT CORE ' in line]
+          if not any(s.get('running') and s.get('ready') and s.get('connectionMode') == 'remote' for s in statuses):
+              raise SystemExit('In-app Remote status did not report authenticated management readiness')
+          PY
+      - name: Stop standalone test core by recorded PID
+        if: always()
+        run: |
+          set -euo pipefail
+          pid_file="$RUNNER_TEMP/core-integration/remote/core.pid"
+          if [[ -f "$pid_file" ]]; then
+            core_pid="$(cat "$pid_file")"
+            if [[ "$core_pid" =~ ^[0-9]+$ ]] && kill -0 "$core_pid" 2>/dev/null; then
+              kill "$core_pid"
+              for _ in $(seq 1 10); do kill -0 "$core_pid" 2>/dev/null || exit 0; sleep 1; done
+              kill -KILL "$core_pid" 2>/dev/null || true
+            fi
+          fi
+      - name: Summarize core integration scenarios
+        if: always()
+        env:
+          APP_BUILD_RESULT: ${{ steps.app_build.outcome }}
+          CORE_SETUP_RESULT: ${{ steps.core_setup.outcome }}
+          OBSERVER_SUPPORTED: ${{ steps.observer.outputs.supported }}
+          LOCAL_RESULT: ${{ steps.local_integration.outcome }}
+          LOCAL_RESTART_RESULT: ${{ steps.local_restart_integration.outcome }}
+          REMOTE_CORE_RESULT: ${{ steps.remote_core.outcome }}
+          REMOTE_RESULT: ${{ steps.remote_integration.outcome }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import os
+          print('### Real CLIProxyAPI integration')
+          if os.environ.get('OBSERVER_SUPPORTED') != 'true':
+              print('- Local auto-start: **skipped: source has no dev-observe hook**')
+              print('- Local restart: **skipped: source has no dev-observe hook**')
+              print('- Remote connection: **skipped: source has no dev-observe hook**')
+          else:
+              print(f"- Source-pinned core: **{os.environ.get('CPA_TEST_VERSION', 'unknown')}**; verified checksums.txt: **{os.environ['CORE_SETUP_RESULT']}**")
+              print(f"- Debug app build: **{os.environ['APP_BUILD_RESULT']}**")
+              print(f"- Local auto-start: **{os.environ['LOCAL_RESULT']}** — app starts the core on launch and its in-app status hook asserts running + ready.")
+              print(f"- Local restart: **{os.environ['LOCAL_RESTART_RESULT']}** — authenticated management reads before/after app restart; in-app running + ready within 10 seconds.")
+              print('- Usage collector readiness timing: **not asserted**; dev-observe exposes core status but not collector state.')
+              print(f"- Remote connection: **{os.environ['REMOTE_RESULT']}** (standalone core startup: **{os.environ['REMOTE_CORE_RESULT']}**) — app status hook asserts authenticated management readiness.")
+          PY
+      - name: Upload integration logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-integration-logs
+          path: |
+            ${{ runner.temp }}/core-integration/logs/**
+            ${{ runner.temp }}/core-integration-build.log
+          if-no-files-found: ignore
