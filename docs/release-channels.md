@@ -4,20 +4,20 @@ Fork builds use three independent channels. No branding is stored per branch.
 
 | Channel | Branch | App identifier | Default local core port | Version suffix |
 | --- | --- | --- | --- | --- |
-| Stable | `main` | `com.cpa.gui` | 8317 | `-fork.N` |
-| Beta | `staging` | `com.cpa.gui.beta` | 8318 | `-beta.N` |
+| Main | `main` | `com.cpa.gui` | 8317 | `-fork.N` |
+| Beta | `beta` | `com.cpa.gui.beta` | 8318 | `-beta.N` |
 | Dev | `dev` | `com.cpa.gui.dev` | 8319 | `-dev.N` |
 
-Only the owner merges into `main` and `staging`; agents open PRs. Install Linux/Windows
+Only the owner merges into `main` and `beta`; agents open PRs. Install Linux/Windows
 portable packages in separate directories: configuration, credentials, core and history
 live beside each executable. macOS stores these under
 `~/Library/Application Support/<app identifier>`. Webview storage is identifier-specific.
 Channels do not share data automatically. Explicit user-selected external paths can still
 be shared; ports and existing settings are never migrated or overwritten.
 
-Stable keeps the existing name, logo and window appearance. Dev has a small red DEV tag;
+Main keeps the existing name, logo and window appearance. Dev has a small red DEV tag;
 Beta has an amber BETA tag. Native icons and titles have matching channel branding.
-`node scripts/channel.mjs stable|beta|dev` generates an ignored Tauri config overlay and
+`node scripts/channel.mjs main|beta|dev` generates an ignored Tauri config overlay and
 platform icons from the original or committed recoloured PNGs. Build with
 `bun tauri build --config src-tauri/tauri.channel.conf.json --no-bundle`.
 Set `VITE_CHANNEL` to the same channel for the frontend, and `APP_RELEASE_CHANNEL` for Rust.
@@ -29,7 +29,7 @@ on amd64 and aarch64. Pushes create **drafts**, never public releases. To cut a 
 
 ```bash
 gh workflow run fork-release.yml --repo Soul4723/EasyCLIProxyAPI \
-  --ref main -f channel=stable -F draft=true
+  --ref main -f channel=main -F draft=true
 ```
 
 Choose `beta`/`dev` for the other channels. The source defaults to the channel branch;
@@ -39,7 +39,7 @@ The base version is the highest strict `vX.Y.Z` directory in the source's
 `docs/release-notes/`, compared numerically, with the Cargo package base version as a
 fallback when no such directories exist. The channel suffix and GitHub workflow run
 number (`N`) are appended. Numeric suffixes compare correctly (9 < 10), and a newer base wins.
-Stable's `-fork.N` is a SemVer prerelease, lower than the same unsuffixed upstream version;
+Main's `-fork.N` is a SemVer prerelease, lower than the same unsuffixed upstream version;
 install a fork package manually when switching from upstream. Reruns cannot overwrite an
 existing version release; dispatch again for a new version.
 

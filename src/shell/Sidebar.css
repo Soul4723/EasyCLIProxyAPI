@@ -66,7 +66,7 @@
   .ec-sidebar.is-open { transform: none; visibility: visible; }
 }
 
-/* Build-time channel branding; Stable keeps the existing appearance. */
+/* Build-time channel branding; Main keeps the existing appearance. */
 .channel-badge { margin-left: 3px; font-size: 9px; font-weight: 600; letter-spacing: 0.04em; line-height: 1; }
 /* The header menu occupies the sidebar's right edge, so the sidebar badge sits under the name. */
 .ec-brand-name .channel-badge { display: block; margin: 1px 0 0; }
