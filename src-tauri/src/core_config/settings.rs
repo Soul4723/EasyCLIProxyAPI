@@ -792,28 +792,127 @@ pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), St
 }
 
 pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_atomically_with_mode(path, content, false)
+}
+
+pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_atomically_with_mode(path, content, true)
+}
+
+fn write_bytes_atomically_with_mode(
+    path: &Path,
+    content: &[u8],
+    private: bool,
+) -> Result<(), String> {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-    let directory = path.parent().unwrap_or_else(|| Path::new("."));
+    let destination_path = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => match fs::canonicalize(path) {
+            Ok(target) => target,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let target = fs::read_link(path).map_err(|read_error| {
+                    format!("Failed to read configuration symlink {}: {read_error}", path_to_string(path))
+                })?;
+                return Err(format!(
+                    "configuration path is a dangling symlink: {} -> {}",
+                    path_to_string(path),
+                    path_to_string(&target)
+                ));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Failed to resolve configuration symlink {}: {error}",
+                    path_to_string(path)
+                ));
+            }
+        },
+        Ok(_) => path.to_path_buf(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_path_buf(),
+        Err(error) => {
+            return Err(format!(
+                "Failed to inspect configuration path {}: {error}",
+                path_to_string(path)
+            ));
+        }
+    };
+    let directory = destination_path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
-    let file_name = path
+    let file_name = destination_path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("config.yaml");
-    let temporary_path = directory.join(format!(
-        ".{file_name}.tmp.{}.{}",
-        std::process::id(),
-        SEQUENCE.fetch_add(1, Ordering::Relaxed)
-    ));
+    #[cfg(unix)]
+    let existing_mode = if private {
+        Some(0o600)
+    } else {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(&destination_path)
+            .ok()
+            .map(|metadata| metadata.permissions().mode() & 0o777)
+    };
 
+    let mut temporary = None;
+    let mut last_collision = None;
+    for _ in 0..5 {
+        let temporary_path = directory.join(format!(
+            ".{file_name}.tmp.{}.{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        if let Some(mode) = existing_mode {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(mode);
+        }
+        match options.open(&temporary_path) {
+            Ok(file) => {
+                temporary = Some((temporary_path, file));
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                last_collision = Some(error);
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Failed to write configuration atomically {}: {error}",
+                    path_to_string(path)
+                ));
+            }
+        }
+    }
+    let Some((temporary_path, mut file)) = temporary else {
+        let error = last_collision.expect("five temporary-file creation attempts were made");
+        return Err(format!(
+            "Failed to create a temporary configuration file for {} after retries: {error}",
+            path_to_string(path)
+        ));
+    };
+
+    #[cfg(not(unix))]
+    let _ = private;
     let write_result = (|| -> io::Result<()> {
-        let mut file = File::create(&temporary_path)?;
+        // Apply the exact mode before writing; OpenOptionsExt::mode is subject to umask.
+        #[cfg(unix)]
+        if let Some(mode) = existing_mode {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(mode))?;
+        }
         file.write_all(content)?;
         file.sync_all()?;
         drop(file);
-        replace_file_atomically(&temporary_path, path)
+        replace_file_atomically(&temporary_path, &destination_path)?;
+        #[cfg(unix)]
+        if let Err(error) = File::open(directory).and_then(|directory| directory.sync_all()) {
+            eprintln!(
+                "Failed to sync configuration directory {} after atomic replacement: {error}",
+                path_to_string(directory)
+            );
+        }
+        Ok(())
     })();
 
     if let Err(error) = write_result {
@@ -824,7 +923,7 @@ pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), 
         ));
     }
 
-    remember_software_write(path, content);
+    remember_software_write(&destination_path, content);
 
     Ok(())
 }
@@ -2367,9 +2466,19 @@ pub(crate) fn write_gui_config_to_path(
     toml::from_str::<GuiConfigFile>(&content)
         .map_err(|error| format!("Failed to validate GUI configuration: {error}"))?;
     if existing.as_deref() == Some(content.as_str()) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if fs::metadata(config_path)
+                .is_ok_and(|metadata| metadata.permissions().mode() & 0o777 == 0o600)
+            {
+                return Ok(());
+            }
+        }
+        #[cfg(not(unix))]
         return Ok(());
     }
-    write_bytes_directly(config_path, content.as_bytes())
+    write_private_bytes_atomically(config_path, content.as_bytes())
 }
 
 pub(crate) fn validate_gui_config(config: &GuiConfigFile) -> Result<(), String> {
