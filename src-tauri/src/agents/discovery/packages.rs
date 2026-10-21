@@ -30,14 +30,8 @@ pub(crate) fn install_pi_package(
     home: &Path,
     proxy_url: &str,
 ) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    let mut command = windows_command_for_executable(executable, false);
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new(executable);
-
+    let mut command = command_for_executable(executable, &["install", PI_CLIPROXYAPI_PACKAGE])?;
     command
-        .arg("install")
-        .arg(PI_CLIPROXYAPI_PACKAGE)
         .current_dir(home)
         .stdin(Stdio::null());
     configure_background_command(&mut command);
@@ -67,15 +61,9 @@ pub(crate) fn update_pi_package(
     home: &Path,
     proxy_url: &str,
 ) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    let mut command = windows_command_for_executable(executable, false);
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new(executable);
-
+    let mut command =
+        command_for_executable(executable, &["update", "--extension", PI_CLIPROXYAPI_PACKAGE])?;
     command
-        .arg("update")
-        .arg("--extension")
-        .arg(PI_CLIPROXYAPI_PACKAGE)
         .current_dir(home)
         .stdin(Stdio::null());
     configure_background_command(&mut command);
@@ -101,14 +89,8 @@ pub(crate) fn update_pi_package(
 }
 
 pub(crate) fn remove_pi_package(executable: &Path, home: &Path) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    let mut command = windows_command_for_executable(executable, false);
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new(executable);
-
+    let mut command = command_for_executable(executable, &["remove", PI_CLIPROXYAPI_PACKAGE])?;
     command
-        .arg("remove")
-        .arg(PI_CLIPROXYAPI_PACKAGE)
         .current_dir(home)
         .stdin(Stdio::null());
     configure_background_command(&mut command);

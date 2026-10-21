@@ -296,9 +296,8 @@ pub(super) fn spawn_managed_deepseek_harness(
 
         const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        let mut command = windows_command_for_executable(executable, false);
+        let mut command = command_for_executable(executable, arguments)?;
         command
-            .args(arguments)
             .current_dir(working_directory)
             .creation_flags(
                 (if cfg!(test) {

@@ -2967,46 +2967,111 @@ fn thinking_alias_prefers_codex_api_key_model_over_same_named_oauth_definition()
     assert!(!rendered.contains("oauth-model-alias"), "{rendered}");
 }
 
+#[test]
+fn native_executables_receive_arguments_verbatim() {
+    let command = command_for_executable(
+        Path::new("/opt/tools/agent"),
+        &["--task", "fix \"x\" & calc %PATH%"],
+    )
+    .unwrap();
+    assert_eq!(command.get_program(), "/opt/tools/agent");
+    assert_eq!(
+        command.get_args().collect::<Vec<_>>(),
+        ["--task", "fix \"x\" & calc %PATH%"]
+    );
+}
+
 #[cfg(target_os = "windows")]
 #[test]
-fn windows_batch_agent_commands_use_call_without_embedded_quotes() {
+fn windows_batch_agent_commands_run_through_one_quoted_cmd_line() {
     let executable = Path::new(r"C:\工具 目录\opencode.cmd");
-    let command = windows_command_for_executable(executable, true);
+    let command = command_for_executable(executable, &["--task", "a & b"]).unwrap();
+    assert_eq!(command.get_program(), windows_command_processor().as_os_str());
     let args = command
         .get_args()
-        .take(3)
         .map(|argument| argument.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
-
-    assert_eq!(
-        Path::new(command.get_program())
-            .file_name()
-            .and_then(|name| name.to_str()),
-        Some("cmd.exe")
-    );
     assert_eq!(
         args,
-        vec!["/D".to_string(), "/K".to_string(), "call".to_string(),]
+        [windows_cmd_command_line(None, &path_to_string(executable), &["--task", "a & b"], false).unwrap()]
     );
-    assert_eq!(
-        windows_batch_executable_argument(executable),
-        r#""C:\工具 目录\opencode.cmd""#
-    );
+    assert!(args[0].starts_with("/D /E:ON /V:OFF /S /C \"\"C:\\工具 目录\\opencode.cmd\" --task \"a & b\"\""));
 
-    let batch = windows_command_for_executable(Path::new(r"C:\tools\agent.bat"), false);
-    let batch_args = batch
-        .get_args()
-        .map(|argument| argument.to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
-    assert_eq!(batch_args[1], "/C");
-    assert_eq!(batch_args[2], "call");
+    let native = command_for_executable(Path::new(r"C:\tools\agent.exe"), &["--task", "a & b"]).unwrap();
+    assert_eq!(native.get_program(), r"C:\tools\agent.exe");
+    assert_eq!(native.get_args().collect::<Vec<_>>(), ["--task", "a & b"]);
+}
 
-    let native = windows_command_for_executable(Path::new(r"C:\tools\agent.exe"), true);
-    assert_eq!(
-        native.get_program().to_string_lossy(),
-        r"C:\tools\agent.exe"
-    );
-    assert_eq!(native.get_args().count(), 0);
+/// Runs a real `.cmd` shim through the real `cmd.exe` with hostile text and checks that the
+/// text arrives unchanged and that nothing in it ran.
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_batch_shims_receive_hostile_arguments_as_data() {
+    let Some(node) = env::var_os("PATH").and_then(|path| {
+        env::split_paths(&path).find_map(|directory| {
+            let candidate = directory.join("node.exe");
+            candidate.is_file().then_some(candidate)
+        })
+    }) else {
+        eprintln!("node.exe not found; skipping the end-to-end batch argument test");
+        return;
+    };
+    let directory = agent_test_home("batch-hostile").join("100% shim [dir] & more");
+    fs::create_dir_all(&directory).unwrap();
+    let marker = directory.join("pwned.txt");
+    fs::write(
+        directory.join("args.js"),
+        "require('fs').writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)))",
+    )
+    .unwrap();
+    // The shape of an npm shim: the arguments are forwarded with %*.
+    fs::write(
+        directory.join("shim.cmd"),
+        format!(
+            "@echo off\r\n\"{}\" \"%~dp0args.js\" \"%~dp0out.json\" %*\r\n",
+            node.display()
+        ),
+    )
+    .unwrap();
+    let marker_text = marker.display().to_string();
+    let hostile = vec![
+        "plain".to_string(),
+        "two words".to_string(),
+        "& calc".to_string(),
+        "a&calc".to_string(),
+        format!("\" & echo owned> \"{marker_text}\" & \""),
+        format!("x & echo owned> \"{marker_text}\""),
+        format!("x | echo owned> \"{marker_text}\""),
+        "%PATH%".to_string(),
+        "100%".to_string(),
+        "%COMSPEC% /c calc".to_string(),
+        "^&^|".to_string(),
+        "a>b".to_string(),
+        "(x)".to_string(),
+        "!PATH!".to_string(),
+        "say \"hi\"".to_string(),
+        "trailing\\".to_string(),
+        "\u{2018}; calc; \u{2019}".to_string(),
+        "\u{201C}smart\u{201D}".to_string(),
+        "工具 目录".to_string(),
+    ];
+    let mut command = command_for_executable(&directory.join("shim.cmd"), &hostile).unwrap();
+    command.current_dir(&directory);
+    configure_background_command(&mut command);
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(30)).unwrap() {
+        CommandOutputOutcome::Completed(output) => output,
+        CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("batch shim")),
+    };
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(!marker.exists(), "an argument ran as a command");
+    let received: Vec<String> =
+        serde_json::from_slice(&fs::read(directory.join("out.json")).unwrap()).unwrap();
+    assert_eq!(received, hostile);
+
+    let multiline = vec!["first\nsecond".to_string()];
+    assert!(command_for_executable(&directory.join("shim.cmd"), &multiline).is_err());
+    fs::remove_dir_all(directory.parent().unwrap()).unwrap();
 }
 
 #[test]
