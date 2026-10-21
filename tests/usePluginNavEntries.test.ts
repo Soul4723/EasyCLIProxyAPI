@@ -97,10 +97,10 @@ describe('usePluginNavEntries', () => {
     expect(store.get(cacheKey('https://remote'))).toBe('[]');
   });
 
-  test('core not ready hides entries and clears that target cache', () => {
+  test('core not ready hides entries without wiping that target cache', () => {
     store.set(cacheKey('local'), JSON.stringify([cachedEntry('alpha')]));
     render();
     expect(setArgs(false, 'local').entries).toEqual([]);
-    expect(store.get(cacheKey('local'))).toBe('[]');
+    expect(store.get(cacheKey('local'))).toBe(JSON.stringify([cachedEntry('alpha')]));
   });
 });

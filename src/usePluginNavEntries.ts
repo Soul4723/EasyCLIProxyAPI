@@ -21,7 +21,6 @@ export function usePluginNavEntries(coreReady: boolean, target: string | null) {
   useEffect(() => {
     if (!coreReady || !target) {
       setState(null);
-      if (target) writeCachedPluginNavEntries([], target);
       return undefined;
     }
     setState({ target, entries: readCachedPluginNavEntries(target), fetched: false });
