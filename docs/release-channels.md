@@ -35,11 +35,20 @@ gh workflow run fork-release.yml --repo Soul4723/EasyCLIProxyAPI \
 Choose `beta`/`dev` for the other channels. The source defaults to the channel branch;
 `source_ref` overrides it for draft verification only. Set `draft=false` explicitly to
 publish from the canonical branch and advance its updater feed. Drafts never modify feeds.
-The version is the source Cargo base version plus the channel suffix and GitHub workflow
-run number (`N`). Numeric suffixes compare correctly (9 < 10), and a newer base wins.
+The base version is the highest strict `vX.Y.Z` directory in the source's
+`docs/release-notes/`, compared numerically, with the Cargo package base version as a
+fallback when no such directories exist. The channel suffix and GitHub workflow run
+number (`N`) are appended. Numeric suffixes compare correctly (9 < 10), and a newer base wins.
 Stable's `-fork.N` is a SemVer prerelease, lower than the same unsuffixed upstream version;
 install a fork package manually when switching from upstream. Reruns cannot overwrite an
 existing version release; dispatch again for a new version.
+
+Before building, the workflow pushes an immutable `v<version>` tag at the pinned source
+SHA using `GITHUB_TOKEN`. This keeps a source ref available if the branch advances during
+the build; release creation requires that tag to exist. The source tag is public even for
+a draft, but draft binary assets remain private and feeds stay unchanged. A failed or
+cancelled build leaves its version tag behind; inspect and remove that tag manually if
+no release uses it. A rerun cannot replace the tag; dispatch a new run instead.
 
 The workflow bakes in `APP_RELEASE_REPOSITORY=Soul4723/EasyCLIProxyAPI`. Each channel reads
 `https://github.com/Soul4723/EasyCLIProxyAPI/releases/download/channel-<channel>/portable-update-<platform>.json`

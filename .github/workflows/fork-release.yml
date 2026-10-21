@@ -17,7 +17,7 @@ on:
         type: string
         required: false
       draft:
-        description: Keep release private and do not update the public channel feed
+        description: Keep release assets private and do not update the public channel feed (source tag is public)
         type: boolean
         default: true
         required: true
@@ -36,6 +36,8 @@ jobs:
   resolve:
     if: github.repository == 'Soul4723/EasyCLIProxyAPI'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     outputs:
       channel: ${{ steps.plan.outputs.channel }}
       draft: ${{ steps.plan.outputs.draft }}
@@ -80,7 +82,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ steps.plan.outputs.source_ref }}
-          persist-credentials: false
+          persist-credentials: true
       - name: Pin source and version
         id: version
         shell: bash
@@ -88,8 +90,7 @@ jobs:
           CHANNEL: ${{ steps.plan.outputs.channel }}
         run: |
           set -euo pipefail
-          base="$(node scripts/version.mjs)"
-          base="${base%%[-+]*}"
+          base="$(node scripts/fork-release.mjs --base-version)"
           suffix="$CHANNEL"
           if [ "$CHANNEL" = stable ]; then suffix=fork; fi
           version="${base}-${suffix}.${GITHUB_RUN_NUMBER}"
@@ -99,6 +100,20 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "### Fork $CHANNEL: v$version" >> "$GITHUB_STEP_SUMMARY"
           echo "Source: $(git rev-parse HEAD); draft: ${{ steps.plan.outputs.draft }}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Pin immutable source tag before building
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          SOURCE_SHA: ${{ steps.version.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # Keep a ref to workflow-changing commits even if the source branch advances.
+          # GITHUB_TOKEN pushes do not recursively trigger the upstream release workflow.
+          git tag "$RELEASE_TAG" "$SOURCE_SHA"
+          if ! git push origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"; then
+            echo '::error::Could not pin the source tag. The tag may already exist or the source ref may have advanced. Inspect the tag/source and dispatch a new run; no release was published.'
+            exit 1
+          fi
 
   build:
     needs: resolve
@@ -236,7 +251,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=(--repo Soul4723/EasyCLIProxyAPI --target "$SOURCE_SHA" --title "$RELEASE_TAG ($CHANNEL)" --notes-file "$RUNNER_TEMP/notes.md" --latest=false)
+          args=(--repo Soul4723/EasyCLIProxyAPI --verify-tag --target "$SOURCE_SHA" --title "$RELEASE_TAG ($CHANNEL)" --notes-file "$RUNNER_TEMP/notes.md" --latest=false)
           if [ "$DRAFT" = true ]; then args+=(--draft); fi
           if [ "$CHANNEL" != stable ]; then args+=(--prerelease); fi
           # Never clobber versioned packages: reruns must not replace shipped bytes.
