@@ -440,7 +440,7 @@ fn sanitize_bounds_and_validates_what_the_webview_sends() {
     account.windows[0].remaining_percent = Some(f64::NAN);
     account.windows[1].group = "bob@corp.example".into();
     let clean = sanitize_accounts(vec![account]);
-    assert_eq!(clean[0].label.chars().count(), 40);
+    assert_eq!(clean[0].label, "xx***xx");
     assert_eq!(clean[0].windows[1].group, "***", "an unmasked address never reaches the cache");
     assert_eq!(clean[0].plan, "promax");
     assert_eq!(clean[0].credit_balance, None);
