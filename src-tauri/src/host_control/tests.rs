@@ -590,8 +590,9 @@ fn lifecycle_operations_share_the_core_operation_lock_and_stay_local_only() {
             HostOperation::Stop,
             HostOperation::Restart,
         ] {
-            let error =
-                run_locked_core_operation(&process, &remote, operation.local()).unwrap_err();
+            let error = run_locked_core_operation(&process, &remote, operation.local())
+                .err()
+                .expect("a held lock refuses the operation");
             assert_eq!(error, CORE_OPERATION_BUSY);
             assert_eq!(operation_error(error).0, 409);
         }
@@ -601,7 +602,9 @@ fn lifecycle_operations_share_the_core_operation_lock_and_stay_local_only() {
         HostOperation::Stop,
         HostOperation::Restart,
     ] {
-        let error = run_locked_core_operation(&process, &remote, operation.local()).unwrap_err();
+        let error = run_locked_core_operation(&process, &remote, operation.local())
+            .err()
+            .expect("Remote mode refuses local lifecycle operations");
         assert!(
             error.contains("only available for the local core"),
             "{error}"

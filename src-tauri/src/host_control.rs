@@ -634,7 +634,7 @@ pub(crate) async fn apply(app: tauri::AppHandle) {
     };
     if let Ok(mut current) = state.status.lock() {
         *current = status;
-    }
+    };
 }
 
 #[derive(Debug, Serialize)]

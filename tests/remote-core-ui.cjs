@@ -187,7 +187,7 @@ const path = require('node:path');
     await stop.click();
     await controlled.getByText('Stopped on remote host', { exact: true }).waitFor();
     assert.equal(await controlled.getByRole('button', { name: 'Restart', exact: true }).isDisabled(), true, 'a stopped core cannot be restarted');
-    await controlled.getByRole('button', { name: 'Start', exact: true }).click();
+    await controlled.getByRole('button', { name: /^start$/i }).click();
     await controlled.getByText('Connected', { exact: true }).waitFor();
     await controlled.getByRole('button', { name: 'Restart', exact: true }).click();
     await controlled.getByText('52819', { exact: true }).waitFor();

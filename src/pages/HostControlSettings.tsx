@@ -93,10 +93,10 @@ export function HostControlSettings({ hidden }: { hidden?: boolean }) {
       {address.trim() !== '' && !addressValid ? <Notice tone="error" variant="text" live={false}>{t('hostControl.invalidAddress')}</Notice> : null}
       {enabled && available ? <Notice tone="warn" variant="text">{t('hostControl.warning')}</Notice> : null}
       {status}
+      {saved ? <Notice tone="success" variant="text">{saved}</Notice> : null}
       {error ? <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice> : null}
     </div>
     <div className="config-settings-save-row core-connection-footer">
-      {saved ? <span className="core-connection-footnote" role="status">{saved}</span> : null}
       <div className="core-connection-actions">
         <button type="button" className="secondary-button compact-button" disabled={disabled || dirty || !settings?.enabled} onClick={() => void save(true)}>
           <RefreshCw size={15} aria-hidden="true" />{t('hostControl.regenerate')}
