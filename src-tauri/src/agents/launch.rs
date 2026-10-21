@@ -648,17 +648,12 @@ fn terminate_deepseek_harness_process_tree(child: &mut Child) -> Result<(), Stri
 
     #[cfg(unix)]
     {
-        let process_group = format!("-{}", child.id());
-        let term_status = Command::new("kill")
-            .args(["-TERM", &process_group])
-            .status()
-            .map_err(|error| format!("Failed to stop DeepSeek Harness process group: {error}"))?;
-        if !term_status.success() {
-            return Err(format!(
-                "Failed to stop DeepSeek Harness process group: PID {}",
+        crate::process_signal::signal_group(child.id(), libc::SIGTERM).map_err(|error| {
+            format!(
+                "Failed to stop DeepSeek Harness process group: PID {}: {error}",
                 child.id()
-            ));
-        }
+            )
+        })?;
         for _ in 0..20 {
             match child.try_wait() {
                 Ok(Some(_)) => return Ok(()),
@@ -668,16 +663,12 @@ fn terminate_deepseek_harness_process_tree(child: &mut Child) -> Result<(), Stri
                 }
             }
         }
-        let kill_status = Command::new("kill")
-            .args(["-KILL", &process_group])
-            .status()
-            .map_err(|error| format!("Failed to force-stop DeepSeek Harness process group: {error}"))?;
-        if !kill_status.success() {
-            return Err(format!(
-                "Failed to force-stop DeepSeek Harness process group: PID {}",
+        crate::process_signal::signal_group(child.id(), libc::SIGKILL).map_err(|error| {
+            format!(
+                "Failed to force-stop DeepSeek Harness process group: PID {}: {error}",
                 child.id()
-            ));
-        }
+            )
+        })?;
         child
             .wait()
             .map_err(|error| format!("Failed while waiting for DeepSeek Harness process to exit: {error}"))?;
@@ -1046,7 +1037,7 @@ fn desktop_process_ids_from_ps(output: &str, application: &Path) -> Vec<i32> {
             let line = line.trim();
             let split = line.find(char::is_whitespace)?;
             let pid = line[..split].parse::<i32>().ok()?;
-            if pid <= 0 || pid == std::process::id() as i32 {
+            if pid <= 1 || pid == std::process::id() as i32 {
                 return None;
             }
             let executable = Path::new(line[split..].trim());
@@ -1093,8 +1084,7 @@ fn stop_macos_desktop_application(application: &Path, label: &str) -> Result<(),
         thread::sleep(Duration::from_millis(100));
     }
     for pid in macos_processes_for_application(application)? {
-        if unsafe { libc::kill(pid, libc::SIGKILL) } != 0 {
-            let error = io::Error::last_os_error();
+        if let Err(error) = crate::process_signal::signal_process(pid as u32, libc::SIGKILL) {
             if error.raw_os_error() != Some(libc::ESRCH) {
                 return Err(format!("Failed to stop {label} process {pid}: {error}"));
             }
@@ -1248,10 +1238,10 @@ fn linux_opencode_nix_installation_root(application: &Path) -> Option<&Path> {
 
 #[cfg(target_os = "linux")]
 fn signal_linux_process(process_id: i32, signal: i32) -> Result<(), String> {
-    if unsafe { libc::kill(process_id, signal) } == 0 {
-        return Ok(());
-    }
-    let error = io::Error::last_os_error();
+    let error = match crate::process_signal::signal_process(process_id as u32, signal) {
+        Ok(()) => return Ok(()),
+        Err(error) => error,
+    };
     if error.raw_os_error() == Some(libc::ESRCH) {
         Ok(())
     } else {
@@ -1933,7 +1923,7 @@ class GuiHelper {
             vec![10, 11]
         );
         assert!(desktop_process_ids_from_ps(
-            "bad input\n-1 /opt/desktop",
+            "bad input\n-1 /opt/desktop\n0 /opt/desktop\n1 /opt/desktop",
             Path::new("/opt/desktop")
         )
         .is_empty());
@@ -2303,6 +2293,60 @@ class GuiHelper {
 
         let options = deepseek_harness_options("web");
         assert!(agent_cli_launch_arguments(AgentClient::Codex, Some(&options)).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn harness_stop_signals_only_its_private_process_group() {
+        let mut sibling = Command::new("sleep").arg("30").spawn().unwrap();
+        let arguments = vec!["-c".to_string(), "sleep 30 & sleep 30".to_string()];
+        // Use the production spawning path and verify it owns a private group.
+        let mut child =
+            spawn_managed_deepseek_harness(Path::new("/bin/sh"), Path::new("/"), &arguments)
+                .unwrap();
+        assert_eq!(
+            unsafe { libc::getpgid(child.id() as i32) },
+            child.id() as i32
+        );
+        let stopped = terminate_deepseek_harness_process_tree(&mut child);
+        let sibling_alive = sibling.try_wait().unwrap().is_none();
+        let _ = sibling.kill();
+        let _ = sibling.wait();
+        stopped.unwrap();
+        assert!(sibling_alive, "unrelated sibling was signalled");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn harness_group_stop_closes_descendant_pipes() {
+        use std::io::{BufRead, BufReader, Read};
+        use std::os::unix::process::CommandExt;
+        use std::sync::mpsc;
+
+        // A private group whose descendants all inherit the stdout pipe.
+        let mut piped = Command::new("sh")
+            .args(["-c", "sleep 30 & echo ready; sleep 30"])
+            .process_group(0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut output = BufReader::new(piped.stdout.take().unwrap());
+        let mut ready = String::new();
+        output.read_line(&mut ready).unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let reader = thread::spawn(move || {
+            let mut rest = Vec::new();
+            let _ = sender.send(output.read_to_end(&mut rest));
+        });
+        let stopped = terminate_deepseek_harness_process_tree(&mut piped);
+        // Returns as soon as the pipe closes; the margin only matters on a loaded host.
+        let eof = receiver.recv_timeout(Duration::from_secs(10));
+        if eof.is_err() {
+            let _ = crate::process_signal::signal_group(piped.id(), libc::SIGKILL);
+        }
+        reader.join().unwrap();
+        stopped.unwrap();
+        assert!(eof.unwrap().is_ok(), "descendant retained the output pipe");
     }
 
     #[test]
