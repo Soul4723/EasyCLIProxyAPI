@@ -492,6 +492,7 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
           await tab('general');
           const remoteManagement = page.locator('#template-management-0');
           await remoteManagement.check();
+          await page.locator('#config-subpage-tab-general .config-nav-dirty').waitFor();
           assert.equal(await hasDirtyMarker('general'), true, `${label}: template drafts mark their category`);
           await tab('requests');
           const retryInput = retrySection.locator('input[type="text"]').first();
