@@ -982,6 +982,7 @@ export function createBrowserMockRuntime(
     connectionMode: 'remote', remoteOrigin: coreConnection.managementOrigin,
     hostControl: remoteHostControl ? { reachable: true, message: 'Browser Mock host core is running' } : undefined,
   });
+  let remoteStartCoreOnLaunch = true;
   const hostControlStorageKey = 'browser-mock.host-control';
   let hostControlSettings: { enabled: boolean; address: string; key: string } = {
     enabled: false, address: '', key: '',
@@ -1104,6 +1105,15 @@ export function createBrowserMockRuntime(
         return clone(coreConnection);
       case 'test_core_connection': return { connected: false, version: null, message: 'Browser Mock: no remote core' };
       case 'test_host_control': return { connected: true, running: true, message: 'Browser Mock host core is running' };
+      case 'get_remote_start_core_on_launch': {
+        if (coreConnection.mode !== 'remote') throw new Error('Start Core on Launch of a remote host applies only in Remote mode');
+        return remoteHostControl ? remoteStartCoreOnLaunch : null;
+      }
+      case 'set_remote_start_core_on_launch': {
+        if (!remoteHostControl) throw new Error('Set up remote host control in Core connection to start, stop or restart a remote core');
+        remoteStartCoreOnLaunch = Boolean(payload.enabled);
+        return remoteStartCoreOnLaunch;
+      }
       case 'get_host_control_settings': return hostControlView();
       case 'save_host_control_settings': {
         const update = asObject(payload.update);

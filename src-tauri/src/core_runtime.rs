@@ -153,10 +153,16 @@ pub(crate) async fn run_core_command(
 }
 
 #[tauri::command]
-pub(crate) async fn check_latest_core(
-    app: tauri::AppHandle,
-    gui_config_state: tauri::State<'_, GuiConfigState>,
-) -> Result<CoreLatest, String> {
+pub(crate) async fn check_latest_core(app: tauri::AppHandle) -> Result<CoreLatest, String> {
+    // In Remote mode, the remote host's latest release, through remote host control.
+    if let Some(result) = crate::host_control::forward_check_latest(&app).await {
+        return result;
+    }
+    check_latest_core_local(&app).await
+}
+
+pub(crate) async fn check_latest_core_local(app: &tauri::AppHandle) -> Result<CoreLatest, String> {
+    let gui_config_state = app.state::<GuiConfigState>();
     let _detection_guard = VERSION_SOURCE_DETECTION_LOCK.lock().await;
     let platform = current_core_platform()?;
     let config = gui_config_state.snapshot()?;
@@ -171,7 +177,7 @@ pub(crate) async fn check_latest_core(
     )
     .await?;
     persist_automatic_download_source_switch(
-        &app,
+        app,
         gui_config_state.inner(),
         &requested_source,
         &resolved_source,
@@ -185,7 +191,13 @@ pub(crate) async fn check_latest_core(
 }
 
 #[tauri::command]
-pub(crate) fn detect_bundled_core() -> Result<Option<BundledCoreInfo>, String> {
+pub(crate) fn detect_bundled_core(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<Option<BundledCoreInfo>, String> {
+    // This distribution's bundled core is for this computer; a remote host has its own.
+    if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
+        return Ok(None);
+    }
     bundled_core_archive().map(|value| value.map(|(info, _)| info))
 }
 
@@ -309,13 +321,20 @@ pub(crate) fn auto_install_bundled_core_if_needed(app: &tauri::AppHandle) -> Res
 }
 
 #[tauri::command]
-pub(crate) fn cancel_core_install(state: tauri::State<'_, CoreDownloadState>) {
-    state.cancel();
+pub(crate) async fn cancel_core_install(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(result) = crate::host_control::forward_cancel_install(&app).await {
+        return result;
+    }
+    app.state::<CoreDownloadState>().cancel();
+    Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn get_core_install_task(state: tauri::State<'_, CoreDownloadState>) -> CoreInstallTask {
-    state.snapshot()
+pub(crate) async fn get_core_install_task(app: tauri::AppHandle) -> Result<CoreInstallTask, String> {
+    if let Some(result) = crate::host_control::forward_install_task(&app).await {
+        return result;
+    }
+    Ok(app.state::<CoreDownloadState>().snapshot())
 }
 
 pub(crate) struct StagedCoreInstall {
@@ -332,7 +351,23 @@ pub(crate) async fn install_core_version(
     window: tauri::Window,
     version: Option<String>,
 ) -> Result<CoreInstallResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    // In Remote mode, installed on the remote host by its EasyCLIProxyAPI, with its checks.
+    if let Some(result) = crate::host_control::forward_install(&app, version.clone()).await {
+        return result;
+    }
+    tauri::async_runtime::spawn_blocking(move || install_core_version_blocking(&app, &window, version))
+        .await
+        .map_err(|error| format!("Kernel installation background task failed: {error}"))?
+}
+
+/// Download, verify and install a core version under the core-operation lock, restoring the
+/// previous running state. Also used by remote host control on the host.
+pub(crate) fn install_core_version_blocking(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    version: Option<String>,
+) -> Result<CoreInstallResult, String> {
+    {
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
         let state = app.state::<CoreDownloadState>();
         let process_state = app.state::<CoreProcessState>();
@@ -347,8 +382,8 @@ pub(crate) async fn install_core_version(
 
         // Stage download, SHA-256 verification, and archive extraction BEFORE stopping the running core.
         let staged_result = tauri::async_runtime::block_on(stage_core_version_inner(
-            &app,
-            &window,
+            app,
+            window,
             state.inner(),
             gui_config_state.inner(),
             token,
@@ -359,7 +394,7 @@ pub(crate) async fn install_core_version(
         ));
 
         let result = staged_result.and_then(|staged| {
-            let was_running = pause_core_for_install(&app, process_state.inner(), &config)?;
+            let was_running = pause_core_for_install(app, process_state.inner(), &config)?;
             let swap_and_restore = apply_staged_core_with_rollback(
                 &staged.install_dir,
                 &staged.staging_dir,
@@ -383,7 +418,7 @@ pub(crate) async fn install_core_version(
                 }
                 other => other,
             };
-            emit_current_core_status(&app, process_state.inner(), config.port);
+            emit_current_core_status(app, process_state.inner(), config.port);
             swap_and_restore.map(|()| CoreInstallResult {
                 version: staged.version,
                 asset_name: staged.asset_name,
@@ -397,12 +432,10 @@ pub(crate) async fn install_core_version(
         if result.is_err() {
             let _ = cleanup_core_work_dirs();
         }
-        state.finish(&window, result.clone());
+        state.finish(window, result.clone());
 
         result
-    })
-    .await
-    .map_err(|error| format!("Kernel installation background task failed: {error}"))?
+    }
 }
 
 fn install_core_with_runtime_restore<F>(

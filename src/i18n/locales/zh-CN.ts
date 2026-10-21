@@ -62,6 +62,8 @@ export const zhCN = {
   "connection.hostControlUnavailable": "远程主机控制不可用：{error}",
   "connection.hostControlRequired": "在内核连接中设置远程主机控制后，即可启动、停止或重启此内核",
   "connection.hostControlUnreachable": "无法连接远程主机控制",
+  "connection.versionsRemoteHost": "检查和安装在远程主机上进行，使用该主机自己的下载源。",
+  "connection.startCoreOnLaunchRemote": "远程主机应用的设置；更改会立即在该主机上生效。",
   "hostControl.title": "远程控制此内核",
   "hostControl.description": "允许其他电脑上的 EasyCLIProxyAPI 启动、停止和重启本机的内核。",
   "hostControl.enable": "允许远程控制",

@@ -194,6 +194,27 @@ const path = require('node:path');
     await controlled.getByText('Connected', { exact: true }).waitFor();
     await controlled.getByRole('button', { name: 'Restart', exact: true }).click();
     await controlled.getByText('52819', { exact: true }).waitFor();
+
+    // Start Core on Launch is the remote host's own setting, changed at once.
+    await nav('Advanced Features').click();
+    await page.locator('#config-subpage-tab-software').click();
+    const remoteLaunch = page.locator('#config-native-software').getByRole('switch', { name: 'Start Core on Launch' });
+    await page.waitForFunction(() => !document.querySelector('#config-native-software [role="switch"][aria-label="Start Core on Launch"]')?.disabled);
+    assert.equal(await remoteLaunch.isChecked(), true, 'shows the host value');
+    assert.equal(await page.locator('#config-native-software .switch-control[title="The remote host app\'s setting; changes apply there at once."]').count(), 1);
+    await remoteLaunch.click();
+    await page.waitForFunction(() => document.querySelector('#config-native-software [role="switch"][aria-label="Start Core on Launch"]')?.checked === false);
+    assert.equal(await page.locator('#config-native-software').getByRole('button', { name: 'Save', exact: true }).isDisabled(), true, 'no local software draft became dirty');
+
+    // Version Management opens remotely; this computer's download source and bundled core do not apply.
+    assert.equal(await nav('Version Management').isDisabled(), false, 'Version Management unlocked by remote host control');
+    await nav('Version Management').click();
+    await page.getByText('Checks and installs run on the remote host with its own download source.').waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Add Custom Source' }).isDisabled(), true, 'local download source is not used remotely');
+    const bundled = page.getByRole('button', { name: 'Install Bundled Core' });
+    assert.equal(await bundled.isDisabled(), true);
+    assert.equal(await bundled.getAttribute('title'), 'Not available in Remote mode yet');
+    assert.equal(await page.getByRole('button', { name: 'Stop and Update' }).isEnabled(), true, 'the remote core can be updated');
     assert.deepEqual(errors, []);
     console.log('PASS: one connection component on Home and in Advanced Features; Remote keeps the Local layout with remote values, read-only settings and in-place disabled local actions; Silent Launch hidden; remote host control hosts locally and drives Start/Stop/Restart remotely.');
   } finally { await browser?.close(); await server.close(); }

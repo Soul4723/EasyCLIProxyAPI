@@ -90,6 +90,9 @@ export function VersionManagementPage() {
     status: coreStatus,
     refreshStatus,
   } = useCoreRuntime();
+  // Remote mode reaches this page only with remote host control: core checks and installs run on the
+  // remote host with its own download source; this computer's source and bundled core do not apply.
+  const remoteHost = coreStatus?.connectionMode === 'remote';
   const {
     latest,
     error: latestError,
@@ -516,6 +519,7 @@ export function VersionManagementPage() {
             {versionSource?.gitcodeAvailable === false ? (
               <span>{t('kernel.versions.gitcodeUnavailable')}</span>
             ) : null}
+            {remoteHost ? <span>{t('connection.versionsRemoteHost')}</span> : null}
           </div>
           <div className="version-source-control">
             <label>
@@ -524,6 +528,7 @@ export function VersionManagementPage() {
                 value={versionSource?.source ?? DEFAULT_VERSION_DOWNLOAD_SOURCE}
                 disabled={
                   !versionSource
+                  || remoteHost
                   || versionSourceSaving
                   || appUpdateTask.running
                   || installing
@@ -547,7 +552,7 @@ export function VersionManagementPage() {
             <button
               type="button"
               className="primary-button version-source-add-button"
-              disabled={versionSourceSaving || appUpdateTask.running || installing}
+              disabled={remoteHost || versionSourceSaving || appUpdateTask.running || installing}
               onClick={() => {
                 setVersionSourceError('');
                 setCustomMirrorDialogOpen(true);
@@ -683,7 +688,7 @@ export function VersionManagementPage() {
             <button
               type="button"
               className="secondary-button"
-              title={bundledCoreError || (bundledCore ? t('kernel.versions.installBundledTitle', { version: bundledCore.version }) : t('kernel.versions.noBundled'))}
+              title={remoteHost ? t('connection.remoteDisabledTitle') : bundledCoreError || (bundledCore ? t('kernel.versions.installBundledTitle', { version: bundledCore.version }) : t('kernel.versions.noBundled'))}
               disabled={!bundledCore || installDisabled}
               onClick={() => void installCore({ kind: 'bundled' })}
             >

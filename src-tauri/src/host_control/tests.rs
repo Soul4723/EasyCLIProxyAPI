@@ -40,6 +40,29 @@ fn sample_status(running: bool) -> HostCoreStatus {
             "CPA kernel is installed but not running"
         }
         .into(),
+        start_core_on_launch: Some(true),
+    }
+}
+
+fn sample_install_result() -> CoreInstallResult {
+    CoreInstallResult {
+        version: "v8.0.37".into(),
+        asset_name: "CLIProxyAPI_8.0.37_linux_amd64.tar.gz".into(),
+        install_dir: "/home/host/cpa-core".into(),
+        binary_path: Some("/home/host/cpa-core/cli-proxy-api".into()),
+    }
+}
+
+fn sample_task(running: bool) -> CoreInstallTask {
+    CoreInstallTask {
+        running,
+        cancellable: running,
+        phase: if running { "Downloading" } else { "Installation complete" }.into(),
+        downloaded: 10,
+        total: Some(20),
+        percent: Some(50.0),
+        message: None,
+        result: (!running).then(sample_install_result),
     }
 }
 
@@ -259,12 +282,31 @@ fn routes_dispatch_exact_paths_and_methods() {
             .status,
         405
     );
+    for (method, path, expected) in [
+        ("GET", "/host-control/v1/core/latest", Route::Latest),
+        ("GET", "/host-control/v1/core/install", Route::InstallTask),
+        ("POST", "/host-control/v1/core/install/cancel", Route::CancelInstall),
+        ("POST", "/host-control/v1/core/install/latest", Route::Install(None)),
+        ("POST", "/host-control/v1/core/install/v8.0.37", Route::Install(Some("v8.0.37".into()))),
+        ("POST", "/host-control/v1/core/install/8.0.37-rc.1", Route::Install(Some("8.0.37-rc.1".into()))),
+        ("POST", "/host-control/v1/settings/start-core-on-launch/on", Route::StartCoreOnLaunch(true)),
+        ("POST", "/host-control/v1/settings/start-core-on-launch/off", Route::StartCoreOnLaunch(false)),
+    ] {
+        assert_eq!(route(&request(method, path, &[])), Ok(expected), "{path}");
+        let other = if method == "GET" { "POST" } else { "GET" };
+        assert_eq!(route(&request(other, path, &[])).unwrap_err().status, 405, "{path}");
+    }
     for path in [
         "/",
         "/host-control/v1/status?x=1",
         "/host-control/v1/core/update",
         "/host-control/v2/status",
         "/v8/management/config",
+        "/host-control/v1/core/install/8.0",
+        "/host-control/v1/core/install/../status",
+        "/host-control/v1/core/install/8.0.37-",
+        "/host-control/v1/core/install/8.0.37?x",
+        "/host-control/v1/settings/start-core-on-launch/maybe",
     ] {
         assert_eq!(
             route(&request("GET", path, &[])).unwrap_err().status,
@@ -325,23 +367,42 @@ struct Recorder {
 }
 
 impl HostBackend for Recorder {
-    fn status(&self) -> BoxFuture<'static, Result<HostCoreStatus, HostError>> {
-        self.calls.lock().unwrap().push("status");
-        Box::pin(async { Ok(sample_status(true)) })
-    }
-
-    fn operate(
-        &self,
-        operation: HostOperation,
-    ) -> BoxFuture<'static, Result<HostCoreStatus, HostError>> {
-        self.calls.lock().unwrap().push(operation.name());
+    fn handle(&self, route: Route) -> BoxFuture<'static, Result<serde_json::Value, HostError>> {
+        let name = match &route {
+            Route::Status => "status",
+            Route::Operate(operation) => operation.name(),
+            Route::Latest => "latest",
+            Route::InstallTask => "install-task",
+            Route::Install(None) => "install-latest",
+            Route::Install(Some(_)) => "install-version",
+            Route::CancelInstall => "install-cancel",
+            Route::StartCoreOnLaunch(true) => "launch-on",
+            Route::StartCoreOnLaunch(false) => "launch-off",
+        };
+        self.calls.lock().unwrap().push(name);
         let busy = self.busy;
         Box::pin(async move {
-            if busy {
-                Err(operation_error(CORE_OPERATION_BUSY.to_string()))
-            } else {
-                Ok(sample_status(operation != HostOperation::Stop))
+            if busy && !matches!(route, Route::Status | Route::InstallTask) {
+                return Err(operation_error(CORE_OPERATION_BUSY.to_string()));
             }
+            Ok(match route {
+                Route::Status => serde_json::to_value(sample_status(true)),
+                Route::Operate(operation) => {
+                    serde_json::to_value(sample_status(operation != HostOperation::Stop))
+                }
+                Route::Latest => serde_json::to_value(CoreLatest {
+                    version: "8.0.37".into(),
+                    asset_name: "CLIProxyAPI_8.0.37_linux_amd64.tar.gz".into(),
+                }),
+                Route::InstallTask => serde_json::to_value(task_without_paths(sample_task(true))),
+                Route::CancelInstall => serde_json::to_value(task_without_paths(sample_task(false))),
+                Route::Install(_) => serde_json::to_value(without_paths(sample_install_result())),
+                Route::StartCoreOnLaunch(enabled) => serde_json::to_value(HostCoreStatus {
+                    start_core_on_launch: Some(enabled),
+                    ..sample_status(true)
+                }),
+            }
+            .unwrap())
         })
     }
 }
@@ -799,4 +860,103 @@ fn listener_follows_the_core_port_and_the_core_port_cannot_take_the_listen_port(
     assert!(check_core_port(&moved).is_ok(), "the default never collides");
     assert_eq!(desired_listener(&GuiConfigFile { host_control_enabled: false, ..base.clone() }), Ok(None));
     assert!(desired_listener(&GuiConfigFile { connection_mode: CoreConnectionMode::Remote, ..base }).is_err());
+}
+
+#[test]
+fn install_versions_are_plain_release_versions() {
+    for version in ["8.0.37", "v8.0.37", "8.0.37-rc.1", "v10.20.30-beta2"] {
+        assert!(valid_core_version(version), "{version}");
+    }
+    for version in ["", "latest", "cancel", "8.0", "8.0.37.1", "8..37", "8.0.37-", "8.0.37-a/b", "8.0.37 ", "v", &format!("8.0.{}", "1".repeat(70))] {
+        assert!(!valid_core_version(version), "{version:?}");
+    }
+}
+
+#[test]
+fn install_replies_never_carry_host_paths() {
+    let result = without_paths(sample_install_result());
+    assert!(result.install_dir.is_empty() && result.binary_path.is_none());
+    assert_eq!(result.version, "v8.0.37");
+    let task = task_without_paths(sample_task(false));
+    let result = task.result.unwrap();
+    assert!(result.install_dir.is_empty() && result.binary_path.is_none());
+}
+
+#[tokio::test]
+async fn client_reaches_install_latest_and_launch_routes() {
+    let (address, calls, cancel) = start_server(false).await;
+    let connection = CoreConnection {
+        mode: CoreConnectionMode::Remote,
+        host_control_origin: format!("http://{address}"),
+        host_control_key: KEY.into(),
+        ..CoreConnection::default()
+    };
+    let latest: CoreLatest = host_request_json(&connection, reqwest::Method::GET, "core/latest", STATUS_TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(latest.version, "8.0.37");
+    let task: CoreInstallTask = host_request_json(&connection, reqwest::Method::GET, "core/install", STATUS_TIMEOUT)
+        .await
+        .unwrap();
+    assert!(task.running);
+    let installed: CoreInstallResult = host_request_json(&connection, reqwest::Method::POST, "core/install/v8.0.37", STATUS_TIMEOUT)
+        .await
+        .unwrap();
+    assert!(installed.install_dir.is_empty() && installed.binary_path.is_none());
+    let off = host_request(&connection.host_control_origin, KEY, reqwest::Method::POST, "settings/start-core-on-launch/off", STATUS_TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(off.start_core_on_launch, Some(false));
+    assert_eq!(*calls.lock().unwrap(), vec!["latest", "install-task", "install-version", "launch-off"]);
+    cancel.cancel();
+
+    let (address, _, cancel) = start_server(true).await;
+    let busy = CoreConnection { host_control_origin: format!("http://{address}"), ..connection };
+    let error = host_request_json::<CoreInstallResult>(&busy, reqwest::Method::POST, "core/install/latest", STATUS_TIMEOUT)
+        .await
+        .unwrap_err();
+    assert!(error.contains("another operation"), "{error}");
+    cancel.cancel();
+}
+
+#[test]
+fn older_hosts_without_the_launch_setting_still_parse() {
+    let mut value = serde_json::to_value(sample_status(true)).unwrap();
+    value.as_object_mut().unwrap().remove("startCoreOnLaunch");
+    let parsed = parse_host_response(200, value.to_string().as_bytes()).unwrap();
+    assert_eq!(parsed.start_core_on_launch, None);
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[test]
+fn remote_tray_offers_process_actions_only_through_reachable_host_control() {
+    use crate::core_connection::CoreConnectionTestResult as Management;
+    let connection = CoreConnection {
+        mode: CoreConnectionMode::Remote,
+        management_origin: "http://100.64.0.1:8317".into(),
+        management_key: "management".into(),
+        host_control_origin: "http://100.64.0.1:8417".into(),
+        host_control_key: KEY.into(),
+    };
+    let down = || Management { connected: false, version: None, message: "down".into() };
+    let up = || Management { connected: true, version: Some("8.0.36".into()), message: "Connected".into() };
+
+    let stopped = remote_status_with_host(&connection, down(), Some(Ok(sample_status(false))));
+    let tray = crate::windows_tray_presentation(&stopped, false, "en");
+    assert_eq!(tray.status_text, "Remote core: stopped on host");
+    assert_eq!(tray.toggle_text, "Start Core");
+    assert!(tray.toggle_enabled && !tray.restart_enabled);
+
+    let running = remote_status_with_host(&connection, up(), Some(Ok(sample_status(true))));
+    let tray = crate::windows_tray_presentation(&running, false, "en");
+    assert_eq!(tray.status_text, "Remote core: connected");
+    assert!(tray.toggle_enabled && tray.restart_enabled);
+    let busy = crate::windows_tray_presentation(&running, true, "en");
+    assert!(!busy.toggle_enabled && !busy.restart_enabled);
+
+    for host in [None, Some(Err("Unable to reach remote host control".to_string()))] {
+        let status = remote_status_with_host(&connection, up(), host);
+        let tray = crate::windows_tray_presentation(&status, false, "en");
+        assert!(!tray.toggle_enabled && !tray.restart_enabled);
+    }
 }

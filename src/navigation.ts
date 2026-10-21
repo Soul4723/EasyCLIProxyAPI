@@ -8,7 +8,9 @@ export function canOpenAppPage(pageId: string, coreReady: boolean) {
   return coreReady || isAlwaysAvailablePage(pageId);
 }
 
-export function isRemoteDisabledPage(pageId: string) {
+// Version Management works remotely through a reachable remote host control.
+export function isRemoteDisabledPage(pageId: string, remoteHostControl = false) {
+  if (pageId === 'versions' && remoteHostControl) return false;
   return ['easy', 'agents', 'usage-records', 'versions'].includes(pageId);
 }
 

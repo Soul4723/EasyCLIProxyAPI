@@ -447,7 +447,7 @@ struct CoreStatus {
     host_control: Option<host_control::HostControlView>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CoreLatest {
     version: String,
@@ -595,7 +595,7 @@ struct BundledCoreInfo {
     size_bytes: u64,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CoreInstallResult {
     version: String,
@@ -604,7 +604,7 @@ struct CoreInstallResult {
     binary_path: Option<String>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CoreInstallTask {
     running: bool,
@@ -2856,6 +2856,8 @@ fn main() {
             host_control::get_host_control_settings,
             host_control::save_host_control_settings,
             host_control::test_host_control,
+            host_control::get_remote_start_core_on_launch,
+            host_control::set_remote_start_core_on_launch,
             get_gui_settings,
             get_usage_view_preferences,
             save_usage_view_preferences,
