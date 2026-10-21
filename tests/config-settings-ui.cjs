@@ -526,6 +526,7 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
           const management = page.locator('#template-group-management').locator('xpath=ancestor::section[1]');
           await management.getByRole('button', { name: locale === 'en' ? 'Discard changes' : '放弃本组修改', exact: true }).click();
           assert.equal(await remoteManagement.isChecked(), false);
+          await page.locator('#config-subpage-tab-general .config-nav-dirty').waitFor({ state: 'detached' });
           assert.equal(await hasDirtyMarker('general'), false, `${label}: discarding clears the category marker`);
 
           await tab('requests');
