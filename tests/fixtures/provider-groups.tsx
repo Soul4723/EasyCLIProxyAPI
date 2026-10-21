@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import {
   ApiAccessPage,
   apiAccessRemarkLocatorFromRecord,
@@ -85,6 +86,7 @@ const resolveRemark = (section: ProviderSection, locator: ApiAccessRemarkLocator
 };
 mockIPC((cmd, args: any) => {
   if (cmd === 'set_app_locale') return null;
+  if (cmd === 'get_core_status') return null;
   if (cmd === 'resolve_api_access_remarks') return args.queries.map((item: ApiAccessRemarkLocator & { providerSection: ProviderSection }) =>
     resolveRemark(item.providerSection, item));
   if (cmd === 'save_api_access_remark') {
@@ -120,5 +122,5 @@ mockIPC((cmd, args: any) => {
   else fixture.groupFixture.openaiGroups = structuredClone(request.body);
   persistRemarkScenario();
   return { status: 'ok' };
-});
-createRoot(document.getElementById('root')!).render(<I18nProvider><div className="app-shell"><aside className="sidebar" /><div className="workspace"><main className="content"><ApiAccessPage /></main></div></div></I18nProvider>);
+}, { shouldMockEvents: true });
+createRoot(document.getElementById('root')!).render(<I18nProvider><CoreRuntimeProvider><div className="app-shell"><aside className="sidebar" /><div className="workspace"><main className="content"><ApiAccessPage /></main></div></div></CoreRuntimeProvider></I18nProvider>);

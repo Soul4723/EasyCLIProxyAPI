@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
+import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { AuthFileManagementPage } from '../../src/pages/AuthFileManagementPage';
 import { QuotaPage } from '../../src/pages/QuotaPage';
 import { updateQuotaCache } from '../../src/services/quotaCache';
@@ -37,6 +38,7 @@ const buckets = Array.from({ length: 20 }, (_, index) => ({
 
 mockIPC(async (cmd, args) => {
   if (cmd === 'set_app_locale') return null;
+  if (cmd === 'get_core_status') return null;
   if (cmd === 'management_request') {
     const request = args?.request as { path: string; method: string; query?: Record<string, string>; body?: Record<string, unknown> };
     if (request.path === '/credentials/download') {
@@ -129,15 +131,15 @@ mockIPC(async (cmd, args) => {
     }
   }
   throw new Error(`Unhandled fixture command: ${cmd}`);
-});
+}, { shouldMockEvents: true });
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider>
+  <I18nProvider><CoreRuntimeProvider>
     <div className="app-shell">
       <aside className="sidebar" aria-hidden="true" />
       <div className="workspace">
         <main className="content">{params.has('quotaPage') ? <QuotaPage /> : <AuthFileManagementPage />}{params.has('cards') ? <><pre id="fixture-writes" aria-label="Fixture saved payload" /><output id="fixture-reset-count" aria-label="Fixture reset calls">0</output></> : null}</main>
       </div>
     </div>
-  </I18nProvider>,
+  </CoreRuntimeProvider></I18nProvider>,
 );

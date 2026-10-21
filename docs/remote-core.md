@@ -9,7 +9,7 @@ It does not install, launch, stop, restart, or update that server.
    and set a management key. Use the equivalent management settings for your
    core version, and ensure the management port is reachable.
 2. Stop the GUI-managed local core before switching targets.
-3. Open **Settings → Software settings → Core connection**, choose **Remote**,
+3. Open **Advanced Features → Software settings → Core connection**, choose **Remote**,
    and enter the management origin (for example `https://core.example:8317`)
    and its plaintext management key. An origin has no path, query, credentials,
    or fragment.
@@ -35,9 +35,9 @@ callback submission where needed), Vertex import, and plugin management.
 
 Core lifecycle and installation controls, agent client configuration/launch,
 Codex session tools, local usage collection/history, local config-file editors,
-local auth/log folders, embedded plugin pages, and probes/model discovery requiring the local client
-API are unavailable remotely. These features depend on files, processes or
-client credentials on this machine; Remote mode supplies only a management
+local auth/log folders, local binary plugin installation, embedded plugin pages,
+and probes/model discovery requiring the local client API are unavailable remotely.
+These features depend on files, processes or client credentials on this machine; Remote mode supplies only a management
 origin and key. Configure unsupported settings on the server or through its
 management interface instead. No remote usage history or agent targeting is
 provided. Embedded plugin pages currently depend on the local webview target and
