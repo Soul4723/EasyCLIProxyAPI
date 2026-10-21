@@ -8,6 +8,8 @@ export type DataSourceOptions<T> = {
   /** Component-owned queries may expose background refresh progress; shared sources stay quiet. */
   trackRefresh?: boolean;
   events?: string[];
+  /** Skips events whose payload does not concern this source. Absent: every event invalidates. */
+  eventFilter?: (payload: unknown) => boolean;
   subscribeEvents?: (invalidate: () => void) => (() => void);
   pollMs?: number | (() => number);
   maxPollMs?: number;
@@ -112,7 +114,7 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
       let disposed = false;
       const stops: Array<() => void> = [];
       for (const event of options.events ?? []) {
-        void listen(event, invalidateFromEvent).then(stop => { if (disposed) stop(); else stops.push(stop); }).catch(error => {
+        void listen<unknown>(event, e => { if (!options.eventFilter || options.eventFilter(e.payload)) invalidateFromEvent(); }).then(stop => { if (disposed) stop(); else stops.push(stop); }).catch(error => {
           if (!disposed) publish({ ...snapshot, error: String(error), loading: false });
         });
       }

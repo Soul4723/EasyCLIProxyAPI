@@ -1,8 +1,9 @@
 import { Bot } from 'lucide-react';
 import type { SectionRoute } from '../../shell/types';
-import { AgentsSection } from './index';
+import { lazySection } from '../../shell/lazySection';
 import { agentsSubs } from './subs';
 
+const section = lazySection(() => import('./index').then(({ AgentsSection }) => ({ default: AgentsSection })));
 
 export const agentsRoute: SectionRoute = {
   id: 'agents',
@@ -11,5 +12,7 @@ export const agentsRoute: SectionRoute = {
   group: 'secondary',
   subs: agentsSubs,
   alwaysAvailable: true,
-  Page: AgentsSection,
+  Page: section.Page,
+  preload: section.preload,
+  retry: section.retry,
 };

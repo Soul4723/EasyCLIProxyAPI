@@ -207,6 +207,24 @@ struct SessionIndexMetadata {
     updated_at_ms: Option<i64>,
 }
 
+/// Runs a read-only scan of the Codex home without the global target fence.
+///
+/// These scans read only files and SQLite under `CODEX_HOME`, never target state, so
+/// holding `target_operation` would only queue every management request, plugin toggle
+/// and config-watcher event behind a scan that can take seconds. Checking the target
+/// revision before and after still drops a result computed for a core target the user
+/// has since switched away from. Commands that write keep the fence.
+pub(crate) fn read_without_target_fence<T>(
+    state: &crate::GuiConfigState,
+    expected: &crate::GuiConfigFile,
+    scan: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    state.ensure_target(expected)?;
+    let result = scan()?;
+    state.ensure_target(expected)?;
+    Ok(result)
+}
+
 #[tauri::command]
 pub(crate) async fn list_codex_sessions(
     app: tauri::AppHandle,
@@ -225,8 +243,9 @@ pub(crate) async fn list_codex_sessions(
     });
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<crate::GuiConfigState>();
-        let _target_operation = state.blocking_local_target_operation(&expected)?;
-        list_codex_sessions_from_home(&codex_home, request.offset, request.limit)
+        read_without_target_fence(&state, &expected, || {
+            list_codex_sessions_from_home(&codex_home, request.offset, request.limit)
+        })
     })
     .await
     .map_err(|error| format!("Failed to read Codex session task: {error}"))?
@@ -275,7 +294,7 @@ pub(crate) async fn repair_codex_session_metadata(
         if expected_provider.as_deref().is_some_and(|expected| expected != target_provider) {
             return Err("Codex provider changed before session synchronization. Refresh and try again".to_string());
         }
-        repair_codex_session_metadata_from_home(&codex_home, &target_provider, |progress| {
+        repair_codex_session_metadata_from_home(&codex_home, &target_provider, true, |progress| {
             let _ = progress_app.emit(REPAIR_PROGRESS_EVENT, progress);
         })
     })
@@ -296,8 +315,9 @@ pub(crate) async fn preview_codex_session_index_cleanup(
     let codex_home = resolve_codex_home(&user_home);
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<crate::GuiConfigState>();
-        let _target_operation = state.blocking_local_target_operation(&expected)?;
-        preview_session_index_cleanup_from_home(&codex_home)
+        read_without_target_fence(&state, &expected, || {
+            preview_session_index_cleanup_from_home(&codex_home)
+        })
     })
     .await
     .map_err(|error| format!("Failed to preview Codex session index task: {error}"))?
@@ -347,3 +367,5 @@ use process::*;
 mod tests;
 #[cfg(test)]
 mod streaming_tests;
+#[cfg(test)]
+mod repair_safety_tests;

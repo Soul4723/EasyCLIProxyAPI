@@ -369,8 +369,12 @@ pub(super) fn launch_vscode_directory(executable: &Path, directory: &Path) -> Re
             .map(|root| root.join("Code.exe"))
             .filter(|path| path.is_file());
         match editor {
-            Some(editor) => Command::new(editor),
-            None => windows_command_for_executable(executable, false),
+            Some(editor) => {
+                let mut command = Command::new(editor);
+                command.arg(directory);
+                command
+            }
+            None => command_for_executable(executable, &[path_to_string(directory)])?,
         }
     };
     #[cfg(target_os = "macos")]
@@ -388,7 +392,10 @@ pub(super) fn launch_vscode_directory(executable: &Path, directory: &Path) -> Re
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let mut command = Command::new(executable);
 
-    command.arg(directory).current_dir(directory)
+    // On Windows the directory is already part of the command.
+    #[cfg(not(target_os = "windows"))]
+    command.arg(directory);
+    command.current_dir(directory)
         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     configure_background_command(&mut command);
     command.spawn().map(|_| ())

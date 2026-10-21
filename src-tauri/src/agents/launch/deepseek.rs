@@ -296,9 +296,8 @@ pub(super) fn spawn_managed_deepseek_harness(
 
         const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        let mut command = windows_command_for_executable(executable, false);
+        let mut command = command_for_executable(executable, arguments)?;
         command
-            .args(arguments)
             .current_dir(working_directory)
             .creation_flags(
                 (if cfg!(test) {
@@ -361,7 +360,12 @@ pub(super) fn terminate_deepseek_harness_process_tree(child: &mut Child) -> Resu
     #[cfg(windows)]
     {
         let process_id = child.id().to_string();
-        let mut command = Command::new("taskkill");
+        let taskkill = std::env::var_os("SystemRoot")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
+            .join("System32")
+            .join("taskkill.exe");
+        let mut command = Command::new(taskkill);
         command
             .args(["/PID", &process_id, "/T", "/F"])
             .stdin(Stdio::null())

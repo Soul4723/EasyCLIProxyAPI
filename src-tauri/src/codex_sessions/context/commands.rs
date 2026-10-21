@@ -14,8 +14,18 @@ pub(crate) async fn get_codex_session_context(
     let codex_home = resolve_codex_home(&user_home);
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<crate::GuiConfigState>();
-        let _target_operation = state.blocking_local_target_operation(&expected)?;
-        get_codex_session_context_from_home(&codex_home, &request.session_id)
+        read_without_target_fence(&state, &expected, || {
+            let limit = request
+                .message_limit
+                .unwrap_or(DEFAULT_CONTEXT_PAGE_SIZE)
+                .clamp(1, MAX_CONTEXT_PAGE_SIZE);
+            get_codex_session_context_page_from_home(
+                &codex_home,
+                &request.session_id,
+                request.message_offset.unwrap_or(0),
+                limit,
+            )
+        })
     })
     .await
     .map_err(|error| format!("Failed to read Codex session context: {error}"))?
@@ -57,20 +67,64 @@ pub(crate) async fn open_codex_session_rollout(
     let session_id = validate_session_id(&normalize_thread_id(&request.session_id))?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<crate::GuiConfigState>();
-        let _target_operation = state.blocking_local_target_operation(&expected)?;
-        let path = find_rollout_for_session(&codex_home, &session_id)?
-            .ok_or_else(|| "This session has no rollout file to open".to_string())?;
-        tauri_plugin_opener::open_path(path, None::<&str>)
-            .map_err(|error| format!("Failed to open rollout with the default application: {error}"))
+        read_without_target_fence(&state, &expected, || {
+            let path = find_rollout_for_session(&codex_home, &session_id)?
+                .ok_or_else(|| "This session has no rollout file to open".to_string())?;
+            tauri_plugin_opener::open_path(path, None::<&str>)
+                .map_err(|error| format!("Failed to open rollout with the default application: {error}"))
+        })
     })
     .await
     .map_err(|error| format!("Failed to locate session rollout: {error}"))?
 }
 
+/// The whole session in one response; tests and callers that need every message use this.
+#[cfg(test)]
 pub(super) fn get_codex_session_context_from_home(
     codex_home: &Path,
     raw_session_id: &str,
 ) -> Result<CodexSessionContextDetail, String> {
+    get_codex_session_context_page_from_home(codex_home, raw_session_id, 0, usize::MAX)
+}
+
+/// Message text for one `response_item` payload, computed only for messages inside the requested page.
+fn context_item_content(p_type: &str, payload: &Value) -> String {
+    match p_type {
+        "message" => extract_content_text(&payload["content"]),
+        "reasoning" | "thinking" => extract_reasoning_text(payload),
+        tool if tool.ends_with("_output") => payload
+            .get("output")
+            .map(|output| {
+                output
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| output.to_string())
+            })
+            .unwrap_or_default(),
+        tool => {
+            let name = payload["name"].as_str().unwrap_or("unknown_tool");
+            let args = payload
+                .get("arguments")
+                .or_else(|| payload.get("input"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            format!("{name}({args})")
+        }
+    }
+}
+
+/// Loads session metadata, whole-file stats and hash, plus the `limit` messages starting at message
+/// `offset`. The scan still reads the whole rollout (stats and the save guard hash need it) but only
+/// builds text and payload for the requested page.
+pub(super) fn get_codex_session_context_page_from_home(
+    codex_home: &Path,
+    raw_session_id: &str,
+    message_offset: usize,
+    message_limit: usize,
+) -> Result<CodexSessionContextDetail, String> {
+    let window_end = message_offset.saturating_add(message_limit);
+    let mut total_messages = 0usize;
+    let mut call_lines: HashMap<String, Vec<usize>> = HashMap::new();
     let session_id = validate_session_id(&normalize_thread_id(raw_session_id))?;
     let (database_paths, _) = discover_database_paths(codex_home, false);
 
@@ -172,7 +226,8 @@ pub(super) fn get_codex_session_context_from_home(
         let file = fs::File::open(path)
             .map_err(|error| format!("Failed to read rollout {}: {error}", path.display()))?;
         let mut hasher = Sha256::new();
-        let mut raw_bytes = Some(Vec::new());
+        // The export text rides along with the first page only; later pages just append messages.
+        let mut raw_bytes = (message_offset == 0).then(Vec::new);
         {
             let mut reader = BufReader::new(file);
             let mut line = Vec::new();
@@ -243,7 +298,7 @@ pub(super) fn get_codex_session_context_from_home(
                 } else if rec_type == "response_item" {
                     let Some(payload) = payload else { continue };
                     let p_type = payload["type"].as_str().unwrap_or_default();
-                    let (prefix, role, content) = match p_type {
+                    let (prefix, role) = match p_type {
                         "message" => {
                             let role = payload["role"].as_str().unwrap_or("unknown");
                             match role {
@@ -251,43 +306,37 @@ pub(super) fn get_codex_session_context_from_home(
                                 "assistant" => assistant_count += 1,
                                 _ => {}
                             }
-                            ("msg", role, extract_content_text(&payload["content"]))
+                            ("msg", role)
                         }
                         "reasoning" | "thinking" => {
                             reasoning_count += 1;
-                            ("reasoning", "reasoning", extract_reasoning_text(payload))
+                            ("reasoning", "reasoning")
                         }
                         tool if is_tool_response(tool) => {
                             tool_count += 1;
-                            let content = if tool.ends_with("_output") {
-                                payload
-                                    .get("output")
-                                    .map(|output| {
-                                        output
-                                            .as_str()
-                                            .map(str::to_string)
-                                            .unwrap_or_else(|| output.to_string())
-                                    })
-                                    .unwrap_or_default()
-                            } else {
-                                let name = payload["name"].as_str().unwrap_or("unknown_tool");
-                                let args = payload
-                                    .get("arguments")
-                                    .or_else(|| payload.get("input"))
-                                    .and_then(Value::as_str)
-                                    .unwrap_or_default();
-                                format!("{name}({args})")
-                            };
-                            ("tool", "tool", content)
+                            ("tool", "tool")
                         }
                         _ => continue,
                     };
+                    let position = total_messages;
+                    total_messages += 1;
+                    // Deleting a tool call also removes its result, so every page needs the full
+                    // call-id link set even for messages outside it.
+                    if role == "tool" {
+                        if let Some(call_id) = payload["call_id"].as_str() {
+                            call_lines.entry(call_id.to_string()).or_default().push(idx);
+                        }
+                    }
+                    if position < message_offset || position >= window_end {
+                        continue;
+                    }
                     messages.push(CodexSessionMessageItem {
                         id: format!("{prefix}-{idx}"),
                         line_number: idx,
                         role: role.to_string(),
                         timestamp: record["timestamp"].as_str().map(str::to_string),
-                        content,
+                        content: context_item_content(p_type, payload),
+                        linked_lines: Vec::new(),
                         raw_type: rec_type.to_string(),
                         model: rollout_model.clone().or_else(|| model.clone()),
                         call_id: if role == "tool" {
@@ -312,6 +361,12 @@ pub(super) fn get_codex_session_context_from_home(
         ));
     }
 
+    for message in &mut messages {
+        let Some(call_id) = message.call_id.as_deref() else { continue };
+        if let Some(lines) = call_lines.get(call_id).filter(|lines| lines.len() > 1) {
+            message.linked_lines = lines.clone();
+        }
+    }
     if model.is_none() {
         model = rollout_model;
     }
@@ -326,6 +381,8 @@ pub(super) fn get_codex_session_context_from_home(
         rollout_path: rollout_path_buf.map(|path| path.to_string_lossy().to_string()),
         database_path: matched_database_path,
         messages,
+        message_offset,
+        total_messages,
         stats: CodexSessionContextStats {
             total_lines,
             message_count: user_count + assistant_count + reasoning_count,

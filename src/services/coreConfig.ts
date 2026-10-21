@@ -1,4 +1,5 @@
 import { createDataSource, useDataSource } from './dataSource';
+import { CORE_CONFIG_SCOPES, configChangeFilter } from './configChange';
 import { invoke } from './documentTarget';
 import { useEffect, useRef } from 'react';
 
@@ -32,12 +33,14 @@ export type CoreConfigSettings = {
 export const coreConfigSource = createDataSource({
   load: () => invoke<CoreConfigSettings>('get_core_config_settings'),
   events: ['config-files-changed'],
+  eventFilter: configChangeFilter(CORE_CONFIG_SCOPES),
   minIntervalMs: 1_000,
 });
 
 export const extendedCoreConfigSource = createDataSource({
   load: () => invoke<Record<string, unknown>>('get_extended_core_config'),
   events: ['config-files-changed'],
+  eventFilter: configChangeFilter(CORE_CONFIG_SCOPES),
   minIntervalMs: 1_000,
 });
 

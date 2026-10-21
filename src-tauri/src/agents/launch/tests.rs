@@ -136,7 +136,14 @@
             let arguments = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
             assert_eq!(&arguments[..4], ["-NoLogo", "-NoProfile", "-NoExit", "-Command"]);
             assert!(arguments[4].contains("Set-Location -LiteralPath 'C:\\Users\\Test User\\project''s [work]'"));
-            assert!(arguments[4].contains(&format!("& '{executable}'")));
+            if executable.ends_with(".cmd") {
+                // A batch launcher always goes through an explicit cmd.exe line.
+                assert!(arguments[4].contains("$cpaLaunchInfo.FileName = "));
+                assert!(arguments[4].contains(&format!("/D /E:ON /V:OFF /S /C \"\"{executable}\"\"")), "{}", arguments[4]);
+                assert!(!arguments[4].contains(&format!("& '{executable}'")));
+            } else {
+                assert!(arguments[4].contains(&format!("& '{executable}'")));
+            }
         }
     }
 
@@ -173,6 +180,131 @@
             let lines = stdout.lines().collect::<Vec<_>>();
             assert_eq!(lines, [path_to_string(&directory).as_str(), "two words", "launch-fixture"]);
         }
+        fs::remove_dir_all(directory.parent().unwrap()).unwrap();
+    }
+
+    /// A launcher whose path holds `%VAR%` or other cmd.exe metacharacters must not be
+    /// expanded or run by any terminal; Windows Terminal refuses it before looking for wt.exe.
+    #[cfg(windows)]
+    #[test]
+    fn windows_terminals_do_not_expand_or_run_launcher_paths() {
+        use std::os::windows::process::CommandExt;
+
+        let root = env::temp_dir().join(format!(
+            "cpa-terminal-path-{}-{}", std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let directory = root.join("work");
+        fs::create_dir_all(&directory).unwrap();
+        let marker = directory.join("pwned.txt");
+        for (name, expect_refused) in [("100%USERNAME%", true), ("a&calc", true), ("a^b", true), ("plain", false)] {
+            let launcher_directory = root.join(name);
+            fs::create_dir_all(&launcher_directory).unwrap();
+            let shim = launcher_directory.join("shim.cmd");
+            fs::write(&shim, format!("@echo off\r\necho ran> \"{}\"\r\n", directory.join("ran.txt").display())).unwrap();
+            let refused = windows_cli_launch_command(&shim, "test client", &directory, &[], "windows-terminal");
+            if expect_refused {
+                let error = refused.unwrap_err();
+                assert!(error.contains("Windows Terminal") && error.contains("path"), "{name}: {error}");
+            } else if let Err(error) = refused {
+                assert!(error.contains("not found"), "{name}: {error}");
+            }
+            for terminal in ["auto", "cmd"] {
+                let _ = fs::remove_file(directory.join("ran.txt"));
+                let launch = windows_cli_launch_command(&shim, "test client", &directory, &[], terminal).unwrap();
+                let mut command = Command::new(launch.get_program());
+                for argument in launch.get_args() {
+                    let text = argument.to_string_lossy();
+                    if text == "-NoExit" {
+                        continue;
+                    }
+                    match text.strip_prefix("/D /E:ON /V:OFF /S /K ") {
+                        Some(line) => command.raw_arg(format!("/D /E:ON /V:OFF /S /C {line}")),
+                        None => command.arg(argument),
+                    };
+                }
+                command.current_dir(&directory);
+                configure_background_command(&mut command);
+                let output = match command_output_with_timeout(&mut command, Duration::from_secs(30)).unwrap() {
+                    CommandOutputOutcome::Completed(output) => output,
+                    CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("launcher path fixture")),
+                };
+                assert!(output.status.success(), "{terminal} {name}: {}", String::from_utf8_lossy(&output.stderr));
+                assert!(directory.join("ran.txt").is_file(), "{terminal} {name}: launcher did not run");
+                assert!(!marker.exists() && !root.join("calc").exists(), "{terminal} {name}: path ran as a command");
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The PowerShell and Command Prompt terminals run a `.cmd` shim with text a user typed.
+    /// Runs both for real and checks that the text arrives unchanged and nothing in it ran.
+    #[cfg(windows)]
+    #[test]
+    fn windows_terminals_pass_hostile_text_to_batch_shims_as_data() {
+        use std::os::windows::process::CommandExt;
+
+        let Some(node) = env::var_os("PATH").and_then(|path| {
+            env::split_paths(&path).find_map(|directory| {
+                let candidate = directory.join("node.exe");
+                candidate.is_file().then_some(candidate)
+            })
+        }) else {
+            eprintln!("node.exe not found; skipping the end-to-end terminal argument test");
+            return;
+        };
+        let directory = env::temp_dir().join(format!(
+            "cpa-terminal-hostile-{}-{}", std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        )).join("100% work's [dir] & more");
+        fs::create_dir_all(&directory).unwrap();
+        let marker = directory.join("pwned.txt");
+        fs::write(
+            directory.join("args.js"),
+            "require('fs').writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)))",
+        ).unwrap();
+        let shim = directory.join("agent shim.cmd");
+        fs::write(&shim, format!(
+            "@echo off\r\n\"{}\" \"%~dp0args.js\" \"%~dp0out.json\" %*\r\n", node.display(),
+        )).unwrap();
+        let hostile = vec![
+            "headless task: fix it & calc".to_string(),
+            format!("\" & echo owned> \"{}\" & \"", marker.display()),
+            format!("x | echo owned> \"{}\"", marker.display()),
+            "%PATH% and 100%".to_string(),
+            "^&^|".to_string(),
+            "say \"hi\" it's".to_string(),
+            "\u{2018}; Start-Process calc; \u{2019}".to_string(),
+            "\u{201C}smart\u{201D}".to_string(),
+        ];
+        for terminal in ["auto", "cmd"] {
+            let _ = fs::remove_file(directory.join("out.json"));
+            let launch = windows_cli_launch_command(&shim, "test client", &directory, &hostile, terminal).unwrap();
+            // Run the same startup line without keeping a test shell open.
+            let mut command = Command::new(launch.get_program());
+            for argument in launch.get_args() {
+                let text = argument.to_string_lossy();
+                if text == "-NoExit" {
+                    continue;
+                }
+                match text.strip_prefix("/D /E:ON /V:OFF /S /K ") {
+                    Some(line) => command.raw_arg(format!("/D /E:ON /V:OFF /S /C {line}")),
+                    None => command.arg(argument),
+                };
+            }
+            command.current_dir(&directory);
+            configure_background_command(&mut command);
+            let output = match command_output_with_timeout(&mut command, Duration::from_secs(30)).unwrap() {
+                CommandOutputOutcome::Completed(output) => output,
+                CommandOutputOutcome::TimedOut(timeout) => panic!("{}", timeout.message("terminal fixture")),
+            };
+            assert!(output.status.success(), "{terminal}: {}", String::from_utf8_lossy(&output.stderr));
+            assert!(!marker.exists(), "{terminal}: an argument ran as a command");
+            let received: Vec<String> =
+                serde_json::from_slice(&fs::read(directory.join("out.json")).unwrap()).unwrap();
+            assert_eq!(received, hostile, "{terminal}");
+        }
+        assert!(windows_cli_launch_command(&shim, "test client", &directory, &["a\nb".to_string()], "cmd").is_err());
         fs::remove_dir_all(directory.parent().unwrap()).unwrap();
     }
 
@@ -242,7 +374,7 @@ class GuiHelper {
             ];
             let script = format!(
                 "{}; if (![IO.File]::Exists({})) {{ throw 'GUI helper is still running' }}",
-                windows_powershell_cli_script(&executable, &directory, &arguments),
+                windows_powershell_cli_script(&executable, &directory, &arguments).unwrap(),
                 windows_powershell_single_quoted_literal(&path_to_string(
                     &directory.join("finished.txt")
                 )),

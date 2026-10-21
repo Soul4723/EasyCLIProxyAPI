@@ -621,3 +621,95 @@ async fn local_plugin_copy_is_discovered_and_loads_in_real_kernel() {
     assert_eq!(entry["effective_enabled"], true, "plugin must be enabled: {entry}");
     println!("Verified actual kernel discovery and loading: {id}");
 }
+
+// Forwards each request to `upstream` on a fresh connection and records "METHOD path".
+async fn counting_proxy(upstream: String) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = requests.clone();
+    let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(10)).build().unwrap();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let (seen, client, upstream) = (seen.clone(), client.clone(), upstream.clone());
+            tokio::spawn(async move {
+                let mut reader = tokio::io::BufReader::new(stream);
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 { return; }
+                let mut parts = line.split_whitespace();
+                let (method, path) = (parts.next().unwrap().to_string(), parts.next().unwrap().to_string());
+                let (mut headers, mut length) = (Vec::new(), 0);
+                loop {
+                    let mut header = String::new();
+                    reader.read_line(&mut header).await.unwrap();
+                    if header == "\r\n" { break; }
+                    let (name, value) = header.trim_end().split_once(':').unwrap();
+                    if name.eq_ignore_ascii_case("content-length") { length = value.trim().parse().unwrap(); }
+                    headers.push((name.to_ascii_lowercase(), value.trim().to_string()));
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).await.unwrap();
+                seen.lock().unwrap().push(format!("{method} {path}"));
+                let mut request = client.request(reqwest::Method::from_bytes(method.as_bytes()).unwrap(), format!("{upstream}{path}")).body(body);
+                for (name, value) in headers {
+                    if matches!(name.as_str(), "authorization" | "content-type" | "accept") { request = request.header(name, value); }
+                }
+                let response = request.send().await.unwrap();
+                let status = response.status();
+                let mut head = format!("HTTP/1.1 {} {}\r\n", status.as_u16(), status.canonical_reason().unwrap_or("Proxy"));
+                if let Some(value) = response.headers().get(reqwest::header::CONTENT_TYPE) {
+                    head.push_str(&format!("Content-Type: {}\r\n", value.to_str().unwrap()));
+                }
+                let body = response.bytes().await.unwrap();
+                head.push_str(&format!("Content-Length: {}\r\nConnection: close\r\n\r\n", body.len()));
+                let mut stream = reader.into_inner();
+                stream.write_all(head.as_bytes()).await.unwrap();
+                stream.write_all(&body).await.unwrap();
+            });
+        }
+    });
+    (origin, requests)
+}
+
+#[tokio::test]
+#[ignore = "requires CPA_V8_TEST_CORE pointing to a v8 executable"]
+async fn real_core_multi_field_save_reads_once_then_writes_each_field() {
+    let executable = fs::canonicalize(std::env::var_os("CPA_V8_TEST_CORE").expect("set CPA_V8_TEST_CORE")).unwrap();
+    let directory = agent_test_home("v8-contract-batched-writes");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let mut core = TestCore {
+        child: None, config: directory.join("config.yaml"), directory, executable,
+        origin: format!("http://127.0.0.1:{port}"),
+        client: reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(3)).build().unwrap(),
+    };
+    let initial = format!("config-version: 8\nserver: {{host: 127.0.0.1, port: {port}}}\nmanagement: {{secret-key: isolated-test-secret, disable-control-panel: true, disable-auto-update-panel: true}}\noauth: {{auth-dir: '{}' }}\naccess: {{api-keys: [isolated-client-key]}}\nrouting: {{cooldown: {{disable-cooling: false}}, retry: {{request-retry: 0, max-retry-credentials: 0, max-retry-interval: 0}}}}\nrequests: {{streaming: {{bootstrap-retries: 0}}}}\n", path_to_string(&core.directory.join("auth")));
+    fs::write(&core.config, initial).unwrap();
+    core.start().await;
+    let (proxy, requests) = counting_proxy(core.origin.clone()).await;
+    let app = tauri::test::mock_builder().manage(GuiConfigState::new(GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote, remote_management_origin: proxy.clone(),
+        remote_management_key: "isolated-test-secret".into(), remote_client_origin: proxy,
+        remote_client_key: "isolated-client-key".into(), ..GuiConfigFile::default()
+    })).build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+    let revision = app.state::<GuiConfigState>().snapshot().unwrap().target_revision;
+    let view = save_retry_settings(app.state(), revision, GuiRetrySettings {
+        disable_cooling: true, request_retry: 7, max_retry_credentials: 6, max_retry_interval: 9, streaming_bootstrap_retries: 5,
+    }).await.unwrap();
+    assert_eq!((view.disable_cooling, view.request_retry, view.max_retry_credentials, view.max_retry_interval, view.streaming_bootstrap_retries), (true, 7, 6, 9, 5));
+    let requests = requests.lock().unwrap().clone();
+    let gets = requests.iter().filter(|request| *request == "GET /v8/management/config.yaml").count();
+    let writes = requests.iter().filter(|request| request.starts_with("PUT /v8/management/config/")).count();
+    eprintln!("real core multi-field save: {} requests ({gets} GET, {writes} PUT): {requests:?}", requests.len());
+    // The save's read plus one preflight read, then one write per field (was 1 + 2N = 11).
+    assert_eq!((requests.len(), gets, writes), (7, 2, 5), "{requests:?}");
+    let saved = core.config_view().await;
+    assert_eq!(saved["routing"]["cooldown"]["disable-cooling"], true);
+    assert_eq!(saved["routing"]["retry"]["request-retry"], 7);
+    assert_eq!(saved["routing"]["retry"]["max-retry-credentials"], 6);
+    assert_eq!(saved["routing"]["retry"]["max-retry-interval"], 9);
+    assert_eq!(saved["requests"]["streaming"]["bootstrap-retries"], 5);
+    assert_eq!(saved["access"]["api-keys"], serde_json::json!(["isolated-client-key"]));
+}

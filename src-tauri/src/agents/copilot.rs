@@ -30,11 +30,7 @@ fn copilot_cli_version_output(output: &str) -> Option<String> {
 }
 
 fn copilot_probe_output(executable: &Path, home: &Path, args: &[&str]) -> Option<String> {
-    #[cfg(target_os = "windows")]
-    let mut command = windows_command_for_executable(executable, false);
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new(executable);
-    command.args(args);
+    let mut command = command_for_executable(executable, args).ok()?;
     configure_background_command(&mut command);
     configure_agent_command_environment(&mut command, home, executable).ok()?;
     // No input is provided to installation shims; only a successful, explicit

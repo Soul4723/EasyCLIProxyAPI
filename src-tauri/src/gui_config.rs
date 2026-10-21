@@ -20,9 +20,96 @@ pub(crate) fn normalize_app_locale(locale: &str) -> &'static str {
 pub(crate) struct GuiConfigState {
     pub(crate) inner: Mutex<GuiConfigFile>,
     pub(crate) target_operation: std::sync::Arc<tokio::sync::Mutex<()>>,
-    pub(crate) oauth_sessions: Mutex<HashMap<String, u64>>,
+    pub(crate) oauth_sessions: Mutex<OAuthSessions>,
     #[cfg(test)]
     pub(crate) persistence_path: Option<PathBuf>,
+}
+
+const MAX_OAUTH_SESSIONS: usize = 256;
+pub(crate) const MAX_OAUTH_SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+struct OAuthSession {
+    target_revision: u64,
+    expires_at: std::time::Instant,
+}
+
+pub(crate) struct OAuthSessions {
+    entries: HashMap<String, OAuthSession>,
+}
+
+impl OAuthSessions {
+    fn new() -> Self { Self { entries: HashMap::new() } }
+
+    fn prune_expired(&mut self, now: std::time::Instant) {
+        self.entries.retain(|_, session| session.expires_at > now);
+    }
+
+    pub(crate) fn insert(
+        &mut self,
+        state: String,
+        target_revision: u64,
+        ttl: std::time::Duration,
+        now: std::time::Instant,
+    ) -> Result<(), String> {
+        self.prune_expired(now);
+        if !self.entries.contains_key(&state) && self.entries.len() >= MAX_OAUTH_SESSIONS {
+            return Err("Too many OAuth sessions are pending; finish or cancel one before starting another".to_string());
+        }
+        let expires_at = now.checked_add(ttl.min(MAX_OAUTH_SESSION_TTL)).unwrap_or(now);
+        self.entries.insert(state, OAuthSession { target_revision, expires_at });
+        Ok(())
+    }
+
+    pub(crate) fn contains_for_revision(
+        &mut self,
+        state: &str,
+        target_revision: u64,
+        now: std::time::Instant,
+    ) -> bool {
+        self.prune_expired(now);
+        self.entries.get(state).is_some_and(|session| session.target_revision == target_revision)
+    }
+
+    pub(crate) fn remove(&mut self, state: &str) { self.entries.remove(state); }
+
+    #[cfg(test)]
+    fn len(&mut self, now: std::time::Instant) -> usize {
+        self.prune_expired(now);
+        self.entries.len()
+    }
+}
+
+#[cfg(test)]
+mod oauth_session_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn expired_sessions_are_pruned_on_lookup_and_insert_but_live_sessions_survive() {
+        let start = std::time::Instant::now();
+        let expired_at = start + Duration::from_secs(2);
+        let mut sessions = OAuthSessions::new();
+        sessions.insert("lookup-expired".into(), 1, Duration::from_secs(1), start).unwrap();
+        assert!(!sessions.contains_for_revision("lookup-expired", 1, expired_at));
+
+        sessions.insert("insert-expired".into(), 1, Duration::from_secs(1), start).unwrap();
+        sessions.insert("active".into(), 1, Duration::from_secs(900), expired_at).unwrap();
+        assert!(!sessions.contains_for_revision("insert-expired", 1, expired_at));
+        assert!(sessions.contains_for_revision("active", 1, expired_at));
+        assert_eq!(sessions.len(expired_at), 1);
+    }
+
+    #[test]
+    fn many_abandoned_sessions_cannot_grow_the_map_without_bound() {
+        let now = std::time::Instant::now();
+        let mut sessions = OAuthSessions::new();
+        for index in 0..MAX_OAUTH_SESSIONS {
+            sessions.insert(format!("state-{index}"), 1, Duration::from_secs(900), now).unwrap();
+        }
+        assert!(sessions.insert("overflow".into(), 1, Duration::from_secs(900), now).is_err());
+        assert_eq!(sessions.len(now), MAX_OAUTH_SESSIONS);
+        assert!(sessions.contains_for_revision("state-0", 1, now));
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -660,7 +747,7 @@ impl GuiConfigState {
         Self {
             inner: Mutex::new(config),
             target_operation: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-            oauth_sessions: Mutex::new(HashMap::new()),
+            oauth_sessions: Mutex::new(OAuthSessions::new()),
             #[cfg(test)]
             persistence_path: None,
         }

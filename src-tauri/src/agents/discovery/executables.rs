@@ -71,7 +71,7 @@ pub(crate) fn find_deepseek_harness_managed_executable(home: &Path) -> Option<Pa
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 pub(crate) fn find_deepseek_harness_managed_executable_in_roots(
     home: &Path,
     app_roots: &[PathBuf],
@@ -334,27 +334,25 @@ pub(crate) fn find_claude_desktop_executable(home: &Path) -> Option<PathBuf> {
     }
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn windows_command_for_executable(executable: &Path, keep_shell_open: bool) -> Command {
-    use std::os::windows::process::CommandExt;
+/// A command that runs `executable` with `arguments`.
+///
+/// On Windows a `.cmd`/`.bat` file runs through `cmd.exe` with a line built by
+/// `windows_cmd_command_line`, so `&`, `"` and `%` in an argument stay data. Fails when an
+/// argument cannot be expressed on a `cmd.exe` command line (a line break).
+pub(crate) fn command_for_executable<S: AsRef<str>>(
+    executable: &Path,
+    arguments: &[S],
+) -> Result<Command, String> {
+    #[cfg(target_os = "windows")]
+    if is_windows_batch_script(executable) {
+        use std::os::windows::process::CommandExt;
 
-    let is_batch_script = executable
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
-        });
-    if !is_batch_script {
-        return Command::new(executable);
+        let line = windows_cmd_command_line(None, &path_to_string(executable), arguments, false)?;
+        let mut command = Command::new(windows_command_processor());
+        command.raw_arg(line);
+        return Ok(command);
     }
-
-    let mut command = Command::new(windows_command_processor());
-    command.args(["/D", if keep_shell_open { "/K" } else { "/C" }, "call"]);
-    command.raw_arg(windows_batch_executable_argument(executable));
-    command
-}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn windows_batch_executable_argument(executable: &Path) -> String {
-    format!("\"{}\"", path_to_string(executable))
+    let mut command = Command::new(executable);
+    command.args(arguments.iter().map(<S as AsRef<str>>::as_ref));
+    Ok(command)
 }

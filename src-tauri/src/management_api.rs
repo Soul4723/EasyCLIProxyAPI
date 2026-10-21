@@ -3,7 +3,7 @@ use super::windows_explorer_executable;
 use super::{
     auth_dir_path_for_core, configure_background_command, core_install_dir, core_logs_dir_path,
     core_origin, current_core_tls_settings, is_hashed_management_secret_key, open_oauth_url_inner,
-    path_to_string, GuiConfigFile, GuiConfigState,
+    path_to_string, GuiConfigFile, GuiConfigState, MAX_OAUTH_SESSION_TTL,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -30,6 +30,9 @@ static RUNTIME_TOKENS: LazyLock<Mutex<HashMap<tokio::runtime::Id, Weak<RuntimeTo
 static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
 static NEXT_CLIENT_ACCESS: AtomicU64 = AtomicU64::new(1);
 const MAX_MANAGEMENT_CLIENTS: usize = 8;
+// Keep this aligned with PLUGIN_SESSION_MAX_MS and MAX_SESSION_MS (30 minutes).
+const DEFAULT_OAUTH_SESSION_TTL: Duration = Duration::from_secs(30 * 60);
+const MAX_MANAGEMENT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 struct RuntimeToken {
     generation: u64,
@@ -215,20 +218,25 @@ async fn management_request_inner(
         return Err("Invalid management API path".to_string());
     }
     let read_only = is_read_only_request(&method, path);
+    let invalidates_sources = method != reqwest::Method::GET;
 
-    match (method.as_str(), path.trim_start_matches('/')) {
+    let oauth_state = match (method.as_str(), path.trim_start_matches('/')) {
         ("GET", "oauth/status") | ("DELETE", "oauth/session") => {
             let state = request.query.as_ref().and_then(|query| query.get("state"))
                 .ok_or("OAuth request is missing state")?;
             ensure_oauth_target(gui_config_state, &config, state)?;
+            Some(state.clone())
         }
         ("POST", "oauth/callback") => {
             let url = request.body.as_ref().and_then(|body| body.get("redirect_url"))
                 .and_then(serde_json::Value::as_str).ok_or("OAuth callback is missing redirect_url")?;
-            ensure_oauth_target(gui_config_state, &config, &oauth_callback_state(url)?)?;
+            let state = oauth_callback_state(url)?;
+            ensure_oauth_target(gui_config_state, &config, &state)?;
+            Some(state)
         }
-        _ => {}
-    }
+        _ => None
+    };
+    let terminal_oauth_request = method == reqwest::Method::DELETE && path.trim_start_matches('/') == "oauth/session";
     let client = management_http_client_for(&config)?;
     let mut builder = client
         .request(method, management_endpoint(&config, path)?)
@@ -259,7 +267,17 @@ async fn management_request_inner(
         .map_err(|err| format_management_request_error("Management API request failed", &err))?;
     let value = read_management_value(response).await;
     gui_config_state.ensure_target(&config)?;
-    value
+    let value = value?;
+    if terminal_oauth_request && value.get("status").and_then(serde_json::Value::as_str) == Some("ok") {
+        if let Some(state) = oauth_state {
+            forget_oauth_session(gui_config_state, &state)?;
+        }
+    }
+    if invalidates_sources {
+        crate::usage::invalidate_sources_cache_after_success(Ok(value))
+    } else {
+        Ok(value)
+    }
 }
 
 // `requests/api-call` is the core's proxy to a provider's own API (quota, model lists): it
@@ -330,7 +348,7 @@ async fn import_vertex_credential_for_target(
         .map_err(|error| format_management_request_error("Failed to import Vertex credential", &error))?;
     let value = read_management_value(response).await;
     gui_config_state.ensure_target(&config)?;
-    value
+    crate::usage::invalidate_sources_cache_after_success(value)
 }
 
 #[tauri::command]
@@ -381,7 +399,7 @@ async fn upload_auth_file_for_target(
         .map_err(|err| format_management_request_error("Failed to upload credential file", &err))?;
     let value = read_management_value(response).await;
     gui_config_state.ensure_target(&config)?;
-    value
+    crate::usage::invalidate_sources_cache_after_success(value)
 }
 
 #[tauri::command]
@@ -471,8 +489,9 @@ pub(crate) async fn start_oauth_login(
     gui_config_state.ensure_target(&config)?;
     let mut result = normalize_oauth_start_response(payload)?;
     if let Some(state) = &result.state {
+        let ttl = oauth_session_ttl(result.expires_in);
         gui_config_state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?
-            .insert(state.clone(), config.target_revision);
+            .insert(state.clone(), config.target_revision, ttl, std::time::Instant::now())?;
     }
     match open_oauth_url_inner(&app, &result.url, browser.as_deref()) {
         Ok(()) => result.opened = true,
@@ -538,27 +557,43 @@ pub(crate) async fn get_oauth_status(
         management_http_client_for(&config)?
             .get(management_endpoint(&config, "oauth/status")?)
             .header("Authorization", management_authorization(&config)?)
-            .query(&[("state", state)])
+            .query(&[("state", state.as_str())])
     };
-    let response = request
-        .send()
-        .await
-        .map_err(|err| format_management_request_error("Failed to query OAuth status", &err))?;
-    let payload = read_management_json::<OAuthStatusApiResponse>(response).await?;
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(err) => {
+            forget_oauth_session(&gui_config_state, &state)?;
+            return Err(format_management_request_error("Failed to query OAuth status", &err));
+        }
+    };
+    let payload = match read_management_json::<OAuthStatusApiResponse>(response).await {
+        Ok(payload) => payload,
+        Err(error) => {
+            forget_oauth_session(&gui_config_state, &state)?;
+            return Err(error);
+        }
+    };
     gui_config_state.ensure_target(&config)?;
     let status = payload
         .status
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "wait".to_string());
-    Ok(OAuthStatusResult {
+    if status != "wait" || payload.error.is_some() || payload.error_message.is_some() {
+        forget_oauth_session(&gui_config_state, &state)?;
+    }
+    let result = OAuthStatusResult {
         status,
         error: payload
             .error
             .or(payload.error_message)
             .map(|value| if config.connection_mode == super::CoreConnectionMode::Remote { "Remote OAuth authorization failed; start authorization again".to_string() } else { value.trim().to_string() })
             .filter(|value| !value.is_empty()),
-    })
+    };
+    if matches!(result.status.as_str(), "ok" | "success") {
+        return crate::usage::invalidate_sources_cache_after_success(Ok(result));
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -577,32 +612,35 @@ pub(crate) async fn submit_oauth_callback(
     if config.target_revision != expected_revision {
         return Err("The core connection changed; request cancelled".to_string());
     }
+    let callback_state = oauth_callback_state(&redirect_url)?;
     let _target_operation = gui_config_state.target_operation.lock().await;
     gui_config_state.ensure_target(&config)?;
-    ensure_oauth_target(&gui_config_state, &config, &oauth_callback_state(&redirect_url)?)?;
+    ensure_oauth_target(&gui_config_state, &config, &callback_state)?;
     let provider_key = normalize_oauth_request_provider(&provider, plugin_provider.unwrap_or(false))?;
     let client = management_http_client_for(&config)?;
     let body = serde_json::json!({
         "provider": provider_key,
         "redirect_url": redirect_url,
     });
-    let response = client
+    let response = match client
         .post(management_endpoint(&config, "oauth/callback")?)
         .header("Authorization", management_authorization(&config)?)
         .json(&body)
         .send()
-        .await
-        .map_err(|err| format_management_request_error("Failed to submit OAuth callback", &err))?;
+        .await {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(format_management_request_error("Failed to submit OAuth callback", &err));
+        }
+    };
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read OAuth callback response", &err))?;
+    let text = read_management_body(response, "Failed to read OAuth callback response").await?;
     gui_config_state.ensure_target(&config)?;
+    forget_oauth_callback_if_terminal(&gui_config_state, &callback_state, status)?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
-    Ok(())
+    crate::usage::invalidate_sources_cache_after_success(Ok(()))
 }
 
 pub(crate) fn management_http_client_for(config: &GuiConfigFile) -> Result<reqwest::Client, String> {
@@ -751,9 +789,36 @@ fn oauth_callback_state(redirect_url: &str) -> Result<String, String> {
 }
 
 fn ensure_oauth_target(state: &GuiConfigState, config: &GuiConfigFile, oauth_state: &str) -> Result<(), String> {
-    let sessions = state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?;
-    if sessions.get(oauth_state) != Some(&config.target_revision) {
+    let mut sessions = state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?;
+    if !sessions.contains_for_revision(oauth_state, config.target_revision, std::time::Instant::now()) {
         return Err("OAuth session belongs to a different or expired core connection; start login again".to_string());
+    }
+    Ok(())
+}
+
+fn oauth_session_ttl(expires_in: Option<u64>) -> Duration {
+    Duration::from_secs(
+        expires_in
+            .filter(|seconds| *seconds > 0)
+            .unwrap_or(DEFAULT_OAUTH_SESSION_TTL.as_secs())
+            .min(MAX_OAUTH_SESSION_TTL.as_secs()),
+    )
+}
+
+fn forget_oauth_session(state: &GuiConfigState, oauth_state: &str) -> Result<(), String> {
+    state.oauth_sessions.lock().map_err(|_| "OAuth session lock is poisoned".to_string())?.remove(oauth_state);
+    Ok(())
+}
+
+fn forget_oauth_callback_if_terminal(
+    state: &GuiConfigState,
+    oauth_state: &str,
+    status: reqwest::StatusCode,
+) -> Result<(), String> {
+    if status.is_success()
+        || matches!(status, reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::CONFLICT | reqwest::StatusCode::GONE)
+    {
+        forget_oauth_session(state, oauth_state)?;
     }
     Ok(())
 }
@@ -844,10 +909,7 @@ where
     T: for<'de> Deserialize<'de>,
 {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read management API response", &err))?;
+    let text = read_management_body(response, "Failed to read management API response").await?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
@@ -861,10 +923,7 @@ pub(crate) async fn read_management_value(
     response: reqwest::Response,
 ) -> Result<serde_json::Value, String> {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read management API response", &err))?;
+    let text = read_management_body(response, "Failed to read management API response").await?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
@@ -879,14 +938,39 @@ pub(crate) async fn read_management_value(
 
 pub(crate) async fn read_management_text(response: reqwest::Response) -> Result<String, String> {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|err| format_management_request_error("Failed to read management API response", &err))?;
+    let text = read_management_body(response, "Failed to read management API response").await?;
     if !status.is_success() {
         return Err(format_management_error(status.as_u16(), &text));
     }
     Ok(text)
+}
+
+async fn read_management_body(response: reqwest::Response, context: &str) -> Result<String, String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_MANAGEMENT_RESPONSE_BYTES as u64)
+    {
+        return Err(format!(
+            "Management API response exceeds the {} MiB size limit",
+            MAX_MANAGEMENT_RESPONSE_BYTES / (1024 * 1024)
+        ));
+    }
+    let mut response = response;
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|err| format_management_request_error(context, &err))?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_MANAGEMENT_RESPONSE_BYTES {
+            return Err(format!(
+                "Management API response exceeds the {} MiB size limit",
+                MAX_MANAGEMENT_RESPONSE_BYTES / (1024 * 1024)
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    String::from_utf8(body).map_err(|_| "Management API response is not valid UTF-8".to_string())
 }
 
 fn format_management_error(status: u16, body: &str) -> String {
@@ -905,6 +989,33 @@ fn format_management_error(status: u16, body: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn management_response_body_is_capped_from_content_length() {
+        use tokio::io::AsyncWriteExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let _ = stream.readable().await;
+            let mut request = [0_u8; 1024];
+            let _ = stream.try_read(&mut request);
+            let body = vec![b'x'; MAX_MANAGEMENT_RESPONSE_BYTES + 1];
+            stream.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").await.unwrap();
+            stream.write_all(format!("{:x}\r\n", body.len()).as_bytes()).await.unwrap();
+            stream.write_all(&body).await.unwrap();
+            stream.write_all(b"\r\n0\r\n\r\n").await.unwrap();
+        });
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap();
+        let error = read_management_value(response).await.unwrap_err();
+        assert!(error.contains("16 MiB size limit"));
+        server.await.unwrap();
+    }
 
     struct SelfSignedTlsServer {
         child: std::process::Child,
@@ -1215,6 +1326,29 @@ server.serve_forever()
     }
 
     #[test]
+    fn oauth_session_ttl_uses_expiry_with_fallback_and_cap() {
+        assert_eq!(oauth_session_ttl(Some(900)), Duration::from_secs(900));
+        assert_eq!(oauth_session_ttl(Some(0)), Duration::from_secs(30 * 60));
+        assert_eq!(oauth_session_ttl(None), Duration::from_secs(30 * 60));
+        assert_eq!(oauth_session_ttl(Some(u64::MAX)), Duration::from_secs(24 * 60 * 60));
+    }
+
+    #[test]
+    fn failed_nonterminal_callback_response_keeps_session_for_retry() {
+        let config = GuiConfigFile::default();
+        let state = GuiConfigState::new(config.clone());
+        let now = std::time::Instant::now();
+        state.oauth_sessions.lock().unwrap()
+            .insert("state-A".into(), config.target_revision, Duration::from_secs(900), now).unwrap();
+
+        forget_oauth_callback_if_terminal(&state, "state-A", reqwest::StatusCode::BAD_REQUEST).unwrap();
+        assert!(ensure_oauth_target(&state, &config, "state-A").is_ok());
+
+        forget_oauth_callback_if_terminal(&state, "state-A", reqwest::StatusCode::CONFLICT).unwrap();
+        assert!(ensure_oauth_target(&state, &config, "state-A").is_err());
+    }
+
+    #[test]
     fn oauth_states_remain_bound_to_start_revision_in_both_modes() {
         for mode in [super::super::CoreConnectionMode::Local, super::super::CoreConnectionMode::Remote] {
             let config = GuiConfigFile {
@@ -1222,7 +1356,7 @@ server.serve_forever()
                 ..Default::default()
             };
             let state = GuiConfigState::new(config.clone());
-            state.oauth_sessions.lock().unwrap().insert("state-A".into(), config.target_revision);
+            state.oauth_sessions.lock().unwrap().insert("state-A".into(), config.target_revision, Duration::from_secs(900), std::time::Instant::now()).unwrap();
             assert!(ensure_oauth_target(&state, &config, "state-A").is_ok());
             assert!(ensure_oauth_target(&state, &config, "unknown").is_err());
             let mut changed = config.clone();
@@ -1240,7 +1374,7 @@ server.serve_forever()
     #[tokio::test]
     async fn oauth_cancellation_rejects_unknown_or_old_state_before_dispatch() {
         let state = GuiConfigState::new(GuiConfigFile::default());
-        state.oauth_sessions.lock().unwrap().insert("state-A".into(), 0);
+        state.oauth_sessions.lock().unwrap().insert("state-A".into(), 0, Duration::from_secs(900), std::time::Instant::now()).unwrap();
         let mut changed = state.snapshot().unwrap();
         changed.management_secret_key.push_str("-changed");
         changed.remote_management_key.push_str("-changed");

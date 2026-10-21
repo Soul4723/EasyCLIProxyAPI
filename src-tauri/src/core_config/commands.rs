@@ -7,9 +7,10 @@ pub(crate) async fn get_core_tls_settings(
 ) -> Result<CoreTlsSettings, String> {
     gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, expected_revision, |content| {
-            let document = serde_norway::from_str(content).map_err(|_| "Invalid remote core configuration".to_string())?;
-            Ok((content.to_string(), core_tls_settings_from_value(&document)?))
+        return crate::agents::target_read_only(&gui_config_state, expected_revision, |config| async move {
+            let content = crate::core_connection::read_remote_yaml(&config).await?;
+            let document = serde_norway::from_str(&content).map_err(|_| "Invalid remote core configuration".to_string())?;
+            core_tls_settings_from_value(&document)
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
@@ -49,9 +50,10 @@ pub(crate) async fn get_core_sensitive_words_settings(
 ) -> Result<CoreSensitiveWordsSettings, String> {
     gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, expected_revision, |content| {
-            let document = serde_norway::from_str(content).map_err(|_| "Invalid remote core configuration".to_string())?;
-            Ok((content.to_string(), core_sensitive_words_settings_from_value(&document)?))
+        return crate::agents::target_read_only(&gui_config_state, expected_revision, |config| async move {
+            let content = crate::core_connection::read_remote_yaml(&config).await?;
+            let document = serde_norway::from_str(&content).map_err(|_| "Invalid remote core configuration".to_string())?;
+            core_sensitive_words_settings_from_value(&document)
         }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
@@ -353,7 +355,10 @@ pub(crate) async fn get_core_config_settings(
 ) -> Result<CoreConfigView, String> {
     gui_config_state.ensure_revision(expected_revision)?;
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
-        return remote_config_edit(&gui_config_state, expected_revision, |content| Ok((content.to_string(), remote_config_view(content)?))).await;
+        return crate::agents::target_read_only(&gui_config_state, expected_revision, |config| async move {
+            let content = crate::core_connection::read_remote_yaml(&config).await?;
+            remote_config_view(&content)
+        }).await;
     }
     let _operation = CORE_OPERATION_LOCK.lock().map_err(|_| "Core operation lock is poisoned".to_string())?;
     gui_config_state.ensure_revision(expected_revision)?;

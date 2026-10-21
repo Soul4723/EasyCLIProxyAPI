@@ -125,10 +125,13 @@ pub(super) fn windows_powershell_cli_script(
     executable: &Path,
     working_directory: &Path,
     arguments: &[String],
-) -> String {
+) -> Result<String, String> {
     let directory = windows_powershell_single_quoted_literal(&path_to_string(working_directory));
-    let executable = windows_powershell_single_quoted_literal(&path_to_string(executable));
-    if arguments
+    let executable_literal = windows_powershell_single_quoted_literal(&path_to_string(executable));
+    // PowerShell hands arguments to a native command with its own quoting, which breaks on
+    // embedded quotes, and hands them to a batch file through cmd.exe, which then runs `&`
+    // and `%VAR%` from the text. `ProcessStartInfo.Arguments` is the exact command line.
+    let process_launch = if arguments
         .first()
         .is_some_and(|arg| matches!(arg.as_str(), "--cpa-antigravity-cli" | "--cpa-copilot-cli"))
     {
@@ -156,25 +159,37 @@ pub(super) fn windows_powershell_cli_script(
             })
             .collect::<Vec<_>>()
             .join(" ");
-        return format!(
+        Some((executable_literal.clone(), arguments))
+    } else if is_windows_batch_script(executable) {
+        Some((
+            windows_powershell_single_quoted_literal(&path_to_string(&windows_command_processor())),
+            windows_cmd_command_line(None, &path_to_string(executable), arguments, false)?,
+        ))
+    } else {
+        None
+    };
+    if let Some((file_name, process_arguments)) = process_launch {
+        return Ok(format!(
             "Set-Location -LiteralPath {directory}; \
              $cpaLaunchInfo = New-Object System.Diagnostics.ProcessStartInfo; \
-             $cpaLaunchInfo.FileName = {executable}; \
+             $cpaLaunchInfo.FileName = {file_name}; \
              $cpaLaunchInfo.WorkingDirectory = {directory}; \
              $cpaLaunchInfo.UseShellExecute = $false; \
              $cpaLaunchInfo.Arguments = {}; \
              $cpaLaunchProcess = [System.Diagnostics.Process]::Start($cpaLaunchInfo); \
              try {{ $cpaLaunchProcess.WaitForExit(); $global:LASTEXITCODE = $cpaLaunchProcess.ExitCode }} \
              finally {{ $cpaLaunchProcess.Dispose() }}",
-            windows_powershell_single_quoted_literal(&arguments),
-        );
+            windows_powershell_single_quoted_literal(&process_arguments),
+        ));
     }
     let arguments = arguments
         .iter()
         .map(|argument| windows_powershell_single_quoted_literal(argument))
         .collect::<Vec<_>>()
         .join(" ");
-    format!("Set-Location -LiteralPath {directory}; & {executable} {arguments}")
+    Ok(format!(
+        "Set-Location -LiteralPath {directory}; & {executable_literal} {arguments}"
+    ))
 }
 
 #[cfg(target_os = "windows")]
@@ -188,28 +203,40 @@ pub(super) fn windows_cli_launch_command(
     use std::os::windows::process::CommandExt;
 
     const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-    let is_batch_script = executable
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
-        });
+    let is_batch_script = is_windows_batch_script(executable);
 
     let command = match terminal {
         "windows-terminal" => {
+            // Windows Terminal re-quotes this text itself, so cmd.exe quoting cannot
+            // be applied; refuse what cmd.exe would act on, in the path as well as
+            // the arguments, and hand it the exact text that was checked. `call`
+            // stays only so a quoted launcher path is not mangled by cmd's /K quote
+            // stripping; it expands `%` and `^` a second time, which is harmless
+            // because neither can occur in what is passed.
+            let batch_line = if is_batch_script {
+                Some(
+                    windows_terminal_batch_command_line(
+                        &path_to_string(working_directory),
+                        &path_to_string(&windows_command_processor()),
+                        &path_to_string(executable),
+                        arguments,
+                    )
+                    .map_err(|error| format!("Failed to start {label}: {error}"))?,
+                )
+            } else {
+                None
+            };
             let terminal_executable = program_on_path("wt.exe")
                 .ok_or_else(|| format!("Failed to start {label}: Windows Terminal not found"))?;
-            let directory = path_to_string(working_directory);
             let mut command = Command::new(terminal_executable);
-            command.args(["-d", &directory, "--"]);
-            if is_batch_script {
-                command
-                    .arg(windows_command_processor())
-                    .args(["/D", "/K", "call"])
-                    .arg(windows_batch_executable_argument(executable))
-                    .args(arguments);
-            } else {
-                command.arg(executable).args(arguments);
+            match batch_line {
+                Some(line) => {
+                    command.raw_arg(line);
+                }
+                None => {
+                    command.args(["-d", &path_to_string(working_directory), "--"]);
+                    command.arg(executable).args(arguments);
+                }
             }
             command
         }
@@ -218,24 +245,22 @@ pub(super) fn windows_cli_launch_command(
         // and the window lifetime do not depend on the CLI (notably on Win10).
         "auto" | "powershell" => {
             let mut command = Command::new(windows_powershell_executable());
-            let script = windows_powershell_cli_script(executable, working_directory, arguments);
+            let script = windows_powershell_cli_script(executable, working_directory, arguments)
+                .map_err(|error| format!("Failed to start {label}: {error}"))?;
             command.args(["-NoLogo", "-NoProfile", "-NoExit", "-Command", &script]);
             command.creation_flags(CREATE_NEW_CONSOLE);
             command
         }
         "cmd" => {
             let mut command = Command::new(windows_command_processor());
-            let arguments = arguments
-                .iter()
-                .map(|argument| format!(" \"{}\"", argument.replace('"', "\"\"")))
-                .collect::<String>();
-            let command_line = format!(
-                "cd /d \"{}\" && call \"{}\"{}",
-                path_to_string(working_directory).replace('"', "\"\""),
-                path_to_string(executable).replace('"', "\"\""),
+            let command_line = windows_cmd_command_line(
+                Some(&path_to_string(working_directory)),
+                &path_to_string(executable),
                 arguments,
-            );
-            command.args(["/D", "/K", &command_line]);
+                true,
+            )
+            .map_err(|error| format!("Failed to start {label}: {error}"))?;
+            command.raw_arg(command_line);
             command.creation_flags(CREATE_NEW_CONSOLE);
             command
         }

@@ -1,6 +1,20 @@
     use super::*;
 
     #[test]
+    fn successful_mutations_invalidate_source_metadata_but_errors_do_not() {
+        let invalidations = std::sync::atomic::AtomicUsize::new(0);
+        assert_eq!(after_success(Ok(()), || {
+            invalidations.fetch_add(1, Ordering::SeqCst);
+        }), Ok(()));
+        assert_eq!(invalidations.load(Ordering::SeqCst), 1);
+
+        assert!(after_success::<()>(Err("mutation failed".into()), || {
+            invalidations.fetch_add(1, Ordering::SeqCst);
+        }).is_err());
+        assert_eq!(invalidations.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn empty_remote_queue_polling_backs_off_to_a_cap() {
         let mut seconds = REMOTE_EMPTY_POLL_MIN_SECONDS;
         let mut waits = Vec::new();
@@ -460,7 +474,16 @@
             );
             assert_eq!(
                 canonical(actual.sources),
-                canonical(load_source_categories(&connection, &query, &config).unwrap())
+                canonical(
+                    load_source_categories(&connection, &query, &config)
+                        .unwrap()
+                        .into_iter()
+                        .map(|mut category| {
+                            category.key = usage_source_api_value(&category.key, "", &config);
+                            category
+                        })
+                        .collect()
+                )
             );
             assert_eq!(
                 canonical(actual.api_keys),
@@ -562,7 +585,7 @@
                 fetches.set(fetches.get() + 1);
                 std::future::ready(Ok(Vec::new()))
             }).await.is_none());
-            assert!(PendingRemoteUsageBatch::persist(&mut pending).is_err());
+            assert!(PendingRemoteUsageBatch::persist(&mut pending, &mut CollectorDatabase::default()).is_err());
             let batch = pending.as_ref().unwrap();
             assert_eq!(batch.messages, messages);
             assert_eq!(batch.config.remote_management_origin, config.remote_management_origin);
@@ -1114,7 +1137,9 @@
         let query = UsageQuery::default();
         let analysis = load_usage_analysis_with_notes(&connection, &query, &config, &notes).unwrap();
         assert_eq!(analysis.sources.iter().find(|c| c.key == "account@example.com").unwrap().label, "Grok credential note");
-        assert_eq!(analysis.sources.iter().find(|c| c.key == "sk-upstream-test").unwrap().label, "Grok API note");
+        let source = analysis.sources.iter().find(|c| c.label == "Grok API note").unwrap();
+        assert_eq!(source.key, usage_source_api_value("sk-upstream-test", &hash_text("sk-upstream-test"), &config));
+        assert!(!serde_json::to_string(&analysis).unwrap().contains("sk-upstream-test"));
         assert_eq!(analysis.api_keys[0].label, "Client note");
         assert_eq!(analysis.upstreams.iter().find(|c| c.category.key == "auth:grok-file").unwrap().category.label, "account@example.com");
         let events = load_usage_events_with_notes(&connection, &query, &config, &notes).unwrap();
@@ -1174,7 +1199,20 @@
         fallback.provider = "codex".into();
         insert_usage_records(&mut connection, &[fallback]).unwrap();
         let events = load_usage_events_with_notes(&connection, &query, &config, &notes).unwrap();
-        assert_eq!(events.items.iter().find(|event| event.source == "retired-client-key").unwrap().source_display, "codex");
+        let safe_source = usage_source_api_value(
+            "retired-client-key",
+            &hash_text("retired-client-key"),
+            &config,
+        );
+        assert_eq!(
+            events
+                .items
+                .iter()
+                .find(|event| event.source == safe_source)
+                .unwrap()
+                .source_display,
+            "codex"
+        );
     }
 
     #[test]
@@ -1197,6 +1235,94 @@
             usage_source_display(&config, "codex", "account@example.com"),
             "account@example.com"
         );
+    }
+
+    #[test]
+    fn usage_event_api_masks_key_sources_with_stable_grouping_and_keeps_storage_raw() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&connection).unwrap();
+        let config = GuiConfigFile::default();
+        let key = "sk-source-secret-1234567890abcdef";
+        let mut first = sample_record("source-key-1", "2026-10-11T00:00:00Z", "model");
+        first.source = key.to_string();
+        let mut second = sample_record("source-key-2", "2026-10-12T00:00:00Z", "model");
+        second.source = key.to_string();
+        let mut ordinary = sample_record("source-account", "2026-10-10T00:00:00Z", "model");
+        ordinary.source = " account@example.com ".to_string();
+        insert_usage_records(&mut connection, &[first, second, ordinary]).unwrap();
+
+        let page = load_usage_events(&connection, &UsageQuery::default(), &config).unwrap();
+        let first_source = &page
+            .items
+            .iter()
+            .find(|item| item.id == "source-key-1")
+            .unwrap()
+            .source;
+        let second_source = &page
+            .items
+            .iter()
+            .find(|item| item.id == "source-key-2")
+            .unwrap()
+            .source;
+        assert_eq!(first_source, second_source);
+        assert!(!first_source.contains(key));
+        assert!(first_source.contains(&hash_text(key)[..8]));
+        assert_eq!(
+            page.items.iter().find(|item| item.id == "source-account").unwrap().source,
+            " account@example.com "
+        );
+        let response = serde_json::to_string(&page.items).unwrap();
+        assert!(!response.contains(key));
+
+        let stored: String = connection
+            .query_row(
+                "SELECT source FROM usage_events WHERE source = ?1 LIMIT 1",
+                [key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, key);
+    }
+
+    #[test]
+    fn resolved_usage_event_json_keeps_remarks_and_never_exposes_raw_source_keys() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&connection).unwrap();
+        let key = "sk-oauth-source-secret-1234567890";
+        let mut config = GuiConfigFile {
+            api_keys: vec![crate::GuiApiKeyEntry {
+                key: key.to_string(),
+                remark: "Configured key".to_string(),
+            }],
+            ..Default::default()
+        };
+        config.api_access_remarks.push(crate::GuiApiAccessRemark {
+            provider_section: "codex-api-key".to_string(),
+            api_key_hash: hash_text(key),
+            record_hash: String::new(),
+            remark: "OAuth source remark".to_string(),
+        });
+        let mut record = sample_record("source-oauth-key", "2026-10-11T00:00:00Z", "model");
+        record.source = key.to_string();
+        record.provider = "codex".to_string();
+        record.auth_type = "oauth".to_string();
+        record.auth_index = "retired-codex-oauth".to_string();
+        insert_usage_records(&mut connection, &[record]).unwrap();
+
+        let page = load_resolved_usage_events(
+            &connection,
+            &UsageQuery::default(),
+            &config,
+            &HashMap::new(),
+        )
+        .unwrap();
+
+        let event = &page.items[0];
+        assert_eq!(event.source_display, "OAuth source remark");
+        assert_eq!(event.source, usage_source_api_value(key, &hash_text(key), &config));
+        let events_json = serde_json::to_string(&page).unwrap();
+        assert!(!events_json.contains(key));
+        assert!(events_json.contains("OAuth source remark"));
     }
 
     #[test]
@@ -3437,4 +3563,122 @@
                 .err()
                 .unwrap();
         assert!(local_error.contains("remote"), "{local_error}");
+    }
+
+    fn write_marker(connection: &mut Connection, value: &str) -> Result<(), String> {
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO usage_metadata (key, value) VALUES ('collector_test', ?1)",
+                params![value],
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    fn read_marker(root: &Path) -> Option<String> {
+        open_usage_database_at(root)
+            .unwrap()
+            .query_row("SELECT value FROM usage_metadata WHERE key = 'collector_test'", [], |row| row.get(0))
+            .optional()
+            .unwrap()
+    }
+
+    #[test]
+    fn collector_database_is_opened_once_in_steady_state() {
+        let root = test_root("collector-db-steady");
+        initialize_usage_storage_at(&root).unwrap();
+        let mut database = CollectorDatabase::default();
+        for tick in 0..5 {
+            database.with(&root, |connection| write_marker(connection, &tick.to_string())).unwrap();
+        }
+        assert_eq!(database.opens, 1);
+        assert_eq!(read_marker(&root).as_deref(), Some("4"));
+        // The pragmas applied at open time are still in force on the reused connection.
+        let (foreign_keys, synchronous): (i64, i64) = database
+            .with(&root, |connection| {
+                let foreign_keys = connection.query_row("PRAGMA foreign_keys", [], |row| row.get(0));
+                let synchronous = connection.query_row("PRAGMA synchronous", [], |row| row.get(0));
+                foreign_keys.and_then(|f| synchronous.map(|s| (f, s))).map_err(|error| error.to_string())
+            })
+            .unwrap();
+        assert_eq!((foreign_keys, synchronous), (1, 1));
+        assert_eq!(database.opens, 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collector_database_reopens_at_a_changed_storage_root() {
+        let first = test_root("collector-db-root-a");
+        let second = test_root("collector-db-root-b");
+        initialize_usage_storage_at(&first).unwrap();
+        initialize_usage_storage_at(&second).unwrap();
+        let mut database = CollectorDatabase::default();
+        database.with(&first, |connection| write_marker(connection, "first")).unwrap();
+        database.with(&second, |connection| write_marker(connection, "second")).unwrap();
+        assert_eq!(database.opens, 2);
+        assert_eq!(read_marker(&first).as_deref(), Some("first"));
+        assert_eq!(read_marker(&second).as_deref(), Some("second"));
+        database.with(&first, |connection| write_marker(connection, "again")).unwrap();
+        assert_eq!(database.opens, 3);
+        assert_eq!(read_marker(&first).as_deref(), Some("again"));
+        assert_eq!(read_marker(&second).as_deref(), Some("second"));
+        fs::remove_dir_all(first).unwrap();
+        fs::remove_dir_all(second).unwrap();
+    }
+
+    #[test]
+    fn collector_database_reopens_after_an_error_or_a_missing_file() {
+        let root = test_root("collector-db-error");
+        initialize_usage_storage_at(&root).unwrap();
+        let mut database = CollectorDatabase::default();
+        database.with(&root, |connection| write_marker(connection, "before")).unwrap();
+        let failed: Result<(), String> = database.with(&root, |_| Err("database is locked".to_string()));
+        assert_eq!(failed.unwrap_err(), "database is locked");
+        assert!(database.open.is_none(), "a failed operation drops the connection");
+        database.with(&root, |connection| write_marker(connection, "after")).unwrap();
+        assert_eq!(database.opens, 2);
+        assert_eq!(read_marker(&root).as_deref(), Some("after"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    // Windows cannot delete or replace a database file that a connection still has open.
+    #[cfg(unix)]
+    #[test]
+    fn collector_database_reopens_when_the_database_file_was_replaced() {
+        let root = test_root("collector-db-replaced");
+        initialize_usage_storage_at(&root).unwrap();
+        let mut database = CollectorDatabase::default();
+        database.with(&root, |connection| write_marker(connection, "before")).unwrap();
+        for suffix in ["", "-wal", "-shm"] {
+            let mut path = root.join(USAGE_DATABASE_FILE).into_os_string();
+            path.push(suffix);
+            let _ = fs::remove_file(PathBuf::from(path));
+        }
+        initialize_usage_storage_at(&root).unwrap();
+        database.with(&root, |connection| write_marker(connection, "recreated")).unwrap();
+        assert_eq!(database.opens, 2);
+        assert_eq!(read_marker(&root).as_deref(), Some("recreated"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collector_database_close_and_drop_release_the_connection() {
+        let root = test_root("collector-db-close");
+        initialize_usage_storage_at(&root).unwrap();
+        let mut wal = root.join(USAGE_DATABASE_FILE).into_os_string();
+        wal.push("-wal");
+        let wal = PathBuf::from(wal);
+        for stop_by_drop in [false, true] {
+            let mut database = CollectorDatabase::default();
+            database.with(&root, |connection| write_marker(connection, "open")).unwrap();
+            assert!(wal.exists(), "an open WAL connection keeps its -wal file");
+            if stop_by_drop {
+                drop(database);
+            } else {
+                database.close();
+                assert!(database.open.is_none());
+            }
+            assert!(!wal.exists(), "closing the last connection checkpoints and removes the -wal file");
+        }
+        fs::remove_dir_all(root).unwrap();
     }

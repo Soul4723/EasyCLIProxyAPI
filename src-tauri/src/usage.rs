@@ -17,6 +17,26 @@ pub(crate) use pricing::*;
 mod export;
 pub(crate) use export::*;
 
+pub(crate) fn invalidate_sources_cache() {
+    sources::invalidate_cache();
+}
+
+fn after_success<T>(result: Result<T, String>, invalidate: impl FnOnce()) -> Result<T, String> {
+    if result.is_ok() {
+        invalidate();
+    }
+    result
+}
+
+pub(crate) fn invalidate_sources_cache_after_success<T>(result: Result<T, String>) -> Result<T, String> {
+    after_success(result, invalidate_sources_cache)
+}
+
+#[cfg(test)]
+pub(crate) fn sources_cache_generation_for_test() -> u64 {
+    sources::cache_generation()
+}
+
 #[cfg(test)]
 mod tests;
 

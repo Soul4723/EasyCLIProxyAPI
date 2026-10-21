@@ -1,8 +1,9 @@
 import { Settings } from 'lucide-react';
 import type { SectionRoute } from '../../shell/types';
-import { SettingsSection } from './index';
+import { lazySection } from '../../shell/lazySection';
 import { settingsSubs } from './subs';
 
+const section = lazySection(() => import('./index').then(({ SettingsSection }) => ({ default: SettingsSection })));
 
 export const settingsRoute: SectionRoute = {
   id: 'settings',
@@ -11,5 +12,7 @@ export const settingsRoute: SectionRoute = {
   group: 'secondary',
   subs: settingsSubs,
   alwaysAvailable: true,
-  Page: SettingsSection,
+  Page: section.Page,
+  preload: section.preload,
+  retry: section.retry,
 };

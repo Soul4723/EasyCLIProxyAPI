@@ -781,11 +781,6 @@ pub(crate) fn read_codex_asar_version(path: &Path) -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn windows_powershell_single_quoted_literal(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
-}
-
-#[cfg(target_os = "windows")]
 pub(crate) fn find_windows_codex_app_executable(home: &Path) -> Option<PathBuf> {
     let local = env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)

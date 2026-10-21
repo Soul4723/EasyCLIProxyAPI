@@ -1,8 +1,9 @@
 import { Puzzle } from 'lucide-react';
 import type { SectionRoute } from '../../shell/types';
-import { PluginsSection } from './index';
+import { lazySection } from '../../shell/lazySection';
 import { pluginsSubs } from './subs';
 
+const section = lazySection(() => import('./index').then(({ PluginsSection }) => ({ default: PluginsSection })));
 
 export const pluginsRoute: SectionRoute = {
   id: 'plugins',
@@ -10,5 +11,7 @@ export const pluginsRoute: SectionRoute = {
   icon: Puzzle,
   group: 'secondary',
   subs: pluginsSubs,
-  Page: PluginsSection,
+  Page: section.Page,
+  preload: section.preload,
+  retry: section.retry,
 };

@@ -260,12 +260,13 @@ pub(crate) async fn preview_agent_config_backup(
     id: String,
 ) -> Result<BackupPreview, String> {
     let _target_state = app.state::<GuiConfigState>();
-    let _target_operation = _target_state.target_operation.lock().await;
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    let config = app.state::<GuiConfigState>().snapshot()?;
-    Ok(prepare_restore_plan(&config, &client, &home, &id)
-        .await?
-        .preview)
+    crate::agents::target_read_then_apply(
+        &_target_state,
+        None,
+        move |config| async move { prepare_restore_plan(&config, &client, &home, &id).await },
+        |_config, plan, _target_operation| async move { Ok(plan.preview) },
+    ).await?.ok_or_else(|| crate::agents::CORE_TARGET_CHANGED_CANCELLED.to_string())
 }
 
 #[tauri::command]
