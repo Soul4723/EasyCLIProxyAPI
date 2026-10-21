@@ -24,7 +24,7 @@ replace_once('    let app = app\n        .setup(move |app| {', '''    #[cfg(debu
         .setup(move |app| {
             #[cfg(debug_assertions)]
             dev_observe::start_control(app.handle());''')
-replace_once('.invoke_handler(tauri::generate_handler![', '.invoke_handler({\n            let handler = tauri::generate_handler![')
+replace_once('.invoke_handler(tauri::generate_handler![', '.invoke_handler({\n            let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![')
 replace_once('        ])\n        .build(context)', '''            ];
             #[cfg(debug_assertions)]
             let handler = dev_observe::wrap(handler);
