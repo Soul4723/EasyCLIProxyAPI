@@ -174,11 +174,11 @@ function AppContent() {
   const languageButtonRef = useRef<HTMLButtonElement>(null);
   const { status } = useCoreRuntime();
   const coreReady = Boolean(status?.ready);
-  const remoteMode = status?.connectionMode === 'remote';
-  const remoteDisabled = (pageId: string) => remoteMode && isRemoteDisabledPage(pageId);
+  const localBlocked = !status || status.connectionMode === 'remote';
+  const remoteDisabled = (pageId: string) => localBlocked && isRemoteDisabledPage(pageId);
   const [navElement, setNavElement] = useState<HTMLElement | null>(null);
-  const { entries: localPluginEntries, fetched: pluginEntriesFetched } = usePluginNavEntries(coreReady && !remoteMode);
-  const pluginEntries = remoteMode ? [] : localPluginEntries;
+  const { entries: localPluginEntries, fetched: pluginEntriesFetched } = usePluginNavEntries(coreReady && !localBlocked);
+  const pluginEntries = localBlocked ? [] : localPluginEntries;
   const pluginEntry = findPluginNavEntry(pluginEntries, active);
   const navPages = pages.filter((page) => page.id !== 'easy');
   const { layout: autoPluginLayout, compact: navCompact } = usePluginNavLayout(navElement, navPages.length, pluginEntries.length);
@@ -206,7 +206,7 @@ function AppContent() {
     if (!canOpenAppPage(active, coreReady) || remoteDisabled(active)) {
       setActive('home');
     }
-  }, [active, coreReady, remoteMode]);
+  }, [active, coreReady, localBlocked]);
 
   useEffect(() => {
     if (!coreReady) void closePluginWebview().catch(() => undefined);
@@ -304,7 +304,7 @@ function AppContent() {
     }
     if (pageId !== active) requestAppNavigation(() => setActive(pageId));
     else if (isPluginRoute(pageId)) setPluginReload((value) => value + 1);
-  }, [active, coreReady, remoteMode]);
+  }, [active, coreReady, localBlocked]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -453,8 +453,8 @@ function AppContent() {
                 <button
                   type="button"
                   className="sidebar-link sidebar-easy-entry"
-                  disabled={remoteMode}
-                  title={remoteMode ? t('connection.remoteDisabled') : undefined}
+                  disabled={localBlocked}
+                  title={localBlocked ? t('connection.remoteDisabled') : undefined}
                   onClick={() => select('easy')}
                 >
                   <Sprout size={16} strokeWidth={1.75} aria-hidden="true" />

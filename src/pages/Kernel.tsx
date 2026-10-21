@@ -210,6 +210,10 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
   const healthContext = [listenHost, customPort, tlsEnabled, coreStatus?.processId, configRevision].join(':');
   const overview = useHomeOverview(coreReady, healthContext, !remoteMode && runtimeKnown);
 
+  if (!runtimeKnown) return <section className="page kernel-page home-page home-dashboard" aria-label={t('app.nav.home')}>
+    <Notice tone={statusError ? 'error' : 'info'} variant="text">{statusError || t('common.detecting')}</Notice>
+  </section>;
+
   if (remoteMode) return <section className="page kernel-page home-page home-dashboard" aria-label={t('app.nav.home')}>
     <section className="panel surface-panel">
       <div className="panel-heading home-panel-heading"><div><h2>{t('connection.title')}</h2><p>{coreReady ? t('connection.remoteStatus') : coreStatus?.message || t('common.detectionFailed')}</p></div>
