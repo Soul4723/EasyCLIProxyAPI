@@ -76,9 +76,18 @@ Also through reachable host control:
 
 - **Version Management** opens. Checking for the latest core and installing a
   version (or the latest) run on the host, with the host's own download
-  source, platform, staged download, SHA-256 check, rollback and restart of a
-  running core, under its core-operation lock. Progress and Cancel work as in
-  Local; the host's own window shows the progress too. This computer's
+  source, platform, staged download, rollback and restart of a running core,
+  under its core-operation lock. A remote install **requires** the official
+  checksum: the host reads `checksums.txt` from the official GitHub release
+  (never a mirror) and refuses the install when it is missing or does not
+  match the downloaded archive, whichever source served it. (Local installs
+  keep their existing behaviour.) Any listed version can be installed,
+  including an older one, as in Local Version Management.
+  Progress and Cancel work as in Local; the host's own window shows the
+  progress too. Progress shown and Cancel apply only to the install this app
+  started, on the host it started on, and the connection cannot be changed
+  until it finishes. An install already running when the page opens (from the
+  host itself or another computer) is followed until it ends. This computer's
   download source, custom mirrors and bundled core do not apply and are
   disabled.
 - **Start Core on Launch** (Advanced Features → App preferences) shows and
@@ -126,10 +135,10 @@ Base path `/host-control/v1`, HTTP/1.1, `Connection: close`, JSON replies with
 | `POST /host-control/v1/core/stop` | stop the core |
 | `POST /host-control/v1/core/restart` | stop if running, then start |
 | `GET /host-control/v1/core/latest` | the latest core release for the host: `{"version","assetName"}` |
-| `POST /host-control/v1/core/install/latest` | install the latest core; replies when done with `{"version","assetName","installDir":"","binaryPath":null}` |
+| `POST /host-control/v1/core/install/latest` | install the latest core, with the official checksum required; replies when done with `{"version","assetName","installDir":"","binaryPath":null}`. An optional `X-EasyCLI-Install-Job: <16–64 letters, digits, dashes>` labels the host's task |
 | `POST /host-control/v1/core/install/<version>` | the same for one version (`v`, three numbers, optional `-suffix`) |
-| `GET /host-control/v1/core/install` | the host's install task (phase, bytes, percent, result) |
-| `POST /host-control/v1/core/install/cancel` | cancel a running download; replies with the task |
+| `GET /host-control/v1/core/install` | the host's install task (phase, bytes, percent, result, `job`); messages are public |
+| `POST /host-control/v1/core/install/cancel` | cancel the running install if it carries this job (`X-EasyCLI-Install-Job`, required); another job's install gets 409 |
 | `POST /host-control/v1/settings/start-core-on-launch/on` (or `/off`) | set the host app's Start Core on Launch; replies with the status |
 
 Status and lifecycle replies are the core status:

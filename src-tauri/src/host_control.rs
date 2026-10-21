@@ -160,6 +160,7 @@ fn without_paths(mut result: CoreInstallResult) -> CoreInstallResult {
 
 fn task_without_paths(mut task: CoreInstallTask) -> CoreInstallTask {
     task.result = task.result.map(without_paths);
+    task.message = task.message.as_deref().map(public_message);
     task
 }
 
@@ -336,9 +337,11 @@ pub(crate) enum Route {
     Latest,
     /// The host's core install task (progress).
     InstallTask,
-    /// Install a core version (`None`: the latest) with the host's download and checksum checks.
-    Install(Option<String>),
-    CancelInstall,
+    /// Install a core version (`None`: the latest) with the host's download, the official
+    /// checksum required, and the client's job id on the task.
+    Install { version: Option<String>, job: Option<String> },
+    /// Cancel the running install, only if it is this job's.
+    CancelInstall { job: String },
     StartCoreOnLaunch(bool),
 }
 
@@ -410,22 +413,43 @@ pub(crate) fn route(request: &Request) -> Result<Route, Reply> {
         "/core/restart" => ("POST", Route::Operate(HostOperation::Restart)),
         "/core/latest" => ("GET", Route::Latest),
         "/core/install" => ("GET", Route::InstallTask),
-        "/core/install/cancel" => ("POST", Route::CancelInstall),
-        "/core/install/latest" => ("POST", Route::Install(None)),
+        "/core/install/cancel" => ("POST", Route::CancelInstall { job: String::new() }),
+        "/core/install/latest" => ("POST", Route::Install { version: None, job: None }),
         "/settings/start-core-on-launch/on" => ("POST", Route::StartCoreOnLaunch(true)),
         "/settings/start-core-on-launch/off" => ("POST", Route::StartCoreOnLaunch(false)),
         other => match other.strip_prefix("/core/install/") {
             Some(version) if valid_core_version(version) => {
-                ("POST", Route::Install(Some(version.to_string())))
+                ("POST", Route::Install { version: Some(version.to_string()), job: None })
             }
             _ => return Err(not_found()),
         },
     };
-    if request.method == method {
-        Ok(route)
-    } else {
-        Err(Reply::error(405, "Method not allowed"))
+    if request.method != method {
+        return Err(Reply::error(405, "Method not allowed"));
     }
+    let job = match request.single(INSTALL_JOB_HEADER) {
+        None => None,
+        Some(value) => Some(
+            std::str::from_utf8(value)
+                .ok()
+                .filter(|job| valid_job(job))
+                .ok_or_else(|| Reply::error(400, "Invalid install job"))?
+                .to_string(),
+        ),
+    };
+    match route {
+        Route::Install { version, .. } => Ok(Route::Install { version, job }),
+        Route::CancelInstall { .. } => job
+            .map(|job| Route::CancelInstall { job })
+            .ok_or_else(|| Reply::error(400, "Missing install job")),
+        other => Ok(other),
+    }
+}
+
+pub(crate) const INSTALL_JOB_HEADER: &str = "x-easycli-install-job";
+
+pub(crate) fn valid_job(job: &str) -> bool {
+    (16..=64).contains(&job.len()) && job.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
 /// Throttles failed authentications per peer address. Only failed keys are counted and only
@@ -639,12 +663,28 @@ fn require_host_mode(app: &tauri::AppHandle) -> Result<(), HostError> {
 
 /// Reasons that are safe to send to the client. Anything else can name local paths (startup
 /// logs, install and rollback directories), so it stays in this host's log.
-const PUBLIC_REASONS: [&str; 4] = [
+const PUBLIC_REASONS: [&str; 8] = [
     crate::CORE_OPERATION_BUSY,
     "CPA kernel is not currently running",
     "This operation is only available for the local core",
     "Application is exiting; kernel operation canceled",
+    crate::OFFICIAL_CHECKSUM_MISSING,
+    crate::OFFICIAL_CHECKSUM_MISMATCH,
+    "Downloaded file SHA-256 verification failed",
+    "Download canceled",
 ];
+
+/// A message for the wire: a known public reason or a completed-install note, else the generic one.
+pub(crate) fn public_message(message: &str) -> String {
+    let completed = message.ends_with(" installation complete")
+        && !message.contains(['/', '\\'])
+        && message.len() <= 80;
+    if PUBLIC_REASONS.contains(&message) || completed {
+        message.to_string()
+    } else {
+        PRIVATE_FAILURE.to_string()
+    }
+}
 pub(crate) const PRIVATE_FAILURE: &str =
     "The operation failed on the remote host; the details are in that EasyCLIProxyAPI's log";
 
@@ -716,20 +756,26 @@ impl HostBackend for AppBackend {
                 // The host's own install: core-operation lock, staged download, checksum, swap
                 // with rollback, and the previous running state restored. Progress also shows on
                 // the host's window.
-                Route::Install(version) => {
+                Route::Install { version, job } => {
                     let window = crate::main_window(&app)
                         .ok_or((500, "The host app's main window is not available".to_string()))?;
                     let result = tauri::async_runtime::spawn_blocking(move || {
-                        crate::install_core_version_blocking(&app, &window, version)
+                        crate::install_core_version_blocking(&app, &window, version, true, job)
                     })
                     .await
                     .map_err(|error| (500, error.to_string()))?
                     .map_err(operation_error)?;
                     json(without_paths(result))
                 }
-                Route::CancelInstall => {
+                Route::CancelInstall { job } => {
                     let state = app.state::<CoreDownloadState>();
-                    state.cancel();
+                    let task = state.snapshot();
+                    if task.running && task.job.as_deref() != Some(job.as_str()) {
+                        return Err((409, "Another install is running on this host".into()));
+                    }
+                    if task.running {
+                        state.cancel();
+                    }
                     json(task_without_paths(state.snapshot()))
                 }
                 Route::StartCoreOnLaunch(enabled) => {
@@ -995,12 +1041,17 @@ async fn host_body(
     method: reqwest::Method,
     path: &str,
     timeout: Duration,
+    job: Option<&str>,
 ) -> Result<(u16, Vec<u8>), String> {
-    let mut response = host_http_client()?
+    let mut request = host_http_client()?
         .request(method, format!("{origin}{PATH_PREFIX}/{path}"))
         .header(reqwest::header::AUTHORIZATION, format!("Bearer {key}"))
         .header(PROTOCOL_HEADER, "1")
-        .timeout(timeout)
+        .timeout(timeout);
+    if let Some(job) = job {
+        request = request.header(INSTALL_JOB_HEADER, job);
+    }
+    let mut response = request
         .send()
         .await
         .map_err(|error| {
@@ -1032,7 +1083,7 @@ async fn host_request(
     path: &str,
     timeout: Duration,
 ) -> Result<HostCoreStatus, String> {
-    let (status, body) = host_body(origin, key, method, path, timeout).await?;
+    let (status, body) = host_body(origin, key, method, path, timeout, None).await?;
     parse_host_response(status, &body)
 }
 
@@ -1042,12 +1093,23 @@ async fn host_request_json<T: DeserializeOwned>(
     path: &str,
     timeout: Duration,
 ) -> Result<T, String> {
+    host_request_job(connection, method, path, timeout, None).await
+}
+
+async fn host_request_job<T: DeserializeOwned>(
+    connection: &CoreConnection,
+    method: reqwest::Method,
+    path: &str,
+    timeout: Duration,
+    job: Option<&str>,
+) -> Result<T, String> {
     let (status, body) = host_body(
         &connection.host_control_origin,
         &connection.host_control_key,
         method,
         path,
         timeout,
+        job,
     )
     .await?;
     if status != 200 {
@@ -1137,17 +1199,82 @@ pub(crate) async fn forward_install_task(app: &tauri::AppHandle) -> Option<Resul
     Some(host_request_json(&connection, reqwest::Method::GET, "core/install", STATUS_TIMEOUT).await)
 }
 
+/// The remote install this app started: its target and job. While it runs the connection cannot
+/// change, progress is relayed only for this job, and Cancel goes to this target and job.
+static REMOTE_INSTALL: Mutex<Option<(CoreConnection, String)>> = Mutex::new(None);
+
+pub(crate) struct RemoteInstallGuard;
+
+impl Drop for RemoteInstallGuard {
+    fn drop(&mut self) {
+        if let Ok(mut install) = REMOTE_INSTALL.lock() {
+            *install = None;
+        }
+    }
+}
+
+pub(crate) fn begin_remote_install(
+    connection: &CoreConnection,
+    job: &str,
+) -> Result<RemoteInstallGuard, String> {
+    let mut install = REMOTE_INSTALL
+        .lock()
+        .map_err(|_| "Remote install state is poisoned".to_string())?;
+    if install.is_some() {
+        return Err("An install on the remote host started from this app is still running".into());
+    }
+    *install = Some((connection.clone(), job.to_string()));
+    Ok(RemoteInstallGuard)
+}
+
+/// Refuses connection changes while this app's remote install runs.
+pub(crate) fn ensure_no_remote_install() -> Result<(), String> {
+    match REMOTE_INSTALL.lock() {
+        Ok(install) if install.is_none() => Ok(()),
+        _ => Err("Wait for the core install on the remote host to finish before changing the connection".into()),
+    }
+}
+
+fn running_remote_install() -> Option<(CoreConnection, String)> {
+    REMOTE_INSTALL.lock().ok().and_then(|install| install.clone())
+}
+
+pub(crate) fn new_job_id() -> Result<String, String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| format!("Failed to create an install job id: {error}"))?;
+    Ok(format!("job-{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()))
+}
+
+/// A host task is relayed only when it is this job's and the install's target is still current.
+pub(crate) fn relays_task(
+    task: &CoreInstallTask,
+    job: &str,
+    install_target: &CoreConnection,
+    current_target: Option<&CoreConnection>,
+) -> bool {
+    task.job.as_deref() == Some(job) && current_target == Some(install_target)
+}
+
+fn current_target(app: &tauri::AppHandle) -> Option<CoreConnection> {
+    app.state::<GuiConfigState>()
+        .snapshot()
+        .ok()
+        .map(|config| CoreConnection::from(&config))
+}
+
+/// Cancels only the install this app started, on the target it started on.
 pub(crate) async fn forward_cancel_install(app: &tauri::AppHandle) -> Option<Result<(), String>> {
-    let connection = match remote_host(app)? {
-        Ok(connection) => connection,
-        Err(error) => return Some(Err(error)),
+    let _ = remote_host(app)?;
+    let Some((connection, job)) = running_remote_install() else {
+        return Some(Err("No install started from this app is running on the remote host".into()));
     };
     Some(
-        host_request_json::<CoreInstallTask>(
+        host_request_job::<CoreInstallTask>(
             &connection,
             reqwest::Method::POST,
             "core/install/cancel",
             STATUS_TIMEOUT,
+            Some(&job),
         )
         .await
         .map(|_| ()),
@@ -1155,8 +1282,9 @@ pub(crate) async fn forward_cancel_install(app: &tauri::AppHandle) -> Option<Res
 }
 
 /// `None` in Local mode. In Remote mode, installs on the remote host: the request returns when the
-/// host has finished; meanwhile the host's progress is polled and re-emitted as this window's
-/// install progress, so the Version Management dialog works unchanged.
+/// host has finished; meanwhile this job's host task is polled and re-emitted as this window's
+/// install progress, so the Version Management dialog works unchanged. Snapshots of an earlier or
+/// another client's task (or from before the host has started this job) are never relayed.
 pub(crate) async fn forward_install(
     app: &tauri::AppHandle,
     version: Option<String>,
@@ -1170,11 +1298,25 @@ pub(crate) async fn forward_install(
         Some(version) if valid_core_version(version) => format!("core/install/{version}"),
         Some(_) => return Some(Err("Invalid core version".into())),
     };
-    let install = host_request_json::<CoreInstallResult>(
+    let job = match new_job_id() {
+        Ok(job) => job,
+        Err(error) => return Some(Err(error)),
+    };
+    let _guard = match begin_remote_install(&connection, &job) {
+        Ok(guard) => guard,
+        Err(error) => return Some(Err(error)),
+    };
+    let relay = |task: CoreInstallTask| {
+        if relays_task(&task, &job, &connection, current_target(app).as_ref()) {
+            let _ = app.emit(crate::CORE_INSTALL_PROGRESS_EVENT, task);
+        }
+    };
+    let install = host_request_job::<CoreInstallResult>(
         &connection,
         reqwest::Method::POST,
         &path,
         INSTALL_TIMEOUT,
+        Some(&job),
     );
     tokio::pin!(install);
     let mut ticker = tokio::time::interval(INSTALL_POLL);
@@ -1185,7 +1327,7 @@ pub(crate) async fn forward_install(
                 if let Ok(task) = host_request_json::<CoreInstallTask>(
                     &connection, reqwest::Method::GET, "core/install", STATUS_TIMEOUT,
                 ).await {
-                    let _ = app.emit(crate::CORE_INSTALL_PROGRESS_EVENT, task);
+                    relay(task);
                 }
             }
         }
@@ -1193,7 +1335,7 @@ pub(crate) async fn forward_install(
     if let Ok(task) =
         host_request_json::<CoreInstallTask>(&connection, reqwest::Method::GET, "core/install", STATUS_TIMEOUT).await
     {
-        let _ = app.emit(crate::CORE_INSTALL_PROGRESS_EVENT, task);
+        relay(task);
     }
     let status = crate::core_connection::current_remote_status(&connection).await;
     let _ = crate::core_connection::publish_remote_status(app, &connection, status);

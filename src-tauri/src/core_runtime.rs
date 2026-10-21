@@ -355,7 +355,7 @@ pub(crate) async fn install_core_version(
     if let Some(result) = crate::host_control::forward_install(&app, version.clone()).await {
         return result;
     }
-    tauri::async_runtime::spawn_blocking(move || install_core_version_blocking(&app, &window, version))
+    tauri::async_runtime::spawn_blocking(move || install_core_version_blocking(&app, &window, version, false, None))
         .await
         .map_err(|error| format!("Kernel installation background task failed: {error}"))?
 }
@@ -366,6 +366,8 @@ pub(crate) fn install_core_version_blocking(
     app: &tauri::AppHandle,
     window: &tauri::Window,
     version: Option<String>,
+    require_official_checksum: bool,
+    remote_job: Option<String>,
 ) -> Result<CoreInstallResult, String> {
     {
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
@@ -379,6 +381,7 @@ pub(crate) fn install_core_version_blocking(
         archive_previous_core_rollback(&rollback_dir)?;
         let token = CancellationToken::new();
         state.start(token.clone(), version.clone())?;
+        state.set_job(remote_job);
 
         // Stage download, SHA-256 verification, and archive extraction BEFORE stopping the running core.
         let staged_result = tauri::async_runtime::block_on(stage_core_version_inner(
@@ -391,6 +394,7 @@ pub(crate) fn install_core_version_blocking(
             &proxy_url,
             config.selected_download_candidate(),
             config.custom_download_mirrors.clone(),
+            require_official_checksum,
         ));
 
         let result = staged_result.and_then(|staged| {
@@ -605,6 +609,7 @@ pub(crate) async fn stage_core_version_inner(
     proxy_url: &str,
     download_source: VersionDownloadCandidate,
     custom_mirrors: Vec<String>,
+    require_official_checksum: bool,
 ) -> Result<StagedCoreInstall, String> {
     let platform = current_core_platform()?;
     let client = http_client(proxy_url, &custom_mirrors)?;
@@ -618,7 +623,15 @@ pub(crate) async fn stage_core_version_inner(
         &custom_mirrors,
     )
     .await?;
-    let asset = select_release_asset(&release, &platform)?;
+    let mut asset = select_release_asset(&release, &platform)?.clone();
+    if require_official_checksum {
+        // Installs requested through remote host control fail closed without the official
+        // checksum: whatever source serves the archive, it must match the release's checksums.txt.
+        let url = format!("{RELEASE_DOWNLOAD_PREFIX}{}/{CORE_CHECKSUMS_FILE}", release.tag_name);
+        let expected = fetch_core_checksum(&client, &url, &asset.name, &token).await?;
+        asset.digest = Some(required_digest(asset.digest.as_deref(), &expected)?);
+    }
+    let asset = &asset;
     let download_candidates = core_download_candidates(
         &release.tag_name,
         asset,
@@ -2092,6 +2105,68 @@ pub(crate) fn migrate_core_config_for_update(
         )
     })?;
     Ok(())
+}
+
+pub(crate) const OFFICIAL_CHECKSUM_MISSING: &str =
+    "The official release has no checksum for this core archive; the install was refused";
+pub(crate) const OFFICIAL_CHECKSUM_MISMATCH: &str =
+    "The core archive does not match the official release checksum; the install was refused";
+
+/// The SHA-256 for `archive_name` in a `checksums.txt` (`<hex>  [*]<name>` lines); exactly one entry.
+pub(crate) fn checksum_entry(checksums: &str, archive_name: &str) -> Option<String> {
+    let mut matches = checksums.lines().filter_map(|line| {
+        let mut fields = line.split_whitespace();
+        let digest = fields.next()?;
+        let name = fields.next()?.trim_start_matches('*');
+        (name == archive_name
+            && fields.next().is_none()
+            && digest.len() == 64
+            && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| digest.to_ascii_lowercase())
+    });
+    let first = matches.next()?;
+    matches.next().is_none().then_some(first)
+}
+
+/// The digest a download must match: the official one; a different published digest refuses.
+pub(crate) fn required_digest(published: Option<&str>, official: &str) -> Result<String, String> {
+    if let Some(published) = published {
+        let published = published.strip_prefix("sha256:").unwrap_or(published).to_ascii_lowercase();
+        if !published.is_empty() && published != official {
+            return Err(OFFICIAL_CHECKSUM_MISMATCH.to_string());
+        }
+    }
+    Ok(format!("sha256:{official}"))
+}
+
+/// Reads the release's `checksums.txt` (the caller passes the official GitHub URL, never a
+/// mirror) and returns this archive's SHA-256; anything else fails closed.
+pub(crate) async fn fetch_core_checksum(
+    client: &reqwest::Client,
+    url: &str,
+    archive_name: &str,
+    token: &CancellationToken,
+) -> Result<String, String> {
+    let request = async {
+        let response = client
+            .get(url)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|_| OFFICIAL_CHECKSUM_MISSING.to_string())?;
+        if !response.status().is_success() {
+            return Err(OFFICIAL_CHECKSUM_MISSING.to_string());
+        }
+        if response.content_length().is_some_and(|length| length > 256 * 1024) {
+            return Err(OFFICIAL_CHECKSUM_MISSING.to_string());
+        }
+        let body = response.text().await.map_err(|_| OFFICIAL_CHECKSUM_MISSING.to_string())?;
+        checksum_entry(&body, archive_name).ok_or_else(|| OFFICIAL_CHECKSUM_MISSING.to_string())
+    };
+    tokio::select! {
+        _ = token.cancelled() => Err("Download canceled".to_string()),
+        result = request => result,
+    }
 }
 
 pub(crate) fn validate_bundled_core_checksum(archive_path: &Path) -> Result<(), String> {

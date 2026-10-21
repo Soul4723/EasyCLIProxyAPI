@@ -10,6 +10,7 @@ import {
   installCoreVersion,
   cancelCoreInstall,
   detectBundledCore,
+  followInstallTask,
 } from '../services/coreVersions';
 import type {
   VersionSourceSettings,
@@ -123,6 +124,8 @@ export function VersionManagementPage() {
 
   const customMirrorInputRef = useRef<HTMLInputElement>(null);
   const completedInstallKeyRef = useRef('');
+  const pageMountedRef = useRef(true);
+  useEffect(() => () => { pageMountedRef.current = false; }, []);
   const manualInstallInProgressRef = useRef(false);
   const pageVisitRef = useRef({});
 
@@ -188,6 +191,12 @@ export function VersionManagementPage() {
     try {
       const task = await getCoreInstallTask();
       applyInstallTask(task, false, false);
+      // An install already running when the page opens may send no progress here (Remote mode: another
+      // client's or the host's own); follow it until it finishes.
+      if (task.running) {
+        void followInstallTask(getCoreInstallTask, (next) => applyInstallTask(next, false, false),
+          () => pageMountedRef.current && !manualInstallInProgressRef.current);
+      }
     } catch {}
   };
 

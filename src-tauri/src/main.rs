@@ -615,6 +615,9 @@ struct CoreInstallTask {
     percent: Option<f64>,
     message: Option<String>,
     result: Option<CoreInstallResult>,
+    /// Set for installs requested through remote host control, so a client follows only its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    job: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1730,6 +1733,7 @@ impl Default for CoreInstallTask {
             percent: None,
             message: None,
             result: None,
+            job: None,
         }
     }
 }
@@ -1771,9 +1775,16 @@ impl CoreDownloadState {
             percent: None,
             message: None,
             result: None,
+            job: None,
         };
 
         Ok(())
+    }
+
+    fn set_job(&self, job: Option<String>) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.task.job = job;
+        }
     }
 
     fn cancel(&self) {
@@ -2504,7 +2515,7 @@ struct GithubRelease {
     assets: Vec<GithubAsset>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct GithubAsset {
     name: String,
     browser_download_url: String,

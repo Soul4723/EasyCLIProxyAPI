@@ -159,6 +159,7 @@ pub(crate) fn save_core_connection(
     } else {
         connection
     };
+    crate::host_control::ensure_no_remote_install()?;
     let process = app.state::<crate::CoreProcessState>();
     let _operation = crate::lock_core_operation(process.inner())?;
     if connection.mode == CoreConnectionMode::Remote {
