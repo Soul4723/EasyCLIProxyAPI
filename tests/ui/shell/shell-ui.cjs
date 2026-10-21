@@ -5,6 +5,7 @@ const h = require('../../helpers/shell.cjs');
 const TITLES = { overview: 'Overview', providers: 'Providers', quota: 'Quota', usage: 'Usage', agents: 'Agents', plugins: 'Plugins', settings: 'Settings' };
 const ACTIVE = '.ec-nav a[aria-current="page"]';
 const activeNav = (page) => page.locator(ACTIVE).evaluateAll((items) => items.map((item) => item.dataset.nav));
+const waitForTitle = (page, title) => page.locator('.ec-page-header h1').getByText(title, { exact: true }).waitFor();
 
 h.runUiTest('shell', async ({ base, newPage, gaps }) => {
   const open = async (options = {}, pageOptions = {}) => {
@@ -14,6 +15,33 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     return page;
   };
   const noErrors = (page, label) => assert.deepEqual(page.errors, [], `${label}: console/page errors`);
+
+  // A failed section import is contained to its page, and Retry creates a fresh lazy component.
+  console.log('lazy page import retry');
+  {
+    const page = await newPage();
+    let rejectImport = true;
+    let rejectedImports = 0;
+    await page.route('**/src/sections/plugins/index.tsx**', async (request) => {
+      if (rejectImport) {
+        rejectedImports++;
+        await request.abort('failed');
+      } else {
+        await request.continue();
+      }
+    });
+    await h.openApp(page, base, { path: '/overview' });
+    await h.waitForCoreStatus(page);
+    await h.clickNav(page, 'plugins');
+    const alert = page.locator('.ec-page-body [role="alert"]');
+    await alert.getByRole('button', { name: /retry/i }).waitFor();
+    assert.equal(await page.locator('.ec-app').getAttribute('data-page'), 'plugins', 'the shell remains on the selected section');
+    assert.ok(rejectedImports > 0, 'the section import was rejected');
+    rejectImport = false;
+    await alert.getByRole('button', { name: /retry/i }).click();
+    await waitForTitle(page, TITLES.plugins);
+    await page.context().close();
+  }
 
   // ---------------------------------------------------------------- deep links
   console.log('deep links');
@@ -29,6 +57,12 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     const page = await open({ path: route });
     assert.equal(await h.currentRoute(page), route, `${route}: URL is not rewritten`);
     assert.equal(await page.locator('.ec-app').getAttribute('data-page'), id, `${route}: data-page`);
+    await waitForTitle(page, TITLES[id]);
+    const sectionContent = { providers: '.ec-sec-providers', quota: '.ec-sec-quota', usage: '.ec-sec-usage' }[id];
+    if (sectionContent) await page.locator(sectionContent).waitFor();
+    if (['providers', 'usage'].includes(id)) {
+      await page.locator('.ec-page-header').getByRole('tab').first().waitFor();
+    }
     assert.equal(await h.pageTitle(page), TITLES[id], `${route}: header title`);
     assert.deepEqual(await activeNav(page), [id], `${route}: exactly one nav item is current`);
     assert.equal(await page.locator('.ec-page-header h1').count(), 1, `${route}: one header h1`);
@@ -96,6 +130,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
       await h.clickNav(page, id);
       await page.waitForFunction((route) => location.hash.startsWith(`#/${route}`), id);
       assert.deepEqual(await activeNav(page), [id], `${id}: aria-current follows the click`);
+      await waitForTitle(page, title);
       assert.equal(await h.pageTitle(page), title, `${id}: title follows the click`);
       assert.equal(await page.locator('.ec-nav-item.is-active').count(), 1, `${id}: one active style`);
     }
@@ -131,6 +166,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await h.gotoPage(page, '/nope/at/all');
     assert.equal(await h.pageTitle(page), 'Page not found');
     await h.clickNav(page, 'usage');
+    await waitForTitle(page, 'Usage');
     assert.equal(await h.pageTitle(page), 'Usage');
     noErrors(page, '404');
   }
@@ -207,6 +243,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await expectStay('pending click');
     await page.evaluate(() => { window.guard.cancel = false; window.guard.pending.at(-1)(); });
     await page.waitForFunction(() => location.hash === '#/agents');
+    await waitForTitle(page, 'Agents');
     assert.deepEqual(await activeNav(page), ['agents'], 'resumed navigation lands on the target');
     assert.ok((await guard()).events > eventsBefore, 'guard events were fired');
     // 6) with the guard not cancelling every route works again
@@ -214,15 +251,18 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await page.waitForFunction(() => location.hash === '#/usage');
     await h.gotoPage(page, '/plugins');
     await page.waitForFunction(() => location.hash === '#/plugins');
+    await waitForTitle(page, 'Plugins');
     // 7) guard cancels back/forward and restores the URL
     await page.evaluate(() => { window.guard.cancel = true; window.guard.pending.length = 0; });
     await page.goBack();
     await page.waitForTimeout(150);
     assert.equal(await h.currentRoute(page), '/plugins', 'back is cancelled by the guard');
+    await waitForTitle(page, 'Plugins');
     assert.equal(await h.pageTitle(page), 'Plugins');
     // 8) resuming a cancelled back navigation actually navigates (typed/back hash continuation)
     await page.evaluate(() => { const pending = window.guard.pending.at(-1); window.guard.cancel = false; pending(); });
     await page.waitForFunction(() => location.hash === '#/usage');
+    await waitForTitle(page, 'Usage');
     assert.deepEqual(await activeNav(page), ['usage'], 'resumed back navigation lands on its target');
     assert.equal(await h.pageTitle(page), 'Usage');
     // ... and a resumed typed hash too
@@ -230,6 +270,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await expectStay('typed hash (2)', '/usage', 'usage');
     await page.evaluate(() => { window.guard.cancel = false; window.guard.pending.at(-1)(); });
     await page.waitForFunction(() => location.hash === '#/agents');
+    await waitForTitle(page, 'Agents');
     assert.deepEqual(await activeNav(page), ['agents']);
     // the guard is asked only once per navigation (no loops)
     const settled = (await guard()).events;
@@ -247,19 +288,26 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await h.clickNav(page, 'usage');
     await page.goBack();
     await page.waitForFunction(() => location.hash === '#/quota');
+    await waitForTitle(page, 'Quota');
     assert.deepEqual(await activeNav(page), ['quota']);
     assert.equal(await h.pageTitle(page), 'Quota');
     await page.goBack();
     await page.waitForFunction(() => location.hash === '#/providers');
+    await waitForTitle(page, 'Providers');
     assert.deepEqual(await activeNav(page), ['providers']);
     await page.goBack();
     await page.waitForFunction(() => location.hash === '#/overview');
+    await waitForTitle(page, 'Overview');
     assert.deepEqual(await activeNav(page), ['overview']);
     await page.goForward();
     await page.waitForFunction(() => location.hash === '#/providers');
+    await waitForTitle(page, 'Providers');
     await page.goForward();
+    await page.waitForFunction(() => location.hash === '#/quota');
+    await waitForTitle(page, 'Quota');
     await page.goForward();
     await page.waitForFunction(() => location.hash === '#/usage');
+    await waitForTitle(page, 'Usage');
     assert.deepEqual(await activeNav(page), ['usage']);
     // a sub tab is a history entry too
     await h.gotoPage(page, '/settings');
@@ -306,6 +354,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     for (const id of h.ALWAYS_AVAILABLE) {
       await h.clickNav(page, id);
       await page.waitForFunction((route) => location.hash.startsWith(`#/${route}`), id);
+      await waitForTitle(page, TITLES[id]);
       assert.equal(await h.pageTitle(page), TITLES[id]);
     }
     noErrors(page, `${mock} nav`);
@@ -350,6 +399,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await page.waitForFunction(() => location.hash === '#/quota'
       && document.querySelector('.ec-core-line')?.dataset.coreStatus === 'unknown');
     assert.equal(await h.currentRoute(page), '/quota', 'no redirect before the core status is known');
+    await waitForTitle(page, 'Quota');
     assert.equal(await h.pageTitle(page), 'Quota', 'header shown while waiting');
     await page.waitForFunction(() => location.hash === '#/overview', null, { timeout: 8000 });
   }
@@ -360,6 +410,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await h.waitForCoreLine(page, 'running');
     for (const id of h.NAV_ORDER) assert.equal(await page.locator(`.ec-nav a[data-nav="${id}"]`).count(), 1, `${id}: unlocked after start`);
     await h.clickNav(page, 'quota');
+    await waitForTitle(page, 'Quota');
     assert.equal(await h.pageTitle(page), 'Quota');
     await h.invoke(page, 'stop_core_process');
     await h.waitForCoreLine(page, 'stopped');
@@ -611,6 +662,7 @@ h.runUiTest('shell', async ({ base, newPage, gaps }) => {
     await hamburger.click();
     await page.locator('.ec-nav a[data-nav="usage"]').click();
     await page.waitForFunction(() => location.hash === '#/usage');
+    await waitForTitle(page, 'Usage');
     await page.locator('.ec-sidebar.is-open').waitFor({ state: 'detached' });
     assert.equal(await h.pageTitle(page), 'Usage');
     // navigating by other means (back) also closes

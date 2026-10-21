@@ -1,8 +1,9 @@
 import { Gauge } from 'lucide-react';
 import type { SectionRoute } from '../../shell/types';
-import { QuotaSection } from './index';
+import { lazySection } from '../../shell/lazySection';
 import { quotaSubs } from './subs';
 
+const section = lazySection(() => import('./index').then(({ QuotaSection }) => ({ default: QuotaSection })));
 
 export const quotaRoute: SectionRoute = {
   id: 'quota',
@@ -10,5 +11,7 @@ export const quotaRoute: SectionRoute = {
   icon: Gauge,
   group: 'main',
   subs: quotaSubs,
-  Page: QuotaSection,
+  Page: section.Page,
+  preload: section.preload,
+  retry: section.retry,
 };

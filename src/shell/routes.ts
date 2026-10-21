@@ -13,8 +13,13 @@ import type { SectionRoute } from './types';
 
 /** Sidebar order: main group, divider, secondary group. Add a page by adding its route here. */
 export const routes: readonly SectionRoute[] = [
-  overviewRoute, providersRoute, quotaRoute, usageRoute,
-  agentsRoute, pluginsRoute, settingsRoute,
+  overviewRoute,
+  providersRoute,
+  quotaRoute,
+  usageRoute,
+  agentsRoute,
+  pluginsRoute,
+  settingsRoute,
   pluginPageRoute, ...(import.meta.env.DEV ? [kitRoute] : []),
 ];
 

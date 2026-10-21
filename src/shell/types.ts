@@ -24,5 +24,9 @@ export type SectionRoute = {
   subs?: readonly SectionSub[];
   /** Usable while the core is not ready (see src/navigation.ts). */
   alwaysAvailable?: boolean;
+  /** Load a lazy page ahead of navigation when its nav item is hovered or focused. */
+  preload?: () => void;
+  /** Recreate its lazy component after an import failure. */
+  retry?: () => void;
   Page: ComponentType<SectionPageProps>;
 };

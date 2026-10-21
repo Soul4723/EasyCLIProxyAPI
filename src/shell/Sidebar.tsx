@@ -37,7 +37,7 @@ function NavItem({ route, active, locked, updateDot, dotTitle }: {
   }
   return (
     <a href={routeHref(route.id)} className={`ec-nav-item${active ? ' is-active' : ''}`} aria-current={active ? 'page' : undefined}
-      aria-label={label} title={label} data-nav={route.id}>{content}</a>
+      aria-label={label} title={label} data-nav={route.id} onMouseEnter={route.preload} onFocus={route.preload}>{content}</a>
   );
 }
 

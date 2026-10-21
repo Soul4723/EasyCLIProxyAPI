@@ -20,6 +20,7 @@ runUiTest('app shell accessibility', async ({ base, newPage }) => {
 
   await gotoPage(page, '/usage');
   await page.locator('.ec-page-header h1.ec-page-title').waitFor();
+  await page.locator('.ec-page-header').getByRole('tab').first().waitFor();
   assert.equal(await page.getByRole('main').count(), 1, 'legacy page wrappers do not add main landmarks');
   const tabs = page.getByRole('tab');
   assert.ok(await tabs.count() >= 1, 'usage sub-navigation exposes tabs');

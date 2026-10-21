@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Component, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ServerCog } from 'lucide-react';
 import { useCoreRuntime } from '../coreRuntime';
 import { useI18n } from '../i18n';
 import { canOpenAppPage, isAlwaysAvailablePage } from '../navigation';
 import { Button } from '../ui/Button';
+import { Skeleton } from '../ui/Skeleton';
 import { EmptyState, ErrorState } from '../ui/EmptyState';
 import { AppUpdateDialog } from '../appUpdate';
 import { closePluginWebview } from '../services/pluginWebview';
@@ -50,6 +51,43 @@ export function Shell() {
 
   useEffect(() => { setDrawerOpen(false); }, [route.path]);
   useEffect(() => {
+    if (route.page !== defaultRouteId) return undefined;
+    let cancelled = false;
+    let timer: number | undefined;
+    let staggerTimer: number | undefined;
+    let idleRequest: number | undefined;
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const onIdle = (work: () => void) => {
+      if (idleWindow.requestIdleCallback) {
+        idleRequest = idleWindow.requestIdleCallback(() => {
+          idleRequest = undefined;
+          if (!cancelled) work();
+        }, { timeout: 3000 });
+      } else {
+        timer = window.setTimeout(() => {
+          timer = undefined;
+          if (!cancelled) work();
+        }, 0);
+      }
+    };
+    timer = window.setTimeout(() => {
+      timer = undefined;
+      onIdle(() => {
+        findRoute('providers')?.preload?.();
+        staggerTimer = window.setTimeout(() => onIdle(() => findRoute('quota')?.preload?.()), 750);
+      });
+    }, 1500);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      if (staggerTimer !== undefined) window.clearTimeout(staggerTimer);
+      if (idleRequest !== undefined) idleWindow.cancelIdleCallback?.(idleRequest);
+    };
+  }, [route.page]);
+  useEffect(() => {
     if (!drawerOpen) return undefined;
     const previousFocus = document.activeElement as HTMLElement | null;
     document.querySelector<HTMLElement>('.ec-sidebar a')?.focus();
@@ -82,7 +120,13 @@ export function Shell() {
     body = <CoreLocked title={t(current.labelKey)} />;
   } else {
     const Page = current.Page;
-    body = <Page sub={sub} params={route.params} />;
+    const title = t(current.labelKey);
+    body = <PageLoadErrorBoundary key={current.id} title={title} retryLabel={t('common.retry')} onRetry={current.retry}>
+      <Suspense fallback={<><PageHeader title={title} /><div className="ec-page-body" role="status" aria-busy="true">
+      <span className="ec-sr-only">{t('common.loading')}</span>
+      <Skeleton lines={3} height={18} />
+      </div></>}><Page sub={sub} params={route.params} /></Suspense>
+    </PageLoadErrorBoundary>;
   }
 
   return (
@@ -98,6 +142,30 @@ export function Shell() {
       <AppUpdateDialog />
     </ShellContext.Provider>
   );
+}
+
+type PageLoadErrorBoundaryProps = { children: ReactNode; title: string; retryLabel: string; onRetry?: () => void };
+type PageLoadErrorBoundaryState = { error: Error | null };
+
+class PageLoadErrorBoundary extends Component<PageLoadErrorBoundaryProps, PageLoadErrorBoundaryState> {
+  state: PageLoadErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): PageLoadErrorBoundaryState {
+    return { error };
+  }
+
+  retry = () => {
+    this.props.onRetry?.();
+    this.setState({ error: null });
+  };
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <><PageHeader title={this.props.title} /><div className="ec-page-body">
+      <ErrorState message={this.state.error.message} retryLabel={this.props.retryLabel}
+        onRetry={this.props.onRetry ? this.retry : undefined} />
+    </div></>;
+  }
 }
 
 function NotFound({ title, action }: { title: string; action: string }) {
