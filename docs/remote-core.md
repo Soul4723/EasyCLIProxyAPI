@@ -43,7 +43,11 @@ supervises the core on its own computer can do it instead, if you allow it.
    the core's port + 100 (`0.0.0.0:8417` for a core on 8317), which keeps it
    apart from the core ports 8317–8319 and from each other. Enter a VPN
    address, for example your Tailscale IP, to listen only there. The port must
-   be 1024–65535 and differ from the core's port.
+   be 1024–65535 and differ from the core's port. When the core's port changes
+   (in the app or in the core's configuration), the default listener moves
+   with it at once; the app refuses a core port equal to an explicit listen
+   port, and if an outside edit makes them equal the listener stops and the
+   panel says why.
 3. Saving generates a **host control key** (`ehc_…`, 256 random bits). Copy it.
    It is separate from the management and client keys and may not equal them.
    **Generate new key** replaces it; the old key stops working at once.
@@ -79,16 +83,21 @@ Start, Stop and Restart on the host behave exactly like pressing them there.
   rebinding).
 - Request bodies are refused; the request head is limited to 8 KiB and 32
   headers and must arrive within 10 seconds; at most 8 connections are served
-  at once; one request per connection.
-- After 10 failed keys within a minute an address gets HTTP 429, even with the
-  right key, until the minute passes.
+  at once (more are dropped); one request per connection.
+- After 10 failed keys within a minute, further failed keys from that address
+  get HTTP 429 instead of 401 until the minute passes. The right key is never
+  throttled, so a shared address (NAT, VPN exit) cannot lock you out. The
+  throttle limits noise; the 256-bit key is what stops guessing.
+- Errors that could name local paths (startup logs, install folders) are sent
+  as a generic message; the details stay in the host app's log.
 - Operations reuse the app's own lifecycle functions under its core-operation
   lock, so a remote request and a local button never overlap (HTTP 409).
 - The listener speaks plain HTTP, like the management URL caution above: the
   key and status travel unencrypted. Allow it only on a trusted private
   network such as Tailscale, never on the open internet.
 - The key is stored in plaintext in `config.toml` on both computers, like the
-  other GUI secrets.
+  other GUI secrets. On Unix, `config.toml` and the core's `config.yaml` are
+  written owner-only (0600) and tightened to 0600 on every save.
 
 ### Wire contract (version 1)
 

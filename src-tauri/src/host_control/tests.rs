@@ -300,20 +300,13 @@ fn request_heads_are_bounded() {
         "X-A: 1\r\n".repeat(MAX_HEADERS + 1)
     );
     assert_eq!(parse_head(many.as_bytes()).unwrap_err().status, 431);
+    // A head that is complete but over the limit is refused too, not only an unfinished one.
+    let complete = format!("GET / HTTP/1.1\r\nX-Long: {}\r\n\r\n", "a".repeat(MAX_HEAD_BYTES));
+    assert_eq!(parse_head(complete.as_bytes()).unwrap_err().status, 431);
+    let fits = format!("GET / HTTP/1.1\r\nX-Long: {}\r\n\r\n", "a".repeat(MAX_HEAD_BYTES - 64));
+    assert!(parse_head(fits.as_bytes()).unwrap().is_some());
 }
 
-#[test]
-fn failure_limiter_blocks_a_peer_after_repeated_failures() {
-    let limiter = FailureLimiter::default();
-    let peer: IpAddr = "100.64.0.9".parse().unwrap();
-    let other: IpAddr = "100.64.0.10".parse().unwrap();
-    for _ in 0..MAX_FAILURES {
-        assert!(!limiter.blocked(peer));
-        limiter.record_failure(peer);
-    }
-    assert!(limiter.blocked(peer));
-    assert!(!limiter.blocked(other));
-}
 
 #[test]
 fn replies_close_and_never_offer_cors() {
@@ -356,6 +349,10 @@ impl HostBackend for Recorder {
 type Calls = Arc<Mutex<Vec<&'static str>>>;
 
 async fn start_server(busy: bool) -> (SocketAddr, Calls, CancellationToken) {
+    start_server_with(busy, Limits::default()).await
+}
+
+async fn start_server_with(busy: bool, limits: Limits) -> (SocketAddr, Calls, CancellationToken) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let calls: Calls = Arc::new(Mutex::new(Vec::new()));
@@ -366,7 +363,7 @@ async fn start_server(busy: bool) -> (SocketAddr, Calls, CancellationToken) {
     let cancel = CancellationToken::new();
     tokio::spawn(serve(
         listener,
-        new_context(KEY.into(), backend),
+        new_context_with(KEY.into(), backend, limits),
         cancel.clone(),
     ));
     (address, calls, cancel)
@@ -495,33 +492,6 @@ async fn listener_reports_busy_core_operation_as_conflict() {
     cancel.cancel();
 }
 
-#[tokio::test]
-async fn listener_blocks_a_peer_after_failed_keys_even_with_the_right_key() {
-    let (address, calls, cancel) = start_server(false).await;
-    let wrong = vec![
-        "Authorization: Bearer ehc_wrong-key-0123456789abcdef-0123456".to_string(),
-        "X-EasyCLI-Host-Control: 1".into(),
-    ];
-    for _ in 0..MAX_FAILURES {
-        assert_eq!(
-            raw(address, &http("GET", "/host-control/v1/status", &wrong))
-                .await
-                .0,
-            401
-        );
-    }
-    assert_eq!(
-        raw(
-            address,
-            &http("GET", "/host-control/v1/status", &good_headers())
-        )
-        .await
-        .0,
-        429
-    );
-    assert!(calls.lock().unwrap().is_empty());
-    cancel.cancel();
-}
 
 #[tokio::test]
 async fn client_sends_the_protocol_and_maps_host_replies() {
@@ -729,4 +699,104 @@ fn remote_status_combines_management_reachability_with_host_process_state() {
     assert!(unconfigured.host_control.is_none() && !unconfigured.installed);
     let json = serde_json::to_value(&unconfigured).unwrap();
     assert!(json.get("hostControl").is_none());
+}
+
+#[test]
+fn failure_limiter_counts_failed_keys_and_stays_bounded() {
+    let limiter = FailureLimiter::default();
+    let peer: IpAddr = "100.64.0.9".parse().unwrap();
+    for _ in 0..MAX_FAILURES {
+        assert!(!limiter.record_failure(peer));
+    }
+    assert!(limiter.record_failure(peer), "over the limit");
+    let other: IpAddr = "100.64.0.10".parse().unwrap();
+    assert!(!limiter.record_failure(other), "other peers are unaffected");
+    // A full table evicts the oldest entry instead of refusing new peers.
+    let full = FailureLimiter::default();
+    for index in 0..(MAX_TRACKED_PEERS as u32 + 10) {
+        assert!(!full.record_failure(IpAddr::from(index.to_be_bytes())));
+    }
+    assert_eq!(full.tracked(), MAX_TRACKED_PEERS);
+}
+
+#[tokio::test]
+async fn listener_throttles_failed_keys_but_never_the_right_key() {
+    let (address, calls, cancel) = start_server(false).await;
+    let wrong = vec![
+        "Authorization: Bearer ehc_wrong-key-0123456789abcdef-0123456".to_string(),
+        "X-EasyCLI-Host-Control: 1".into(),
+    ];
+    for _ in 0..MAX_FAILURES {
+        assert_eq!(raw(address, &http("GET", "/host-control/v1/status", &wrong)).await.0, 401);
+    }
+    assert_eq!(raw(address, &http("GET", "/host-control/v1/status", &wrong)).await.0, 429);
+    assert!(calls.lock().unwrap().is_empty());
+    // Same address (for example a shared NAT): the right key still gets in.
+    assert_eq!(raw(address, &http("GET", "/host-control/v1/status", &good_headers())).await.0, 200);
+    assert_eq!(*calls.lock().unwrap(), vec!["status"]);
+    cancel.cancel();
+}
+
+#[tokio::test]
+async fn listener_closes_slow_heads_at_the_deadline() {
+    let limits = Limits { head_timeout: Duration::from_millis(200), ..Limits::default() };
+    let (address, calls, cancel) = start_server_with(false, limits).await;
+    let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    stream.write_all(b"GET /host-control/v1/status HTTP/1.1\r\n").await.unwrap();
+    let mut response = Vec::new();
+    let read = tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut response)).await;
+    assert!(read.is_ok(), "the deadline closes the connection");
+    assert!(response.is_empty(), "no reply to an unfinished head");
+    assert!(calls.lock().unwrap().is_empty());
+    cancel.cancel();
+}
+
+#[tokio::test]
+async fn listener_drops_connections_beyond_the_limit() {
+    let limits = Limits { head_timeout: Duration::from_secs(5), max_connections: 1 };
+    let (address, _, cancel) = start_server_with(false, limits).await;
+    let mut first = tokio::net::TcpStream::connect(address).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut second = tokio::net::TcpStream::connect(address).await.unwrap();
+    let _ = second.write_all(http("GET", "/host-control/v1/status", &good_headers()).as_bytes()).await;
+    let mut dropped = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), second.read_to_end(&mut dropped)).await;
+    assert!(dropped.is_empty(), "the connection over the limit gets no reply");
+    first.write_all(http("GET", "/host-control/v1/status", &good_headers()).as_bytes()).await.unwrap();
+    let mut response = Vec::new();
+    first.read_to_end(&mut response).await.unwrap();
+    assert!(String::from_utf8(response).unwrap().starts_with("HTTP/1.1 200 "));
+    cancel.cancel();
+}
+
+#[test]
+fn failures_with_local_detail_are_sent_as_a_public_message() {
+    let (status, message) = operation_error("Failed to start CPA kernel: see /home/user/.cpa/core-start-output.log".into());
+    assert_eq!(status, 500);
+    assert_eq!(message, PRIVATE_FAILURE);
+    assert!(!message.contains('/'));
+    assert_eq!(operation_error(CORE_OPERATION_BUSY.into()), (409, CORE_OPERATION_BUSY.to_string()));
+    assert_eq!(operation_error("CPA kernel is not currently running".into()).1, "CPA kernel is not currently running");
+}
+
+#[test]
+fn listener_follows_the_core_port_and_the_core_port_cannot_take_the_listen_port() {
+    let base = GuiConfigFile {
+        host_control_enabled: true,
+        host_control_key: KEY.into(),
+        ..GuiConfigFile::default()
+    };
+    let (address, _) = desired_listener(&base).unwrap().unwrap();
+    assert_eq!(address.port(), 8417);
+    let moved = GuiConfigFile { port: 9000, ..base.clone() };
+    assert_eq!(desired_listener(&moved).unwrap().unwrap().0.port(), 9100, "a core-port change moves the default listener");
+    assert_ne!(desired_listener(&base), desired_listener(&moved), "so it is re-applied");
+    let explicit = GuiConfigFile { host_control_address: "100.64.0.1:9000".into(), ..base.clone() };
+    assert!(check_core_port(&GuiConfigFile { port: 9000, ..explicit.clone() }).is_err());
+    assert!(desired_listener(&GuiConfigFile { port: 9000, ..explicit.clone() }).is_err(), "an external sync fails closed");
+    assert!(check_core_port(&GuiConfigFile { port: 9001, ..explicit.clone() }).is_ok());
+    assert!(check_core_port(&GuiConfigFile { host_control_enabled: false, port: 9000, ..explicit }).is_ok());
+    assert!(check_core_port(&moved).is_ok(), "the default never collides");
+    assert_eq!(desired_listener(&GuiConfigFile { host_control_enabled: false, ..base.clone() }), Ok(None));
+    assert!(desired_listener(&GuiConfigFile { connection_mode: CoreConnectionMode::Remote, ..base }).is_err());
 }

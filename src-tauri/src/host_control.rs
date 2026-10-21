@@ -297,6 +297,9 @@ pub(crate) fn parse_head(buffer: &[u8]) -> Result<Option<Request>, Reply> {
     let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
     let mut request = httparse::Request::new(&mut headers);
     match request.parse(buffer) {
+        Ok(httparse::Status::Complete(length)) if length > MAX_HEAD_BYTES => {
+            Err(Reply::error(431, "Request head is too large"))
+        }
         Ok(httparse::Status::Complete(_)) => Ok(Some(Request {
             method: request.method.unwrap_or_default().to_string(),
             path: request.path.unwrap_or_default().to_string(),
@@ -362,29 +365,50 @@ pub(crate) fn route(request: &Request) -> Result<Route, Reply> {
     }
 }
 
-/// Counts failed authentications per peer address; fails closed when the table is full.
+/// Throttles failed authentications per peer address. Only failed keys are counted and only
+/// failed keys are refused, so a shared address (NAT, VPN exit) never locks out the right key.
+/// The table is bounded: when full, the oldest entry makes room.
 #[derive(Default)]
 pub(crate) struct FailureLimiter {
     peers: Mutex<HashMap<IpAddr, (u32, Instant)>>,
 }
 
 impl FailureLimiter {
-    pub(crate) fn blocked(&self, peer: IpAddr) -> bool {
+    /// Records one failed key; `true` when this peer is over the limit (reply 429, not 401).
+    pub(crate) fn record_failure(&self, peer: IpAddr) -> bool {
         let Ok(mut peers) = self.peers.lock() else {
             return true;
         };
         let now = Instant::now();
         peers.retain(|_, (_, since)| now.duration_since(*since) < FAILURE_WINDOW);
-        match peers.get(&peer) {
-            Some((failures, _)) => *failures >= MAX_FAILURES,
-            None => peers.len() >= MAX_TRACKED_PEERS,
+        if !peers.contains_key(&peer) && peers.len() >= MAX_TRACKED_PEERS {
+            if let Some(oldest) = peers.iter().min_by_key(|(_, (_, since))| *since).map(|(peer, _)| *peer) {
+                peers.remove(&oldest);
+            }
         }
+        let entry = peers.entry(peer).or_insert((0, now));
+        entry.0 = entry.0.saturating_add(1);
+        entry.0 > MAX_FAILURES
     }
 
-    pub(crate) fn record_failure(&self, peer: IpAddr) {
-        if let Ok(mut peers) = self.peers.lock() {
-            let entry = peers.entry(peer).or_insert((0, Instant::now()));
-            entry.0 = entry.0.saturating_add(1);
+    #[cfg(test)]
+    pub(crate) fn tracked(&self) -> usize {
+        self.peers.lock().map(|peers| peers.len()).unwrap_or_default()
+    }
+}
+
+/// Listener limits; tests shorten them.
+#[derive(Clone, Copy)]
+pub(crate) struct Limits {
+    pub(crate) head_timeout: Duration,
+    pub(crate) max_connections: usize,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            head_timeout: HEAD_TIMEOUT,
+            max_connections: MAX_CONNECTIONS,
         }
     }
 }
@@ -402,13 +426,23 @@ pub(crate) struct Context {
     key: String,
     backend: Arc<dyn HostBackend>,
     failures: FailureLimiter,
+    limits: Limits,
 }
 
 pub(crate) fn new_context(key: String, backend: Arc<dyn HostBackend>) -> Arc<Context> {
+    new_context_with(key, backend, Limits::default())
+}
+
+pub(crate) fn new_context_with(
+    key: String,
+    backend: Arc<dyn HostBackend>,
+    limits: Limits,
+) -> Arc<Context> {
     Arc::new(Context {
         key,
         backend,
         failures: FailureLimiter::default(),
+        limits,
     })
 }
 
@@ -416,12 +450,12 @@ pub(crate) async fn respond(request: &Request, peer: IpAddr, context: &Context) 
     if let Err(reply) = screen(request) {
         return reply;
     }
-    if context.failures.blocked(peer) {
-        return Reply::error(429, "Too many failed attempts; try again later");
-    }
     if !authenticate(request, &context.key) {
-        context.failures.record_failure(peer);
-        return Reply::error(401, "Missing or invalid host control key");
+        return if context.failures.record_failure(peer) {
+            Reply::error(429, "Too many failed attempts; try again later")
+        } else {
+            Reply::error(401, "Missing or invalid host control key")
+        };
     }
     let result = match route(request) {
         Ok(Route::Status) => context.backend.status().await,
@@ -488,7 +522,7 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin>(
     peer: IpAddr,
     context: &Context,
 ) {
-    let reply = match tokio::time::timeout(HEAD_TIMEOUT, read_head(&mut stream)).await {
+    let reply = match tokio::time::timeout(context.limits.head_timeout, read_head(&mut stream)).await {
         Err(_) | Ok(Err(None)) => return,
         Ok(Err(Some(reply))) => reply,
         Ok(Ok(request)) => respond(&request, peer, context).await,
@@ -501,7 +535,7 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin>(
 }
 
 pub(crate) async fn serve(listener: TcpListener, context: Arc<Context>, cancel: CancellationToken) {
-    let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let slots = Arc::new(Semaphore::new(context.limits.max_connections));
     loop {
         let accepted = tokio::select! {
             _ = cancel.cancelled() => return,
@@ -543,12 +577,27 @@ fn require_host_mode(app: &tauri::AppHandle) -> Result<(), HostError> {
     Ok(())
 }
 
-/// Busy (another operation holds the core-operation lock) is a conflict; the rest are failures.
+/// Reasons that are safe to send to the client. Anything else can name local paths (startup
+/// logs, install and rollback directories), so it stays in this host's log.
+const PUBLIC_REASONS: [&str; 4] = [
+    crate::CORE_OPERATION_BUSY,
+    "CPA kernel is not currently running",
+    "This operation is only available for the local core",
+    "Application is exiting; kernel operation canceled",
+];
+pub(crate) const PRIVATE_FAILURE: &str =
+    "The operation failed on the remote host; the details are in that EasyCLIProxyAPI's log";
+
+/// Busy (another operation holds the core-operation lock) is a conflict; the rest are failures,
+/// sent with a public message only.
 pub(crate) fn operation_error(error: String) -> HostError {
     if error == crate::CORE_OPERATION_BUSY {
         (409, error)
-    } else {
+    } else if PUBLIC_REASONS.contains(&error.as_str()) {
         (500, error)
+    } else {
+        eprintln!("Remote host control request failed: {error}");
+        (500, PRIVATE_FAILURE.into())
     }
 }
 
@@ -562,9 +611,9 @@ impl HostBackend for AppBackend {
                 crate::current_core_status(Some(app.state::<CoreProcessState>().inner()), Some(port))
             })
             .await
-            .map_err(|error| (500, error.to_string()))?
+            .map_err(|error| operation_error(error.to_string()))?
             .map(|status| HostCoreStatus::from_status(&status))
-            .map_err(|error| (500, error))
+            .map_err(operation_error)
         })
     }
 
@@ -585,6 +634,8 @@ impl HostBackend for AppBackend {
 }
 
 struct RunningListener {
+    address: SocketAddr,
+    key: String,
     cancel: CancellationToken,
     task: tauri::async_runtime::JoinHandle<()>,
 }
@@ -601,57 +652,97 @@ pub(crate) struct HostControlState {
     status: Mutex<ListenerStatus>,
 }
 
-async fn start_listener(
-    app: &tauri::AppHandle,
-) -> Result<Option<(String, RunningListener)>, String> {
-    let config = app.state::<GuiConfigState>().snapshot()?;
+/// What the listener should be, from saved settings: `None` when off, or the address and key.
+pub(crate) fn desired_listener(config: &GuiConfigFile) -> Result<Option<(SocketAddr, String)>, String> {
     if !config.host_control_enabled {
         return Ok(None);
     }
     if config.connection_mode != CoreConnectionMode::Local {
         return Err(REMOTE_MODE_PAUSED.into());
     }
-    let address = effective_address(&config)?;
-    validate_host_key(&config)?;
-    let listener = TcpListener::bind(address)
-        .await
-        .map_err(|error| format!("Cannot listen on {address}: {error}"))?;
-    let bound = listener
-        .local_addr()
-        .map_err(|error| format!("Cannot listen on {address}: {error}"))?
-        .to_string();
-    let context = new_context(config.host_control_key, Arc::new(AppBackend(app.clone())));
-    let cancel = CancellationToken::new();
-    let task = tauri::async_runtime::spawn(serve(listener, context, cancel.clone()));
-    Ok(Some((bound, RunningListener { cancel, task })))
+    let address = effective_address(config)?;
+    validate_host_key(config)?;
+    Ok(Some((address, config.host_control_key.clone())))
 }
 
-/// Starts, restarts or stops the listener to match the saved settings. Fails closed: invalid
-/// settings, Remote mode or a bind error leave it stopped, with the reason in the settings view.
+/// Woken whenever a configuration change alters the desired listener, from any path: the panel,
+/// network settings (the default port follows the core port), external core-config syncs or a
+/// connection change.
+static LISTENER_SETTINGS_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+pub(crate) fn note_config_change(before: &GuiConfigFile, after: &GuiConfigFile) {
+    if desired_listener(before) != desired_listener(after) {
+        LISTENER_SETTINGS_CHANGED.notify_one();
+    }
+}
+
+/// Applies the saved settings at startup and again after every change that affects the listener.
+pub(crate) fn start(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        apply(app.clone()).await;
+        loop {
+            LISTENER_SETTINGS_CHANGED.notified().await;
+            apply(app.clone()).await;
+        }
+    });
+}
+
+/// Refuses a core port that is this app's explicit remote-control listen port while remote
+/// control is allowed. (The default listen port is the core's port + 100 and moves with it.)
+pub(crate) fn check_core_port(config: &GuiConfigFile) -> Result<(), String> {
+    let saved = config.host_control_address.trim();
+    if config.host_control_enabled
+        && !saved.is_empty()
+        && saved.parse::<SocketAddr>().is_ok_and(|address| address.port() == config.port)
+    {
+        return Err("The core port must differ from the remote control listen port".into());
+    }
+    Ok(())
+}
+
+/// Starts, restarts or stops the listener to match the saved settings; a listener that already
+/// matches is left alone. Fails closed: invalid settings, Remote mode or a bind error leave it
+/// stopped, with the reason in the settings view.
 pub(crate) async fn apply(app: tauri::AppHandle) {
     let state = app.state::<HostControlState>();
     let mut running = state.listener.lock().await;
+    let desired = app
+        .state::<GuiConfigState>()
+        .snapshot()
+        .and_then(|config| desired_listener(&config));
+    if let (Some(current), Ok(Some((address, key)))) = (running.as_ref(), &desired) {
+        if current.address == *address && current.key == *key {
+            return;
+        }
+    }
     if let Some(previous) = running.take() {
         previous.cancel.cancel();
         let _ = previous.task.await;
     }
-    let status = match start_listener(&app).await {
-        Ok(Some((address, listener))) => {
-            *running = Some(listener);
-            ListenerStatus {
-                listening: Some(address),
-                error: None,
-            }
-        }
+    let status = match desired {
         Ok(None) => ListenerStatus::default(),
-        Err(error) => {
-            eprintln!("Remote host control is not running: {error}");
-            ListenerStatus {
-                listening: None,
-                error: Some(error),
+        Ok(Some((address, key))) => match TcpListener::bind(address).await {
+            Ok(listener) => {
+                let bound = listener
+                    .local_addr()
+                    .map(|bound| bound.to_string())
+                    .unwrap_or_else(|_| address.to_string());
+                let context = new_context(key.clone(), Arc::new(AppBackend(app.clone())));
+                let cancel = CancellationToken::new();
+                let task = tauri::async_runtime::spawn(serve(listener, context, cancel.clone()));
+                *running = Some(RunningListener { address, key, cancel, task });
+                ListenerStatus { listening: Some(bound), error: None }
             }
-        }
+            Err(error) => ListenerStatus {
+                listening: None,
+                error: Some(format!("Cannot listen on {address}: {error}")),
+            },
+        },
+        Err(error) => ListenerStatus { listening: None, error: Some(error) },
     };
+    if let Some(error) = &status.error {
+        eprintln!("Remote host control is not running: {error}");
+    }
     if let Ok(mut current) = state.status.lock() {
         *current = status;
     };

@@ -769,17 +769,28 @@ pub(crate) fn apply_gui_managed_settings(
     Ok(updated)
 }
 
+/// Writes the GUI's `config.toml` and the core's `config.yaml` in place. Both hold keys (management,
+/// client and host-control keys), so on Unix the file is created owner-only (0600) and an existing
+/// file is tightened to 0600 on every write. Windows relies on the per-user profile ACLs.
 pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
     let directory = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
 
     let write_result = (|| -> io::Result<()> {
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(path)?;
+        let mut options = fs::OpenOptions::new();
+        options.create(true).write(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        }
         file.seek(SeekFrom::Start(0))?;
         file.write_all(content)?;
         file.set_len(content.len() as u64)?;

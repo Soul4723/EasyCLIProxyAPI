@@ -178,8 +178,6 @@ pub(crate) fn save_core_connection(
         }
         Ok(())
     })?;
-    // This app's own host control listener runs only while it manages a local core.
-    tauri::async_runtime::spawn(crate::host_control::apply(app.clone()));
     if config.connection_mode == CoreConnectionMode::Remote {
         crate::usage::stop_usage_collector(&app);
     } else {

@@ -2132,6 +2132,7 @@ impl GuiConfigState {
             .inner
             .lock()
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())?;
+        host_control::note_config_change(&current, &config);
         *current = config;
         Ok(())
     }
@@ -2149,6 +2150,7 @@ impl GuiConfigState {
         apply_external_core_proxy_override(&mut config, settings)?;
         sanitize_gui_config(&mut config)?;
         validate_gui_config(&config)?;
+        host_control::note_config_change(&current, &config);
         *current = config.clone();
         Ok(config)
     }
@@ -2296,6 +2298,7 @@ impl GuiConfigState {
         config.prefer_gitcode_downloads = fallback_source.source == VersionDownloadSource::Gitcode;
         sanitize_gui_config(&mut config)?;
         write_gui_config(&config)?;
+        host_control::note_config_change(&current, &config);
         *current = config.clone();
         Ok(Some(config))
     }
@@ -2408,6 +2411,7 @@ impl GuiConfigState {
         update(&mut config)?;
         sanitize_gui_config(&mut config)?;
         write_gui_config(&config)?;
+        host_control::note_config_change(&current, &config);
         *current = config.clone();
         Ok(config)
     }
@@ -2734,7 +2738,7 @@ fn main() {
 
             network_proxy::start_monitor(app.handle().clone());
             core_recovery::start(app.handle().clone());
-            tauri::async_runtime::spawn(host_control::apply(app.handle().clone()));
+            host_control::start(app.handle().clone());
             start_codex_model_catalog_sync(app.handle().clone());
 
             let usage_app = app.handle().clone();

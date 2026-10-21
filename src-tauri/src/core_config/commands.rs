@@ -90,6 +90,7 @@ pub(crate) fn save_gui_settings(
         "127.0.0.1"
     }
     .to_string();
+    crate::host_control::check_core_port(&next)?;
     patch_core_network_settings(&next)?;
     let config = match gui_config_state.update_network(settings.port, settings.allow_lan) {
         Ok(config) => config,
@@ -147,6 +148,7 @@ pub(crate) fn save_network_routing_settings(
     next.max_retry_interval = settings.max_retry_interval;
     next.streaming_bootstrap_retries = settings.streaming_bootstrap_retries;
     validate_gui_config(&next)?;
+    crate::host_control::check_core_port(&next)?;
 
     patch_core_network_routing_settings(&next)?;
     let config = match gui_config_state.update_network_routing(&next) {
@@ -201,6 +203,7 @@ pub(crate) fn save_network_endpoint_settings(
         };
     }
     validate_gui_config(&next)?;
+    crate::host_control::check_core_port(&next)?;
     patch_core_network_endpoint_settings(&next)?;
     let config = match gui_config_state.update_network_endpoint(&next) {
         Ok(config) => config,
