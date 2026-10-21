@@ -1084,3 +1084,14 @@ async fn official_checksum_download_fails_closed() {
         crate::OFFICIAL_CHECKSUM_MISSING
     );
 }
+
+#[test]
+fn official_checksum_urls_take_only_plain_version_tags() {
+    assert_eq!(
+        crate::official_checksums_url("v8.0.36").unwrap(),
+        "https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.0.36/checksums.txt"
+    );
+    for tag in ["v8.0.36/../../../attacker/repo/releases/download/x", "../x", "v8.0.36?x", "latest", ""] {
+        assert_eq!(crate::official_checksums_url(tag).unwrap_err(), crate::OFFICIAL_CHECKSUM_MISSING, "{tag}");
+    }
+}

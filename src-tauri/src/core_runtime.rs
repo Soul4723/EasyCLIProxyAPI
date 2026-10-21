@@ -627,7 +627,7 @@ pub(crate) async fn stage_core_version_inner(
     if require_official_checksum {
         // Installs requested through remote host control fail closed without the official
         // checksum: whatever source serves the archive, it must match the release's checksums.txt.
-        let url = format!("{RELEASE_DOWNLOAD_PREFIX}{}/{CORE_CHECKSUMS_FILE}", release.tag_name);
+        let url = official_checksums_url(&release.tag_name)?;
         let expected = fetch_core_checksum(&client, &url, &asset.name, &token).await?;
         asset.digest = Some(required_digest(asset.digest.as_deref(), &expected)?);
     }
@@ -2126,6 +2126,15 @@ pub(crate) fn checksum_entry(checksums: &str, archive_name: &str) -> Option<Stri
     });
     let first = matches.next()?;
     matches.next().is_none().then_some(first)
+}
+
+/// The official `checksums.txt` URL for a release tag. The tag can come from a mirror's listing,
+/// so only a plain version tag may go into the path (no `..`, slashes or queries).
+pub(crate) fn official_checksums_url(tag: &str) -> Result<String, String> {
+    if !crate::host_control::valid_core_version(tag) {
+        return Err(OFFICIAL_CHECKSUM_MISSING.to_string());
+    }
+    Ok(format!("{RELEASE_DOWNLOAD_PREFIX}{tag}/{CORE_CHECKSUMS_FILE}"))
 }
 
 /// The digest a download must match: the official one; a different published digest refuses.
