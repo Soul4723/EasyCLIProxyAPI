@@ -259,7 +259,7 @@ pub(crate) fn migrate_core_config_for_update(
         merge_core_config_fields(&template, Some(&old_config))?
     };
     let config_path = target_dir.join(CORE_CONFIG_FILE);
-    fs::write(&config_path, migrated).map_err(|error| {
+    write_private_bytes_directly(&config_path, migrated.as_bytes()).map_err(|error| {
         format!(
             "Failed to write migrated new kernel configuration {}: {error}",
             path_to_string(&config_path)

@@ -213,19 +213,9 @@ pub(crate) fn write_deepseek_harness_file(
     content: &[u8],
     owner_only: bool,
 ) -> Result<(), String> {
-    write_bytes_directly(path, content)?;
-    #[cfg(unix)]
     if owner_only {
-        use std::os::unix::fs::PermissionsExt;
-
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
-            format!(
-                "Failed to set DeepSeek Harness credential permissions {}: {error}",
-                path_to_string(path)
-            )
-        })?;
+        write_private_bytes_directly(path, content)
+    } else {
+        write_bytes_directly(path, content)
     }
-    #[cfg(not(unix))]
-    let _ = owner_only;
-    Ok(())
 }

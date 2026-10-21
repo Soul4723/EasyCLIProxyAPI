@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '../../../services/documentTarget';
 import { createSettingsRead } from '../../../services/settingsData';
-import { listen, open } from '../../../services/platform';
+import { CORE_CONFIG_SCOPES, listenConfigChange } from '../../../services/configChange';
+import { open } from '../../../services/platform';
 import { FolderOpen, Globe, Link2, LockKeyhole, Network, Wifi } from 'lucide-react';
 import { useI18n } from '../../../i18n';
 import { useCoreRuntime, type CoreStatus } from '../../../coreRuntime';
@@ -49,7 +50,7 @@ export function NetworkTab() {
     let disposed = false;
     let stop: (() => void) | undefined;
     void loadTls();
-    void listen('config-files-changed', () => { if (!disposed) void loadTls(true); }).then((unlisten) => {
+    void listenConfigChange(CORE_CONFIG_SCOPES, () => { if (!disposed) void loadTls(true); }).then((unlisten) => {
       if (disposed) unlisten(); else stop = unlisten;
     });
     return () => { disposed = true; stop?.(); };

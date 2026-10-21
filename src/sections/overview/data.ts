@@ -1,11 +1,11 @@
 import { coreConfigSource, useSharedCoreConfig } from '../../services/coreConfig';
+import { CORE_CONFIG_SCOPES, configChangeFilter, listenConfigChange } from '../../services/configChange';
 import { credentialsSource } from '../../services/credentials';
 import { createDataSource, useDataSource } from '../../services/dataSource';
 // Data hooks for the Overview. Everything comes from the real services; the Overview owns no state of its own
 // beyond what it reads (connection/runtime details, a credentials snapshot, usage 24h, lighting schedules).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '../../services/documentTarget';
-import { listen } from '../../services/platform';
 import { type AuthFileRecord } from '../../services/authFiles';
 import { getCoreConnection, type CoreConnection } from '../../services/coreConnection';
 import { countHomeProviderKeys, normalizeHomeModels, summarizeHomeUsage, type HomeUsageSummary } from '../../services/homeOverview';
@@ -69,7 +69,7 @@ export function useRuntimeDetails(): RuntimeDetails & { reload: () => void } {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
-    void listen('config-files-changed', () => {
+    void listenConfigChange(CORE_CONFIG_SCOPES, () => {
       if (disposed) return;
       setDetails((current) => ({ ...current, configRevision: current.configRevision + 1 }));
       void load();
@@ -126,11 +126,11 @@ async function loadUsage(nowMs: number): Promise<{ usage: HomeUsageSummary; seri
 const usageSource = createDataSource({
   load: () => loadUsage(Date.now()), events: ['usage-records-updated'], minIntervalMs: 10_000,
 });
-const modelsSource = createDataSource({
-  load: () => invoke<unknown>('get_core_models').then(normalizeHomeModels), events: ['config-files-changed'], minIntervalMs: 1_000,
+export const modelsSource = createDataSource({
+  load: () => invoke<unknown>('get_core_models').then(normalizeHomeModels), events: ['config-files-changed'], eventFilter: configChangeFilter(CORE_CONFIG_SCOPES), minIntervalMs: 1_000,
 });
-const providerKeysSource = createDataSource({
-  load: loadProviderKeys, events: ['config-files-changed'], minIntervalMs: 1_000,
+export const providerKeysSource = createDataSource({
+  load: loadProviderKeys, events: ['config-files-changed'], eventFilter: configChangeFilter(CORE_CONFIG_SCOPES), minIntervalMs: 1_000,
 });
 
 /** Blocks retain their own last successful value and expose failure independently. */

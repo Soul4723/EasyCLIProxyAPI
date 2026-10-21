@@ -48,14 +48,14 @@ pub(crate) fn command_output_with_timeout(
     }
     let child = command.spawn()?;
     let mut child = AgentProbeChild::new(child);
-    let mut stdout = child
+    let stdout = child
         .child
         .as_mut()
         .expect("probe child is present before reader startup")
         .stdout
         .take()
         .ok_or_else(|| io::Error::other("Unable to read agent detection standard output"))?;
-    let mut stderr = child
+    let stderr = child
         .child
         .as_mut()
         .expect("probe child is present before reader startup")
@@ -250,7 +250,12 @@ pub(super) fn terminate_agent_probe_process(
             .expect("probe child is present before taskkill")
             .id()
             .to_string();
-        let mut command = Command::new("taskkill");
+        let taskkill = std::env::var_os("SystemRoot")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
+            .join("System32")
+            .join("taskkill.exe");
+        let mut command = Command::new(taskkill);
         command
             .args(["/PID", &process_id, "/T", "/F"])
             .stdin(Stdio::null())
@@ -319,7 +324,7 @@ pub(super) fn terminate_agent_probe_process(
             }
             return Some(format!("probe process reaping was handed to a background thread: {error}"));
         }
-        return None;
+        None
     }
     #[cfg(not(any(unix, target_os = "windows")))]
     {
