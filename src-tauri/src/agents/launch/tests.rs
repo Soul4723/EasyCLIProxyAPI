@@ -136,7 +136,14 @@
             let arguments = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
             assert_eq!(&arguments[..4], ["-NoLogo", "-NoProfile", "-NoExit", "-Command"]);
             assert!(arguments[4].contains("Set-Location -LiteralPath 'C:\\Users\\Test User\\project''s [work]'"));
-            assert!(arguments[4].contains(&format!("& '{executable}'")));
+            if executable.ends_with(".cmd") {
+                // A batch launcher always goes through an explicit cmd.exe line.
+                assert!(arguments[4].contains("$cpaLaunchInfo.FileName = "));
+                assert!(arguments[4].contains(&format!("/D /E:ON /V:OFF /S /C \"\"{executable}\"\"")), "{}", arguments[4]);
+                assert!(!arguments[4].contains(&format!("& '{executable}'")));
+            } else {
+                assert!(arguments[4].contains(&format!("& '{executable}'")));
+            }
         }
     }
 

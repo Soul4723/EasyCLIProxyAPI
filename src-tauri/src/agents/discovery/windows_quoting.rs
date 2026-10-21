@@ -157,11 +157,65 @@ pub(crate) fn validate_windows_terminal_batch_path(executable: &str) -> Result<(
     }
 }
 
-/// Whether a batch file path holds anything `cmd.exe` would act on. PowerShell then starts
-/// it through an explicit `cmd.exe` line instead of running the path directly.
+/// MSVC quoting of one token, as Windows Terminal parses its command line: quote only when
+/// the token is empty or holds whitespace or a quote.
+fn windows_terminal_token(text: &str) -> String {
+    if !text.is_empty() && !text.contains([' ', '\t', '"']) {
+        return text.to_string();
+    }
+    let mut quoted = String::from('"');
+    let mut backslashes = 0;
+    for character in text.chars() {
+        match character {
+            '\\' => {
+                backslashes += 1;
+                quoted.push(character);
+            }
+            '"' => {
+                quoted.push_str(&"\\".repeat(backslashes + 1));
+                quoted.push(character);
+                backslashes = 0;
+            }
+            _ => {
+                backslashes = 0;
+                quoted.push(character);
+            }
+        }
+    }
+    quoted.push_str(&"\\".repeat(backslashes));
+    quoted.push('"');
+    quoted
+}
+
+/// The exact command line given to `wt.exe` (with `raw_arg`) to run a batch launcher, so the
+/// text that is checked is the text Windows Terminal receives. Everything after `--` is
+/// checked once more as a whole, with only the quotes added here removed.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-pub(crate) fn windows_batch_path_has_cmd_metacharacters(executable: &str) -> bool {
-    windows_terminal_batch_unsafe_character(executable).is_some()
+pub(crate) fn windows_terminal_batch_command_line<S: AsRef<str>>(
+    directory: &str,
+    command_processor: &str,
+    executable: &str,
+    arguments: &[S],
+) -> Result<String, String> {
+    validate_windows_terminal_batch_path(executable)?;
+    validate_windows_terminal_batch_path(command_processor)?;
+    validate_windows_terminal_batch_arguments(arguments)?;
+    // `call` keeps a quoted launcher path from being mangled by cmd's /K quote stripping.
+    let mut command = format!(
+        "{} /D /K call {}",
+        windows_terminal_token(command_processor),
+        windows_terminal_token(executable)
+    );
+    for argument in arguments {
+        command.push(' ');
+        command.push_str(&windows_terminal_token(argument.as_ref()));
+    }
+    if let Some(character) = windows_terminal_batch_unsafe_character(&command.replace('"', "")) {
+        return Err(format!(
+            "Windows Terminal cannot safely start the .cmd launcher because its command line contains {character:?}"
+        ));
+    }
+    Ok(format!("-d {} -- {command}", windows_terminal_token(directory)))
 }
 
 #[cfg(test)]
@@ -347,7 +401,6 @@ mod tests {
             r"C:\tools\agent-1.2_x+y.bat",
         ] {
             assert!(validate_windows_terminal_batch_path(good).is_ok(), "{good}");
-            assert!(!windows_batch_path_has_cmd_metacharacters(good), "{good}");
         }
         for hostile in [
             r"C:\%USERPROFILE%\agent.cmd",
@@ -366,8 +419,35 @@ mod tests {
         ] {
             let error = validate_windows_terminal_batch_path(hostile).unwrap_err();
             assert!(error.contains("Windows Terminal") && error.contains("path"), "{hostile}: {error}");
-            assert!(windows_batch_path_has_cmd_metacharacters(hostile), "{hostile}");
         }
+    }
+
+    #[test]
+    fn windows_terminal_receives_exactly_the_checked_command_line() {
+        let line = windows_terminal_batch_command_line(
+            r"C:\Users\Test User\project",
+            r"C:\Windows\System32\cmd.exe",
+            r"C:\Program Files\Tools\deepseek.cmd",
+            &["web", "--port", "8080", "two words", "it's", "\u{201C}x\u{201D}"],
+        )
+        .unwrap();
+        assert_eq!(
+            line,
+            "-d \"C:\\Users\\Test User\\project\" -- C:\\Windows\\System32\\cmd.exe /D /K call \"C:\\Program Files\\Tools\\deepseek.cmd\" web --port 8080 \"two words\" it's \u{201C}x\u{201D}"
+        );
+        let plain = windows_terminal_batch_command_line(r"C:\work", r"C:\Windows\System32\cmd.exe", r"C:\npm\agent.bat", &[] as &[&str]).unwrap();
+        assert_eq!(plain, r"-d C:\work -- C:\Windows\System32\cmd.exe /D /K call C:\npm\agent.bat");
+        // A trailing backslash before the closing quote is doubled.
+        assert!(windows_terminal_batch_command_line(r"C:\my dir\", "cmd.exe", "a.cmd", &["x"])
+            .unwrap()
+            .starts_with(r#"-d "C:\my dir\\" -- "#));
+
+        for hostile_path in [r"C:\%USERPROFILE%\a.cmd", r"C:\a&b\a.cmd", r"C:\Program Files (x86)\a.cmd"] {
+            let error = windows_terminal_batch_command_line(r"C:\work", "cmd.exe", hostile_path, &["x"]).unwrap_err();
+            assert!(error.contains("path"), "{hostile_path}: {error}");
+        }
+        assert!(windows_terminal_batch_command_line(r"C:\work", "cmd.exe", "a.cmd", &["& calc"]).is_err());
+        assert!(windows_terminal_batch_command_line(r"C:\work", "C:\\%ComSpec%\\cmd.exe", "a.cmd", &["x"]).is_err());
     }
 
     #[test]
