@@ -105,9 +105,7 @@ pub(crate) fn save_core_connection(
     } else {
         connection
     };
-    let _operation = crate::CORE_OPERATION_LOCK
-        .lock()
-        .map_err(|_| "Core operation lock is poisoned")?;
+    let _operation = crate::lock_core_operation(app.state::<crate::CoreProcessState>().inner())?;
     if connection.mode == CoreConnectionMode::Remote {
         prepare_remote_transition(app.state::<crate::CoreProcessState>().inner())?;
     }
