@@ -84,22 +84,39 @@ fn host_key_must_differ_from_management_and_client_keys() {
 
 #[test]
 fn listen_address_is_an_ip_and_unprivileged_port_other_than_the_core() {
-    for value in ["0.0.0.0:8318", " 100.64.0.1:8318 ", "127.0.0.1:65535", "[::]:9000"] {
+    for value in ["0.0.0.0:8417", " 100.64.0.1:8417 ", "127.0.0.1:65535", "[::]:9000"] {
         parse_listen_address(value, 8317).unwrap();
     }
     for value in [
         "",
-        "8318",
-        ":8318",
-        "localhost:8318",
+        "8417",
+        ":8417",
+        "localhost:8417",
         "0.0.0.0",
         "0.0.0.0:80",
         "0.0.0.0:0",
         "0.0.0.0:8317",
-        "http://0.0.0.0:8318",
+        "http://0.0.0.0:8417",
     ] {
         assert!(parse_listen_address(value, 8317).is_err(), "{value:?}");
     }
+}
+
+#[test]
+fn default_listen_address_follows_the_core_port_apart_from_every_channel_core() {
+    // Stable, Beta and Dev cores default to 8317, 8318 and 8319.
+    for (core, listener) in [(8317, 8417), (8318, 8418), (8319, 8419)] {
+        assert_eq!(default_address(core).unwrap(), format!("0.0.0.0:{listener}"));
+        let config = GuiConfigFile { port: core, ..GuiConfigFile::default() };
+        let address = effective_address(&config).unwrap();
+        assert_eq!(address.port(), listener);
+        assert!(!(8317..=8319).contains(&address.port()));
+    }
+    assert!(default_address(65500).is_none());
+    let config = GuiConfigFile { port: 65500, ..GuiConfigFile::default() };
+    assert!(effective_address(&config).is_err(), "no default past the last port");
+    let saved = GuiConfigFile { host_control_address: " 100.64.0.1:9000 ".into(), ..GuiConfigFile::default() };
+    assert_eq!(effective_address(&saved).unwrap().to_string(), "100.64.0.1:9000");
 }
 
 #[test]
@@ -109,16 +126,16 @@ fn remote_target_is_both_or_neither_and_distinct_from_the_management_key() {
         (String::new(), String::new())
     );
     assert_eq!(
-        normalize_remote_target(" http://100.64.0.1:8318/ ", &format!(" {KEY} "), "management")
+        normalize_remote_target(" http://100.64.0.1:8417/ ", &format!(" {KEY} "), "management")
             .unwrap(),
-        ("http://100.64.0.1:8318".to_string(), KEY.to_string())
+        ("http://100.64.0.1:8417".to_string(), KEY.to_string())
     );
-    assert!(normalize_remote_target("http://host:8318", "", "m").is_err());
+    assert!(normalize_remote_target("http://host:8417", "", "m").is_err());
     assert!(normalize_remote_target("", KEY, "m").is_err());
-    assert!(normalize_remote_target("http://host:8318/path", KEY, "m").is_err());
-    assert!(normalize_remote_target("http://user@host:8318", KEY, "m").is_err());
-    assert!(normalize_remote_target("http://host:8318", "short", "m").is_err());
-    assert!(normalize_remote_target("http://host:8318", KEY, KEY).is_err());
+    assert!(normalize_remote_target("http://host:8417/path", KEY, "m").is_err());
+    assert!(normalize_remote_target("http://user@host:8417", KEY, "m").is_err());
+    assert!(normalize_remote_target("http://host:8417", "short", "m").is_err());
+    assert!(normalize_remote_target("http://host:8417", KEY, KEY).is_err());
 }
 
 #[test]
@@ -619,24 +636,27 @@ fn settings_updates_generate_keys_and_fail_closed() {
     let mut config = GuiConfigFile::default();
     assert!(!config.host_control_enabled);
     assert!(config.host_control_key.is_empty());
-    assert_eq!(config.host_control_address, DEFAULT_ADDRESS);
+    assert!(config.host_control_address.is_empty(), "no saved address means the default");
     let update = |enabled: bool, address: &str, regenerate_key: bool| HostControlUpdate {
         enabled,
         address: address.into(),
         regenerate_key,
     };
-    apply_update(&mut config, update(true, " 0.0.0.0:8318 ", false)).unwrap();
+    apply_update(&mut config, update(true, "", false)).unwrap();
     assert!(config.host_control_enabled);
-    assert_eq!(config.host_control_address, "0.0.0.0:8318");
+    assert!(config.host_control_address.is_empty(), "the default is not written as an address");
+    assert_eq!(effective_address(&config).unwrap().to_string(), "0.0.0.0:8417");
+    apply_update(&mut config, update(true, " 0.0.0.0:8417 ", false)).unwrap();
+    assert_eq!(config.host_control_address, "0.0.0.0:8417");
     let first = config.host_control_key.clone();
     validate_host_key(&config).unwrap();
-    apply_update(&mut config, update(true, "100.64.0.1:8318", false)).unwrap();
+    apply_update(&mut config, update(true, "100.64.0.1:8417", false)).unwrap();
     assert_eq!(config.host_control_key, first, "saving keeps the key");
-    apply_update(&mut config, update(true, "100.64.0.1:8318", true)).unwrap();
+    apply_update(&mut config, update(true, "100.64.0.1:8417", true)).unwrap();
     assert_ne!(config.host_control_key, first, "regenerating replaces the key");
-    apply_update(&mut config, update(false, "100.64.0.1:8318", false)).unwrap();
+    apply_update(&mut config, update(false, "100.64.0.1:8417", false)).unwrap();
     assert!(!config.host_control_enabled);
-    for address in ["", "localhost:8318", "0.0.0.0:8317"] {
+    for address in ["localhost:8417", "0.0.0.0:8317"] {
         let mut copy = config.clone();
         assert!(
             apply_update(&mut copy, update(true, address, false)).is_err(),
@@ -647,7 +667,7 @@ fn settings_updates_generate_keys_and_fail_closed() {
         connection_mode: CoreConnectionMode::Remote,
         ..GuiConfigFile::default()
     };
-    assert!(apply_update(&mut remote, update(true, DEFAULT_ADDRESS, false)).is_err());
+    assert!(apply_update(&mut remote, update(true, "", false)).is_err());
     assert!(!remote.host_control_enabled);
 }
 
@@ -657,7 +677,7 @@ fn remote_status_combines_management_reachability_with_host_process_state() {
         mode: CoreConnectionMode::Remote,
         management_origin: "http://100.64.0.1:8317".into(),
         management_key: "management".into(),
-        host_control_origin: "http://100.64.0.1:8318".into(),
+        host_control_origin: "http://100.64.0.1:8417".into(),
         host_control_key: KEY.into(),
     };
     let down = || CoreConnectionTestResult {

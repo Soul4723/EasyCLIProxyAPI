@@ -956,7 +956,7 @@ impl Default for GuiConfigFile {
             remote_host_control_origin: String::new(),
             remote_host_control_key: String::new(),
             host_control_enabled: false,
-            host_control_address: host_control::DEFAULT_ADDRESS.to_string(),
+            host_control_address: String::new(),
             host_control_key: String::new(),
             locale: "en".to_string(),
             port: 8317,

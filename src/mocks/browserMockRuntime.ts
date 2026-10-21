@@ -984,13 +984,16 @@ export function createBrowserMockRuntime(
   });
   const hostControlStorageKey = 'browser-mock.host-control';
   let hostControlSettings: { enabled: boolean; address: string; key: string } = {
-    enabled: false, address: '0.0.0.0:8318', key: '',
+    enabled: false, address: '', key: '',
     ...JSON.parse(globalThis.sessionStorage?.getItem(hostControlStorageKey) ?? 'null'),
   };
-  const hostControlView = () => ({
-    ...hostControlSettings, available: coreConnection.mode === 'local',
-    listening: coreConnection.mode === 'local' && hostControlSettings.enabled ? hostControlSettings.address : null, error: null,
-  });
+  const hostControlView = () => {
+    const defaultAddress = `0.0.0.0:${state.guiSettings.port + 100}`;
+    return {
+      ...hostControlSettings, defaultAddress, available: coreConnection.mode === 'local',
+      listening: coreConnection.mode === 'local' && hostControlSettings.enabled ? hostControlSettings.address || defaultAddress : null, error: null,
+    };
+  };
   // Remote lifecycle goes to the mock remote host; without host control it is refused like the native command.
   const remoteLifecycle = (running: boolean, processId: number | null) => {
     if (!remoteHostControl) throw new Error('Set up remote host control in Core connection to start, stop or restart a remote core');
@@ -1105,7 +1108,7 @@ export function createBrowserMockRuntime(
       case 'save_host_control_settings': {
         const update = asObject(payload.update);
         if (update.enabled && coreConnection.mode !== 'local') throw new Error('Remote control is available only while this app runs the local core');
-        if (typeof update.address !== 'string' || !/^[\d.]+:\d+$|^\[[\da-fA-F:.]+\]:\d+$/.test(update.address.trim())) throw new Error('Listen address must be an IP address and port');
+        if (typeof update.address !== 'string' || (update.address.trim() && !/^[\d.]+:\d+$|^\[[\da-fA-F:.]+\]:\d+$/.test(update.address.trim()))) throw new Error('Listen address must be an IP address and port');
         const key = update.regenerateKey || (update.enabled && !hostControlSettings.key)
           ? `ehc_browser-mock-${Math.random().toString(36).slice(2).padEnd(12, '0')}-0123456789abcdef` : hostControlSettings.key;
         hostControlSettings = { enabled: Boolean(update.enabled), address: update.address.trim(), key };

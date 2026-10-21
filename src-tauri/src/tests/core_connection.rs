@@ -11,7 +11,7 @@ fn remote_config() -> GuiConfigFile {
         connection_mode: CoreConnectionMode::Remote,
         remote_management_origin: "https://core.example:9443".into(),
         remote_management_key: "test-remote-key".into(),
-        remote_host_control_origin: "http://core.example:8318".into(),
+        remote_host_control_origin: "http://core.example:8417".into(),
         remote_host_control_key: "ehc_test-host-control-key-0123456789abcdef".into(),
         ..GuiConfigFile::default()
     }
@@ -67,19 +67,19 @@ fn connection_defaults_and_toml_round_trip() {
         "https://core.example:9443"
     );
     assert_eq!(restored.remote_management_key, "test-remote-key");
-    assert_eq!(restored.remote_host_control_origin, "http://core.example:8318");
+    assert_eq!(restored.remote_host_control_origin, "http://core.example:8417");
     assert_eq!(
         restored.remote_host_control_key,
         "ehc_test-host-control-key-0123456789abcdef"
     );
     assert!(!old.host_control_enabled && old.host_control_key.is_empty());
-    assert_eq!(old.host_control_address, crate::host_control::DEFAULT_ADDRESS);
+    assert!(old.host_control_address.is_empty());
 
     let home = agent_test_home("host-control-round-trip");
     let path = home.join("config.toml");
     let host = GuiConfigFile {
         host_control_enabled: true,
-        host_control_address: "100.64.0.1:8318".into(),
+        host_control_address: "100.64.0.1:8417".into(),
         host_control_key: "ehc_host-key-0123456789abcdef-0123456789".into(),
         ..GuiConfigFile::default()
     };

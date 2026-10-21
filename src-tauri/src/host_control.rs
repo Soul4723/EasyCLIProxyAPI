@@ -33,7 +33,9 @@ pub(crate) const PROTOCOL_VERSION: u32 = 1;
 /// Required on every request. Browsers cannot send it cross-origin without a preflight, which is refused.
 pub(crate) const PROTOCOL_HEADER: &str = "x-easycli-host-control";
 pub(crate) const PATH_PREFIX: &str = "/host-control/v1";
-pub(crate) const DEFAULT_ADDRESS: &str = "0.0.0.0:8318";
+/// The default listener port is the core's port + 100: with the release channels' core ports
+/// (8317-8319) that is 8417-8419, so no channel's listener meets any channel's core or listener.
+pub(crate) const PORT_OFFSET: u16 = 100;
 pub(crate) const STOPPED_ON_REMOTE_HOST: &str = "Stopped on remote host";
 pub(crate) const NOT_CONFIGURED: &str =
     "Set up remote host control in Core connection to start, stop or restart a remote core";
@@ -160,7 +162,7 @@ pub(crate) fn validate_host_key(config: &GuiConfigFile) -> Result<(), String> {
 
 pub(crate) fn parse_listen_address(value: &str, core_port: u16) -> Result<SocketAddr, String> {
     let address: SocketAddr = value.trim().parse().map_err(|_| {
-        "Listen address must be an IP address and port, for example 0.0.0.0:8318".to_string()
+        "Listen address must be an IP address and port, for example 0.0.0.0:8417".to_string()
     })?;
     if address.port() < 1024 {
         return Err("Choose a listen port from 1024 to 65535".into());
@@ -169,6 +171,24 @@ pub(crate) fn parse_listen_address(value: &str, core_port: u16) -> Result<Socket
         return Err("The listen port must differ from the core's port".into());
     }
     Ok(address)
+}
+
+/// Used when no listen address is saved: every interface, on the core's port + 100.
+pub(crate) fn default_address(core_port: u16) -> Option<String> {
+    core_port
+        .checked_add(PORT_OFFSET)
+        .map(|port| format!("0.0.0.0:{port}"))
+}
+
+/// The saved listen address, or the default for this core's port when none is saved.
+pub(crate) fn effective_address(config: &GuiConfigFile) -> Result<SocketAddr, String> {
+    let saved = config.host_control_address.trim();
+    let value = if saved.is_empty() {
+        default_address(config.port).ok_or("Enter a listen address for remote control")?
+    } else {
+        saved.to_string()
+    };
+    parse_listen_address(&value, config.port)
 }
 
 /// Client side: both empty (not configured) or a valid origin and key distinct from the management key.
@@ -591,7 +611,7 @@ async fn start_listener(
     if config.connection_mode != CoreConnectionMode::Local {
         return Err(REMOTE_MODE_PAUSED.into());
     }
-    let address = parse_listen_address(&config.host_control_address, config.port)?;
+    let address = effective_address(&config)?;
     validate_host_key(&config)?;
     let listener = TcpListener::bind(address)
         .await
@@ -641,7 +661,9 @@ pub(crate) async fn apply(app: tauri::AppHandle) {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HostControlSettings {
     enabled: bool,
+    /// Saved address; empty means `default_address`.
     address: String,
+    default_address: Option<String>,
     key: String,
     /// False while this app is connected to a remote core.
     available: bool,
@@ -659,6 +681,7 @@ fn settings_view(app: &tauri::AppHandle) -> Result<HostControlSettings, String> 
         .unwrap_or_default();
     Ok(HostControlSettings {
         enabled: config.host_control_enabled,
+        default_address: default_address(config.port),
         address: config.host_control_address,
         key: config.host_control_key,
         available: config.connection_mode == CoreConnectionMode::Local,
@@ -678,7 +701,9 @@ pub(crate) struct HostControlUpdate {
 
 pub(crate) fn apply_update(config: &mut GuiConfigFile, update: HostControlUpdate) -> Result<(), String> {
     let address = update.address.trim().to_string();
-    parse_listen_address(&address, config.port)?;
+    if !address.is_empty() {
+        parse_listen_address(&address, config.port)?;
+    }
     if update.enabled && config.connection_mode != CoreConnectionMode::Local {
         return Err(REMOTE_MODE_PAUSED.into());
     }
@@ -688,6 +713,7 @@ pub(crate) fn apply_update(config: &mut GuiConfigFile, update: HostControlUpdate
     config.host_control_enabled = update.enabled;
     config.host_control_address = address;
     if config.host_control_enabled {
+        effective_address(config)?;
         validate_host_key(config)?;
     }
     Ok(())

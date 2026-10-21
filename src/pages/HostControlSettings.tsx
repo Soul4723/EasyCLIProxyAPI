@@ -30,7 +30,8 @@ export function HostControlSettings({ hidden }: { hidden?: boolean }) {
 
   const available = settings?.available === true;
   const disabled = busy || !available;
-  const addressValid = isValidListenAddress(address, corePort);
+  // Empty keeps the default address, derived from this core's port.
+  const addressValid = address.trim() === '' ? Boolean(settings?.defaultAddress) : isValidListenAddress(address, corePort);
   const dirty = Boolean(settings && (enabled !== settings.enabled || address.trim() !== settings.address));
 
   const save = async (regenerateKey = false) => {
@@ -65,11 +66,11 @@ export function HostControlSettings({ hidden }: { hidden?: boolean }) {
         <div className="host-control-field">
           <label className="config-management-field">
             <span>{t('hostControl.address')}</span>
-            <input className="config-dialog-text-input" type="text" autoComplete="off" spellCheck={false} placeholder="0.0.0.0:8318"
+            <input className="config-dialog-text-input" type="text" autoComplete="off" spellCheck={false} placeholder={settings?.defaultAddress ?? ''}
               value={address} disabled={disabled} aria-invalid={address.trim() !== '' && !addressValid}
               onChange={(event) => { setAddress(event.currentTarget.value); setSaved(''); }} />
           </label>
-          <p className="core-connection-hint">{t('hostControl.addressHint')}</p>
+          <p className="core-connection-hint">{t('hostControl.addressHint')}{settings?.defaultAddress ? ` ${t('hostControl.addressDefault', { address: settings.defaultAddress })}` : ''}</p>
         </div>
         <div className="host-control-field">
           <label className="config-management-field">

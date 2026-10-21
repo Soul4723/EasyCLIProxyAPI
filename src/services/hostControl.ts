@@ -3,7 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 // This computer's remote host control listener (Local mode): lets another EasyCLIProxyAPI start, stop and restart this core.
 export type HostControlSettings = {
   enabled: boolean;
+  // Saved listen address; empty uses defaultAddress (this core's port + 100).
   address: string;
+  defaultAddress: string | null;
   key: string;
   available: boolean;
   listening: string | null;

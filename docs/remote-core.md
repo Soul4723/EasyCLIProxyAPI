@@ -39,9 +39,11 @@ supervises the core on its own computer can do it instead, if you allow it.
 1. Run EasyCLIProxyAPI in **Local** mode; it manages the core as usual.
 2. Open **Advanced Features → App preferences → Remote control of this core**,
    turn on **Allow remote control**, check the **Listen address** and save.
-   The address is an IP literal and port (default `0.0.0.0:8318`, every
-   network). Enter a VPN address, for example your Tailscale IP, to listen only
-   there. The port must be 1024–65535 and differ from the core's port.
+   The address is an IP literal and port. Left empty, it is every network on
+   the core's port + 100 (`0.0.0.0:8417` for a core on 8317), which keeps it
+   apart from the core ports 8317–8319 and from each other. Enter a VPN
+   address, for example your Tailscale IP, to listen only there. The port must
+   be 1024–65535 and differ from the core's port.
 3. Saving generates a **host control key** (`ehc_…`, 256 random bits). Copy it.
    It is separate from the management and client keys and may not equal them.
    **Generate new key** replaces it; the old key stops working at once.
@@ -54,7 +56,7 @@ are refused while the app runs; use the panel.
 ### On the other computer (the client)
 
 In **Core connection**, under **Remote host control**, enter the host's URL
-(for example `http://100.64.0.1:8318`, an origin only) and the host control
+(for example `http://100.64.0.1:8417`, an origin only) and the host control
 key, or leave both empty. **Test connection** checks the management API and
 host control together; nothing is saved until **Save & connect**.
 
