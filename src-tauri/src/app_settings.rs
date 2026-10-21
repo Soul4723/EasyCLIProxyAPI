@@ -49,6 +49,7 @@ pub(crate) async fn get_core_status(app: tauri::AppHandle) -> Result<CoreStatus,
 }
 
 pub(crate) fn emit_core_status(app: &tauri::AppHandle, status: &CoreStatus) {
+    app.state::<usage::UsageCollectorState>().request_readiness_check();
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     update_windows_tray_status(app, status);
     let _ = app.emit(CORE_STATUS_EVENT, status);
