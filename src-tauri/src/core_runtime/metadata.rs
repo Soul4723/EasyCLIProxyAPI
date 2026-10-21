@@ -83,6 +83,23 @@ pub(crate) fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
+/// Accepts only `[v]MAJOR.MINOR.PATCH[-prerelease]` and returns the canonical `vX.Y.Z` tag. The
+/// version ends up in a download URL path, so nothing that could alter that path (`/`, `..`, `?`,
+/// `#`, `%`, `:`, whitespace) may get through.
+pub(crate) fn validate_release_version(version: &str) -> Result<String, String> {
+    static SHAPE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let shape = SHAPE.get_or_init(|| {
+        regex::Regex::new(r"^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$").expect("valid regex")
+    });
+    let bare = version.strip_prefix('v').unwrap_or(version);
+    if !shape.is_match(version) || semver::Version::parse(bare).is_err() {
+        return Err(format!(
+            "Invalid release version {version:?}: expected a semantic version such as 8.0.35"
+        ));
+    }
+    Ok(format!("v{bare}"))
+}
+
 pub(crate) fn normalize_version(version: &str) -> String {
     let version = version.trim();
 

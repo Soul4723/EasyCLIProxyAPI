@@ -98,6 +98,8 @@ export type CodexSessionMessageItem = {
   model: string | null;
   callId: string | null;
   signatureStripped?: boolean;
+  /** Every line sharing this tool record's call id (call and result), including lines in pages not loaded yet. */
+  linkedLines?: number[];
 };
 
 export type CodexSessionContextStats = {
@@ -121,6 +123,10 @@ export type CodexSessionContextDetail = {
   rolloutPath: string | null;
   databasePath: string | null;
   messages: CodexSessionMessageItem[];
+  /** Index of `messages[0]` among all messages of the rollout. */
+  messageOffset: number;
+  /** All messages of the rollout, whatever the page. */
+  totalMessages: number;
   stats: CodexSessionContextStats;
   rawJsonl: string | null;
   rawJsonlAvailable: boolean;

@@ -256,7 +256,7 @@ pub(super) fn apply_session_index_cleanup_from_home(
         .lock()
         .map_err(|_| "Codex session write lock is poisoned".to_string())?;
     if require_stopped_app {
-        ensure_codex_apps_stopped()?;
+        ensure_codex_apps_stopped("preview and clean")?;
     }
     let live_ids = collect_live_thread_ids(codex_home)?;
     let path = codex_home.join("session_index.jsonl");
@@ -319,7 +319,7 @@ pub(super) fn apply_session_index_cleanup_from_home(
         ));
     }
     if require_stopped_app {
-        ensure_codex_apps_stopped()?;
+        ensure_codex_apps_stopped("preview and clean")?;
     }
     let expected_after_sha256 = sha256_hex(next.as_bytes());
     crate::write_bytes_atomically(&plan.path, next.as_bytes())?;

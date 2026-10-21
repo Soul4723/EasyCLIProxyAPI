@@ -319,11 +319,15 @@ commands take `expectedRevision` as a top-level argument:
 ## Remote configuration writes
 
 - Writes are field-path `PUT`/`DELETE` requests on `/v8/management/config/<path>`.
-- Before each change the current value is re-read and compared with the value the editor
-  started from; a difference fails with "Remote configuration changed; reload before saving".
+- Before the first write, one fresh read checks every changed field against the value the
+  editor started from; any difference fails with "Remote configuration changed; reload before
+  saving" and nothing is written. The writes then follow without further reads, so a save of
+  N fields costs the editor's read, one check read and N writes. Alias saves already re-read
+  and validate the document themselves, so that read serves as the check. A change by another
+  client during the writes is not detected.
 - There is no rollback and no retry of uncertain writes. A partial apply reports
   "Remote configuration save stopped after N of M confirmed changes; some changes may have
-  applied. Reload before editing."
+  applied. Reload before editing. Confirmed: <field paths>."
 
 ## Compatibility
 
