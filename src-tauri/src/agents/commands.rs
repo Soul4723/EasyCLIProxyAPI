@@ -141,7 +141,6 @@ pub(crate) fn refresh_agent_config_status_cache(
         .lock()
         .map_err(|_| "Agent configuration status refresh lock is poisoned".to_string())?;
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let port = config.port;
     let api_key = effective_agent_api_key(&config);
     let statuses = inspect_agent_config_statuses(app, &config)?;
@@ -163,7 +162,6 @@ pub(crate) async fn get_agent_config_statuses(
                 .lock()
                 .map_err(|_| "Agent configuration status refresh lock is poisoned".to_string())?;
             let config = gui_config_state.snapshot()?;
-            crate::core_connection::require_local(&config)?;
             let port = config.port;
             if executable_overrides.as_ref().is_none_or(HashMap::is_empty) {
               if let Some(statuses) = cache.get(port, effective_agent_api_key(&config))? {
@@ -172,7 +170,6 @@ pub(crate) async fn get_agent_config_statuses(
             }
         }
         let config = gui_config_state.snapshot()?;
-        crate::core_connection::require_local(&config)?;
         let statuses = inspect_agent_config_statuses_with_overrides(&app, &config, &executable_overrides.unwrap_or_default())?;
         cache.replace(config.port, effective_agent_api_key(&config), statuses.clone())?;
         Ok(statuses)
@@ -190,7 +187,6 @@ pub(crate) async fn refresh_agent_config_statuses(
         let gui_config_state = app.state::<GuiConfigState>();
         let cache = app.state::<AgentConfigStatusCache>();
         let config = gui_config_state.snapshot()?;
-        crate::core_connection::require_local(&config)?;
         let statuses = inspect_agent_config_statuses_with_overrides(&app, &config, &executable_overrides.unwrap_or_default())?;
         cache.replace(config.port, effective_agent_api_key(&config), statuses.clone())?;
         Ok(statuses)
@@ -207,7 +203,6 @@ pub(crate) async fn get_agent_models(
 ) -> Result<Vec<AgentModelOption>, String> {
     if client.trim().eq_ignore_ascii_case(PI_AGENT_ID) {
         let config = gui_config_state.snapshot()?;
-        crate::core_connection::require_local(&config)?;
         return fetch_agent_models(config.port, effective_agent_api_key(&config)).await;
     }
     let client = AgentClient::parse(&client)?;
@@ -217,7 +212,6 @@ pub(crate) async fn get_agent_models(
         None
     };
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let prepared = fetch_prepared_agent_models(client, &config).await?;
     Ok(prepared.models)
 }
@@ -234,7 +228,6 @@ pub(crate) async fn resolve_pi_default_model(
 pub(crate) async fn check_pi_provider_update(
     app: tauri::AppHandle,
 ) -> Result<PiProviderUpdateStatus, String> {
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()
@@ -270,7 +263,6 @@ pub(crate) async fn install_pi_provider(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref());
     if executable.is_none()
         && !inspect_pi_provider_status_with_executable(
@@ -313,7 +305,6 @@ pub(crate) async fn update_pi_provider(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref())
         .ok_or_else(|| "Pi CLI was not detected. Install Pi and ensure the pi command is in PATH".to_string())?;
     let model = resolve_pi_default_model(&config, &model).await?;
@@ -341,7 +332,6 @@ pub(crate) async fn repair_pi_provider(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let model = resolve_pi_default_model(&config, &model).await?;
     let port = config.port;
     let api_key = effective_agent_api_key(&config).to_string();
@@ -360,7 +350,6 @@ pub(crate) async fn uninstall_pi_provider(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()
@@ -378,7 +367,6 @@ pub(crate) async fn uninstall_pi_provider(
 
 #[tauri::command]
 pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), String> {
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()
@@ -390,7 +378,6 @@ pub(crate) fn check_codex_oauth_login(app: tauri::AppHandle) -> Result<(), Strin
 pub(crate) async fn update_codex_model_catalog(
     app: tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     update_codex_model_catalog_inner(&app).await
 }
 
@@ -584,7 +571,6 @@ pub(crate) async fn get_codex_model_catalog_editor(
 ) -> Result<codex_catalog::CatalogEditorSnapshot, String> {
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
     reload_changed_codex_catalog_files(&app);
     codex_catalog::editor_snapshot(&runtime_models)
@@ -605,7 +591,6 @@ pub(crate) async fn save_codex_model_catalog_editor(
 ) -> Result<CodexCatalogEditorSaveResult, String> {
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let runtime_models = fetch_codex_catalog_runtime_models(&config).await?;
     reload_changed_codex_catalog_files(&app);
     let customizations_path = codex_model_customizations_path(&app)?;
@@ -635,7 +620,6 @@ pub(crate) async fn get_model_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
         fetch_agent_models(config.port, effective_agent_api_key(&config)).await?;
@@ -656,7 +640,6 @@ pub(crate) async fn get_thinking_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
         fetch_agent_models(config.port, effective_agent_api_key(&config)).await?;
@@ -696,7 +679,6 @@ pub(crate) async fn create_thinking_alias(
     original_entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
         return Err("Select the source model first".to_string());
@@ -799,7 +781,6 @@ pub(crate) async fn get_speed_alias_sources(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<ThinkingAliasSource>, String> {
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let content = fetch_management_config_yaml(&config).await?;
     let available_models =
         fetch_agent_models(config.port, effective_agent_api_key(&config)).await?;
@@ -822,7 +803,6 @@ pub(crate) async fn create_speed_alias(
     alias: String,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
         return Err("Select the source model first".to_string());
@@ -1096,7 +1076,6 @@ pub(crate) async fn refresh_applied_codex_model_catalog(
     app: &tauri::AppHandle,
     config: &GuiConfigFile,
 ) -> Result<bool, String> {
-    crate::core_connection::require_local(config)?;
     let _sync_guard = CODEX_CATALOG_SYNC_LOCK.lock().await;
     let runtime_models = fetch_codex_catalog_runtime_models(config).await?;
     reload_changed_codex_catalog_files(app);
@@ -1297,7 +1276,6 @@ pub(crate) async fn apply_agent_config(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let client = AgentClient::parse(&client)?;
     let home = app
         .path()
@@ -1349,7 +1327,6 @@ pub(crate) async fn apply_agent_config(
 
 #[tauri::command]
 pub(crate) fn clear_codex_config(app: tauri::AppHandle) -> Result<Vec<String>, String> {
-    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()
@@ -1373,7 +1350,6 @@ pub(crate) async fn set_agent_config_enabled(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let client = AgentClient::parse(&client)?;
     let home = app
         .path()
@@ -1449,7 +1425,6 @@ pub(crate) async fn update_agent_config(
     claude_desktop_model_mappings: Option<ClaudeDesktopModelMappings>,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     apply_agent_config(
         app,
         gui_config_state,

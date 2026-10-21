@@ -1413,8 +1413,8 @@ pub(crate) fn load_or_create_gui_config() -> Result<GuiConfigFile, String> {
         )
     };
 
-    // Keep Remote selected if its saved target needs repair. Falling back to
-    // Local here could start a local process instead. Requests validate the target.
+    // Remote mode does not use the local core files. Skip their reconciliation so
+    // a local problem cannot fall back to the default Local mode and start a core.
     if config.connection_mode == CoreConnectionMode::Remote {
         return Ok(config);
     }
@@ -2061,10 +2061,6 @@ pub(crate) fn is_loopback_host(host: &str) -> bool {
 }
 
 pub(crate) fn sanitize_gui_config(config: &mut GuiConfigFile) -> Result<bool, String> {
-    if config.connection_mode == CoreConnectionMode::Remote {
-        crate::core_connection::validate_remote_config(config)?;
-        return Ok(false);
-    }
     let install_dir = core_install_dir()?;
     let persistent_auth_dir = fixed_oauth_dir()?;
     sanitize_gui_config_at(config, &install_dir, &persistent_auth_dir)
@@ -2398,9 +2394,6 @@ pub(crate) fn write_gui_config_to_path(
 }
 
 pub(crate) fn validate_gui_config(config: &GuiConfigFile) -> Result<(), String> {
-    if config.connection_mode == CoreConnectionMode::Remote {
-        return crate::core_connection::validate_remote_config(config);
-    }
     if config.port == 0 {
         return Err("GUI configuration port must be between 1 and 65535".to_string());
     }

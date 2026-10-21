@@ -1,7 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
-import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { OAuthLoginPage } from '../../src/pages/ManagementPages';
 import { QuotaPage } from '../../src/pages/QuotaPage';
 import { AuthFileManagementPage } from '../../src/pages/AuthFileManagementPage';
@@ -26,7 +25,6 @@ const fixture = {
 };
 Object.assign(window, { devinFixture: fixture });
 mockIPC(async (cmd, args: any) => {
-  if (cmd === 'get_core_status') return null;
   fixture.calls.push({ cmd, args });
   if (cmd === 'set_app_locale') return null;
   if (cmd === 'list_oauth_browsers') return [{ id: 'default', label: 'System Default' }];
@@ -64,6 +62,6 @@ mockIPC(async (cmd, args: any) => {
   }
   throw new Error('Unexpected command: ' + cmd + ' ' + JSON.stringify(args));
 }, { shouldMockEvents: true });
-createRoot(document.getElementById('root')!).render(<I18nProvider><CoreRuntimeProvider><main style={{ padding: 24 }}>
+createRoot(document.getElementById('root')!).render(<I18nProvider><main style={{ padding: 24 }}>
   {view === 'quota' ? <QuotaPage /> : view === 'files' ? <AuthFileManagementPage /> : view === 'easy' ? <EasyModePage /> : <OAuthLoginPage />}
-</main></CoreRuntimeProvider></I18nProvider>);
+</main></I18nProvider>);

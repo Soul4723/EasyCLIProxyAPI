@@ -196,7 +196,6 @@ pub(crate) async fn list_codex_sessions(
     app: tauri::AppHandle,
     request: Option<ListCodexSessionsRequest>,
 ) -> Result<CodexSessionPage, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
     let user_home = app
         .path()
         .home_dir()
@@ -218,7 +217,6 @@ pub(crate) async fn delete_codex_sessions(
     app: tauri::AppHandle,
     request: DeleteCodexSessionsRequest,
 ) -> Result<CodexSessionDeleteBatchResult, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
     let user_home = app
         .path()
         .home_dir()
@@ -236,7 +234,6 @@ pub(crate) async fn repair_codex_session_metadata(
     app: tauri::AppHandle,
     expected_provider: Option<String>,
 ) -> Result<CodexSessionRepairResult, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
     let user_home = app
         .path()
         .home_dir()
@@ -262,7 +259,6 @@ pub(crate) async fn repair_codex_session_metadata(
 pub(crate) async fn preview_codex_session_index_cleanup(
     app: tauri::AppHandle,
 ) -> Result<SessionIndexCleanupPreview, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
     let user_home = app
         .path()
         .home_dir()
@@ -280,7 +276,6 @@ pub(crate) async fn apply_codex_session_index_cleanup(
     app: tauri::AppHandle,
     request: ApplySessionIndexCleanupRequest,
 ) -> Result<SessionIndexCleanupResult, String> {
-    crate::core_connection::require_local(&app.state::<crate::GuiConfigState>().snapshot()?)?;
     let user_home = app
         .path()
         .home_dir()

@@ -1,7 +1,7 @@
 use super::support::*;
 use super::*;
 use crate::core_connection::{
-    normalize_origin, require_local, test_core_connection, CoreConnection,
+    normalize_connection, normalize_origin, require_local, test_core_connection, CoreConnection,
 };
 use std::io::{Read, Write};
 
@@ -39,12 +39,12 @@ fn remote_origin_and_key_validation() {
     ] {
         assert!(normalize_origin(value).is_err(), "{value:?}");
     }
-    let mut config = remote_config();
+    let mut connection = CoreConnection::from(&remote_config());
     for key in ["", "bad\nkey", "$2b$hashed", "bad\tkey"] {
-        config.remote_management_key = key.into();
-        assert!(crate::core_connection::validate_remote_config(&config).is_err());
+        connection.management_key = key.into();
+        assert!(normalize_connection(connection.clone()).is_err());
     }
-    assert!(crate::core_connection::validate_remote_config(&remote_config()).is_ok());
+    assert!(normalize_connection(CoreConnection::from(&remote_config())).is_ok());
 }
 
 #[test]

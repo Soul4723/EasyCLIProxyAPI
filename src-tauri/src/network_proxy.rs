@@ -513,9 +513,6 @@ fn apply(state: &GuiConfigState) -> Result<GuiConfigFile, String> {
         .lock()
         .map_err(|_| "Proxy configuration lock is poisoned".to_string())?
         .clone();
-    if snapshot.connection_mode == CoreConnectionMode::Remote {
-        return Ok(snapshot);
-    }
     let detected = if snapshot.proxy_override {
         None
     } else {
@@ -525,9 +522,6 @@ fn apply(state: &GuiConfigState) -> Result<GuiConfigFile, String> {
         .inner
         .lock()
         .map_err(|_| "Proxy configuration lock is poisoned".to_string())?;
-    if current.connection_mode == CoreConnectionMode::Remote {
-        return Ok(current.clone());
-    }
     let mut next = current.clone();
     next.proxy_url = if next.proxy_override {
         next.proxy_url.clone()
@@ -564,7 +558,6 @@ pub(crate) fn refresh(state: &GuiConfigState) -> Result<(), String> {
 }
 
 pub(crate) fn set_manual(state: &GuiConfigState, proxy_url: String) -> Result<(), String> {
-    crate::core_connection::require_local(&state.snapshot()?)?;
     let proxy_url = normalize_optional_proxy_url(&proxy_url)?;
     let detected = if proxy_url.is_empty() {
         Some(detect())
@@ -575,7 +568,6 @@ pub(crate) fn set_manual(state: &GuiConfigState, proxy_url: String) -> Result<()
         .inner
         .lock()
         .map_err(|_| "Proxy configuration lock is poisoned".to_string())?;
-    crate::core_connection::require_local(&current)?;
     let mut next = current.clone();
     next.proxy_override = !proxy_url.is_empty();
     next.proxy_url = if next.proxy_override {
@@ -587,7 +579,6 @@ pub(crate) fn set_manual(state: &GuiConfigState, proxy_url: String) -> Result<()
 }
 
 pub(crate) async fn verify_core_proxy(config: &GuiConfigFile) -> Result<(), String> {
-    crate::core_connection::require_local(config)?;
     let client = management_api::management_http_client_for(config)?;
     let mut updated = false;
     for attempt in 0..10 {
@@ -642,8 +633,7 @@ static SYNC_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn synchronize(app: &tauri::AppHandle, require_core: bool) -> Result<(), String> {
     let _guard = SYNC_LOCK.lock().await;
-    let config = app.state::<GuiConfigState>().snapshot()?;
-    if config.connection_mode == CoreConnectionMode::Remote {
+    if app.state::<GuiConfigState>().snapshot()?.connection_mode == CoreConnectionMode::Remote {
         return Ok(());
     }
     // Keep the existing process check active even if proxy synchronization fails.

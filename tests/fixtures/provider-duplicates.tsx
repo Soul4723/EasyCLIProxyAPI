@@ -2,7 +2,6 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
-import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { ApiAccessPage, providerRemarkIdentity, type ApiAccessRemarkLocator, type ProviderSection } from '../../src/pages/ApiAccessPage';
 import '../../src/styles/index.css';
 
@@ -20,7 +19,6 @@ fixture.providerFixture = {
 const remarks = new Map<string, string>();
 mockIPC((cmd, rawArgs) => {
   if (cmd === 'set_app_locale') return null;
-  if (cmd === 'get_core_status') return null;
   if (cmd === 'resolve_api_access_remarks') {
     const { queries } = rawArgs as { queries: (ApiAccessRemarkLocator & { providerSection: ProviderSection })[] };
     return queries.map((query) => remarks.get(providerRemarkIdentity(query.providerSection, query)) ?? '');
@@ -51,10 +49,10 @@ mockIPC((cmd, rawArgs) => {
     return { status: 'ok' };
   }
   throw new Error(`Unhandled fixture command: ${cmd}`);
-}, { shouldMockEvents: true });
+});
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider><CoreRuntimeProvider><div className="app-shell"><aside className="sidebar" /><div className="workspace"><main className="content">
+  <I18nProvider><div className="app-shell"><aside className="sidebar" /><div className="workspace"><main className="content">
     <ApiAccessPage />
-  </main></div></div></CoreRuntimeProvider></I18nProvider>,
+  </main></div></div></I18nProvider>,
 );

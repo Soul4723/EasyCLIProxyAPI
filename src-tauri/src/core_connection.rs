@@ -43,18 +43,10 @@ pub(crate) fn normalize_origin(value: &str) -> Result<String, String> {
     Ok(parsed.to_string().trim_end_matches('/').to_string())
 }
 
-fn normalize_connection(mut connection: CoreConnection) -> Result<CoreConnection, String> {
+pub(crate) fn normalize_connection(mut connection: CoreConnection) -> Result<CoreConnection, String> {
     connection.management_origin = normalize_origin(&connection.management_origin)?;
-    crate::validate_management_secret_key(&connection.management_key)?;
     connection.management_key = crate::normalize_management_secret_key(connection.management_key)?;
-    // Bearer credentials must be representable as an HTTP header.
-    reqwest::header::HeaderValue::from_str(&format!("Bearer {}", connection.management_key))
-        .map_err(|_| "Invalid management key")?;
     Ok(connection)
-}
-
-pub(crate) fn validate_remote_config(config: &GuiConfigFile) -> Result<(), String> {
-    normalize_connection(CoreConnection::from(config)).map(|_| ())
 }
 
 pub(crate) fn require_local(config: &GuiConfigFile) -> Result<(), String> {

@@ -1,7 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
-import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { PluginsPage } from '../../src/pages/PluginsPage';
 import '../../src/styles/index.css';
 
@@ -83,7 +82,6 @@ if (params.has('foreign-source')) storeEntries.unshift({ ...storeEntries[0], sou
 });
 
 mockIPC(async (command, args) => {
-  if (command === 'get_core_status') return null;
   state.commands.push({ command, args });
   if (command === 'prepare_management_request') return `install-${state.commands.length}`;
   if (command === 'cancel_management_request') return null;
@@ -157,8 +155,8 @@ mockIPC(async (command, args) => {
       restart_required: removed?.registered === true };
   }
   throw new Error(`Unhandled fixture request: ${request.method} ${request.path}`);
-}, { shouldMockEvents: true });
+});
 
 createRoot(document.getElementById('root')!).render(params.has('resource')
   ? <h1>Sample resource preview</h1>
-  : <I18nProvider><CoreRuntimeProvider><main style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}><PluginsPage /></main></CoreRuntimeProvider></I18nProvider>);
+  : <I18nProvider><main style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}><PluginsPage /></main></I18nProvider>);

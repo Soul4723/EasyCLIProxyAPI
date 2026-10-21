@@ -96,7 +96,7 @@ import {
   reorderProviderEntries, updateProviderEntry, type ProviderEntrySource,
 } from '../services/providerEntries';
 import { getCurrentLocale, translate, useI18n } from '../i18n';
-import { useCoreRuntime } from '../coreRuntime';
+import { useRemoteMode } from '../coreRuntime';
 import type { MessageKey } from '../i18n/resources';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
 import { Select } from '../components/Select';
@@ -1215,8 +1215,7 @@ export const providerRecordWithDisabledState = (
 };
 
 export function ApiAccessPage() {
-  const { status } = useCoreRuntime();
-  const remoteMode = status?.connectionMode === 'remote';
+  const remoteMode = useRemoteMode();
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { t } = useI18n();
   const [records, setRecords] = useState(emptyRecords);
@@ -1720,7 +1719,6 @@ export function ApiAccessPage() {
           editingRow={editingRow}
           initialDraft={dialogDraft}
           busy={busy}
-          remoteMode={remoteMode}
           onClose={() => setDialogOpen(false)}
           onSave={saveProvider}
         />
@@ -1978,7 +1976,6 @@ type ApiProviderDialogProps = {
   editingRow: ProviderRow | null;
   initialDraft: ProviderDraft;
   busy: boolean;
-  remoteMode?: boolean;
   onClose: () => void;
   onSave: (draft: ProviderDraft) => Promise<ProviderSaveResult>;
 };
@@ -1988,10 +1985,10 @@ export function ApiProviderDialog({
   editingRow,
   initialDraft,
   busy,
-  remoteMode = false,
   onClose,
   onSave,
 }: ApiProviderDialogProps) {
+  const remoteMode = useRemoteMode();
   const { t } = useI18n();
   const definition = definitionFor(activeCategory);
   const activeSection = definition.section;

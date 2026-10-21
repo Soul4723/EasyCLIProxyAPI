@@ -2721,7 +2721,6 @@ fn main() {
 
             let usage_app = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
-                if !usage_app.state::<GuiConfigState>().snapshot().is_ok_and(|config| config.connection_mode == CoreConnectionMode::Local) { return; }
                 if let Err(error) = usage::initialize_usage_storage() {
                     eprintln!("Failed to initialize usage records directory: {error}");
                 }

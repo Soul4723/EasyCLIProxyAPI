@@ -22,7 +22,7 @@ import { useI18n } from '../i18n';
 import { pluginText } from '../i18n/plugins';
 import { FloatingNotice, useAppNotice } from '../appNotice';
 import { useConfirmation } from '../components/ConfirmationDialog';
-import { useCoreRuntime } from '../coreRuntime';
+import { useRemoteMode } from '../coreRuntime';
 import { buildPluginResourceRoute, collectPluginResourceEntries, getPluginTitle, isDefaultPluginStoreSource, getPluginRepositorySlug, notifyPluginResourcesChanged, type PluginResourceEntry } from '../services/pluginResources';
 import { getPluginStatus, isPluginInstalled } from '../services/pluginStatus';
 import { refreshPluginReleaseVersions } from '../services/pluginReleaseVersions';
@@ -40,8 +40,7 @@ type Tab = 'installed' | 'store' | 'settings';
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export function PluginsPage() {
-  const { status: coreStatus } = useCoreRuntime();
-  const remoteMode = coreStatus?.connectionMode === 'remote';
+  const remoteMode = useRemoteMode();
   const { t, locale } = useI18n();
   const pt = (key: Parameters<typeof pluginText>[0]) => pluginText(key, locale);
   const [tab, setTab] = useState<Tab>('installed');

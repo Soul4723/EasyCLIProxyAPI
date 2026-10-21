@@ -90,7 +90,7 @@ import {
   type OAuthModelTarget,
 } from '../services/oauthModelSettings';
 import { getCurrentLocale, translate, useI18n } from '../i18n';
-import { useCoreRuntime } from '../coreRuntime';
+import { useRemoteMode } from '../coreRuntime';
 import { usePrivacyMask } from '../privacy';
 import { Select } from '../components/Select';
 
@@ -128,8 +128,7 @@ const isRuntimeOnly = isRuntimeOnlyAuthFile;
 const hasQuota = (file: AuthFile) => Boolean(quotaProviderForFile(file));
 
 export function AuthFileManagementPage({ initialProvider }: { initialProvider?: string } = {}) {
-  const { status } = useCoreRuntime();
-  const remoteMode = status?.connectionMode === 'remote';
+  const remoteMode = useRemoteMode();
   const { t } = useI18n();
   const privacy = usePrivacyMask();
   const now = useQuotaClock();

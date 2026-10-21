@@ -727,7 +727,6 @@ pub(crate) async fn get_deepseek_harness_model_catalog_editor(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<HarnessEditorSnapshot, String> {
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let models = fetch_deepseek_harness_models(&config).await?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
@@ -743,7 +742,6 @@ pub(crate) async fn save_deepseek_harness_model_catalog_editor(
     request: HarnessEditorRequest,
 ) -> Result<HarnessEditorSnapshot, String> {
     let config = gui_config_state.snapshot()?;
-    crate::core_connection::require_local(&config)?;
     let models = fetch_deepseek_harness_models(&config).await?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK

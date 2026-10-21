@@ -322,8 +322,8 @@ pub(crate) async fn install_core_version(
         let state = app.state::<CoreDownloadState>();
         let process_state = app.state::<CoreProcessState>();
         let gui_config_state = app.state::<GuiConfigState>();
-        crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
         let config = gui_config_state.snapshot()?;
+        crate::core_connection::require_local(&config)?;
         let proxy_url = config.proxy_url.clone();
         let rollback_dir = core_base_dir()?.join("cpa-core.rollback");
         archive_previous_core_rollback(&rollback_dir)?;

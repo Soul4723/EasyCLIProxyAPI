@@ -1,6 +1,6 @@
 use super::{
     agent_managed_paths, apply_gui_managed_settings, consume_software_write,
-    core_config_settings_from_value, core_install_dir, gui_config_path, is_loopback_host,
+    core_config_settings_from_value, core_connection::CoreConnection, core_install_dir, gui_config_path, is_loopback_host,
     lock_core_config_file, normalized_config_path, path_to_string,
     refresh_agent_config_status_cache, request_codex_model_catalog_refresh, validate_gui_config,
     write_core_config_if_changed, AgentClient, AgentConfigStatusCache, ConfigFilesChangedPayload,
@@ -45,7 +45,6 @@ fn wait_for_config_file_stability(path: &Path) {
 }
 
 fn patch_core_from_gui_config_if_valid(config: &GuiConfigFile) -> Result<(), String> {
-    if config.connection_mode == super::CoreConnectionMode::Remote { return Ok(()); }
     let _guard = lock_core_config_file()?;
     let path = core_install_dir()?.join(CORE_CONFIG_FILE);
     if !path.is_file() {
@@ -165,10 +164,7 @@ fn handle_configuration_file_changes(
                 };
                 let result = (|| -> Result<(), String> {
                     let current = gui_state.snapshot()?;
-                    if current.connection_mode != config.connection_mode
-                        || current.remote_management_origin != config.remote_management_origin
-                        || current.remote_management_key != config.remote_management_key
-                    {
+                    if CoreConnection::from(&current) != CoreConnection::from(&config) {
                         return Err("Use Core connection settings to change the active core connection".into());
                     }
                     gui_state.replace_external(config.clone())?;
@@ -185,7 +181,6 @@ fn handle_configuration_file_changes(
             }
 
             if is_core_path(tracked_path) {
-                if gui_state.snapshot().is_ok_and(|config| config.connection_mode == super::CoreConnectionMode::Remote) { continue; }
                 let parsed = (|| -> Result<CoreConfigSettings, String> {
                     let content = fs::read_to_string(tracked_path).map_err(|error| {
                         format!("Failed to read kernel configuration {}: {error}", path_to_string(tracked_path))
@@ -225,7 +220,7 @@ fn handle_configuration_file_changes(
         .iter()
         .any(|path| !is_gui_path(path) && !is_core_path(path));
 
-    if refresh_agents && gui_state.snapshot().is_ok_and(|config| config.connection_mode == super::CoreConnectionMode::Local) {
+    if refresh_agents {
         if let Err(error) = refresh_agent_config_status_cache(app, gui_state.inner(), cache.inner())
         {
             errors.push(error);

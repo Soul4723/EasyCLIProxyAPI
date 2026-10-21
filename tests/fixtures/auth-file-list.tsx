@@ -2,7 +2,6 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { I18nProvider } from '../../src/i18n';
-import { CoreRuntimeProvider } from '../../src/coreRuntime';
 import { AuthFileManagementPage } from '../../src/pages/AuthFileManagementPage';
 import { updateQuotaCache } from '../../src/services/quotaCache';
 import { quotaKey, type QuotaState } from '../../src/services/quotaService';
@@ -72,7 +71,6 @@ const state = { files, requests: [] as Request[], unhandled: [] as string[], rea
 (window as typeof window & { authFileListFixture: typeof state }).authFileListFixture = state;
 mockIPC(async (cmd, args) => {
   if (cmd === 'set_app_locale') return null;
-  if (cmd === 'get_core_status') return null;
   if (cmd !== 'management_request') {
     state.unhandled.push(cmd);
     throw new Error(`Unhandled fixture command: ${cmd}`);
@@ -99,11 +97,11 @@ mockIPC(async (cmd, args) => {
   }
   state.unhandled.push(`${request.method} ${request.path}`);
   throw new Error(`Unhandled fixture request: ${request.method} ${request.path}`);
-}, { shouldMockEvents: true });
+});
 
 createRoot(document.getElementById('root')!).render(
-  <I18nProvider><CoreRuntimeProvider><div className="app-shell">
+  <I18nProvider><div className="app-shell">
     <aside className="sidebar" aria-hidden="true" />
     <div className="workspace"><main className="content"><AuthFileManagementPage /></main></div>
-  </div></CoreRuntimeProvider></I18nProvider>,
+  </div></I18nProvider>,
 );
