@@ -28,6 +28,8 @@ mod plugin_webview;
 mod plugins;
 mod privacy_mode;
 mod progress;
+#[cfg(unix)]
+mod process_signal;
 mod provider_health;
 #[cfg(any(
     target_os = "linux",
