@@ -70,12 +70,29 @@ pub(crate) fn extract_zip(archive_path: &Path, install_dir: &Path) -> Result<(),
         #[cfg(unix)]
         if let Some(mode) = file.unix_mode() {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&out_path, fs::Permissions::from_mode(mode))
+            fs::set_permissions(&out_path, fs::Permissions::from_mode(safe_extracted_file_mode(mode)))
                 .map_err(|err| format!("Failed to set file permissions: {err}"))?;
         }
     }
 
     Ok(())
+}
+
+#[cfg(unix)]
+fn safe_extracted_file_mode(mode: u32) -> u32 {
+    if mode & 0o111 != 0 { 0o755 } else { 0o644 }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::safe_extracted_file_mode;
+
+    #[test]
+    fn extracted_zip_modes_never_preserve_special_or_writeable_bits() {
+        assert_eq!(safe_extracted_file_mode(0o4755), 0o755);
+        assert_eq!(safe_extracted_file_mode(0o7777), 0o755);
+        assert_eq!(safe_extracted_file_mode(0o666), 0o644);
+    }
 }
 
 pub(crate) fn checked_archive_path(base_dir: &Path, entry_path: &Path) -> Result<PathBuf, String> {

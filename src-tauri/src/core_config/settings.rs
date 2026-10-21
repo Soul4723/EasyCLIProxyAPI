@@ -769,14 +769,51 @@ pub(crate) fn apply_gui_managed_settings(
     Ok(updated)
 }
 
-pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
-    write_bytes_directly_with_mode(path, content, false)
+/// Which permissions a direct write gives the file. Both modes create it 0600 so it is never readable by others
+/// between creation and the first write; they differ in what happens to a file that already exists.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DirectWriteMode {
+    /// Drop the group and other bits of an existing file (a user's own tool config) before the content is written.
+    /// Owner bits are kept and a mode is never widened.
+    DropGroupOther,
+    /// Tighten an existing file to exactly 0600 before any content is written (files the app owns).
+    Private,
 }
 
-/// Direct write for a file that holds credentials (the GUI config.toml). On Unix the file is created 0600 and an
-/// existing file is tightened before any content is written. Windows relies on the inherited per-user ACL of the
+/// Records the mode a direct write saw right after opening the file, before any chmod or content write.
+#[cfg(all(test, unix))]
+thread_local! {
+    pub(crate) static MODE_AFTER_DIRECT_OPEN: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// chmod can be refused with EPERM/ENOTSUP on filesystems without Unix modes (exFAT, vfat, drvfs, e.g. a portable
+/// install on a USB stick). Permissions are hardening, so warn and carry on instead of failing the write.
+#[cfg(unix)]
+pub(crate) fn tolerate_chmod_refusal(result: io::Result<()>, path: &Path) -> io::Result<()> {
+    match result {
+        Err(error) if matches!(error.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported) => {
+            eprintln!("Could not restrict permissions of {}: {error}", path_to_string(path));
+            Ok(())
+        }
+        other => other,
+    }
+}
+
+/// Direct write for agent configuration. A file the app creates is 0600 because it can hold the client key. When
+/// the app writes to an existing file it removes the group and other bits (0644 becomes 0600, 0755 becomes 0700),
+/// since the write is about to put the client key into it. Windows relies on the inherited per-user ACL of the
 /// profile directory.
-fn write_bytes_directly_with_mode(path: &Path, content: &[u8], private: bool) -> Result<(), String> {
+pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_directly_with_mode(path, content, DirectWriteMode::DropGroupOther)
+}
+
+/// Direct write for a file the app owns that holds credentials (the core config.yaml, DeepSeek credentials). An
+/// existing loose file is repaired to 0600.
+pub(crate) fn write_private_bytes_directly(path: &Path, content: &[u8]) -> Result<(), String> {
+    write_bytes_directly_with_mode(path, content, DirectWriteMode::Private)
+}
+
+fn write_bytes_directly_with_mode(path: &Path, content: &[u8], mode: DirectWriteMode) -> Result<(), String> {
     let directory = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(directory)
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
@@ -784,21 +821,29 @@ fn write_bytes_directly_with_mode(path: &Path, content: &[u8], private: bool) ->
     let write_result = (|| -> io::Result<()> {
         let mut options = fs::OpenOptions::new();
         options.create(true).write(true).truncate(false);
+        // The mode applies only when the file is created, and umask can only remove bits from it.
         #[cfg(unix)]
-        if private {
+        {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
         let mut file = options.open(path)?;
         #[cfg(unix)]
-        if private {
+        {
             use std::os::unix::fs::PermissionsExt;
-            if file.metadata()?.permissions().mode() & 0o7777 != 0o600 {
-                file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            let current = file.metadata()?.permissions().mode() & 0o7777;
+            #[cfg(test)]
+            MODE_AFTER_DIRECT_OPEN.with(|recorded| recorded.set(Some(current)));
+            let wanted = match mode {
+                DirectWriteMode::Private => 0o600,
+                DirectWriteMode::DropGroupOther => current & !0o077,
+            };
+            if current != wanted {
+                tolerate_chmod_refusal(file.set_permissions(fs::Permissions::from_mode(wanted)), path)?;
             }
         }
         #[cfg(not(unix))]
-        let _ = private;
+        let _ = mode;
         file.seek(SeekFrom::Start(0))?;
         file.write_all(content)?;
         file.set_len(content.len() as u64)?;
@@ -814,22 +859,37 @@ pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), 
     write_bytes_atomically_with_mode(path, content, false)
 }
 
-// Avoid even a metadata notification when the file is already private.
-fn restrict_private_permissions(path: &Path) -> Result<(), String> {
+// Avoid even a metadata notification when the file is already private. Returns whether the mode was changed; a
+// filesystem that refuses chmod leaves the file as it is and reports false.
+fn restrict_private_permissions(path: &Path) -> Result<bool, String> {
+    restrict_private_permissions_with(path, |path, permissions| fs::set_permissions(path, permissions))
+}
+
+pub(crate) fn restrict_private_permissions_with(
+    path: &Path,
+    set_permissions: impl FnOnce(&Path, fs::Permissions) -> io::Result<()>,
+) -> Result<bool, String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let permissions = fs::metadata(path)
-            .map_err(|error| format!("Failed to read GUI configuration permissions: {error}"))?
+            .map_err(|error| format!("Failed to read configuration permissions {}: {error}", path_to_string(path)))?
             .permissions();
         if permissions.mode() & 0o7777 != 0o600 {
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-                .map_err(|error| format!("Failed to restrict GUI configuration permissions: {error}"))?;
+            let result = set_permissions(path, fs::Permissions::from_mode(0o600));
+            let refused = matches!(
+                &result,
+                Err(error) if matches!(error.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported)
+            );
+            tolerate_chmod_refusal(result, path).map_err(|error| {
+                format!("Failed to restrict configuration permissions {}: {error}", path_to_string(path))
+            })?;
+            return Ok(!refused);
         }
     }
     #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
+    let _ = (path, set_permissions);
+    Ok(false)
 }
 
 pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), String> {
@@ -837,12 +897,9 @@ pub(crate) fn write_private_bytes_atomically(path: &Path, content: &[u8]) -> Res
 }
 
 fn write_bytes_atomically_with_mode(path: &Path, content: &[u8], private: bool) -> Result<(), String> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     if fs::read(path).ok().as_deref() == Some(content) {
-        if private {
-            restrict_private_permissions(path)?;
+        if private && restrict_private_permissions(path)? {
+            remember_software_write(path, content);
         }
         return Ok(());
     }
@@ -853,15 +910,22 @@ fn write_bytes_atomically_with_mode(path: &Path, content: &[u8], private: bool) 
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("config.yaml");
+    let mut random_suffix = [0_u8; 16];
+    getrandom::fill(&mut random_suffix)
+        .map_err(|error| format!("Failed to create a temporary configuration name: {error}"))?;
+    let random_suffix = random_suffix
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     let temporary_path = directory.join(format!(
         ".{file_name}.tmp.{}.{}",
         std::process::id(),
-        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        random_suffix
     ));
 
     let write_result = (|| -> io::Result<()> {
         let mut options = fs::OpenOptions::new();
-        options.create(true).write(true).truncate(true);
+        options.create_new(true).write(true);
         #[cfg(unix)]
         if private {
             use std::os::unix::fs::OpenOptionsExt;
@@ -873,7 +937,7 @@ fn write_bytes_atomically_with_mode(path: &Path, content: &[u8], private: bool) 
         if private {
             use std::os::unix::fs::PermissionsExt;
             if file.metadata()?.permissions().mode() & 0o7777 != 0o600 {
-                file.set_permissions(fs::Permissions::from_mode(0o600))?;
+                tolerate_chmod_refusal(file.set_permissions(fs::Permissions::from_mode(0o600)), &temporary_path)?;
             }
         }
         #[cfg(not(unix))]
@@ -933,10 +997,23 @@ pub(crate) fn write_yaml_if_changed(path: &Path, content: &str) -> Result<bool, 
 }
 
 pub(crate) fn write_core_config_if_changed(path: &Path, content: &str) -> Result<bool, String> {
+    write_core_config_if_changed_with(path, content, |path, permissions| fs::set_permissions(path, permissions))
+}
+
+pub(crate) fn write_core_config_if_changed_with(
+    path: &Path,
+    content: &str,
+    set_permissions: impl FnOnce(&Path, fs::Permissions) -> io::Result<()>,
+) -> Result<bool, String> {
     if fs::read_to_string(path).ok().as_deref() == Some(content) {
+        // config.yaml holds the management key and provider keys; repair a loose file even when nothing changed.
+        // A file the app cannot chmod must not fail a save that changes nothing.
+        if restrict_private_permissions_with(path, set_permissions).unwrap_or(false) {
+            remember_software_write(path, content.as_bytes());
+        }
         return Ok(false);
     }
-    write_bytes_directly(path, content.as_bytes())?;
+    write_private_bytes_directly(path, content.as_bytes())?;
     Ok(true)
 }
 

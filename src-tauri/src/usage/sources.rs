@@ -3,6 +3,13 @@
 //! matching local API access remark when available, otherwise the sanitized base URL.
 use super::*;
 use crate::management_api;
+use std::sync::Arc;
+use std::sync::atomic::Ordering as AtomicOrdering;
+use tokio::sync::{Mutex as AsyncMutex, OnceCell};
+use tokio::time::Instant;
+
+const SOURCE_CACHE_TTL: Duration = Duration::from_secs(45);
+const SOURCE_CACHE_ERROR_BACKOFF: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Source {
@@ -10,10 +17,125 @@ pub(super) struct Source {
     provider: String,
 }
 
+#[derive(Clone)]
 pub(super) struct Snapshot {
     scope: String,
     oauth: Option<HashMap<String, Source>>,
     providers: Option<HashMap<String, Source>>,
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct CacheKey {
+    origin: String,
+    target_revision: u64,
+}
+
+struct FetchOutcome {
+    snapshot: Snapshot,
+    complete: bool,
+}
+
+struct CacheEntry {
+    generation: u64,
+    good: Option<(Snapshot, Instant)>,
+    failure: Option<(Snapshot, Instant)>,
+    in_flight: Option<Arc<OnceCell<FetchOutcome>>>,
+}
+
+struct SourceCache {
+    entries: AsyncMutex<HashMap<CacheKey, CacheEntry>>,
+    generation: std::sync::atomic::AtomicU64,
+    ttl: Duration,
+    error_backoff: Duration,
+}
+
+impl Default for SourceCache {
+    fn default() -> Self {
+        Self {
+            entries: AsyncMutex::new(HashMap::new()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+            ttl: SOURCE_CACHE_TTL,
+            error_backoff: SOURCE_CACHE_ERROR_BACKOFF,
+        }
+    }
+}
+
+impl SourceCache {
+    async fn fetch<F, Fut>(&self, key: CacheKey, fetcher: F) -> Snapshot
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = FetchOutcome>,
+    {
+        let (cell, generation) = {
+            let mut entries = self.entries.lock().await;
+            let generation = self.generation.load(AtomicOrdering::Acquire);
+            entries.retain(|_, entry| entry.generation == generation);
+            let entry = entries.entry(key.clone()).or_insert_with(|| CacheEntry {
+                generation,
+                good: None,
+                failure: None,
+                in_flight: None,
+            });
+            let now = Instant::now();
+            if entry.good.as_ref().is_some_and(|(_, stored_at)| now.duration_since(*stored_at) >= self.ttl) {
+                entry.good = None;
+            }
+            if let Some((snapshot, _)) = &entry.good {
+                return snapshot.clone();
+            }
+            if let Some((snapshot, stored_at)) = &entry.failure {
+                if now.duration_since(*stored_at) < self.error_backoff {
+                    return snapshot.clone();
+                }
+            }
+            let cell = match &entry.in_flight {
+                Some(cell) if cell.get().is_none() => cell.clone(),
+                _ => {
+                    let cell = Arc::new(OnceCell::new());
+                    entry.in_flight = Some(cell.clone());
+                    cell
+                }
+            };
+            (cell, generation)
+        };
+
+        let outcome = cell.get_or_init(fetcher).await;
+
+        let mut entries = self.entries.lock().await;
+        let current_generation = self.generation.load(AtomicOrdering::Acquire);
+        if current_generation == generation {
+            if let Some(entry) = entries.get_mut(&key).filter(|entry| {
+                entry.generation == generation
+                    && entry.in_flight.as_ref().is_some_and(|current| Arc::ptr_eq(current, &cell))
+            }) {
+                entry.in_flight = None;
+                if outcome.complete {
+                    entry.good = Some((outcome.snapshot.clone(), Instant::now()));
+                    entry.failure = None;
+                } else {
+                    entry.failure = Some((outcome.snapshot.clone(), Instant::now()));
+                }
+            }
+        }
+        drop(entries);
+
+        outcome.snapshot.clone()
+    }
+
+    fn invalidate(&self) {
+        self.generation.fetch_add(1, AtomicOrdering::AcqRel);
+    }
+}
+
+static SOURCE_CACHE: LazyLock<SourceCache> = LazyLock::new(SourceCache::default);
+
+pub(super) fn invalidate_cache() {
+    SOURCE_CACHE.invalidate();
+}
+
+#[cfg(test)]
+pub(super) fn cache_generation() -> u64 {
+    SOURCE_CACHE.generation.load(AtomicOrdering::Acquire)
 }
 
 fn field<'a>(value: &'a Value, names: &[&str]) -> &'a str {
@@ -245,11 +367,12 @@ async fn fetch_json(config: &GuiConfigFile, path: &str) -> Option<Value> {
         .ok()
 }
 
-pub(super) async fn fetch(config: &GuiConfigFile) -> Snapshot {
+async fn fetch_uncached(config: &GuiConfigFile) -> FetchOutcome {
     let (oauth, api_keys) = tokio::join!(
         fetch_json(config, "credentials"),
         fetch_json(config, "config/api-keys")
     );
+    let oauth_sources = oauth.as_ref().and_then(credentials);
     let mut provider_sources = api_keys.as_ref().and_then(providers);
     if let (Some(value), Some(sources)) = (
         api_keys.as_ref().and_then(Value::as_object),
@@ -282,11 +405,29 @@ pub(super) async fn fetch(config: &GuiConfigFile) -> Snapshot {
             }
         }
     }
-    Snapshot {
-        scope: hash_text(&management_endpoint(config, "").unwrap_or_default()),
-        oauth: oauth.as_ref().and_then(credentials),
-        providers: provider_sources,
+    FetchOutcome {
+        complete: oauth_sources.is_some() && provider_sources.is_some(),
+        snapshot: Snapshot {
+            scope: hash_text(&management_endpoint(config, "").unwrap_or_default()),
+            oauth: oauth_sources,
+            providers: provider_sources,
+        },
     }
+}
+
+fn cache_key(config: &GuiConfigFile) -> CacheKey {
+    CacheKey {
+        origin: management_endpoint(config, "").unwrap_or_default(),
+        target_revision: config.target_revision,
+    }
+}
+
+pub(super) async fn fetch(config: &GuiConfigFile) -> Snapshot {
+    let key = cache_key(config);
+    let config = config.clone();
+    SOURCE_CACHE
+        .fetch(key, move || async move { fetch_uncached(&config).await })
+        .await
 }
 
 // Cache only sanitized display metadata. Failed fetches preserve the last successful
@@ -386,6 +527,226 @@ pub(super) fn apply_events(
         } else {
             record.provider.clone()
         };
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+
+    fn cache() -> SourceCache {
+        SourceCache {
+            entries: AsyncMutex::new(HashMap::new()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+            ttl: Duration::from_millis(40),
+            error_backoff: Duration::from_millis(20),
+        }
+    }
+
+    fn key(origin: &str, target_revision: u64) -> CacheKey {
+        CacheKey { origin: origin.into(), target_revision }
+    }
+
+    fn outcome(scope: &str, complete: bool) -> FetchOutcome {
+        FetchOutcome {
+            snapshot: Snapshot { scope: scope.into(), oauth: None, providers: None },
+            complete,
+        }
+    }
+
+    #[tokio::test]
+    async fn cache_hit_within_ttl_uses_the_cached_snapshot() {
+        let cache = cache();
+        let calls = AtomicUsize::new(0);
+        for _ in 0..2 {
+            cache.fetch(key("http://one", 1), || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                outcome("one", true)
+            }).await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cache_misses_after_ttl() {
+        let cache = cache();
+        let calls = AtomicUsize::new(0);
+        for _ in 0..2 {
+            cache.fetch(key("http://one", 1), || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                outcome("one", true)
+            }).await;
+            tokio::time::advance(Duration::from_millis(41)).await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn target_switch_uses_a_different_cache_key() {
+        let cache = cache();
+        let calls = AtomicUsize::new(0);
+        for (origin, revision) in [("http://one", 1), ("http://two", 1), ("http://two", 2)] {
+            cache.fetch(key(origin, revision), || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                outcome(origin, true)
+            }).await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn expired_good_snapshot_is_not_kept_after_a_failed_refresh() {
+        let cache = cache();
+        let first = cache.fetch(key("http://one", 1), || async { outcome("good", true) }).await;
+        assert_eq!(first.scope, "good");
+        tokio::time::advance(Duration::from_millis(41)).await;
+        let after_failure = cache.fetch(key("http://one", 1), || async { outcome("partial", false) }).await;
+        assert_eq!(after_failure.scope, "partial");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lifecycle_invalidation_forces_a_refetch() {
+        let cache = cache();
+        let calls = AtomicUsize::new(0);
+        for invalidate in [false, true] {
+            if invalidate { cache.invalidate(); }
+            cache.fetch(key("http://one", 1), || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                outcome("one", true)
+            }).await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_misses_share_one_fetch() {
+        let cache = Arc::new(cache());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut requests = Vec::new();
+        for _ in 0..8 {
+            let cache = cache.clone();
+            let calls = calls.clone();
+            requests.push(tokio::spawn(async move {
+                cache.fetch(key("http://one", 1), || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    outcome("one", true)
+                }).await
+            }));
+        }
+        for request in requests { request.await.unwrap(); }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn errors_are_retried_after_the_short_backoff() {
+        let cache = cache();
+        let calls = AtomicUsize::new(0);
+        for _ in 0..2 {
+            cache.fetch(key("http://one", 1), || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                outcome("one", false)
+            }).await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        tokio::time::advance(Duration::from_millis(21)).await;
+        cache.fetch(key("http://one", 1), || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            outcome("one", true)
+        }).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn invalidation_during_a_fetch_prevents_storing_its_result() {
+        use tokio::sync::Notify;
+
+        let cache = Arc::new(cache());
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let request = {
+            let cache = cache.clone();
+            let started = started.clone();
+            let release = release.clone();
+            let calls = calls.clone();
+            tokio::spawn(async move {
+                cache.fetch(key("http://one", 1), || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    started.notify_one();
+                    release.notified().await;
+                    outcome("old", true)
+                }).await
+            })
+        };
+        started.notified().await;
+        cache.invalidate();
+        release.notify_one();
+        assert_eq!(request.await.unwrap().scope, "old");
+
+        let refreshed = cache.fetch(key("http://one", 1), || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            outcome("new", true)
+        }).await;
+        assert_eq!(refreshed.scope, "new");
+        let cached = cache.fetch(key("http://one", 1), || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            outcome("wrong", true)
+        }).await;
+        assert_eq!(cached.scope, "new");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_waiters_receive_the_shared_failed_outcome() {
+        use tokio::sync::Notify;
+
+        let cache = Arc::new(cache());
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let first = {
+            let cache = cache.clone();
+            let started = started.clone();
+            let release = release.clone();
+            let calls = calls.clone();
+            tokio::spawn(async move {
+                cache.fetch(key("http://one", 1), || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    started.notify_one();
+                    release.notified().await;
+                    outcome("failed", false)
+                }).await
+            })
+        };
+        started.notified().await;
+        let waiter = {
+            let cache = cache.clone();
+            let calls = calls.clone();
+            tokio::spawn(async move {
+                cache.fetch(key("http://one", 1), || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    outcome("unexpected second fetch", true)
+                }).await
+            })
+        };
+        tokio::task::yield_now().await;
+        release.notify_one();
+        assert_eq!(first.await.unwrap().scope, "failed");
+        assert_eq!(waiter.await.unwrap().scope, "failed");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn cache_key_uses_management_origin_and_target_revision() {
+        let config = GuiConfigFile {
+            target_revision: 42,
+            ..Default::default()
+        };
+        let key = cache_key(&config);
+        assert_eq!(key.origin, management_endpoint(&config, "").unwrap());
+        assert_eq!(key.target_revision, 42);
     }
 }
 

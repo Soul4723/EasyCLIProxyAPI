@@ -20,11 +20,19 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 const MAX_RAW_JSONL_BYTES: u64 = 10 * 1024 * 1024;
+const DEFAULT_CONTEXT_PAGE_SIZE: usize = 200;
+const MAX_CONTEXT_PAGE_SIZE: usize = 1000;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GetCodexSessionContextRequest {
     pub(crate) session_id: String,
+    /// Index of the first message of the page (messages in rollout order). Defaults to 0.
+    #[serde(default)]
+    pub(crate) message_offset: Option<usize>,
+    /// Messages per page, clamped to `1..=MAX_CONTEXT_PAGE_SIZE`; defaults to `DEFAULT_CONTEXT_PAGE_SIZE`.
+    #[serde(default)]
+    pub(crate) message_limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +48,10 @@ pub(crate) struct CodexSessionMessageItem {
     pub(crate) call_id: Option<String>,
     #[serde(default)]
     pub(crate) signature_stripped: Option<bool>,
+    /// Every line sharing this tool record's call id (call and result), including lines outside the page.
+    /// Empty when the record has no partner.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) linked_lines: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +80,10 @@ pub(crate) struct CodexSessionContextDetail {
     pub(crate) rollout_path: Option<String>,
     pub(crate) database_path: Option<String>,
     pub(crate) messages: Vec<CodexSessionMessageItem>,
+    /// Index of `messages[0]` among all messages of the rollout.
+    pub(crate) message_offset: usize,
+    /// All messages of the rollout, whatever the page.
+    pub(crate) total_messages: usize,
     pub(crate) stats: CodexSessionContextStats,
     pub(crate) raw_jsonl: Option<String>,
     pub(crate) raw_jsonl_available: bool,

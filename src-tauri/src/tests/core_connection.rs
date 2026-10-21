@@ -2,6 +2,19 @@ use super::*;
 use std::sync::Arc;
 use crate::core_connection::{test_core_connection, CoreConnection};
 
+#[test]
+fn target_invalidation_clears_usage_source_metadata_cache() {
+    let app = tauri::test::mock_builder()
+        .manage(GuiConfigState::new(GuiConfigFile::default()))
+        .manage(AgentConfigStatusCache::default())
+        .manage(CoreProcessState::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let before = crate::usage::sources_cache_generation_for_test();
+    crate::core_connection::invalidate_target(app.handle(), 0).unwrap();
+    assert!(crate::usage::sources_cache_generation_for_test() > before);
+}
+
 #[tokio::test]
 async fn connection_test_authenticates_only_the_candidate_management_target() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -230,7 +243,6 @@ async fn remote_multiwrite_failure_reports_partial_save_without_retry_or_rollbac
         ("GET /v8/management/config.yaml HTTP/1.1", "", 200, initial),
         ("GET /v8/management/config.yaml HTTP/1.1", "", 200, initial),
         ("PUT /v8/management/config/server/host HTTP/1.1", "\"10.0.0.9\"", 200, "{}"),
-        ("GET /v8/management/config.yaml HTTP/1.1", "", 200, partial),
         ("PUT /v8/management/config/server/port HTTP/1.1", "9999", 500, "sensitive server details"),
         ("GET /v8/management/config.yaml HTTP/1.1", "", 200, partial),
     ]);
@@ -244,10 +256,83 @@ async fn remote_multiwrite_failure_reports_partial_save_without_retry_or_rollbac
         host: "10.0.0.9".into(), port: 9999, proxy_url: None, proxy_override: None,
     }).await.err().unwrap();
     assert!(error.contains("1 of 2 confirmed changes"));
+    assert!(error.contains("Confirmed: server/host."), "{error}");
     assert!(!error.contains("sensitive server details"));
     let current = get_core_config_settings(app.state(), app.state::<GuiConfigState>().snapshot().unwrap().target_revision).await.unwrap();
     assert_eq!(current.host, "10.0.0.9");
     assert_eq!(current.port, 8317);
+    server.join().unwrap();
+}
+
+const REMOTE_RETRY_INITIAL: &str = "config-version: 8\nrequests: {streaming: {bootstrap-retries: 0}}\nrouting: {cooldown: {disable-cooling: false}, retry: {request-retry: 0, max-retry-credentials: 0, max-retry-interval: 0}}\n";
+
+fn remote_retry_app(origin: String) -> tauri::App<tauri::test::MockRuntime> {
+    tauri::test::mock_builder().manage(GuiConfigState::new(GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote, remote_management_origin: origin.clone(),
+        remote_management_key: "fixture-management".into(), remote_client_origin: origin,
+        ..GuiConfigFile::default()
+    })).build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap()
+}
+
+fn remote_retry_settings() -> GuiRetrySettings {
+    GuiRetrySettings { disable_cooling: true, request_retry: 1, max_retry_credentials: 2, max_retry_interval: 3, streaming_bootstrap_retries: 4 }
+}
+
+#[tokio::test]
+async fn remote_multi_field_save_reads_once_then_writes_each_field() {
+    // The save's own read, one preflight read, then one write per field: 2 + N requests.
+    // The per-field writer used to re-read the whole file before every write (1 + 2N).
+    let (origin, server) = serve_config_steps(vec![
+        ("GET /v8/management/config.yaml HTTP/1.1", "", 200, REMOTE_RETRY_INITIAL),
+        ("GET /v8/management/config.yaml HTTP/1.1", "", 200, REMOTE_RETRY_INITIAL),
+        ("PUT /v8/management/config/requests/streaming/bootstrap-retries HTTP/1.1", "4", 200, "{}"),
+        ("PUT /v8/management/config/routing/cooldown/disable-cooling HTTP/1.1", "true", 200, "{}"),
+        ("PUT /v8/management/config/routing/retry/max-retry-credentials HTTP/1.1", "2", 200, "{}"),
+        ("PUT /v8/management/config/routing/retry/max-retry-interval HTTP/1.1", "3", 200, "{}"),
+        ("PUT /v8/management/config/routing/retry/request-retry HTTP/1.1", "1", 200, "{}"),
+    ]);
+    let app = remote_retry_app(origin);
+    let revision = app.state::<GuiConfigState>().snapshot().unwrap().target_revision;
+    let view = save_retry_settings(app.state(), revision, remote_retry_settings()).await.unwrap();
+    assert!(view.disable_cooling);
+    assert_eq!(view.request_retry, 1);
+    assert_eq!(view.streaming_bootstrap_retries, 4);
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn remote_multi_field_preflight_conflict_on_a_later_field_sends_no_writes() {
+    // Another client changed the fourth of five fields after the save's own read.
+    let changed = "config-version: 8\nrequests: {streaming: {bootstrap-retries: 0}}\nrouting: {cooldown: {disable-cooling: false}, retry: {request-retry: 0, max-retry-credentials: 0, max-retry-interval: 7}}\n";
+    let (origin, server) = serve_config_steps(vec![
+        ("GET /v8/management/config.yaml HTTP/1.1", "", 200, REMOTE_RETRY_INITIAL),
+        ("GET /v8/management/config.yaml HTTP/1.1", "", 200, changed),
+    ]);
+    let app = remote_retry_app(origin);
+    let revision = app.state::<GuiConfigState>().snapshot().unwrap().target_revision;
+    let error = save_retry_settings(app.state(), revision, remote_retry_settings()).await.err().unwrap();
+    assert!(error.contains("0 of 5 confirmed changes"), "{error}");
+    assert!(error.contains("Confirmed: none."), "{error}");
+    assert!(error.contains("Remote configuration changed; reload before saving"), "{error}");
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn remote_multi_field_failure_mid_batch_names_the_confirmed_fields() {
+    let (origin, server) = serve_config_steps(vec![
+        ("GET /v8/management/config.yaml HTTP/1.1", "", 200, REMOTE_RETRY_INITIAL),
+        ("GET /v8/management/config.yaml HTTP/1.1", "", 200, REMOTE_RETRY_INITIAL),
+        ("PUT /v8/management/config/requests/streaming/bootstrap-retries HTTP/1.1", "4", 200, "{}"),
+        ("PUT /v8/management/config/routing/cooldown/disable-cooling HTTP/1.1", "true", 200, "{}"),
+        ("PUT /v8/management/config/routing/retry/max-retry-credentials HTTP/1.1", "2", 500, "sensitive server details"),
+    ]);
+    let app = remote_retry_app(origin);
+    let revision = app.state::<GuiConfigState>().snapshot().unwrap().target_revision;
+    let error = save_retry_settings(app.state(), revision, remote_retry_settings()).await.err().unwrap();
+    assert!(error.contains("stopped after 2 of 5 confirmed changes"), "{error}");
+    assert!(error.contains("Confirmed: requests/streaming/bootstrap-retries, routing/cooldown/disable-cooling."), "{error}");
+    assert!(!error.contains("max-retry-interval"), "{error}");
+    assert!(!error.contains("sensitive server details"));
     server.join().unwrap();
 }
 
@@ -294,7 +379,6 @@ async fn remote_selection_requires_explicit_stop_of_gui_owned_local_core() {
 async fn remote_alias_removal_uses_remote_management_without_local_rollback() {
     let yaml = "config-version: 8\noauth:\n  model-alias:\n    codex:\n      - name: fixture-model\n        alias: fixture-alias\n        fork: true\n";
     let (origin, server) = serve_config_steps(vec![
-        ("GET /v8/management/config.yaml HTTP/1.1", "", 200, yaml),
         ("GET /v8/management/config.yaml HTTP/1.1", "", 200, yaml),
         ("GET /v8/management/config.yaml HTTP/1.1", "", 200, yaml),
         ("GET /v8/management/config.yaml HTTP/1.1", "", 200, yaml),

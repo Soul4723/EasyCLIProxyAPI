@@ -908,7 +908,7 @@ pub(crate) fn prepare_agent_record(
     let mut files = Vec::new();
     for (path, backup_path, current, _, managed_sha256) in prepared {
         let backup_result = if let Some(current) = current.as_deref() {
-            write_bytes_atomically(&backup_path, current).and_then(|_| {
+            write_private_bytes_atomically(&backup_path, current).and_then(|_| {
                 let copied = fs::read(&backup_path).map_err(|error| {
                     format!(
                         "Failed to verify agent backup {}: {error}",
@@ -1009,7 +1009,7 @@ pub(crate) fn extend_agent_record_for_updates(
     let mut next = record.clone();
     for (update, backup_path, _, current) in prepared {
         let backup_result = if let Some(current) = current.as_deref() {
-            write_bytes_atomically(&backup_path, current).and_then(|_| {
+            write_private_bytes_atomically(&backup_path, current).and_then(|_| {
                 let copied = fs::read(&backup_path).map_err(|error| {
                     format!(
                         "Failed to verify agent backup {}: {error}",

@@ -420,6 +420,7 @@ pub(crate) fn agent_connection_state(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn agent_has_connection_evidence(
     client: AgentClient,
     paths: &[PathBuf],
