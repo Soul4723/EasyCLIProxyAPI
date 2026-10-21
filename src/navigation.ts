@@ -9,7 +9,7 @@ export function canOpenAppPage(pageId: string, coreReady: boolean) {
 }
 
 export function isRemoteDisabledPage(pageId: string) {
-  return ['easy', 'agents', 'usage-records', 'versions'].includes(pageId) || pageId.startsWith('/plugin-pages/');
+  return ['easy', 'agents', 'usage-records', 'versions'].includes(pageId);
 }
 
 export const APP_NAVIGATION_REQUEST_EVENT = 'cpa-gui-navigation-request';

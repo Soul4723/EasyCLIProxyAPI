@@ -47,7 +47,7 @@ const roleExceptions: Record<string, [number, number, string]> = {
   'pages/ApiAccessPage.tsx': [0, 1, 'Model summary count.'],
   'pages/ConfigPanel.tsx': [2, 6, 'Reserved status slots, dirty badges, search count and disabled text.'],
   'pages/CoreHealthPanel.tsx': [1, 1, 'Role passed to EmptyState for the load error and loading placeholder.'],
-  'pages/Kernel.tsx': [0, 2, 'Runtime state badge (local and remote card).'],
+  'pages/Kernel.tsx': [0, 1, 'Runtime state badge.'],
   'pages/PluginInstallDialog.tsx': [1, 0, 'Field-level version error.'],
   'pages/PluginResourcePage.tsx': [0, 1, 'Loading text.'],
   'pages/PluginSettingsPanel.tsx': [0, 1, 'Loading text.'],

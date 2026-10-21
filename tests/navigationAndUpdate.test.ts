@@ -54,7 +54,6 @@ describe('软件与内核更新导航提示点', () => {
 describe('远程内核本地功能导航', () => {
   test('仅阻止依赖本地进程、客户端或使用记录的页面', () => {
     for (const page of ['easy', 'agents', 'usage-records', 'versions']) expect(isRemoteDisabledPage(page)).toBe(true);
-    expect(isRemoteDisabledPage('/plugin-pages/demo/0')).toBe(true);
-    for (const page of ['home', 'api', 'oauth', 'quota', 'config', 'plugins']) expect(isRemoteDisabledPage(page)).toBe(false);
+    for (const page of ['home', 'api', 'oauth', 'quota', 'config', 'plugins', '/plugin-pages/demo/0']) expect(isRemoteDisabledPage(page)).toBe(false);
   });
 });

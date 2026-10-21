@@ -135,11 +135,11 @@ export function ConfigPanelPage() {
   const { status } = useCoreRuntime();
   return !status
     ? <section className="page config-page"><div className="config-settings-content"><div className="config-settings-cards"><CoreConnectionSettings /></div></div></section>
-    : <LocalConfigPanelPage remote={status.connectionMode === 'remote'} />;
+    : <ConfigPanelContent remote={status.connectionMode === 'remote'} />;
 }
 
-// In Remote mode only App preferences (with Core connection) is available; core categories are disabled and the local core config stays unloaded.
-function LocalConfigPanelPage({ remote }: { remote: boolean }) {
+// In Remote mode the core categories show the remote core's settings read-only.
+function ConfigPanelContent({ remote }: { remote: boolean }) {
   const { t, locale } = useI18n();
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { status: coreStatus, publishStatus, refreshStatus } = useCoreRuntime();
@@ -194,7 +194,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
   const renderFeedback = (feedback: ReturnType<typeof useAppNotice>) => (
     <FloatingNotice key={feedback.revision} notice={feedback.notice} onDismiss={feedback.clearNotice} />
   );
-  const [activeSubpage, setActiveSubpage] = useState<ConfigSubpage>(remote ? 'software' : 'general');
+  const [activeSubpage, setActiveSubpage] = useState<ConfigSubpage>('general');
   const [settingsSearch, setSettingsSearch] = useState('');
   const [dirtyTemplateGroups, setDirtyTemplateGroups] = useState<readonly string[]>([]);
   const [sensitiveWordsDirty, setSensitiveWordsDirty] = useState(false);
@@ -261,18 +261,14 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | null = null;
-    if (!remote) {
-      void loadSettings();
-      void loadTlsSettings();
-    }
+    void loadSettings();
     void loadSoftwareSettings();
+    void loadTlsSettings();
     void onConfigFilesChanged(() => {
       if (!disposed) {
-        if (!remote) {
-          void loadSettings('preserve');
-          void loadTlsSettings('preserve');
-        }
+        void loadSettings('preserve');
         void loadSoftwareSettings('preserve');
+        void loadTlsSettings('preserve');
       }
     }).then((unlisten) => {
       if (disposed) unlisten();
@@ -682,7 +678,8 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
         setTlsKeyDraft(latestTlsSettings.key);
       }
       await openExternalUrl({
-        url: webUiManagementUrl(latestSettings.port, latestTlsSettings.enabled, latestSettings.host),
+        url: remote && coreStatus?.remoteOrigin ? `${coreStatus.remoteOrigin}/management.html#/login`
+          : webUiManagementUrl(latestSettings.port, latestTlsSettings.enabled, latestSettings.host),
       });
     } catch (error) {
       managementFeedback.showNotice({ key: 'config.webuiKey.error.openFailed', variables: { error: String(error) } }, 'error');
@@ -928,6 +925,8 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
   };
 
   const controlsDisabled = loading || settings === null || busyAction !== null;
+  // A remote core's settings are shown read-only.
+  const editsDisabled = controlsDisabled || remote;
   const networkSettingsDirty = Boolean(settings) && (
     hostDraft.trim() !== settings?.host
     || portDraft !== String(settings?.port)
@@ -1063,7 +1062,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
     })))),
   ];
   const searchTerms = settingsSearch.trim().toLocaleLowerCase().split(/\s+/);
-  const searchResults = searchEntries.filter(entry => !remote || entry.category === 'software').filter(entry => {
+  const searchResults = searchEntries.filter(entry => {
     const categoryTitle = templateText(settingsCategories.find(item => item.id === entry.category)!.title, locale);
     const text = `${entry.title} ${entry.context} ${entry.keywords} ${categoryTitle}`.toLocaleLowerCase();
     return searchTerms.every(term => text.includes(term));
@@ -1077,7 +1076,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
           <Tabs ref={categoryNavigationRef} className="config-subpage-tabs config-settings-navigation" aria-label={t('config.tabs.label')} value={activeSubpage} onChange={activateConfigSubpage}
             items={settingsCategories.map(item => {
               const Icon = CATEGORY_ICONS[item.id];
-              return { value: item.id, id: `config-subpage-tab-${item.id}`, panelId: 'config-subpage-panel', disabled: remote && item.id !== 'software', label: <><Icon size={17} aria-hidden="true" /><span>{templateText(item.title, locale)}</span>{categoryDirty(item.id) ? <span className="config-nav-dirty" title={st('dirty')}><span className="sr-only">{st('dirty')}</span></span> : null}</> };
+              return { value: item.id, id: `config-subpage-tab-${item.id}`, panelId: 'config-subpage-panel', label: <><Icon size={17} aria-hidden="true" /><span>{templateText(item.title, locale)}</span>{categoryDirty(item.id) ? <span className="config-nav-dirty" title={st('dirty')}><span className="sr-only">{st('dirty')}</span></span> : null}</> };
             })} />
           <div className="config-settings-search"><Search size={18} aria-hidden="true" /><input ref={searchRef} type="search" aria-label={st('search')} placeholder={st('searchHint')} value={settingsSearch} onChange={event => setSettingsSearch(event.currentTarget.value)} onKeyDown={event => { if (event.key === 'Escape') setSettingsSearch(''); }} />{searching ? <button type="button" className="icon-button quiet tiny-button" aria-label={st('clearSearch')} onClick={() => { setSettingsSearch(''); searchRef.current?.focus(); }}><X size={16} /></button> : null}</div>
         </div>
@@ -1099,7 +1098,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                 type="button"
                 className="icon-button"
                 onClick={openAddDialog}
-                disabled={controlsDisabled}
+                disabled={editsDisabled}
                 title={t('config.keys.add')}
                 aria-label={t('config.keys.add')}
               >
@@ -1157,7 +1156,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                       type="button"
                       className="icon-button quiet small-button"
                       onClick={() => openEditDialog(entry)}
-                      disabled={controlsDisabled}
+                      disabled={editsDisabled}
                       title={t('config.keys.edit')}
                       aria-label={t('config.keys.editNth', { number: index + 1 })}
                     >
@@ -1167,7 +1166,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                       type="button"
                       className="icon-button danger small-button"
                       onClick={() => setDeleteIndex(index)}
-                      disabled={controlsDisabled}
+                      disabled={editsDisabled}
                       title={t('config.keys.delete')}
                       aria-label={t('config.keys.deleteNth', { number: index + 1 })}
                     >
@@ -1216,7 +1215,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                     autoComplete="new-password"
                     maxLength={512}
                     value={managementSecretDraft}
-                    disabled={controlsDisabled}
+                    disabled={editsDisabled}
                     aria-invalid={Boolean(managementSecretError)}
                     placeholder={t('config.webuiKey.placeholder')}
                     onChange={(event) => {
@@ -1227,7 +1226,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   <button
                     type="button"
                     className="icon-button quiet"
-                    disabled={controlsDisabled}
+                    disabled={editsDisabled}
                     onClick={() => setShowManagementSecret((value) => !value)}
                     title={showManagementSecret ? t('config.keys.hide') : t('config.keys.show')}
                     aria-label={showManagementSecret ? t('config.keys.hide') : t('config.keys.show')}
@@ -1249,7 +1248,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   autoComplete="new-password"
                   maxLength={512}
                   value={managementSecretConfirm}
-                  disabled={controlsDisabled}
+                  disabled={editsDisabled}
                   aria-invalid={Boolean(managementSecretError)}
                   placeholder={t('config.webuiKey.confirmPlaceholder')}
                   onChange={(event) => {
@@ -1267,13 +1266,13 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   {managementSecretError || ' '}
                 </span>
                 <div className="config-management-actions">
-                  <button type="button" className="secondary-button compact-button" disabled={controlsDisabled || settings?.managementSecretConfigured === false} onClick={() => void disableManagement()}>
+                  <button type="button" className="secondary-button compact-button" disabled={editsDisabled || settings?.managementSecretConfigured === false} onClick={() => void disableManagement()}>
                     {templateText(templateMessages.disableManagement, locale)}
                   </button>
                   <button
                     type="button"
                     className="secondary-button compact-button"
-                  disabled={controlsDisabled}
+                  disabled={editsDisabled}
                   onClick={generateManagementSecret}
                 >
                     {t('config.webuiKey.generate')}
@@ -1281,7 +1280,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   <button
                     type="submit"
                     className="primary-button compact-button"
-                    disabled={controlsDisabled || !managementSecretDraft.trim()}
+                    disabled={editsDisabled || !managementSecretDraft.trim()}
                   >
                     <Check size={16} aria-hidden="true" />
                     {managementSecretBusy ? t('common.saving') : t('config.webuiKey.save')}
@@ -1316,7 +1315,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
               pattern="[0-9]*"
               maxLength={5}
               value={portDraft}
-              disabled={controlsDisabled}
+              disabled={editsDisabled}
               aria-invalid={Boolean(portError)}
               title={portError || t('config.network.portHint')}
               onChange={(event) => {
@@ -1343,7 +1342,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   className={`config-network-input ${hostError ? 'error' : ''}`}
                   type="text"
                   value={hostDraft}
-                  disabled={controlsDisabled}
+                  disabled={editsDisabled}
                   placeholder="127.0.0.1"
                   aria-invalid={Boolean(hostError)}
                   title={hostError || templateText(templateMessages.hostHint, locale)}
@@ -1373,7 +1372,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   <SettingsHelp label={t('config.network.proxyUrl')}>{t('config.network.proxyHint')} {t('config.network.systemProxyHint')}</SettingsHelp>
                   <label className="config-proxy-system-toggle" title={t('config.network.systemProxyHint')}>
                     <span>{t('config.network.systemProxy')}</span>
-                    <Switch checked={!proxyOverrideDraft} disabled={controlsDisabled} onChange={(event) => {
+                    <Switch checked={!proxyOverrideDraft} disabled={editsDisabled} onChange={(event) => {
                           markDraftDirty('proxyOverride');
                           setProxyOverrideDraft(!event.currentTarget.checked);
                         }} />
@@ -1384,7 +1383,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   className="config-network-input"
                   type="text"
                   value={proxyUrlDraft}
-                  disabled={controlsDisabled || !proxyOverrideDraft}
+                  disabled={editsDisabled || !proxyOverrideDraft}
                   placeholder={t('config.network.proxyPlaceholder')}
                   onChange={(event) => {
                     markDraftDirty('proxyUrl');
@@ -1405,7 +1404,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
           <div className="config-settings-save-row"><button
                 type="button"
                 className="primary-button compact-button"
-                disabled={controlsDisabled || !networkSettingsDirty}
+                disabled={editsDisabled || !networkSettingsDirty}
                 onClick={() => void saveNetworkEndpointSettings()}
               >
                 <Check size={16} aria-hidden="true" />
@@ -1442,7 +1441,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
 
                 </div>
               </div>
-              <Switch title={t('config.tls.enable')} aria-label={t('config.tls.enable')} checked={tlsEnabledDraft} disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null} onChange={(event) => {
+              <Switch title={t('config.tls.enable')} aria-label={t('config.tls.enable')} checked={tlsEnabledDraft} disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null} onChange={(event) => {
                     setTlsSavedStatusVisible(false);
                     setTlsError('');
                     setTlsEnabledDraft(event.currentTarget.checked);
@@ -1459,7 +1458,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                       type="text"
                       value={tlsCertDraft}
                       aria-label={t('config.tls.cert')}
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       placeholder={t('config.tls.certPlaceholder')}
                       onChange={(event) => {
                         setTlsSavedStatusVisible(false);
@@ -1470,7 +1469,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                     <button
                       type="button"
                       className="secondary-button compact-button config-tls-browse-button"
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       title={t('config.tls.selectCertTitle')}
                       onClick={() => void selectTlsFile('cert')}
                     >
@@ -1488,7 +1487,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                       type="text"
                       value={tlsKeyDraft}
                       aria-label={t('config.tls.key')}
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       placeholder={t('config.tls.keyPlaceholder')}
                       onChange={(event) => {
                         setTlsSavedStatusVisible(false);
@@ -1499,7 +1498,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                     <button
                       type="button"
                       className="secondary-button compact-button config-tls-browse-button"
-                      disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
+                      disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null}
                       title={t('config.tls.selectKeyTitle')}
                       onClick={() => void selectTlsFile('key')}
                     >
@@ -1520,7 +1519,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
           <div className="config-settings-save-row"><button
                 type="button"
                 className="primary-button compact-button"
-                disabled={tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null || !tlsSettingsDirty}
+                disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null || tlsFileSelecting !== null || !tlsSettingsDirty}
                 onClick={() => void saveTlsSettings()}
               >
                 <Check size={16} aria-hidden="true" />
@@ -1546,7 +1545,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   <span className="config-field-label"><span>{t('config.network.sessionAffinity')}</span><SettingsHelp label={t('config.network.sessionAffinity')}>{t('config.network.sessionAffinityHint')}</SettingsHelp></span>
 
                 </div>
-                <Switch title={t('config.network.sessionAffinity')} aria-label={t('config.network.sessionAffinity')} checked={sessionAffinityDraft} disabled={controlsDisabled} onChange={(event) => {
+                <Switch title={t('config.network.sessionAffinity')} aria-label={t('config.network.sessionAffinity')} checked={sessionAffinityDraft} disabled={editsDisabled} onChange={(event) => {
                       markDraftDirty('sessionAffinity');
                       setSessionAffinityDraft(event.currentTarget.checked);
                     }} />
@@ -1562,7 +1561,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   className="config-network-input"
                   type="text"
                   value={sessionTtlDraft}
-                  disabled={controlsDisabled}
+                  disabled={editsDisabled}
                   placeholder="1h"
                   onChange={(event) => {
                     markDraftDirty('sessionTtl');
@@ -1586,7 +1585,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   <span className="config-inline-status">{st('automatic')}</span>
                 </span>
                 <SegmentedControl className="routing-segmented" aria-label={t('config.routing.title')} value={settings?.routingStrategy ?? ''}
-                  disabled={controlsDisabled} onChange={value => void changeRoutingStrategy(value)}
+                  disabled={editsDisabled} onChange={value => void changeRoutingStrategy(value)}
                   items={ROUTING_OPTIONS.map(option => ({ value: option.value, title: option.value, label: option.value === 'weighted-round-robin' ? templateText(templateMessages.weighted, locale) : t(option.labelKey) }))} />
                 <small className="sr-only" title={settings?.routingStrategy || undefined}>
                   {loading
@@ -1601,7 +1600,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
           <div className="config-settings-save-row"><button
                 type="button"
                 className="primary-button compact-button"
-                disabled={controlsDisabled || !sessionRoutingDirty}
+                disabled={editsDisabled || !sessionRoutingDirty}
                 onClick={() => void saveSessionRoutingSettings()}
               >
                 <Check size={16} aria-hidden="true" />
@@ -1622,7 +1621,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
             </div>
             {renderFeedback(retryFeedback)}
             <div className="config-network-grid">
-              <CoolingToggle disabledCooling={disableCoolingDraft} disabled={controlsDisabled}
+              <CoolingToggle disabledCooling={disableCoolingDraft} disabled={editsDisabled}
                 onChange={(value) => {
                   markDraftDirty('disableCooling');
                   setDisableCoolingDraft(value);
@@ -1638,7 +1637,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   pattern="[0-9]*"
                   maxLength={10}
                   value={requestRetryDraft}
-                  disabled={controlsDisabled}
+                  disabled={editsDisabled}
                   aria-invalid={Boolean(retryError)}
                   onChange={(event) => {
                     markDraftDirty('requestRetry');
@@ -1667,7 +1666,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   pattern="[0-9]*"
                   maxLength={10}
                   value={maxRetryCredentialsDraft}
-                  disabled={controlsDisabled}
+                  disabled={editsDisabled}
                   aria-invalid={Boolean(retryError)}
                   onChange={(event) => {
                     markDraftDirty('maxRetryCredentials');
@@ -1696,7 +1695,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   pattern="-?[0-9]*"
                   maxLength={11}
                   value={maxRetryIntervalDraft}
-                  disabled={controlsDisabled}
+                  disabled={editsDisabled}
                   aria-invalid={Boolean(retryError)}
                   onChange={(event) => {
                     markDraftDirty('maxRetryInterval');
@@ -1726,7 +1725,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                   pattern="[0-9]*"
                   maxLength={10}
                   value={streamingBootstrapRetriesDraft}
-                  disabled={controlsDisabled}
+                  disabled={editsDisabled}
                   aria-invalid={Boolean(retryError)}
                   onChange={(event) => {
                     markDraftDirty('streamingBootstrapRetries');
@@ -1749,7 +1748,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
           <div className="config-settings-save-row"><button
                 type="button"
                 className="primary-button compact-button"
-                disabled={controlsDisabled || !retrySettingsDirty}
+                disabled={editsDisabled || !retrySettingsDirty}
                 onClick={() => void saveRetrySettings()}
               >
                 <Check size={16} aria-hidden="true" />
@@ -1771,7 +1770,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                 <span className="config-field-label"><strong>{t('config.diagnostics.debug.title')}</strong><SettingsHelp label={t('config.diagnostics.debug.title')}>{t('config.diagnostics.debug.description')}</SettingsHelp></span>
 
               </div>
-              <Switch title={t('config.diagnostics.debug.title')} checked={debugDraft} aria-label={t('config.diagnostics.debug.title')} disabled={controlsDisabled} onChange={(event) => {
+              <Switch title={t('config.diagnostics.debug.title')} checked={debugDraft} aria-label={t('config.diagnostics.debug.title')} disabled={editsDisabled} onChange={(event) => {
                     setDebugDraft(event.currentTarget.checked);
                     markLoggingDraftDirty();
                   }} />
@@ -1783,7 +1782,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                 <span className="config-field-label"><strong>{t('config.diagnostics.commercial.title')}</strong><SettingsHelp label={t('config.diagnostics.commercial.title')}>{t('config.diagnostics.commercial.description')} {t('config.diagnostics.commercial.warning')}</SettingsHelp></span>
 
               </div>
-              <Switch title={t('config.diagnostics.commercial.title')} checked={commercialModeDraft} aria-label={t('config.diagnostics.commercial.title')} disabled={controlsDisabled} onChange={(event) => {
+              <Switch title={t('config.diagnostics.commercial.title')} checked={commercialModeDraft} aria-label={t('config.diagnostics.commercial.title')} disabled={editsDisabled} onChange={(event) => {
                     setCommercialModeDraft(event.currentTarget.checked);
                     markLoggingDraftDirty();
                   }} />
@@ -1795,7 +1794,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                 <span className="config-field-label"><strong>{t('config.diagnostics.fileLogging.title')}</strong><SettingsHelp label={t('config.diagnostics.fileLogging.title')}>{t('config.diagnostics.fileLogging.description')}</SettingsHelp></span>
 
               </div>
-              <Switch title={t('config.diagnostics.fileLogging.title')} checked={loggingToFileDraft} aria-label={t('config.diagnostics.fileLogging.title')} disabled={controlsDisabled} onChange={(event) => {
+              <Switch title={t('config.diagnostics.fileLogging.title')} checked={loggingToFileDraft} aria-label={t('config.diagnostics.fileLogging.title')} disabled={editsDisabled} onChange={(event) => {
                     setLoggingToFileDraft(event.currentTarget.checked);
                     markLoggingDraftDirty();
                   }} />
@@ -1807,7 +1806,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                 <span className="config-field-label"><strong>{t('config.diagnostics.usage.title')}</strong><SettingsHelp label={t('config.diagnostics.usage.title')}>{t('config.diagnostics.usage.description')}</SettingsHelp></span>
 
               </div>
-              <Switch title={t('config.diagnostics.usage.title')} checked={usageStatisticsDraft} aria-label={t('config.diagnostics.usage.title')} disabled={controlsDisabled} onChange={(event) => {
+              <Switch title={t('config.diagnostics.usage.title')} checked={usageStatisticsDraft} aria-label={t('config.diagnostics.usage.title')} disabled={editsDisabled} onChange={(event) => {
                     setUsageStatisticsDraft(event.currentTarget.checked);
                     markLoggingDraftDirty();
                   }} />
@@ -1824,7 +1823,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                 min="0"
                 step="1"
                 value={logsMaxTotalSizeDraft}
-                disabled={controlsDisabled}
+                disabled={editsDisabled}
                 onChange={(event) => {
                   setLogsMaxTotalSizeDraft(event.currentTarget.value);
                   markLoggingDraftDirty();
@@ -1841,7 +1840,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                 min="0"
                 step="1"
                 value={errorLogsMaxFilesDraft}
-                disabled={controlsDisabled}
+                disabled={editsDisabled}
                 onChange={(event) => {
                   setErrorLogsMaxFilesDraft(event.currentTarget.value);
                   markLoggingDraftDirty();
@@ -1859,7 +1858,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                 max="3600"
                 step="1"
                 value={redisUsageRetentionDraft}
-                disabled={controlsDisabled}
+                disabled={editsDisabled}
                 onChange={(event) => {
                   setRedisUsageRetentionDraft(event.currentTarget.value);
                   markLoggingDraftDirty();
@@ -1881,7 +1880,8 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
               <button
                 type="button"
                 className="secondary-button compact-button"
-                disabled={controlsDisabled}
+                disabled={editsDisabled}
+                title={remote ? t('connection.remoteDisabledTitle') : undefined}
                 onClick={() => void handleOpenCoreLogsDirectory()}
               >
                 <FolderOpen size={16} aria-hidden="true" />
@@ -1890,7 +1890,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
               <button
                 type="button"
                 className="primary-button compact-button"
-                disabled={controlsDisabled || !loggingSettingsDirty}
+                disabled={editsDisabled || !loggingSettingsDirty}
                 onClick={() => void saveCoreLoggingSettings()}
               >
                 <Check size={16} aria-hidden="true" />
@@ -1932,7 +1932,7 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                         setSoftwareAutostartDraft(event.currentTarget.checked);
                       }} />
                 </div>
-                {remote ? null : <div className="config-software-setting-row">
+                <div className="config-software-setting-row">
                   <div className="config-software-setting-copy">
                     <span className="config-software-setting-icon" aria-hidden="true">
                       <Power size={18} />
@@ -1941,11 +1941,11 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
                       <strong>{t('config.software.startCoreOnLaunch')}</strong>
                     </div>
                   </div>
-                  <Switch title={t('config.software.startCoreOnLaunch')} aria-label={t('config.software.startCoreOnLaunch')} checked={softwareStartCoreDraft} disabled={softwareSettingsLoading || softwareSettings === null || busyAction !== null} onChange={(event) => {
+                  <Switch title={remote ? t('connection.remoteManaged') : t('config.software.startCoreOnLaunch')} aria-label={t('config.software.startCoreOnLaunch')} checked={softwareStartCoreDraft} disabled={remote || softwareSettingsLoading || softwareSettings === null || busyAction !== null} onChange={(event) => {
                         setSoftwareSavedStatusVisible(false);
                         setSoftwareStartCoreDraft(event.currentTarget.checked);
                       }} />
-                </div>}
+                </div>
                 {remote ? null : <div className="config-software-setting-row">
                   <div className="config-software-setting-copy">
                     <span className="config-software-setting-icon" aria-hidden="true">
@@ -2030,9 +2030,9 @@ function LocalConfigPanelPage({ remote }: { remote: boolean }) {
         </section>
             <CoreConnectionSettings hidden={searching || activeSubpage !== 'software'} />
           </div>
-          <div id="config-template-panel" hidden={searching || templateGroups.length === 0}><TemplateConfigSection groups={allSettingsTemplateGroups} visibleGroups={templateGroups.map(group => group.id)} onDirtyGroupsChange={setDirtyTemplateGroups} /></div>
-          <div className="surface-card" id="config-native-aliases" tabIndex={-1} role="region" aria-label={t('app.nav.thinkingAliases')} hidden={searching || activeSubpage !== 'aliases'}>{aliasesVisited ? <ThinkingAliasesPage embedded /> : null}</div>
-          <div className="surface-card" id="config-native-sensitive-words" tabIndex={-1} role="region" aria-label={t('config.sensitiveWords.title')} hidden={searching || activeSubpage !== 'requests'}>{sensitiveWordsVisited ? <SensitiveWordsPage onDirtyChange={setSensitiveWordsDirty} /> : null}</div>
+          <div id="config-template-panel" hidden={searching || templateGroups.length === 0}><TemplateConfigSection readOnly={remote} groups={allSettingsTemplateGroups} visibleGroups={templateGroups.map(group => group.id)} onDirtyGroupsChange={setDirtyTemplateGroups} /></div>
+          <div className="surface-card" id="config-native-aliases" tabIndex={-1} role="region" aria-label={t('app.nav.thinkingAliases')} hidden={searching || activeSubpage !== 'aliases'}>{aliasesVisited ? <ThinkingAliasesPage embedded readOnly={remote} /> : null}</div>
+          <div className="surface-card" id="config-native-sensitive-words" tabIndex={-1} role="region" aria-label={t('config.sensitiveWords.title')} hidden={searching || activeSubpage !== 'requests'}>{sensitiveWordsVisited ? <SensitiveWordsPage readOnly={remote} onDirtyChange={setSensitiveWordsDirty} /> : null}</div>
         </div>
       </div>
 

@@ -176,7 +176,7 @@ export function PluginsPage() {
     }, pt(installed ? 'removed' : 'removedConfig'));
   };
   const installLocal = async () => {
-    if (pending.current || remoteMode) return;
+    if (pending.current) return;
     pending.current = true; setBusy(true);
     try {
       const selected = await open({ directory: false, title: pt('localInstall'), filters: [{ name: pt('localBinary'), extensions: ['dll', 'so', 'dylib'] }] });
@@ -215,7 +215,7 @@ export function PluginsPage() {
         </div>
         {tab === 'store' && <Select aria-label={pt('store')} value={filter} onChange={e => setFilter(e.target.value)}>{['all', 'installed', 'updates'].map(value => <option key={value} value={value}>{pt(value as 'all' | 'installed' | 'updates')}</option>)}</Select>}
         </>}
-        {supported === true && !remoteMode && <button type="button" className="secondary-button plugin-development-guide" disabled={locked} onClick={() => void installLocal()}><Download size={16} aria-hidden="true" />{pt('localInstall')}</button>}
+        {supported === true && <button type="button" className="secondary-button plugin-development-guide" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteDisabledTitle') : undefined} onClick={() => void installLocal()}><Download size={16} aria-hidden="true" />{pt('localInstall')}</button>}
         <button type="button" className="secondary-button plugin-development-guide" onClick={() => void openExternalUrl({ url: 'https://help.router-for.me/cn/plugin/development.html' }).catch(reason => { if (mounted.current) setError(message(reason)); })}><ExternalLink size={16} aria-hidden="true" />{pt('developmentGuide')}</button>
         <button className="secondary-button plugin-refresh" disabled={locked} onClick={() => void load(tabRef.current, true)}><RefreshCw size={16} aria-hidden="true" />{t('common.refresh')}</button>
       </div>
@@ -223,10 +223,8 @@ export function PluginsPage() {
     <div className="plugin-tab-panel" id="plugin-tab-panel" role={supported === true ? "tabpanel" : undefined} aria-labelledby={supported === true ? `plugin-tab-${tab}` : undefined}>
     {error && <Notice tone="error" icon={false} className="plugin-banner" action={<button className="secondary-button" disabled={busy || loading} onClick={() => void load(tabRef.current, true)}>{pt('retry')}</button>}>{error}{isGitHubRateLimit(error) ? <GitHubTokenHint /> : null}</Notice>}
     {supported === false ? <EmptyState className="plugin-empty" icon={<Puzzle size={36} />}>{pt('unsupported')}</EmptyState> : supported === null ? <EmptyState className="plugin-empty" role="status">{loading ? t('common.loading') : pt('retry')}</EmptyState> : <>
-      {remoteMode && <Notice tone="info" icon={false} className="plugin-banner">{t('connection.remotePluginHint')}</Notice>}
       {data && !data.pluginsEnabled && <Notice tone="info" icon={false} className="plugin-banner">{pt('disabledHint')}</Notice>}
-      {restartRequired && !remoteMode && <Notice tone="info" icon={false} className="plugin-banner" action={<button className="secondary-button" disabled={locked} onClick={async () => { if (await askConfirmation({ title: pt('restartButton'), message: pt('restartConfirm') })) void mutate(async () => { await restartCoreProcess(); if (mounted.current) setRestartRequired(false); }, pt('saved')); }}>{pt('restartButton')}</button>}>{pt('restart')}</Notice>}
-      {restartRequired && remoteMode && <Notice tone="info" icon={false} className="plugin-banner">{t('connection.remoteRestartHint')}</Notice>}
+      {restartRequired && <Notice tone="info" icon={false} className="plugin-banner" action={<button className="secondary-button" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteManaged') : undefined} onClick={async () => { if (await askConfirmation({ title: pt('restartButton'), message: pt('restartConfirm') })) void mutate(async () => { await restartCoreProcess(); if (mounted.current) setRestartRequired(false); }, pt('saved')); }}>{pt('restartButton')}</button>}>{pt('restart')}</Notice>}
       <>
         {tab === 'settings' ? <PluginSettingsPanel onSaved={() => { notice.showNotice(pt('saved')); void load(); }} globalControl={<label className="plugin-global-toggle"><Switch checked={data?.pluginsEnabled ?? false} disabled={locked || !data} onChange={e => { const enabled = e.target.checked; void mutate(() => pluginsApi.updateSettings({ enabled }), pt('saved')); }} />{pt('global')}</label>} /> : <>
           {sourceErrors.length ? <details className="plugin-source-errors"><summary>{pt('sourceErrors')}</summary>{sourceErrors.map((entry, index) => <p key={index}>{entry.sourceName || entry.sourceId || entry.sourceUrl}: {entry.message}</p>)}{sourceErrors.some(entry => isGitHubRateLimit(entry.message)) ? <GitHubTokenHint /> : null}</details> : null}
@@ -242,13 +240,13 @@ export function PluginsPage() {
             {meta && <p className="plugin-meta">{meta}</p>}{plugin.path && <p className="plugin-path" title={plugin.path}>{plugin.path}</p>}
             {status === 'missingFile' && <p className="plugin-card-description">{pt('missingFileHint')}</p>}
             {status === 'notLoaded' && <p className="plugin-card-description">{pt('notLoadedHint')}</p>}
-            {!remoteMode && collectPluginResourceEntries([plugin]).length > 0 && <div className="plugin-menus">{collectPluginResourceEntries([plugin]).map(entry => <button key={entry.menuIndex} title={entry.description} className="secondary-button small-button" disabled={locked} onClick={() => openResource(entry)}><ExternalLink size={14} />{entry.label}</button>)}</div>}
+            {collectPluginResourceEntries([plugin]).length > 0 && <div className="plugin-menus">{collectPluginResourceEntries([plugin]).map(entry => <button key={entry.menuIndex} title={entry.description} className="secondary-button small-button" disabled={locked} onClick={() => openResource(entry)}><ExternalLink size={14} />{entry.label}</button>)}</div>}
             <div className="plugin-card-actions">
               {installed && update && <button className="primary-button compact-button" disabled={locked || (update.authRequired && !update.authConfigured)} onClick={() => setInstallEntry(update)}><Download size={15} />{pt(update.authRequired && !update.authConfigured ? 'authMissing' : 'update')}</button>}
             {plugin.effectiveEnabled && plugin.supportsOAuth && plugin.oauthProvider && <button className="secondary-button compact-button" disabled={locked} onClick={() => setOAuthPlugin(plugin)}><LogIn size={15} />{pt('oauth')}</button>}
               {installed ? <button className="secondary-button compact-button" disabled={locked} onClick={() => void toggle(plugin)}>{pt(plugin.enabled ? 'disabled' : 'enabled')}</button> : <button className="secondary-button compact-button" disabled={locked} onClick={() => { setSearch(plugin.id); setFilter('all'); setTab('store'); }}><Download size={15} />{pt('findInStore')}</button>}
               <button className="secondary-button compact-button" disabled={locked} onClick={() => setConfigPlugin(plugin)}><Settings2 size={15} />{pt('configure')}</button>
-              {status === 'notLoaded' && !remoteMode && <button className="secondary-button compact-button" disabled={locked} onClick={() => void openCoreLogsDirectory().catch(reason => { if (mounted.current) setError(message(reason)); })}><Folder size={15} />{pt('openLogs')}</button>}
+              {status === 'notLoaded' && <button className="secondary-button compact-button" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteDisabledTitle') : undefined} onClick={() => void openCoreLogsDirectory().catch(reason => { if (mounted.current) setError(message(reason)); })}><Folder size={15} />{pt('openLogs')}</button>}
               <button className="icon-button danger plugin-delete" disabled={locked} aria-label={removeLabel} title={removeLabel} onClick={() => void remove(plugin)}><Trash2 size={16} /></button>
             </div>
           </article>; })}</div> : <>

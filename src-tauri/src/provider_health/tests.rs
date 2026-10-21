@@ -143,7 +143,7 @@ async fn core_health_model_list_preserves_all_provider_models() {
     let body = r#"{"data":[{"id":"gpt-test"},{"id":"claude-test"},{"id":"gemini-test"},{"id":"custom-alias"},{"id":"Foo","alias":"metadata-alias"},{"id":"foo"},{"id":"Foo"}]}"#;
     let (port, server) = mock_core_response("200 OK", "application/json", body, "").await;
     let config = probe_config(port);
-    let models = fetch_core_models(config.port, effective_agent_api_key(&config)).await.unwrap();
+    let models = fetch_core_models(&config).await.unwrap();
     assert_eq!(models.iter().map(|model| model.name.as_str()).collect::<Vec<_>>(),
         vec!["gpt-test", "claude-test", "gemini-test", "custom-alias", "Foo", "foo"]);
     let request = server.await.unwrap();
@@ -216,4 +216,42 @@ fn openai_terminal_success_requires_both_exhausted_budget_and_valid_reasoning_us
         let body = format!("data: {value}\n\ndata: [DONE]\n\n");
         assert!(!provider_health_stream_has_terminal_success("openai-chat", body.as_bytes()));
     }
+}
+
+#[tokio::test]
+async fn remote_core_models_use_its_origin_and_first_client_key() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for expected in ["get /v8/management/config.yaml ", "get /v1/models "] {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let count = socket.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+            }
+            let request = String::from_utf8(request).unwrap().to_ascii_lowercase();
+            assert!(request.starts_with(expected), "{request}");
+            let (authorization, body) = if expected.contains("management") {
+                ("remote-management-key", "server:\n  host: 0.0.0.0\n  port: 9443\naccess:\n  api-keys:\n    - remote-client-key\n    - second-key\n")
+            } else {
+                ("remote-client-key", r#"{"data":[{"id":"remote-model"}]}"#)
+            };
+            assert!(request.contains(&format!("authorization: bearer {authorization}\r\n")), "{request}");
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        }
+    });
+    let config = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: origin,
+        remote_management_key: "remote-management-key".into(),
+        ..probe_config(0)
+    };
+    let models = fetch_core_models(&config).await.unwrap();
+    server.join().unwrap();
+    assert_eq!(models.iter().map(|model| model.name.as_str()).collect::<Vec<_>>(), vec!["remote-model"]);
 }

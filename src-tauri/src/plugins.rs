@@ -1,7 +1,7 @@
 use super::{
     core_origin, current_core_tls_settings, format_management_request_error,
     management_authorization, management_endpoint, management_http_client_for, read_management_value,
-    GuiConfigFile, GuiConfigState,
+    CoreConnectionMode, GuiConfigFile, GuiConfigState,
 };
 use futures_util::StreamExt;
 
@@ -171,15 +171,15 @@ pub(crate) async fn resolve_plugin_entry_url(
     plugin_id: &str,
     menu_index: usize,
 ) -> Result<String, String> {
-    crate::core_connection::require_local(config)?;
     let response = request_plugins(config).await?;
     let plugins = read_management_value(response).await?;
     let path = active_plugin_menu_path(&plugins, plugin_id, menu_index)?;
-    let origin = core_origin(
-        &config.host,
-        config.port,
-        current_core_tls_settings()?.enabled,
-    );
+    // Plugin pages are served by the core, so a remote core's pages load from its origin.
+    let origin = if config.connection_mode == CoreConnectionMode::Remote {
+        config.remote_management_origin.clone()
+    } else {
+        core_origin(&config.host, config.port, current_core_tls_settings()?.enabled)
+    };
     resolve_plugin_resource_url(&origin, path)
 }
 

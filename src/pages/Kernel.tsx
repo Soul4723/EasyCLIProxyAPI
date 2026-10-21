@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getVersion } from '../services/platform';
 import { LoaderCircle, Play, RefreshCw, RotateCw, Settings, Square } from 'lucide-react';
 import { useCoreRuntime } from '../coreRuntime';
-import { clientApiProfiles } from '../services/clientAccess';
+import { clientApiProfiles, clientApiProfilesForOrigin } from '../services/clientAccess';
 import { useI18n } from '../i18n';
 import { useAppUpdate } from '../appUpdate';
 import { FloatingNotice, useAppNotice } from '../appNotice';
@@ -28,12 +28,11 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     return <VersionManagementPage />;
   }
 
-  const { t, formatDate } = useI18n();
+  const { t } = useI18n();
   const { info: appUpdate } = useAppUpdate();
   const {
     status: coreStatus,
     statusError,
-    checkedAt,
     refreshStatus,
     publishStatus,
   } = useCoreRuntime();
@@ -76,8 +75,9 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     if (!remoteMode && runtimeKnown) {
       loadGuiSettings();
       void loadTlsSettings();
-      void loadHomeApiKey();
     }
+    // In Remote mode this reads the remote core's client keys through the management API.
+    if (runtimeKnown) void loadHomeApiKey();
     void getVersion()
       .then((version) => {
         if (!disposed) setInstalledAppVersion(version);
@@ -182,7 +182,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
   const canStop = coreRunning || recovering;
   const coreProcessBusy = processBusy || Boolean(coreStatus?.starting) || recovery?.phase === 'restarting';
 
-  const statusTone = statusError || recovery?.phase === 'failed' ? 'error' : coreProcessBusy || recovering ? 'pending' : coreRunning ? 'success' : 'neutral';
+  const statusTone = statusError || recovery?.phase === 'failed' || (remoteMode && !coreReady) ? 'error' : coreProcessBusy || recovering ? 'pending' : coreRunning ? 'success' : 'neutral';
   const statusLabel = statusError
     ? t('common.detectionFailed')
     : !coreStatus
@@ -196,6 +196,9 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
             : coreRunning
               ? t('kernel.status.running')
               : t(coreInstalled ? 'kernel.status.stopped' : 'kernel.status.notInstalled');
+  const runtimeLabel = remoteMode && !statusError
+    ? t(coreReady ? 'connection.statusConnected' : 'connection.statusUnreachable')
+    : statusLabel;
 
   const resolvedAppVersion = appUpdate?.currentVersion || installedAppVersion;
   const currentAppVersion = resolvedAppVersion
@@ -203,50 +206,24 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     : t('common.detecting');
 
   const apiPort = Number(customPort);
-  const apiProfiles = clientApiProfiles(
+  const remoteOrigin = coreStatus?.remoteOrigin ?? '';
+  const apiProfiles = remoteMode ? clientApiProfilesForOrigin(remoteOrigin) : clientApiProfiles(
     Number.isInteger(apiPort) && apiPort >= 1 && apiPort <= 65535
       ? apiPort
       : savedPortRef.current,
     tlsEnabled,
     listenHost,
   );
-  const healthContext = [listenHost, customPort, tlsEnabled, coreStatus?.processId, configRevision].join(':');
-  const overview = useHomeOverview(coreReady, healthContext, !remoteMode && runtimeKnown);
+  const healthContext = [remoteOrigin, listenHost, customPort, tlsEnabled, coreStatus?.processId, configRevision].join(':');
+  const overview = useHomeOverview(coreReady, healthContext, runtimeKnown ? remoteMode : null);
 
   if (!runtimeKnown) return <section className="page kernel-page home-page home-dashboard" aria-label={t('app.nav.home')}>
     <Notice tone={statusError ? 'error' : 'info'} variant="text">{statusError || t('common.detecting')}</Notice>
   </section>;
 
-  const runtimeActions = (refreshDisabled: boolean) => <div className="home-runtime-actions">
-    <button type="button" className="icon-button quiet ghost small-button" disabled={refreshDisabled} onClick={() => void refreshStatus()} title={t('kernel.control.refresh')} aria-label={t('kernel.control.refresh')}><RefreshCw size={15} aria-hidden="true" /></button>
-    <button type="button" className="icon-button quiet ghost small-button" onClick={() => setConnectionOpen(true)} aria-haspopup="dialog" title={t('connection.settings')} aria-label={t('connection.settings')}><Settings size={15} aria-hidden="true" /></button>
-  </div>;
-  const connectionDialog = connectionOpen ? <CoreConnectionSettings variant="dialog" onClose={() => setConnectionOpen(false)} /> : null;
-
-  if (remoteMode) return <section className="page kernel-page home-page home-dashboard" aria-label={t('app.nav.home')}>
-    <div className="home-top-grid home-remote-grid">
-      <div className="panel surface-panel control-panel">
-        <div className="panel-heading home-panel-heading">
-          <div><h2>{t('kernel.control.title')}</h2><p>{t(coreReady ? 'connection.remoteReady' : 'connection.remoteUnreachable')}</p></div>
-          {runtimeActions(false)}
-        </div>
-        <dl className="panel-detail-grid home-runtime-details">
-          <div className="panel-detail-row" data-runtime="status">
-            <dt>{t('kernel.control.runStatus')}</dt>
-            <dd><span className={`home-runtime-state ${coreReady ? 'success' : 'error'}`} role="status"><span className="home-runtime-dot" aria-hidden="true" />{t(coreReady ? 'connection.statusConnected' : 'connection.statusUnreachable')}</span></dd>
-          </div>
-          <div className="panel-detail-row"><dt>{t('connection.remoteHost')}</dt><dd><span className="mono-tag">{coreStatus?.remoteOrigin}</span></dd></div>
-          <div className="panel-detail-row"><dt>{t('kernel.overview.coreVersion')}</dt><dd><span className="mono-tag">{currentVersion || t('common.unavailable')}</span></dd></div>
-          <div className="panel-detail-row"><dt>{t('connection.lastChecked')}</dt><dd><span className="mono-tag">{checkedAt ? formatDate(checkedAt, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : t('common.detecting')}</span></dd></div>
-        </dl>
-        {!coreReady && coreStatus?.message ? <Notice tone="error" variant="text">{coreStatus.message}</Notice> : null}
-        <div className="button-row panel-action-row control-action-row">
-          <button type="button" className="secondary-button" onClick={() => setConnectionOpen(true)} aria-haspopup="dialog"><Settings size={14} aria-hidden="true" />{t('connection.change')}</button>
-        </div>
-      </div>
-    </div>
-    {connectionDialog}
-  </section>;
+  // A remote core keeps the same card; values come from the remote, and process actions are disabled.
+  const remoteUrl = remoteMode ? (() => { try { return new URL(remoteOrigin); } catch { return null; } })() : null;
+  const processTitle = remoteMode ? t('connection.remoteManaged') : undefined;
 
   return (
     <section className="page kernel-page home-page home-dashboard" aria-label={t('app.nav.home')}>
@@ -261,20 +238,26 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
           <div className="panel-heading home-panel-heading">
             <div>
               <h2>{t('kernel.control.title')}</h2>
-              <p>{t(coreReady ? 'home.runtime.ready' : coreInstalled ? 'home.runtime.stopped' : 'home.runtime.notInstalled')}</p>
+              <p>{t(remoteMode ? coreReady ? 'connection.remoteReady' : 'connection.remoteUnreachable' : coreReady ? 'home.runtime.ready' : coreInstalled ? 'home.runtime.stopped' : 'home.runtime.notInstalled')}</p>
             </div>
-            {runtimeActions(coreProcessBusy)}
+            <div className="home-runtime-actions">
+              <button type="button" className="icon-button quiet ghost small-button" disabled={coreProcessBusy} onClick={() => void refreshStatus()} title={t('kernel.control.refresh')} aria-label={t('kernel.control.refresh')}><RefreshCw size={15} aria-hidden="true" /></button>
+              <button type="button" className="icon-button quiet ghost small-button" onClick={() => setConnectionOpen(true)} aria-haspopup="dialog" title={t('connection.settings')} aria-label={t('connection.settings')}><Settings size={15} aria-hidden="true" /></button>
+            </div>
           </div>
           <dl className="panel-detail-grid home-runtime-details">
-            <div className="panel-detail-row" data-runtime="installation">
+            {remoteMode ? <div className="panel-detail-row" data-runtime="installation">
+              <dt>{t('connection.remoteHost')}</dt>
+              <dd><span className="mono-tag">{remoteUrl?.hostname || remoteOrigin || '—'}</span></dd>
+            </div> : <div className="panel-detail-row" data-runtime="installation">
               <dt>{t('kernel.control.installStatus')}</dt>
               <dd>{coreStatus ? t(coreInstalled ? 'kernel.control.installed' : 'kernel.status.notInstalled') : t(statusError ? 'common.detectionFailed' : 'common.detecting')}</dd>
-            </div>
+            </div>}
             <div className="panel-detail-row" data-runtime="status">
               <dt>{t('kernel.control.runStatus')}</dt>
               <dd><span className={`home-runtime-state ${statusTone}`} role="status" title={statusError || undefined}>
                 {coreProcessBusy ? <LoaderCircle size={12} className="spin" aria-hidden="true" /> : <span className="home-runtime-dot" aria-hidden="true" />}
-                {statusLabel}
+                {runtimeLabel}
               </span></dd>
             </div>
             <div className="panel-detail-row">
@@ -282,7 +265,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
               <dd>
                 <span className="mono-tag">
                   {currentVersion
-                    || (coreInstalled ? t('common.unavailable') : t('kernel.status.notInstalled'))}
+                    || (coreInstalled || remoteMode ? t('common.unavailable') : t('kernel.status.notInstalled'))}
                 </span>
               </dd>
             </div>
@@ -292,14 +275,15 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
             </div>
             <div className="panel-detail-row">
               <dt>{t('kernel.control.pid')}</dt>
-              <dd><span className="mono-tag">{coreStatus?.processId || t('kernel.control.noPid')}</span></dd>
+              <dd><span className="mono-tag" title={processTitle}>{remoteMode ? '—' : coreStatus?.processId || t('kernel.control.noPid')}</span></dd>
             </div>
             <div className="panel-detail-row">
               <dt>{t('home.runtime.port')}</dt>
-              <dd><span className="mono-tag">{customPort}</span></dd>
+              <dd><span className="mono-tag">{!remoteMode ? customPort : remoteUrl ? remoteUrl.port || (remoteUrl.protocol === 'https:' ? '443' : '80') : '—'}</span></dd>
             </div>
           </dl>
           {statusError && <Notice tone="error" variant="text">{statusError}</Notice>}
+          {remoteMode && !coreReady && coreStatus?.message ? <Notice tone="error" variant="text">{coreStatus.message}</Notice> : null}
           {recovery && <Notice tone={recovery.phase === 'failed' ? 'error' : 'warn'} variant="text">
             <p>{t(recovery.phase === 'failed' ? 'kernel.recovery.failedHint' : recovery.phase === 'waiting' ? 'kernel.recovery.waitingHint' : 'kernel.recovery.restartingHint', { attempt: recovery.attempt, seconds: recovery.delaySeconds })}</p>
             {recovery.detail && <details><summary>{t('kernel.recovery.details')}</summary><p>{recovery.detail}</p></details>}
@@ -310,6 +294,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
               type="button"
               className={canStop ? 'danger-button home-runtime-stop' : 'primary-button'}
               disabled={!coreInstalled || coreProcessBusy}
+              title={processTitle}
               onClick={() =>
                 void runCoreProcessCommand(
                   canStop ? 'stop_core_process' : 'start_core_process',
@@ -323,6 +308,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
               type="button"
               className="secondary-button"
               disabled={!coreInstalled || !coreRunning || coreProcessBusy}
+              title={processTitle}
               onClick={() =>
                 void runCoreProcessCommand('restart_core_process')
               }
@@ -339,7 +325,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
         />
       </div>
       <FloatingNotice key={copyFeedback.revision} notice={copyFeedback.notice} onDismiss={copyFeedback.clearNotice} />
-      {connectionDialog}
+      {connectionOpen ? <CoreConnectionSettings variant="dialog" onClose={() => setConnectionOpen(false)} /> : null}
     </section>
   );
 }

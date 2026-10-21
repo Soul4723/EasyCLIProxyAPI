@@ -28,27 +28,41 @@ other GUI configuration secrets.
 
 ## Available remotely
 
-The Runtime Control card shows whether the remote core is connected or
-unreachable, its host, version and when it was last checked, not local
-installation or process information. Management-API-backed pages
-continue to use the selected server, including credentials, OAuth (with manual
-callback submission where needed), Vertex import, and plugin management.
+Remote mode keeps the same pages, navigation and cards as Local; only the core
+they talk to changes. Values come from the remote core, or show "—" with a
+reason; this computer's local data is never shown as the remote core's.
 
-## Local-only features
+- **Home:** credential, provider-key and model counts come from the remote core.
+  Model Health checks the remote core's models through its client API
+  (management origin + `/v1`) with the first client key configured on the remote
+  core; the management key is never used as a client key. Runtime Control shows
+  the remote host, connection status, core version and port. Connect to CPA shows
+  the remote client base URL and the remote core's first client key.
+- **Advanced Features:** every category shows the remote core's current settings
+  (read from its `config.yaml` through the management API), read-only.
+- **Management-API pages:** credentials, OAuth (with manual callback submission
+  where needed), Vertex import, API providers with model discovery, plugin
+  management, and plugin pages served by the remote core.
 
-Core lifecycle and installation controls, agent client configuration/launch,
-Codex session tools, local usage collection/history, local config-file editors,
-local auth/log folders, local binary plugin installation, embedded plugin pages,
-and probes/model discovery requiring the local client API are unavailable remotely.
-These features depend on files, processes or client credentials on this machine; Remote mode supplies only a management
-origin and key. Configure unsupported settings on the server or through its
-management interface instead. No remote usage history or agent targeting is
-provided. Embedded plugin pages currently depend on the local webview target and
-are disabled; plugin management API operations remain available.
+## Not available remotely yet
+
+These stay visible in place but are disabled, with a short reason:
+
+- Start, Stop and Restart, and Start Core on Launch: the core is managed on the
+  remote host.
+- Agent Configuration, Beginner Mode and Codex tools: machine and agent
+  configuration stays local for now.
+- Version Management: it installs a local core binary.
+- Usage, and the Home success rate: reading usage from a remote core would consume
+  its usage queue, so no usage is collected in Remote mode.
+- Local folder buttons (credentials, logs) and local plugin file installation.
+- Editing any core setting: remote configuration is shown read-only.
+
+Silent Launch is hidden and ignored in Remote mode: it keeps a locally hosted core
+in the tray, and there is none.
 
 Select **Local core** and choose **Use local core** to return to the existing
-local core configuration. Start Core on Launch and Silent Launch are hidden and
-ignored while Remote is active (Silent Launch keeps a local core in the tray;
-there is none to keep), but their values are preserved for Local.
+local core configuration. Start Core on Launch and Silent Launch keep their
+saved values for Local.
 Change the active connection through the panel; edits to connection fields in
 `config.toml` are only picked up on the next application launch.

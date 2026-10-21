@@ -1,4 +1,7 @@
-use crate::{CoreConnectionMode, CoreStatus, GuiConfigFile, GuiConfigState};
+use crate::{
+    CoreApiKeyView, CoreConfigSettings, CoreConfigView, CoreConnectionMode, CoreStatus,
+    GuiConfigFile, GuiConfigState,
+};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
@@ -54,6 +57,57 @@ pub(crate) fn require_local(config: &GuiConfigFile) -> Result<(), String> {
         Err("This operation is only available for the local core".into())
     } else {
         Ok(())
+    }
+}
+
+/// The remote core's configuration, read through the management API. `None` in Local mode, where callers
+/// read the local config.yaml as before. Remote values are shown read-only; nothing is written back.
+pub(crate) async fn remote_core_config_document(
+    config: &GuiConfigFile,
+) -> Result<Option<serde_norway::Value>, String> {
+    if config.connection_mode != CoreConnectionMode::Remote {
+        return Ok(None);
+    }
+    let content = crate::core_config::fetch_management_raw_config_yaml(config).await?;
+    serde_norway::from_str(&content)
+        .map(Some)
+        .map_err(|error| format!("Failed to parse the remote core configuration: {error}"))
+}
+
+/// Settings view of a remote core. Key remarks are GUI metadata of this computer, so none are shown.
+pub(crate) fn remote_config_view(settings: CoreConfigSettings) -> CoreConfigView {
+    CoreConfigView {
+        allow_lan: !crate::core_config::is_loopback_host(&settings.host),
+        host: settings.host,
+        api_keys: settings
+            .api_keys
+            .into_iter()
+            .map(|api_key| CoreApiKeyView {
+                api_key,
+                remark: String::new(),
+            })
+            .collect(),
+        management_secret_configured: settings.management_secret_configured,
+        port: settings.port,
+        debug: settings.debug,
+        commercial_mode: settings.commercial_mode,
+        logging_to_file: settings.logging_to_file,
+        logs_max_total_size_mb: settings.logs_max_total_size_mb,
+        error_logs_max_files: settings.error_logs_max_files,
+        usage_statistics_enabled: settings.usage_statistics_enabled,
+        redis_usage_queue_retention_seconds: settings.redis_usage_queue_retention_seconds,
+        request_log: settings.request_log,
+        plugins_enabled: settings.plugins_enabled,
+        routing_strategy: settings.routing_strategy,
+        proxy_override: !settings.proxy_url.is_empty(),
+        proxy_url: settings.proxy_url,
+        routing_session_affinity: settings.routing_session_affinity,
+        routing_session_affinity_ttl: settings.routing_session_affinity_ttl,
+        disable_cooling: settings.disable_cooling,
+        request_retry: settings.request_retry,
+        max_retry_credentials: settings.max_retry_credentials,
+        max_retry_interval: settings.max_retry_interval,
+        streaming_bootstrap_retries: settings.streaming_bootstrap_retries,
     }
 }
 

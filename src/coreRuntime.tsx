@@ -9,8 +9,6 @@ export type { CoreStatus } from './services/coreLifecycle';
 type CoreRuntimeContextValue = {
   status: CoreStatus | null;
   statusError: string;
-  // Time of the last status response; tracked for Remote mode, where the card shows when the remote core was last checked.
-  checkedAt: number | null;
   refreshStatus: () => Promise<void>;
   publishStatus: (status: CoreStatus | null) => void;
 };
@@ -20,7 +18,6 @@ const CoreRuntimeContext = createContext<CoreRuntimeContextValue | null>(null);
 export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<CoreStatus | null>(null);
   const [statusError, setStatusError] = useState('');
-  const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const refreshRequest = useRef<Promise<void> | null>(null);
   const statusRevision = useRef(0);
 
@@ -29,7 +26,6 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
     setStatus((previous) => JSON.stringify(previous) === JSON.stringify(nextStatus) ? previous : nextStatus);
     if (nextStatus) {
       setStatusError('');
-      if (nextStatus.connectionMode === 'remote') setCheckedAt(Date.now());
     }
   }, []);
 
@@ -79,8 +75,8 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
   }, [publishStatus, refreshStatus]);
 
   const value = useMemo(
-    () => ({ status, statusError, checkedAt, refreshStatus, publishStatus }),
-    [checkedAt, publishStatus, refreshStatus, status, statusError],
+    () => ({ status, statusError, refreshStatus, publishStatus }),
+    [publishStatus, refreshStatus, status, statusError],
   );
 
   return <CoreRuntimeContext.Provider value={value}>{children}</CoreRuntimeContext.Provider>;
