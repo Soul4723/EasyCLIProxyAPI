@@ -58,9 +58,10 @@ runUi(async ({ base }) => {
       await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
       assert.equal(await radio('System').getAttribute('aria-checked'), 'true');
 
-      // More themes: four restored themes, one pressed at a time, shared with the app menu.
+      // More themes: four restored themes plus the browser mock's custom theme, one pressed at a time, shared with the app menu.
       const cards = appearance.locator('.ec-theme-card');
-      assert.equal(await cards.count(), 4);
+      await appearance.locator('.ec-theme-card[data-theme-id="harbor-dark"]').waitFor();
+      assert.equal(await cards.count(), 5);
       await cards.filter({ hasText: 'Graphite' }).click();
       await page.waitForFunction(() => document.documentElement.dataset.themeId === 'graphite-dark');
       assert.equal(await appearance.locator('.ec-theme-card[aria-pressed="true"]').count(), 1);

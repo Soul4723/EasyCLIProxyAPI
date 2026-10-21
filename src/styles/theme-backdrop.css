@@ -1,5 +1,15 @@
-/* Gradient theme backdrop: paints #root from the --theme-backdrop-* variables. */
+/* Gradient theme backdrop: paints #root and the Windows titlebar from the --theme-backdrop-* variables. */
 
 :root[data-theme-backdrop='gradient'] #root {
   background: var(--theme-backdrop-image) center / 100% 100% no-repeat var(--theme-backdrop-color) !important;
+}
+
+/* Windows titlebar (WindowFrame): the gradient shows through the frame, and the bar over the main column
+ * matches the sticky page header below it. */
+:root[data-theme-backdrop='gradient'] .immersive-window {
+  background: transparent;
+}
+
+:root[data-theme-backdrop='gradient'] .immersive-window:has(.ec-app) .window-titlebar {
+  background: var(--theme-sticky-background, var(--ec-bg));
 }

@@ -1,0 +1,20 @@
+:root[data-window-material] .ec-main {
+  /* Upstream #481 opacity tokens on the fork shell. src/ui/base.css makes the shell fully transparent under a window
+   * material; a translucent theme that sets windowMaterialWorkspaceOpacity / windowMaterialSidebarOpacity tints the
+   * main and sidebar panes instead. No fallback on purpose: without the token the declaration is invalid at computed
+   * time, so the pane stays transparent. Every rule stays scoped to :root[data-window-material]. */
+  background: color-mix(in srgb, var(--ec-bg) var(--theme-window-material-workspace-opacity), transparent);
+}
+
+:root[data-window-material] .ec-sidebar {
+  background: color-mix(in srgb, var(--ec-sidebar) var(--theme-window-material-sidebar-opacity), transparent);
+}
+
+:root[data-window-material] .immersive-window {
+  background: transparent;
+}
+
+:root[data-window-material] .immersive-window:has(.ec-app) .window-titlebar {
+  /* The Windows titlebar sits over the main pane and takes the same tint (transparent without the token). */
+  background: color-mix(in srgb, var(--ec-bg) var(--theme-window-material-workspace-opacity), transparent);
+}
