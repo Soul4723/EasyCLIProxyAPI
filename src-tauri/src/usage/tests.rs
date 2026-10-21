@@ -1300,15 +1300,13 @@
         record.auth_index = "retired-codex-oauth".to_string();
         insert_usage_records(&mut connection, &[record]).unwrap();
 
-        let mut page = load_usage_events_unmasked_with_notes(
+        let page = load_resolved_usage_events(
             &connection,
             &UsageQuery::default(),
             &config,
             &HashMap::new(),
         )
         .unwrap();
-        sources::apply_events(&mut page, &HashMap::new(), &config);
-        mask_usage_event_sources(&mut page, &config);
 
         let event = &page.items[0];
         assert_eq!(event.source_display, "OAuth source remark");

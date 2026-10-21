@@ -345,6 +345,9 @@ pub(super) fn usage_source_api_value(
     config: &GuiConfigFile,
 ) -> String {
     let normalized = source.trim();
+    if normalized.is_empty() {
+        return source.to_string();
+    }
     let is_key = usage_source_looks_like_key(normalized)
         || (!api_key_hash.is_empty() && hash_text(normalized) == api_key_hash)
         || config.api_keys.iter().any(|entry| entry.key == normalized);

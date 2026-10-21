@@ -343,10 +343,7 @@ pub(super) fn load_usage_analysis_with_notes(
             let source: String = row.get(2)?;
             let api_key_hash: String = row.get(3)?;
             let auth_index: String = row.get(9)?;
-            if usage_source_looks_like_key(&source)
-                || (!api_key_hash.is_empty() && hash_text(source.trim()) == api_key_hash)
-                || config.api_keys.iter().any(|entry| entry.key == source.trim())
-            {
+            if usage_source_api_value(&source, &api_key_hash, config) != source {
                 key_sources.insert(source.clone());
             }
             if let Some(note) = notes.get(&auth_index) {
@@ -591,16 +588,21 @@ pub(crate) async fn get_usage_events(
     run_usage_task(move || {
         let connection = open_usage_database_for(&config)?;
         let registry = sources::resolve(&connection, metadata)?;
-        let mut events = load_usage_events_unmasked_with_notes(
-            &connection,
-            &query,
-            &config,
-            &HashMap::new(),
-        )?;
-        sources::apply_events(&mut events, &registry, &config);
-        mask_usage_event_sources(&mut events, &config);
-        Ok(events)
+        load_resolved_usage_events(&connection, &query, &config, &registry)
     }).await
+}
+
+/// Labels come from the raw source, so mask only after `apply_events` has resolved them.
+pub(super) fn load_resolved_usage_events(
+    connection: &Connection,
+    query: &UsageQuery,
+    config: &GuiConfigFile,
+    registry: &HashMap<String, sources::Source>,
+) -> Result<UsageEventPage, String> {
+    let mut events = load_usage_events_unmasked_with_notes(connection, query, config, &HashMap::new())?;
+    sources::apply_events(&mut events, registry, config);
+    mask_usage_event_sources(&mut events, config);
+    Ok(events)
 }
 
 pub(super) fn load_usage_events_with_notes(
@@ -672,7 +674,7 @@ pub(super) fn load_usage_events_unmasked_with_notes(
         }
         let source_is_client_key = hash_text(item.source.trim()) == item.api_key_hash
             || config.api_keys.iter().any(|entry| entry.key == item.source.trim());
-        let mut identity = if item.auth_index.trim().is_empty() && !item.source.trim().is_empty() && !source_is_client_key {
+        let identity = if item.auth_index.trim().is_empty() && !item.source.trim().is_empty() && !source_is_client_key {
             usage_source_display(config, &item.provider, &item.source)
         } else {
             usage_upstream_label(config, &item.provider, if source_is_client_key { "" } else { &item.source }, &item.auth_index)
