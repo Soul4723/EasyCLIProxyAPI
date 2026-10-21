@@ -65,3 +65,10 @@
   }
   .ec-sidebar.is-open { transform: none; visibility: visible; }
 }
+
+/* Build-time channel branding; Stable keeps the existing appearance. */
+.channel-badge { margin-left: 3px; font-size: 9px; font-weight: 600; letter-spacing: 0.04em; line-height: 1; }
+[data-channel='dev'] .channel-badge { color: #e5484d; }
+[data-channel='beta'] .channel-badge { color: #f5a524; }
+[data-channel='dev'] .ec-brand-mark { filter: hue-rotate(-55deg); }
+[data-channel='beta'] .ec-brand-mark { filter: hue-rotate(-20deg); }

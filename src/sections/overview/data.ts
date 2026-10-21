@@ -1,3 +1,4 @@
+import { defaultCorePort } from '../../channel';
 import { coreConfigSource, useSharedCoreConfig } from '../../services/coreConfig';
 import { CORE_CONFIG_SCOPES, configChangeFilter, listenConfigChange } from '../../services/configChange';
 import { credentialsSource } from '../../services/credentials';
@@ -30,7 +31,7 @@ export type RuntimeDetails = {
 };
 
 const INITIAL_DETAILS: RuntimeDetails = {
-  connection: null, host: '127.0.0.1', port: 8317, tls: false, clientKey: undefined, clientKeyError: false, configRevision: 0, error: '',
+  connection: null, host: '127.0.0.1', port: defaultCorePort, tls: false, clientKey: undefined, clientKeyError: false, configRevision: 0, error: '',
 };
 
 /** Connection mode, listen host/port, TLS and the first client key (local mode only). */

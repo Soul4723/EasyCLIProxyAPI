@@ -1,0 +1,250 @@
+name: Fork channel release
+run-name: Fork ${{ inputs.channel || (github.ref_name == 'dev' && 'dev') || (github.ref_name == 'staging' && 'beta') || 'stable' }} release (draft=${{ github.event_name != 'workflow_dispatch' || inputs.draft }})
+
+on:
+  push:
+    branches: [main, staging, dev]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel (stable=main, beta=staging, dev=dev)
+        type: choice
+        options: [stable, beta, dev]
+        default: stable
+        required: true
+      source_ref:
+        description: Source branch/tag/SHA; empty uses the channel branch. Overrides are draft-only.
+        type: string
+        required: false
+      draft:
+        description: Keep release private and do not update the public channel feed
+        type: boolean
+        default: true
+        required: true
+
+permissions:
+  contents: read
+concurrency:
+  group: fork-release-${{ inputs.channel || (github.ref_name == 'dev' && 'dev') || (github.ref_name == 'staging' && 'beta') || 'stable' }}
+  cancel-in-progress: false
+
+env:
+  APP_RELEASE_REPOSITORY: Soul4723/EasyCLIProxyAPI
+  APP_ALLOW_UNNOTARIZED_UPDATES: 'true'
+
+jobs:
+  resolve:
+    if: github.repository == 'Soul4723/EasyCLIProxyAPI'
+    runs-on: ubuntu-24.04
+    outputs:
+      channel: ${{ steps.plan.outputs.channel }}
+      draft: ${{ steps.plan.outputs.draft }}
+      source_ref: ${{ steps.plan.outputs.source_ref }}
+      sha: ${{ steps.version.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Resolve channel and source
+        id: plan
+        shell: bash
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          DRAFT: ${{ github.event_name != 'workflow_dispatch' || inputs.draft }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CHANNEL" ]; then
+            case "$GITHUB_REF_NAME" in
+              main) CHANNEL=stable ;;
+              staging) CHANNEL=beta ;;
+              dev) CHANNEL=dev ;;
+              *) exit 1 ;;
+            esac
+          fi
+          case "$CHANNEL" in
+            stable) branch=main ;;
+            beta) branch=staging ;;
+            dev) branch=dev ;;
+            *) exit 1 ;;
+          esac
+          if [ -z "$SOURCE_REF" ]; then
+            if [ "$GITHUB_EVENT_NAME" = push ]; then SOURCE_REF="$GITHUB_SHA"; else SOURCE_REF="$branch"; fi
+          fi
+          if [ "$DRAFT" != true ] && [ "$SOURCE_REF" != "$branch" ]; then
+            echo '::error::Public releases must use the canonical channel branch (leave source_ref empty).'
+            exit 1
+          fi
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "draft=$DRAFT" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$SOURCE_REF" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.plan.outputs.source_ref }}
+          persist-credentials: false
+      - name: Pin source and version
+        id: version
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.plan.outputs.channel }}
+        run: |
+          set -euo pipefail
+          base="$(node scripts/version.mjs)"
+          base="${base%%[-+]*}"
+          suffix="$CHANNEL"
+          if [ "$CHANNEL" = stable ]; then suffix=fork; fi
+          version="${base}-${suffix}.${GITHUB_RUN_NUMBER}"
+          node scripts/version.mjs "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "### Fork $CHANNEL: v$version" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: $(git rev-parse HEAD); draft: ${{ steps.plan.outputs.draft }}" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, os: linux, display_os: Linux, arch: amd64, suffix: tar.gz }
+          - { runner: ubuntu-22.04-arm, os: linux, display_os: Linux, arch: aarch64, suffix: tar.gz }
+          - { runner: macos-15-intel, os: darwin, display_os: Darwin, arch: amd64, suffix: dmg }
+          - { runner: macos-15, os: darwin, display_os: Darwin, arch: aarch64, suffix: dmg }
+          - { runner: windows-2025, os: windows, display_os: Windows, arch: amd64, suffix: zip }
+          - { runner: windows-11-arm, os: windows, display_os: Windows, arch: aarch64, suffix: zip }
+    name: ${{ matrix.display_os }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      APP_RELEASE_CHANNEL: ${{ needs.resolve.outputs.channel }}
+      VITE_CHANNEL: ${{ needs.resolve.outputs.channel }}
+      STEM: EasyCLIProxyAPI-v${{ needs.resolve.outputs.version }}-${{ matrix.display_os }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fork-${{ matrix.runner }}-${{ needs.resolve.outputs.channel }}
+          workspaces: src-tauri -> target
+          cache-workspace-crates: true
+      - name: Install Linux dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Build channel GUI
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          node scripts/set-version.mjs '${{ needs.resolve.outputs.version }}'
+          node scripts/channel.mjs "$APP_RELEASE_CHANNEL"
+          bun tauri build --config src-tauri/tauri.channel.conf.json --no-bundle
+      - name: Prepare portable directory
+        shell: bash
+        run: >-
+          node scripts/portable.mjs
+          --binary "src-tauri/target/release/cpa-gui${{ matrix.os == 'windows' && '.exe' || '' }}"
+          --output "release/$STEM"
+          --os "${{ matrix.os }}"
+          --arch "${{ matrix.arch }}"
+          --download true
+      - name: Bundle macOS app and DMG (ad-hoc signing, no notarization)
+        if: matrix.os == 'darwin'
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: |
+          set -euo pipefail
+          cp "release/$STEM/portable-app.json" portable-app.json
+          bun tauri bundle --bundles app --ci --config src-tauri/tauri.dmg.conf.json --config src-tauri/tauri.channel.conf.json
+          product="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.channel.conf.json','utf8')).productName || 'EasyCLIProxyAPI'")"
+          app_path="src-tauri/target/release/bundle/macos/$product.app"
+          test -d "$app_path"
+          test -s "$app_path/Contents/Resources/portable-app.json"
+          test -s "$app_path/Contents/Resources/core-version.txt"
+          staging_dir="$(mktemp -d "$RUNNER_TEMP/fork-dmg.XXXXXX")"
+          trap 'rm -rf "$staging_dir"' EXIT
+          ditto "$app_path" "$staging_dir/$product.app"
+          ln -s /Applications "$staging_dir/Applications"
+          hdiutil create -volname "$product" -srcfolder "$staging_dir" -format UDZO -ov "$STEM.dmg"
+      - name: Archive Linux portable package
+        if: matrix.os == 'linux'
+        shell: bash
+        run: tar -czf "$STEM.tar.gz" -C release "$STEM"
+      - name: Archive Windows portable package
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: Compress-Archive -Path "release/$env:STEM" -DestinationPath "$env:STEM.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.STEM }}
+          path: ${{ env.STEM }}.${{ matrix.suffix }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CHANNEL: ${{ needs.resolve.outputs.channel }}
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      SOURCE_SHA: ${{ needs.resolve.outputs.sha }}
+      DRAFT: ${{ needs.resolve.outputs.draft }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Generate existing portable updater manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-notes.mjs --tag "$RELEASE_TAG" --output "$RUNNER_TEMP/notes.json" --body-output "$RUNNER_TEMP/notes.md"
+          for platform in windows linux darwin; do
+            node scripts/manifest.mjs --directory artifacts --platform "$platform" \
+              --repository "$APP_RELEASE_REPOSITORY" --tag "$RELEASE_TAG" --release-notes "$RUNNER_TEMP/notes.json"
+          done
+          printf '\nChannel: %s\n\nSource: %s\n\nmacOS: ad-hoc signed, not notarized.\n' "$CHANNEL" "$SOURCE_SHA" >> "$RUNNER_TEMP/notes.md"
+      - name: Create immutable version release
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--repo Soul4723/EasyCLIProxyAPI --target "$SOURCE_SHA" --title "$RELEASE_TAG ($CHANNEL)" --notes-file "$RUNNER_TEMP/notes.md" --latest=false)
+          if [ "$DRAFT" = true ]; then args+=(--draft); fi
+          if [ "$CHANNEL" != stable ]; then args+=(--prerelease); fi
+          # Never clobber versioned packages: reruns must not replace shipped bytes.
+          gh release create "$RELEASE_TAG" "${args[@]}" artifacts/*
+          echo "Release: $RELEASE_TAG (draft=$DRAFT)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Advance public channel manifest feed
+        if: needs.resolve.outputs.draft == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pointer="channel-$CHANNEL"
+          # Distinguish a missing release from an authentication/API error.
+          gh release list --repo Soul4723/EasyCLIProxyAPI --limit 1000 --json tagName > "$RUNNER_TEMP/releases.json"
+          if node -e 'const fs=require("fs");process.exit(JSON.parse(fs.readFileSync(process.argv[1])).some(r=>r.tagName===process.argv[2])?0:1)' "$RUNNER_TEMP/releases.json" "$pointer"; then
+            gh release download "$pointer" --repo Soul4723/EasyCLIProxyAPI --pattern portable-update-linux.json --dir "$RUNNER_TEMP/previous"
+            node scripts/fork-release.mjs "$RUNNER_TEMP/previous/portable-update-linux.json" artifacts/portable-update-linux.json
+            gh release upload "$pointer" --repo Soul4723/EasyCLIProxyAPI artifacts/portable-update-*.json --clobber
+          else
+            gh release create "$pointer" --repo Soul4723/EasyCLIProxyAPI --target "$SOURCE_SHA" \
+              --title "$CHANNEL updater feed" --notes "Moving manifests only; packages live in immutable version releases." \
+              --prerelease --latest=false artifacts/portable-update-*.json
+          fi
+          echo "Feed: https://github.com/Soul4723/EasyCLIProxyAPI/releases/download/$pointer/portable-update-<platform>.json (macOS: portable-update-darwin-v2.json)" >> "$GITHUB_STEP_SUMMARY"
