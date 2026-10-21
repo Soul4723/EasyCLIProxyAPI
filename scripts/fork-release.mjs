@@ -1,6 +1,31 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { readFile, readdir } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseCargoPackageVersion } from './version.mjs';
+
+export async function readForkBaseVersion(root = resolve(dirname(fileURLToPath(import.meta.url)), '..')) {
+  let entries;
+  try {
+    entries = await readdir(join(root, 'docs', 'release-notes'), { withFileTypes: true });
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    entries = [];
+  }
+  const versions = entries
+    .filter((entry) => entry.isDirectory() && /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(entry.name))
+    .map((entry) => entry.name.slice(1));
+  versions.sort((left, right) => {
+    const a = left.split('.').map(BigInt);
+    const b = right.split('.').map(BigInt);
+    for (let index = 0; index < a.length; index += 1) {
+      if (a[index] !== b[index]) return a[index] > b[index] ? -1 : 1;
+    }
+    return 0;
+  });
+  if (versions.length) return versions[0];
+  const manifest = join(root, 'src-tauri', 'Cargo.toml');
+  return parseCargoPackageVersion(await readFile(manifest, 'utf8'), manifest).split(/[-+]/)[0];
+}
 
 // A queued older run must not roll a public channel backwards.
 export function assertChannelAdvance(previous, next) {
@@ -20,7 +45,11 @@ export function assertChannelAdvance(previous, next) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  if (process.argv.length !== 4) throw new Error('Usage: node scripts/fork-release.mjs <previous-manifest> <next-manifest>');
-  const manifests = await Promise.all(process.argv.slice(2).map(async (path) => JSON.parse(await readFile(path, 'utf8'))));
-  assertChannelAdvance(...manifests);
+  if (process.argv.length === 3 && process.argv[2] === '--base-version') {
+    console.log(await readForkBaseVersion());
+  } else {
+    if (process.argv.length !== 4) throw new Error('Usage: node scripts/fork-release.mjs --base-version | <previous-manifest> <next-manifest>');
+    const manifests = await Promise.all(process.argv.slice(2).map(async (path) => JSON.parse(await readFile(path, 'utf8'))));
+    assertChannelAdvance(...manifests);
+  }
 }
