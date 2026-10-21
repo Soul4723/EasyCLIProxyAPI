@@ -135,6 +135,7 @@ pub(crate) fn launch_agent(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let terminal = normalize_agent_terminal(&config.default_terminal);
     let requested_target = target
         .as_deref()
@@ -398,15 +399,19 @@ impl DeepSeekHarnessProcessState {
 
 #[tauri::command]
 pub(crate) fn get_deepseek_harness_process_status(
+    app: tauri::AppHandle,
     process_state: tauri::State<'_, DeepSeekHarnessProcessState>,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     process_state.status()
 }
 
 #[tauri::command]
 pub(crate) fn stop_deepseek_harness_process(
+    app: tauri::AppHandle,
     process_state: tauri::State<'_, DeepSeekHarnessProcessState>,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     stop_managed_deepseek_harness(process_state.inner())?;
     process_state.status()
 }
@@ -458,6 +463,7 @@ fn launch_managed_deepseek_harness(
 pub(crate) async fn restart_deepseek_harness_process(
     app: tauri::AppHandle,
 ) -> Result<DeepSeekHarnessProcessStatus, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     tauri::async_runtime::spawn_blocking(move || {
         restart_managed_deepseek_harness(app.state::<DeepSeekHarnessProcessState>().inner())
     })
@@ -726,11 +732,13 @@ fn validate_deepseek_harness_argument(value: &str, label: &str) -> Result<String
 
 #[tauri::command]
 pub(crate) async fn restart_codex_app(app: tauri::AppHandle) -> Result<(), String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     restart_agent_app(app, "codex".to_string(), None).await
 }
 
 #[tauri::command]
 pub(crate) async fn restart_opencode_app(app: tauri::AppHandle) -> Result<(), String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     restart_agent_app(app, "opencode".to_string(), None).await
 }
 
@@ -740,6 +748,7 @@ pub(crate) async fn restart_agent_app(
     client: String,
     executable_path: Option<String>,
 ) -> Result<(), String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let client = AgentClient::parse(&client)?;
     if !matches!(
         client,
@@ -788,6 +797,7 @@ pub(crate) async fn get_codex_cli_daemon_running(
     app: tauri::AppHandle,
     executable_path: Option<String>,
 ) -> Result<bool, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()
@@ -823,6 +833,7 @@ pub(crate) async fn restart_codex_cli_daemon(
     app: tauri::AppHandle,
     executable_path: Option<String>,
 ) -> Result<(), String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app
         .path()
         .home_dir()

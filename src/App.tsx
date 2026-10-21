@@ -59,7 +59,7 @@ import {
 import { languageOptions, useI18n } from './i18n';
 import { AppUpdateDialog, AppUpdateProvider, useAppUpdate } from './appUpdate';
 import { appUpdateIndicatorState } from './appUpdateModel';
-import { canOpenAppPage, requestAppNavigation } from './navigation';
+import { canOpenAppPage, isRemoteDisabledPage, requestAppNavigation } from './navigation';
 import { useThemePreference } from './theme';
 import { usePrivacyMode } from './privacy';
 import { Dialog } from './components/Dialog';
@@ -174,8 +174,11 @@ function AppContent() {
   const languageButtonRef = useRef<HTMLButtonElement>(null);
   const { status } = useCoreRuntime();
   const coreReady = Boolean(status?.ready);
+  const remoteMode = status?.connectionMode === 'remote';
+  const remoteDisabled = (pageId: string) => remoteMode && isRemoteDisabledPage(pageId);
   const [navElement, setNavElement] = useState<HTMLElement | null>(null);
-  const { entries: pluginEntries, fetched: pluginEntriesFetched } = usePluginNavEntries(coreReady);
+  const { entries: localPluginEntries, fetched: pluginEntriesFetched } = usePluginNavEntries(coreReady && !remoteMode);
+  const pluginEntries = remoteMode ? [] : localPluginEntries;
   const pluginEntry = findPluginNavEntry(pluginEntries, active);
   const navPages = pages.filter((page) => page.id !== 'easy');
   const { layout: autoPluginLayout, compact: navCompact } = usePluginNavLayout(navElement, navPages.length, pluginEntries.length);
@@ -200,10 +203,10 @@ function AppContent() {
       : '',
   ].filter(Boolean).join(' · ');
   useEffect(() => {
-    if (!canOpenAppPage(active, coreReady)) {
+    if (!canOpenAppPage(active, coreReady) || remoteDisabled(active)) {
       setActive('home');
     }
-  }, [active, coreReady]);
+  }, [active, coreReady, remoteMode]);
 
   useEffect(() => {
     if (!coreReady) void closePluginWebview().catch(() => undefined);
@@ -296,12 +299,12 @@ function AppContent() {
   };
 
   const select = useCallback((pageId: AppPageId) => {
-    if (!canOpenAppPage(pageId, coreReady)) {
+    if (!canOpenAppPage(pageId, coreReady) || remoteDisabled(pageId)) {
       return;
     }
     if (pageId !== active) requestAppNavigation(() => setActive(pageId));
     else if (isPluginRoute(pageId)) setPluginReload((value) => value + 1);
-  }, [active, coreReady]);
+  }, [active, coreReady, remoteMode]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -382,7 +385,7 @@ function AppContent() {
                 const hasPluginChildren = page.id === 'plugins' && pluginEntries.length > 0;
                 const isActive = page.id === active
                   || (hasPluginChildren && !pluginNavExpanded && pluginChildActive);
-                const locked = !canOpenAppPage(page.id, coreReady);
+                const locked = !canOpenAppPage(page.id, coreReady) || remoteDisabled(page.id);
                 const updateIndicator = page.id === 'versions'
                   ? appUpdateIndicatorState(hasUpdate, coreHasUpdate, appUpdateProcessing)
                   : null;
@@ -398,7 +401,7 @@ function AppContent() {
                       .join(' ')}
                     aria-current={page.id === active ? 'page' : undefined}
                     disabled={locked}
-                    title={locked ? t('app.nav.lockedHint') : undefined}
+                    title={remoteDisabled(page.id) ? t('connection.remoteDisabled') : locked ? t('app.nav.lockedHint') : undefined}
                     onClick={() => select(page.id)}
                   >
                     <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -450,6 +453,8 @@ function AppContent() {
                 <button
                   type="button"
                   className="sidebar-link sidebar-easy-entry"
+                  disabled={remoteMode}
+                  title={remoteMode ? t('connection.remoteDisabled') : undefined}
                   onClick={() => select('easy')}
                 >
                   <Sprout size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -549,7 +554,9 @@ function AppContent() {
 
         <div className="workspace">
           <main className="content">
-            {!canOpenAppPage(active, coreReady) ? (
+            {remoteDisabled(active) ? (
+              <section className="page"><EmptyState>{t('connection.remoteDisabled')}</EmptyState></section>
+            ) : !canOpenAppPage(active, coreReady) ? (
               <CoreLockedPage />
             ) : pluginEntry ? (
               <PluginResourcePage key={pluginEntry.route} entry={pluginEntry} reloadToken={pluginReload} />

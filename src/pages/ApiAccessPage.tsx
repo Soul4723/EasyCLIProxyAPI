@@ -1,4 +1,5 @@
 import { EmptyState } from '../components/EmptyState';
+import { Notice } from '../components/Notice';
 import { Switch } from '../components/Switch';
 import { resolveApiAccessRemarks, saveApiAccessRemark } from '../services/apiAccessRemarks';
 import type { ProviderSection, ApiAccessRemarkLocator } from '../services/apiAccessRemarks';
@@ -95,6 +96,7 @@ import {
   reorderProviderEntries, updateProviderEntry, type ProviderEntrySource,
 } from '../services/providerEntries';
 import { getCurrentLocale, translate, useI18n } from '../i18n';
+import { useCoreRuntime } from '../coreRuntime';
 import type { MessageKey } from '../i18n/resources';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
 import { Select } from '../components/Select';
@@ -1213,6 +1215,8 @@ export const providerRecordWithDisabledState = (
 };
 
 export function ApiAccessPage() {
+  const { status } = useCoreRuntime();
+  const remoteMode = status?.connectionMode === 'remote';
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { t } = useI18n();
   const [records, setRecords] = useState(emptyRecords);
@@ -1448,7 +1452,7 @@ export function ApiAccessPage() {
       if (
         definition.openAi
         && activeCategory !== 'deepseek'
-        && !editingRow && draftToSave.models.length === 0
+        && !editingRow && draftToSave.models.length === 0 && !remoteMode
       ) {
         let fetchedModels: ModelOption[];
         try {
@@ -1587,6 +1591,7 @@ export function ApiAccessPage() {
   return (
     <section className="page management-page api-access-page">
       {confirmationDialog}
+      {remoteMode ? <Notice tone="info" icon={false}>{t('connection.remoteDiscoveryDisabled')}</Notice> : null}
       {error ? <MessageNotice message={error} onDismiss={() => setError('')} /> : null}
       <div className="provider-workbench real-provider-workbench">
         <aside className="panel provider-category-panel">
@@ -1681,14 +1686,14 @@ export function ApiAccessPage() {
                     </div>
                   </div>
                   <div className="provider-row-actions">
-                    <button
+                    {!remoteMode ? <button
                       type="button"
                       className="secondary-button small-button provider-health-button"
                       onClick={() => setHealthDialogRow(row)}
                       disabled={busy}
                     >
                       {t('apiAccess.health.action')}
-                    </button>
+                    </button> : null}
                     <label className="provider-enabled-control">
                       <span>{t(row.disabled ? 'apiAccess.status.disabled' : 'apiAccess.status.enabled')}</span>
                       <Switch checked={!row.disabled} onChange={() => void toggleProvider(row)} disabled={busy} aria-label={t('apiAccess.toggleAria', { remark: row.remark || row.name, action: row.disabled ? t('common.enable') : t('common.disable') })} />
@@ -1715,6 +1720,7 @@ export function ApiAccessPage() {
           editingRow={editingRow}
           initialDraft={dialogDraft}
           busy={busy}
+          remoteMode={remoteMode}
           onClose={() => setDialogOpen(false)}
           onSave={saveProvider}
         />
@@ -1972,6 +1978,7 @@ type ApiProviderDialogProps = {
   editingRow: ProviderRow | null;
   initialDraft: ProviderDraft;
   busy: boolean;
+  remoteMode?: boolean;
   onClose: () => void;
   onSave: (draft: ProviderDraft) => Promise<ProviderSaveResult>;
 };
@@ -1981,6 +1988,7 @@ export function ApiProviderDialog({
   editingRow,
   initialDraft,
   busy,
+  remoteMode = false,
   onClose,
   onSave,
 }: ApiProviderDialogProps) {
@@ -2275,7 +2283,7 @@ export function ApiProviderDialog({
         <div className="surface-section surface-muted model-config-card" ref={modelCardRef}>
           <div className="model-config-heading">
             <div><span>{t('apiAccess.models.title')}</span><small>{t('apiAccess.models.description')}</small></div>
-            <button type="button" className="secondary-button compact-button" onClick={openModelDiscovery} disabled={busy}>
+            <button type="button" className="secondary-button compact-button" onClick={openModelDiscovery} disabled={busy || remoteMode} title={remoteMode ? t('connection.remoteDiscoveryDisabled') : undefined}>
               <RefreshCw size={15} />{t('apiAccess.models.fetch')}
             </button>
           </div>
@@ -2451,7 +2459,7 @@ export function ApiProviderDialog({
 
           <div className="model-transfer-summary">
             <span role="status">{t('apiAccess.modelDialog.summary', { found: modelOptions.length, selected: selectedModels.length })}</span>
-            <button type="button" className="secondary-button compact-button" onClick={() => void discoverModels()} disabled={modelLoading}>
+            <button type="button" className="secondary-button compact-button" onClick={() => void discoverModels()} disabled={modelLoading || remoteMode} title={remoteMode ? t('connection.remoteDiscoveryDisabled') : undefined}>
               <RefreshCw size={15} className={modelLoading ? 'spin' : ''} />{t('common.refresh')}
             </button>
           </div>

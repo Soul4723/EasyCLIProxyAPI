@@ -1,6 +1,6 @@
 use super::{
     core_origin, current_core_tls_settings, format_management_request_error,
-    management_authorization, management_endpoint, management_http_client, read_management_value,
+    management_authorization, management_endpoint, management_http_client_for, read_management_value,
     GuiConfigFile, GuiConfigState,
 };
 use futures_util::StreamExt;
@@ -20,7 +20,7 @@ pub(crate) async fn get_plugin_latest_releases(
     repositories: Vec<String>,
 ) -> Result<Vec<PluginLatestRelease>, String> {
     let config = gui_config_state.snapshot()?;
-    let response = management_http_client()?
+    let response = management_http_client_for(&config)?
         .get(management_endpoint(&config, "config/server")?)
         .header("Authorization", management_authorization(&config)?)
         .send()
@@ -171,6 +171,7 @@ pub(crate) async fn resolve_plugin_entry_url(
     plugin_id: &str,
     menu_index: usize,
 ) -> Result<String, String> {
+    crate::core_connection::require_local(config)?;
     let response = request_plugins(config).await?;
     let plugins = read_management_value(response).await?;
     let path = active_plugin_menu_path(&plugins, plugin_id, menu_index)?;
@@ -183,7 +184,7 @@ pub(crate) async fn resolve_plugin_entry_url(
 }
 
 async fn request_plugins(config: &GuiConfigFile) -> Result<reqwest::Response, String> {
-    management_http_client()?
+    management_http_client_for(config)?
         .get(management_endpoint(config, "plugins")?)
         .header("Authorization", management_authorization(config)?)
         .send()

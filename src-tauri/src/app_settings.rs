@@ -37,6 +37,14 @@ pub(crate) fn detect_core_platform() -> Result<CorePlatform, String> {
 
 #[tauri::command]
 pub(crate) async fn get_core_status(app: tauri::AppHandle) -> Result<CoreStatus, String> {
+    let config = app.state::<GuiConfigState>().snapshot()?;
+    if config.connection_mode == CoreConnectionMode::Remote {
+        let connection = core_connection::CoreConnection::from(&config);
+        let result = core_connection::test_core_connection(connection.clone()).await?;
+        let status = core_connection::remote_status(&connection, result);
+        emit_core_status(&app, &status);
+        return Ok(status);
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let config = app.state::<GuiConfigState>().snapshot()?;
         current_core_status(
@@ -760,8 +768,10 @@ pub(crate) fn set_app_locale(
 ) -> Result<String, String> {
     let config = gui_config_state.set_locale(locale)?;
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    if let Ok(status) = current_core_status(Some(process_state.inner()), Some(config.port)) {
-        update_windows_tray_locale(&app, &config.locale, &status);
+    if config.connection_mode == CoreConnectionMode::Local {
+        if let Ok(status) = current_core_status(Some(process_state.inner()), Some(config.port)) {
+            update_windows_tray_locale(&app, &config.locale, &status);
+        }
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     let _ = (app, process_state);

@@ -330,6 +330,7 @@ pub(crate) async fn get_core_models(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<Vec<CoreHealthModel>, String> {
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     fetch_core_models(config.port, effective_agent_api_key(&config)).await
 }
 
@@ -390,6 +391,7 @@ pub(crate) async fn core_health_probe(
     timeout_ms: Option<u64>,
 ) -> Result<ProviderHealthProbeResponse, String> {
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     probe_core_model(&config, &model, timeout_ms).await
 }
 

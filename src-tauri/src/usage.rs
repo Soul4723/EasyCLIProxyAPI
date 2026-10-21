@@ -8,7 +8,7 @@ use super::executable_dir;
 use super::VersionDownloadSource;
 use super::{
     apply_configured_proxy, core_base_dir, current_core_status, format_management_request_error,
-    management_authorization, management_endpoint, management_http_client, CoreProcessState,
+    management_authorization, management_endpoint, management_http_client_for, CoreProcessState,
     GuiConfigFile, GuiConfigState,
 };
 use chrono::{DateTime, Local};
@@ -667,12 +667,14 @@ fn initialize_usage_storage_at(root: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) async fn repair_usage_cache_records() -> Result<UsageRepairResult, String> {
+pub(crate) async fn repair_usage_cache_records(app: tauri::AppHandle) -> Result<UsageRepairResult, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     run_usage_task(|| repair_usage_cache_records_at(&usage_root_dir()?)).await
 }
 
 #[tauri::command]
-pub(crate) async fn get_usage_storage_settings() -> Result<UsageStorageSettings, String> {
+pub(crate) async fn get_usage_storage_settings(app: tauri::AppHandle) -> Result<UsageStorageSettings, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     run_usage_task(|| {
         let root = usage_root_dir()?;
         let connection = open_usage_database_at(&root)?;
@@ -686,6 +688,7 @@ pub(crate) async fn save_usage_storage_settings(
     app: tauri::AppHandle,
     max_database_size_mb: u64,
 ) -> Result<UsageStorageSettings, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let settings = run_usage_task(move || {
         let root = usage_root_dir()?;
         let connection = open_usage_database_at(&root)?;
@@ -707,6 +710,7 @@ pub(crate) async fn shrink_usage_database(
     app: tauri::AppHandle,
     target_database_size_mb: u64,
 ) -> Result<UsageStorageSettings, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let settings = run_usage_task(move || {
         let root = usage_root_dir()?;
         let connection = open_usage_database_at(&root)?;
@@ -1828,6 +1832,8 @@ fn redis_pull_can_try_legacy_queue(error: &str) -> bool {
 }
 
 pub(crate) fn start_usage_collector(app: tauri::AppHandle) {
+    let Ok(config) = app.state::<GuiConfigState>().snapshot() else { return };
+    if crate::core_connection::require_local(&config).is_err() { return }
     let state = app.state::<UsageCollectorState>();
     if let Ok(total_records) = total_usage_records() {
         state.set_total_records(total_records);
@@ -1875,6 +1881,10 @@ async fn usage_collector_loop(app: tauri::AppHandle, token: CancellationToken) {
                 continue;
             }
         };
+        if crate::core_connection::require_local(&config).is_err() {
+            set_collector_status(&app, "paused", "Usage collection is unavailable in remote mode", None);
+            return;
+        }
         if subscription_config.as_ref().is_some_and(|(port, secret)| {
             *port != config.port || secret != &config.management_secret_key
         }) {
@@ -2182,7 +2192,7 @@ async fn wait_or_cancel(token: &CancellationToken, seconds: u64) {
 }
 
 async fn fetch_usage_queue(config: &GuiConfigFile) -> Result<Vec<Value>, String> {
-    let client = management_http_client()?;
+    let client = management_http_client_for(config)?;
     let response = client
         .get(management_endpoint(config, "observability/usage/queue")?)
         .header("Authorization", management_authorization(config)?)
@@ -2952,13 +2962,16 @@ fn add_text_filter(
 
 #[tauri::command]
 pub(crate) fn get_usage_collector_status(
+    app: tauri::AppHandle,
     state: tauri::State<'_, UsageCollectorState>,
 ) -> Result<UsageCollectorStatus, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     state.status()
 }
 
 #[tauri::command]
-pub(crate) async fn get_usage_overview(query: UsageQuery) -> Result<UsageOverview, String> {
+pub(crate) async fn get_usage_overview(app: tauri::AppHandle, query: UsageQuery) -> Result<UsageOverview, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     run_usage_task(move || load_usage_overview(&open_usage_database()?, &query)).await
 }
 
@@ -3724,7 +3737,8 @@ fn upsert_model_price(connection: &Connection, price: &ModelPrice) -> Result<(),
 }
 
 #[tauri::command]
-pub(crate) async fn get_usage_pricing(query: UsageQuery) -> Result<UsagePricing, String> {
+pub(crate) async fn get_usage_pricing(app: tauri::AppHandle, query: UsageQuery) -> Result<UsagePricing, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     run_usage_task(move || load_usage_pricing(&open_usage_database()?, &query)).await
 }
 
@@ -3800,7 +3814,8 @@ fn load_usage_pricing(connection: &Connection, query: &UsageQuery) -> Result<Usa
 }
 
 #[tauri::command]
-pub(crate) async fn save_usage_model_price(mut price: ModelPrice) -> Result<(), String> {
+pub(crate) async fn save_usage_model_price(app: tauri::AppHandle, mut price: ModelPrice) -> Result<(), String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     price.model = price.model.trim().to_string();
     price.source = "manual".to_string();
     price.source_model_id.clear();
@@ -3809,7 +3824,8 @@ pub(crate) async fn save_usage_model_price(mut price: ModelPrice) -> Result<(), 
 }
 
 #[tauri::command]
-pub(crate) async fn delete_usage_model_price(model: String) -> Result<(), String> {
+pub(crate) async fn delete_usage_model_price(app: tauri::AppHandle, model: String) -> Result<(), String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     run_usage_task(move || {
         let connection = open_usage_database()?;
         connection
@@ -3984,10 +4000,12 @@ async fn fetch_model_price_catalog(
 
 #[tauri::command]
 pub(crate) async fn preview_usage_model_prices(
+    app: tauri::AppHandle,
     query: UsageQuery,
     source: String,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<ModelPriceSyncPreview, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let (source_name, source_url) = match source.as_str() {
         "models-dev" => ("Models.dev", MODEL_PRICE_SYNC_URL),
         "litellm" => ("LiteLLM", LITELLM_PRICE_SYNC_URL),
@@ -4025,7 +4043,8 @@ pub(crate) async fn preview_usage_model_prices(
 }
 
 #[tauri::command]
-pub(crate) async fn apply_usage_model_prices(prices: Vec<ModelPrice>) -> Result<ModelPriceSyncResult, String> {
+pub(crate) async fn apply_usage_model_prices(app: tauri::AppHandle, prices: Vec<ModelPrice>) -> Result<ModelPriceSyncResult, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let mut seen = std::collections::HashSet::new();
     for price in &prices {
         validate_model_price(price)?;
@@ -4078,6 +4097,7 @@ pub(crate) async fn get_usage_analysis(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<UsageAnalysis, String> {
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let metadata = sources::fetch(&config).await;
     run_usage_task(move || {
         let connection = open_usage_database()?;
@@ -4364,7 +4384,8 @@ fn load_api_key_categories(
 
 
 #[tauri::command]
-pub(crate) async fn save_usage_events_export(path: String, contents: String) -> Result<(), String> {
+pub(crate) async fn save_usage_events_export(app: tauri::AppHandle, path: String, contents: String) -> Result<(), String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     tauri::async_runtime::spawn_blocking(move || write_usage_events_export(&path, &contents))
         .await
         .map_err(|error| format!("Failed to save usage export: {error}"))?
@@ -4475,6 +4496,7 @@ pub(crate) async fn get_usage_events(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<UsageEventPage, String> {
     let config = gui_config_state.snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let metadata = sources::fetch(&config).await;
     run_usage_task(move || {
         let connection = open_usage_database()?;
@@ -5647,6 +5669,9 @@ mod tests {
     #[test]
     fn normalizes_queue_records_without_persisting_secrets_or_headers() {
         let config = GuiConfigFile {
+            connection_mode: crate::CoreConnectionMode::Local,
+            remote_management_origin: String::new(),
+            remote_management_key: String::new(),
             locale: "zh-CN".to_string(),
             port: 8317,
             allow_lan: false,

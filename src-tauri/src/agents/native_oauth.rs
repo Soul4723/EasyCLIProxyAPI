@@ -155,6 +155,7 @@ async fn validate_codex_openai_proxy_auth(config: &str, auth: &str) -> Result<()
 
 #[tauri::command]
 pub(crate) async fn set_codex_openai_provider(app: tauri::AppHandle, enabled: bool) -> Result<AgentConfigActionResult, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let directory = codex_configuration_directory(&home);
     let paths = vec![directory.join("config.toml"), directory.join("auth.json")];
@@ -425,6 +426,7 @@ pub(crate) fn close_codex_configuration(home: &Path) -> Result<AgentConfigAction
 pub(crate) fn close_codex_config_modification(
     app: tauri::AppHandle,
 ) -> Result<AgentConfigActionResult, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -644,6 +646,7 @@ pub(crate) fn apply_codex_cpa_configuration(
 pub(crate) fn restore_codex_official_config(
     app: tauri::AppHandle,
 ) -> Result<AgentConfigActionResult, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let _guard = AGENT_CONFIG_FILE_LOCK
         .lock()
@@ -688,6 +691,7 @@ pub(crate) fn switch_codex_remote_compaction(home: &Path, enabled: bool) -> Resu
 
 #[tauri::command]
 pub(crate) fn set_codex_remote_compaction(app: tauri::AppHandle, enabled: bool) -> Result<AgentConfigActionResult, String> {
+    crate::core_connection::require_local(&app.state::<GuiConfigState>().snapshot()?)?;
     let _guard = AGENT_CONFIG_FILE_LOCK.lock().map_err(|_| "Agent configuration file lock is poisoned")?;
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let result = switch_codex_remote_compaction(&home, enabled)?;

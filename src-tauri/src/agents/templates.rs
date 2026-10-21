@@ -283,6 +283,7 @@ pub(crate) async fn preview_agent_config_template(
 ) -> Result<TemplatePreview, String> {
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let config = app.state::<GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&config)?;
     Ok(prepare_template_plan(
         &config,
         &home,
@@ -308,6 +309,7 @@ pub(crate) async fn apply_agent_config_template(
 ) -> Result<AgentConfigActionResult, String> {
     let home = app.path().home_dir().map_err(|_| "Failed to get user directory")?;
     let config = app.state::<GuiConfigState>().snapshot()?;
+    crate::core_connection::require_local(&config)?;
     let plan = prepare_template_plan(
         &config,
         &home,

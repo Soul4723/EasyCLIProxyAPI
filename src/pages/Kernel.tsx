@@ -35,6 +35,8 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     refreshStatus,
     publishStatus,
   } = useCoreRuntime();
+  const remoteMode = coreStatus?.connectionMode === 'remote';
+  const runtimeKnown = Boolean(coreStatus);
 
   const [installedAppVersion, setInstalledAppVersion] = useState('');
   const [listenHost, setListenHost] = useState('127.0.0.1');
@@ -56,7 +58,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     let disposed = false;
     let unlistenConfig: (() => void) | null = null;
 
-    void onConfigFilesChanged(() => {
+    if (!remoteMode && runtimeKnown) void onConfigFilesChanged(() => {
       if (disposed) return;
       setConfigRevision((value) => value + 1);
       void loadGuiSettings();
@@ -68,14 +70,16 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
       else unlistenConfig = stop;
     });
 
-    loadGuiSettings();
-    void loadTlsSettings();
+    if (!remoteMode && runtimeKnown) {
+      loadGuiSettings();
+      void loadTlsSettings();
+      void loadHomeApiKey();
+    }
     void getVersion()
       .then((version) => {
         if (!disposed) setInstalledAppVersion(version);
       })
       .catch(() => undefined);
-    void loadHomeApiKey();
 
     return () => {
       disposed = true;
@@ -84,7 +88,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
         window.clearTimeout(copiedApiTimerRef.current);
       }
     };
-  }, []);
+  }, [remoteMode, runtimeKnown]);
 
   const runCoreProcessCommand = async (command: CoreProcessCommand) => {
     const actionLabel =
@@ -204,7 +208,19 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     listenHost,
   );
   const healthContext = [listenHost, customPort, tlsEnabled, coreStatus?.processId, configRevision].join(':');
-  const overview = useHomeOverview(coreReady, healthContext);
+  const overview = useHomeOverview(coreReady, healthContext, !remoteMode && runtimeKnown);
+
+  if (remoteMode) return <section className="page kernel-page home-page home-dashboard" aria-label={t('app.nav.home')}>
+    <section className="panel surface-panel">
+      <div className="panel-heading home-panel-heading"><div><h2>{t('connection.title')}</h2><p>{coreReady ? t('connection.remoteStatus') : coreStatus?.message || t('common.detectionFailed')}</p></div>
+        <button type="button" className="icon-button quiet ghost small-button" onClick={() => void refreshStatus()} title={t('kernel.control.refresh')} aria-label={t('kernel.control.refresh')}><RefreshCw size={15} aria-hidden="true" /></button>
+      </div>
+      <dl className="panel-detail-grid home-runtime-details">
+        <div className="panel-detail-row"><dt>{t('connection.remoteHost')}</dt><dd><span className="mono-tag">{coreStatus?.remoteOrigin}</span></dd></div>
+        <div className="panel-detail-row"><dt>{t('kernel.overview.coreVersion')}</dt><dd><span className="mono-tag">{currentVersion || t('common.unavailable')}</span></dd></div>
+      </dl>
+    </section>
+  </section>;
 
   return (
     <section className="page kernel-page home-page home-dashboard" aria-label={t('app.nav.home')}>

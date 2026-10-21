@@ -58,6 +58,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCoreRuntime } from '../coreRuntime';
+import { CoreConnectionSettings } from './CoreConnectionSettings';
 import { useI18n } from '../i18n';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
 import { webUiManagementUrl } from '../services/clientAccess';
@@ -131,6 +132,13 @@ const ROUTING_OPTIONS = [
 ] as const;
 
 export function ConfigPanelPage() {
+  const { status } = useCoreRuntime();
+  return !status || status.connectionMode === 'remote'
+    ? <section className="page config-page"><div className="config-settings-content"><div className="config-settings-cards"><CoreConnectionSettings /></div></div></section>
+    : <LocalConfigPanelPage />;
+}
+
+function LocalConfigPanelPage() {
   const { t, locale } = useI18n();
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { status: coreStatus, publishStatus, refreshStatus } = useCoreRuntime();
@@ -2013,6 +2021,7 @@ export function ConfigPanelPage() {
                   {busyAction === 'software' ? t('common.saving') : t('common.save')}
                 </button></div>
         </section>
+            <CoreConnectionSettings hidden={searching || activeSubpage !== 'software'} />
           </div>
           <div id="config-template-panel" hidden={searching || templateGroups.length === 0}><TemplateConfigSection groups={allSettingsTemplateGroups} visibleGroups={templateGroups.map(group => group.id)} onDirtyGroupsChange={setDirtyTemplateGroups} /></div>
           <div className="surface-card" id="config-native-aliases" tabIndex={-1} role="region" aria-label={t('app.nav.thinkingAliases')} hidden={searching || activeSubpage !== 'aliases'}>{aliasesVisited ? <ThinkingAliasesPage embedded /> : null}</div>
