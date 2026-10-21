@@ -519,13 +519,12 @@ export function UsageRecordsPage() {
         <div className="usage-topbar-actions">
           <div
             className={`usage-collector-state ${collectorTone}`}
-            data-live={collecting}
             title={[collectorLabel, lastCollectedLabel ? t('usage.collector.lastCollected', { time: lastCollectedLabel }) : null, status?.message].filter(Boolean).join(' · ')}
           >
             <span className="status-dot" />
             <strong>{collectorLabel}</strong>
             <span>{t('usage.longTermRecords', { count: compactNumber(status?.totalRecords ?? 0) })}</span>
-            {lastCollectedLabel ? <span className="usage-collector-last-collected">{t('usage.collector.lastCollected', { time: lastCollectedLabel })}</span> : null}
+            {lastCollectedLabel ? <span>{t('usage.collector.lastCollected', { time: lastCollectedLabel })}</span> : null}
           </div>
           <button
             type="button"

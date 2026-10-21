@@ -20,25 +20,27 @@ const path = require('node:path');
     const page = await browser.newPage();
     page.setDefaultTimeout(10000);
     const errors = [];
+    // The `success` tone class marks a collector that is live; every other state is not.
+    const isLive = locator => locator.evaluate(element => element.classList.contains('success'));
     page.on('pageerror', error => errors.push(String(error)));
 
     await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=running`);
     const state = page.locator('.usage-collector-state');
     const setCore = scenario => page.evaluate(value => window.usageStateFixture.setCore(value), scenario);
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collecting Locally'));
-    assert.equal(await state.getAttribute('data-live'), 'true');
+    assert.equal(await isLive(state), true);
     assert.doesNotMatch(await state.innerText(), /Last collected/, 'the timestamp is hidden while live');
     await setCore('stopped');
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Core stopped'));
-    assert.equal(await state.getAttribute('data-live'), 'false');
+    assert.equal(await isLive(state), false);
     assert.match(await state.innerText(), /Last collected/, 'the timestamp is shown when stopped');
     await setCore('running');
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collecting Locally'));
-    assert.equal(await state.getAttribute('data-live'), 'true');
+    assert.equal(await isLive(state), true);
 
     await setCore('unknown');
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Core status unknown'));
-    assert.equal(await state.getAttribute('data-live'), 'false');
+    assert.equal(await isLive(state), false);
     await setCore('running');
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collecting Locally'));
 
@@ -48,13 +50,13 @@ const path = require('node:path');
     ]) {
       await setCore(scenario);
       await page.waitForFunction(expected => document.querySelector('.usage-collector-state')?.textContent?.includes(expected), label);
-      assert.equal(await state.getAttribute('data-live'), 'false', `${scenario} is never presented as live`);
+      assert.equal(await isLive(state), false, `${scenario} is never presented as live`);
     }
 
     await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=en&core=error`);
     const errorState = page.locator('.usage-collector-state');
     await page.waitForFunction(() => document.querySelector('.usage-collector-state')?.textContent?.includes('Collection Error'));
-    assert.equal(await errorState.getAttribute('data-live'), 'false', 'collector error is never presented as live');
+    assert.equal(await isLive(errorState), false, 'collector error is never presented as live');
 
     await page.goto(`${base}/tests/fixtures/usage-layout.html?locale=zh-CN&core=stopped`);
     const translatedState = page.locator('.usage-collector-state');
