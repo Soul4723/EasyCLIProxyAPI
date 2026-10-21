@@ -181,8 +181,12 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
   const recovering = recovery?.phase === 'waiting' || recovery?.phase === 'restarting';
   const canStop = coreRunning || recovering;
   const coreProcessBusy = processBusy || Boolean(coreStatus?.starting) || recovery?.phase === 'restarting';
+  // Remote host control: the remote host's EasyCLIProxyAPI reports the process and runs Start/Stop/Restart.
+  const hostControl = remoteMode ? coreStatus?.hostControl ?? null : null;
+  const remoteControllable = hostControl?.reachable === true;
+  const remoteStopped = remoteControllable && !coreRunning;
 
-  const statusTone = statusError || recovery?.phase === 'failed' || (remoteMode && !coreReady) ? 'error' : coreProcessBusy || recovering ? 'pending' : coreRunning ? 'success' : 'neutral';
+  const statusTone = statusError || recovery?.phase === 'failed' || (remoteMode && !coreReady && !remoteStopped) ? 'error' : coreProcessBusy || recovering ? 'pending' : coreRunning ? 'success' : 'neutral';
   const statusLabel = statusError
     ? t('common.detectionFailed')
     : !coreStatus
@@ -197,7 +201,8 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
               ? t('kernel.status.running')
               : t(coreInstalled ? 'kernel.status.stopped' : 'kernel.status.notInstalled');
   const runtimeLabel = remoteMode && !statusError
-    ? t(coreReady ? 'connection.statusConnected' : 'connection.statusUnreachable')
+    ? coreProcessBusy ? t('common.processing')
+      : t(coreReady ? 'connection.statusConnected' : remoteStopped ? 'connection.statusStopped' : 'connection.statusUnreachable')
     : statusLabel;
 
   const resolvedAppVersion = appUpdate?.currentVersion || installedAppVersion;
@@ -221,9 +226,11 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
     <Notice tone={statusError ? 'error' : 'info'} variant="text">{statusError || t('common.detecting')}</Notice>
   </section>;
 
-  // A remote core keeps the same card; values come from the remote, and process actions are disabled.
+  // A remote core keeps the same card; values come from the remote. Process actions need remote host control.
   const remoteUrl = remoteMode ? (() => { try { return new URL(remoteOrigin); } catch { return null; } })() : null;
-  const processTitle = remoteMode ? t('connection.remoteManaged') : undefined;
+  const processTitle = remoteMode && !remoteControllable
+    ? t(hostControl ? 'connection.hostControlUnreachable' : 'connection.hostControlRequired')
+    : undefined;
 
   return (
     <section className="page kernel-page home-page home-dashboard" aria-label={t('app.nav.home')}>
@@ -238,7 +245,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
           <div className="panel-heading home-panel-heading">
             <div>
               <h2>{t('kernel.control.title')}</h2>
-              <p>{t(remoteMode ? coreReady ? 'connection.remoteReady' : 'connection.remoteUnreachable' : coreReady ? 'home.runtime.ready' : coreInstalled ? 'home.runtime.stopped' : 'home.runtime.notInstalled')}</p>
+              <p>{t(remoteMode ? coreReady ? 'connection.remoteReady' : remoteStopped ? 'connection.remoteStopped' : 'connection.remoteUnreachable' : coreReady ? 'home.runtime.ready' : coreInstalled ? 'home.runtime.stopped' : 'home.runtime.notInstalled')}</p>
             </div>
             <div className="home-runtime-actions">
               <button type="button" className="icon-button quiet ghost small-button" disabled={coreProcessBusy} onClick={() => void refreshStatus()} title={t('kernel.control.refresh')} aria-label={t('kernel.control.refresh')}><RefreshCw size={15} aria-hidden="true" /></button>
@@ -275,7 +282,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
             </div>
             <div className="panel-detail-row">
               <dt>{t('kernel.control.pid')}</dt>
-              <dd><span className="mono-tag" title={processTitle}>{remoteMode ? '—' : coreStatus?.processId || t('kernel.control.noPid')}</span></dd>
+              <dd><span className="mono-tag" title={remoteMode ? t('connection.remoteManaged') : undefined}>{remoteMode ? (remoteControllable && coreStatus?.processId) || '—' : coreStatus?.processId || t('kernel.control.noPid')}</span></dd>
             </div>
             <div className="panel-detail-row">
               <dt>{t('home.runtime.port')}</dt>
@@ -283,7 +290,8 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
             </div>
           </dl>
           {statusError && <Notice tone="error" variant="text">{statusError}</Notice>}
-          {remoteMode && !coreReady && coreStatus?.message ? <Notice tone="error" variant="text">{coreStatus.message}</Notice> : null}
+          {remoteMode && !coreReady && !remoteStopped && coreStatus?.message ? <Notice tone="error" variant="text">{coreStatus.message}</Notice> : null}
+          {hostControl && !hostControl.reachable ? <Notice tone="warn" variant="text">{t('connection.hostControlUnavailable', { error: hostControl.message })}</Notice> : null}
           {recovery && <Notice tone={recovery.phase === 'failed' ? 'error' : 'warn'} variant="text">
             <p>{t(recovery.phase === 'failed' ? 'kernel.recovery.failedHint' : recovery.phase === 'waiting' ? 'kernel.recovery.waitingHint' : 'kernel.recovery.restartingHint', { attempt: recovery.attempt, seconds: recovery.delaySeconds })}</p>
             {recovery.detail && <details><summary>{t('kernel.recovery.details')}</summary><p>{recovery.detail}</p></details>}

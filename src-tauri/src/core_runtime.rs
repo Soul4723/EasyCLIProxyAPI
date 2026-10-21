@@ -1,6 +1,8 @@
 use super::*;
 
 pub(crate) static CORE_OPERATION_LOCK: Mutex<()> = Mutex::new(());
+pub(crate) const CORE_OPERATION_BUSY: &str =
+    "The kernel is performing another operation. Try again later";
 const BUNDLED_CORE_HANDLED_VERSION_FILE: &str = "cpa-gui-bundled-core-handled.txt";
 
 pub(crate) fn lock_core_operation(
@@ -8,7 +10,7 @@ pub(crate) fn lock_core_operation(
 ) -> Result<std::sync::MutexGuard<'static, ()>, String> {
     let guard = CORE_OPERATION_LOCK
         .try_lock()
-        .map_err(|_| "The kernel is performing another operation. Try again later".to_string())?;
+        .map_err(|_| CORE_OPERATION_BUSY.to_string())?;
     process_state.ensure_active()?;
     Ok(guard)
 }
@@ -120,15 +122,28 @@ pub(crate) fn spawn_core_child_on_lifetime_thread(command: Command) -> Result<Ch
         .map_err(|error| format!("Failed to start CPA kernel: {error}"))
 }
 
-async fn run_core_command(
+pub(crate) type CoreOperation = fn(&CoreProcessState, &GuiConfigState) -> Result<CoreStatus, String>;
+
+/// Runs one local lifecycle operation under the core-operation lock. Shared by this app's buttons
+/// and by remote host control, so both refuse with `CORE_OPERATION_BUSY` while another operation runs.
+pub(crate) fn run_locked_core_operation(
+    process_state: &CoreProcessState,
+    gui_config_state: &GuiConfigState,
+    operation: CoreOperation,
+) -> Result<CoreStatus, String> {
+    let _guard = lock_core_operation(process_state)?;
+    operation(process_state, gui_config_state)
+}
+
+pub(crate) async fn run_core_command(
     app: tauri::AppHandle,
-    operation: fn(&CoreProcessState, &GuiConfigState) -> Result<CoreStatus, String>,
+    operation: CoreOperation,
 ) -> Result<CoreStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
-        let status = operation(
+        let status = run_locked_core_operation(
             app.state::<CoreProcessState>().inner(),
             app.state::<GuiConfigState>().inner(),
+            operation,
         )?;
         emit_core_status(&app, &status);
         Ok(status)
@@ -471,6 +486,12 @@ fn emit_current_core_status(app: &tauri::AppHandle, process_state: &CoreProcessS
 
 #[tauri::command]
 pub(crate) async fn start_core_process(app: tauri::AppHandle) -> Result<CoreStatus, String> {
+    // In Remote mode, forwarded to the remote host's EasyCLIProxyAPI when host control is set up.
+    if let Some(result) =
+        crate::host_control::forward_remote_core_command(&app, crate::host_control::HostOperation::Start).await
+    {
+        return result;
+    }
     run_core_command(app, start_core_process_with_state).await
 }
 
@@ -492,6 +513,12 @@ pub(crate) fn start_core_process_with_state(
 
 #[tauri::command]
 pub(crate) async fn stop_core_process(app: tauri::AppHandle) -> Result<CoreStatus, String> {
+    // In Remote mode, forwarded to the remote host's EasyCLIProxyAPI when host control is set up.
+    if let Some(result) =
+        crate::host_control::forward_remote_core_command(&app, crate::host_control::HostOperation::Stop).await
+    {
+        return result;
+    }
     run_core_command(app, stop_core_process_with_state).await
 }
 
@@ -507,6 +534,12 @@ pub(crate) fn stop_core_process_with_state(
 
 #[tauri::command]
 pub(crate) async fn restart_core_process(app: tauri::AppHandle) -> Result<CoreStatus, String> {
+    // In Remote mode, forwarded to the remote host's EasyCLIProxyAPI when host control is set up.
+    if let Some(result) =
+        crate::host_control::forward_remote_core_command(&app, crate::host_control::HostOperation::Restart).await
+    {
+        return result;
+    }
     run_core_command(app, restart_core_process_with_state).await
 }
 
@@ -1369,6 +1402,7 @@ pub(crate) fn current_core_status(
         connection_mode: CoreConnectionMode::Local,
         remote_origin: None,
         message,
+        host_control: None,
     })
 }
 

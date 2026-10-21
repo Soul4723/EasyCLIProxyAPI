@@ -19,6 +19,7 @@ fn windows_tray_presentation_tracks_core_state_and_busy_actions() {
         binary_path: None,
         message: String::new(),
         recovery: None,
+        host_control: None,
     };
 
     let missing = windows_tray_presentation(&status, false, "zh-CN");

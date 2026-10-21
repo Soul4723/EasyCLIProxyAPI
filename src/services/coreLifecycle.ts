@@ -13,6 +13,8 @@ export type CoreStatus = {
   message: string;
   connectionMode?: 'local' | 'remote';
   remoteOrigin?: string | null;
+  // Remote mode with remote host control configured: whether the remote host's EasyCLIProxyAPI answers.
+  hostControl?: { reachable: boolean; message: string } | null;
   recovery?: {
     phase: 'waiting' | 'restarting' | 'failed';
     attempt: number;

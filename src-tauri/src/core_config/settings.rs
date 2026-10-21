@@ -2247,6 +2247,20 @@ pub(crate) fn write_gui_config_to_path(
             "remote-management-key",
             value(config.remote_management_key.as_str()),
         ),
+        (
+            "remote-host-control-origin",
+            value(config.remote_host_control_origin.as_str()),
+        ),
+        (
+            "remote-host-control-key",
+            value(config.remote_host_control_key.as_str()),
+        ),
+        ("host-control-enabled", value(config.host_control_enabled)),
+        (
+            "host-control-address",
+            value(config.host_control_address.as_str()),
+        ),
+        ("host-control-key", value(config.host_control_key.as_str())),
         ("locale", value(config.locale.as_str())),
         ("port", value(i64::from(config.port))),
         ("allow-lan", value(config.allow_lan)),

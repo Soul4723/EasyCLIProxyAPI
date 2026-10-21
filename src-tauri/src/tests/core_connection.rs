@@ -11,6 +11,8 @@ fn remote_config() -> GuiConfigFile {
         connection_mode: CoreConnectionMode::Remote,
         remote_management_origin: "https://core.example:9443".into(),
         remote_management_key: "test-remote-key".into(),
+        remote_host_control_origin: "http://core.example:8318".into(),
+        remote_host_control_key: "ehc_test-host-control-key-0123456789abcdef".into(),
         ..GuiConfigFile::default()
     }
 }
@@ -65,6 +67,29 @@ fn connection_defaults_and_toml_round_trip() {
         "https://core.example:9443"
     );
     assert_eq!(restored.remote_management_key, "test-remote-key");
+    assert_eq!(restored.remote_host_control_origin, "http://core.example:8318");
+    assert_eq!(
+        restored.remote_host_control_key,
+        "ehc_test-host-control-key-0123456789abcdef"
+    );
+    assert!(!old.host_control_enabled && old.host_control_key.is_empty());
+    assert_eq!(old.host_control_address, crate::host_control::DEFAULT_ADDRESS);
+
+    let home = agent_test_home("host-control-round-trip");
+    let path = home.join("config.toml");
+    let host = GuiConfigFile {
+        host_control_enabled: true,
+        host_control_address: "100.64.0.1:8318".into(),
+        host_control_key: "ehc_host-key-0123456789abcdef-0123456789".into(),
+        ..GuiConfigFile::default()
+    };
+    write_gui_config_to_path(&host, &path).unwrap();
+    let restored: GuiConfigFile = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    fs::remove_dir_all(home).unwrap();
+    assert_eq!(
+        crate::host_control::listener_settings(&restored),
+        crate::host_control::listener_settings(&host)
+    );
 }
 
 #[test]
@@ -152,6 +177,7 @@ async fn check_connection_responses(full_config: bool) {
             mode: CoreConnectionMode::Remote,
             management_origin: origin.clone(),
             management_key: "test-remote-key".into(),
+            ..CoreConnection::default()
         };
         let result = if full_config {
             test_core_connection(connection).await
@@ -166,6 +192,7 @@ async fn check_connection_responses(full_config: bool) {
             mode: CoreConnectionMode::Remote,
             management_origin: origin.clone(),
             management_key: "test-remote-key".into(),
+            ..CoreConnection::default()
         };
         let status = crate::core_connection::remote_status(&connection, result);
         assert_eq!(status.running, connected);
@@ -179,6 +206,7 @@ async fn check_connection_responses(full_config: bool) {
         mode: CoreConnectionMode::Remote,
         management_origin: "http://127.0.0.1:1".into(),
         management_key: "test-remote-key".into(),
+        ..CoreConnection::default()
     };
     let result = if full_config {
         test_core_connection(connection).await
