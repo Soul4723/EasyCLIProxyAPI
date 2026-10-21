@@ -40,8 +40,34 @@ fn sample_status(running: bool) -> HostCoreStatus {
             "CPA kernel is installed but not running"
         }
         .into(),
+        start_core_on_launch: Some(true),
     }
 }
+
+fn sample_install_result() -> CoreInstallResult {
+    CoreInstallResult {
+        version: "v8.0.37".into(),
+        asset_name: "CLIProxyAPI_8.0.37_linux_amd64.tar.gz".into(),
+        install_dir: "/home/host/cpa-core".into(),
+        binary_path: Some("/home/host/cpa-core/cli-proxy-api".into()),
+    }
+}
+
+fn sample_task(running: bool) -> CoreInstallTask {
+    CoreInstallTask {
+        running,
+        cancellable: running,
+        phase: if running { "Downloading" } else { "Installation complete" }.into(),
+        downloaded: 10,
+        total: Some(20),
+        percent: Some(50.0),
+        message: None,
+        result: (!running).then(sample_install_result),
+        job: Some(JOB.into()),
+    }
+}
+
+const JOB: &str = "job-0123456789abcdef0123456789abcdef";
 
 #[test]
 fn generated_keys_are_random_prefixed_and_valid() {
@@ -259,12 +285,44 @@ fn routes_dispatch_exact_paths_and_methods() {
             .status,
         405
     );
+    let with_job = |method: &str, path: &str| request(method, path, &[(INSTALL_JOB_HEADER, JOB)]);
+    assert_eq!(
+        route(&with_job("POST", "/host-control/v1/core/install/cancel")),
+        Ok(Route::CancelInstall { job: JOB.into() })
+    );
+    assert_eq!(route(&request("POST", "/host-control/v1/core/install/cancel", &[])).unwrap_err().status, 400, "cancel names its job");
+    assert_eq!(
+        route(&with_job("POST", "/host-control/v1/core/install/latest")),
+        Ok(Route::Install { version: None, job: Some(JOB.into()) })
+    );
+    assert_eq!(
+        route(&request("POST", "/host-control/v1/core/install/latest", &[(INSTALL_JOB_HEADER, "short")])).unwrap_err().status,
+        400
+    );
+    for (method, path, expected) in [
+        ("GET", "/host-control/v1/core/latest", Route::Latest),
+        ("GET", "/host-control/v1/core/install", Route::InstallTask),
+        ("POST", "/host-control/v1/core/install/latest", Route::Install { version: None, job: None }),
+        ("POST", "/host-control/v1/core/install/v8.0.37", Route::Install { version: Some("v8.0.37".into()), job: None }),
+        ("POST", "/host-control/v1/core/install/8.0.37-rc.1", Route::Install { version: Some("8.0.37-rc.1".into()), job: None }),
+        ("POST", "/host-control/v1/settings/start-core-on-launch/on", Route::StartCoreOnLaunch(true)),
+        ("POST", "/host-control/v1/settings/start-core-on-launch/off", Route::StartCoreOnLaunch(false)),
+    ] {
+        assert_eq!(route(&request(method, path, &[])), Ok(expected), "{path}");
+        let other = if method == "GET" { "POST" } else { "GET" };
+        assert_eq!(route(&request(other, path, &[])).unwrap_err().status, 405, "{path}");
+    }
     for path in [
         "/",
         "/host-control/v1/status?x=1",
         "/host-control/v1/core/update",
         "/host-control/v2/status",
         "/v8/management/config",
+        "/host-control/v1/core/install/8.0",
+        "/host-control/v1/core/install/../status",
+        "/host-control/v1/core/install/8.0.37-",
+        "/host-control/v1/core/install/8.0.37?x",
+        "/host-control/v1/settings/start-core-on-launch/maybe",
     ] {
         assert_eq!(
             route(&request("GET", path, &[])).unwrap_err().status,
@@ -325,23 +383,42 @@ struct Recorder {
 }
 
 impl HostBackend for Recorder {
-    fn status(&self) -> BoxFuture<'static, Result<HostCoreStatus, HostError>> {
-        self.calls.lock().unwrap().push("status");
-        Box::pin(async { Ok(sample_status(true)) })
-    }
-
-    fn operate(
-        &self,
-        operation: HostOperation,
-    ) -> BoxFuture<'static, Result<HostCoreStatus, HostError>> {
-        self.calls.lock().unwrap().push(operation.name());
+    fn handle(&self, route: Route) -> BoxFuture<'static, Result<serde_json::Value, HostError>> {
+        let name = match &route {
+            Route::Status => "status",
+            Route::Operate(operation) => operation.name(),
+            Route::Latest => "latest",
+            Route::InstallTask => "install-task",
+            Route::Install { version: None, .. } => "install-latest",
+            Route::Install { version: Some(_), .. } => "install-version",
+            Route::CancelInstall { .. } => "install-cancel",
+            Route::StartCoreOnLaunch(true) => "launch-on",
+            Route::StartCoreOnLaunch(false) => "launch-off",
+        };
+        self.calls.lock().unwrap().push(name);
         let busy = self.busy;
         Box::pin(async move {
-            if busy {
-                Err(operation_error(CORE_OPERATION_BUSY.to_string()))
-            } else {
-                Ok(sample_status(operation != HostOperation::Stop))
+            if busy && !matches!(route, Route::Status | Route::InstallTask) {
+                return Err(operation_error(CORE_OPERATION_BUSY.to_string()));
             }
+            Ok(match route {
+                Route::Status => serde_json::to_value(sample_status(true)),
+                Route::Operate(operation) => {
+                    serde_json::to_value(sample_status(operation != HostOperation::Stop))
+                }
+                Route::Latest => serde_json::to_value(CoreLatest {
+                    version: "8.0.37".into(),
+                    asset_name: "CLIProxyAPI_8.0.37_linux_amd64.tar.gz".into(),
+                }),
+                Route::InstallTask => serde_json::to_value(task_without_paths(sample_task(true))),
+                Route::CancelInstall { .. } => serde_json::to_value(task_without_paths(sample_task(false))),
+                Route::Install { .. } => serde_json::to_value(without_paths(sample_install_result())),
+                Route::StartCoreOnLaunch(enabled) => serde_json::to_value(HostCoreStatus {
+                    start_core_on_launch: Some(enabled),
+                    ..sample_status(true)
+                }),
+            }
+            .unwrap())
         })
     }
 }
@@ -799,4 +876,222 @@ fn listener_follows_the_core_port_and_the_core_port_cannot_take_the_listen_port(
     assert!(check_core_port(&moved).is_ok(), "the default never collides");
     assert_eq!(desired_listener(&GuiConfigFile { host_control_enabled: false, ..base.clone() }), Ok(None));
     assert!(desired_listener(&GuiConfigFile { connection_mode: CoreConnectionMode::Remote, ..base }).is_err());
+}
+
+#[test]
+fn install_versions_are_plain_release_versions() {
+    for version in ["8.0.37", "v8.0.37", "8.0.37-rc.1", "v10.20.30-beta2"] {
+        assert!(valid_core_version(version), "{version}");
+    }
+    for version in ["", "latest", "cancel", "8.0", "8.0.37.1", "8..37", "8.0.37-", "8.0.37-a/b", "8.0.37 ", "v", &format!("8.0.{}", "1".repeat(70))] {
+        assert!(!valid_core_version(version), "{version:?}");
+    }
+}
+
+#[test]
+fn install_replies_never_carry_host_paths() {
+    let result = without_paths(sample_install_result());
+    assert!(result.install_dir.is_empty() && result.binary_path.is_none());
+    assert_eq!(result.version, "v8.0.37");
+    let task = task_without_paths(sample_task(false));
+    let result = task.result.unwrap();
+    assert!(result.install_dir.is_empty() && result.binary_path.is_none());
+}
+
+#[tokio::test]
+async fn client_reaches_install_latest_and_launch_routes() {
+    let (address, calls, cancel) = start_server(false).await;
+    let connection = CoreConnection {
+        mode: CoreConnectionMode::Remote,
+        host_control_origin: format!("http://{address}"),
+        host_control_key: KEY.into(),
+        ..CoreConnection::default()
+    };
+    let latest: CoreLatest = host_request_json(&connection, reqwest::Method::GET, "core/latest", STATUS_TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(latest.version, "8.0.37");
+    let task: CoreInstallTask = host_request_json(&connection, reqwest::Method::GET, "core/install", STATUS_TIMEOUT)
+        .await
+        .unwrap();
+    assert!(task.running);
+    let installed: CoreInstallResult = host_request_json(&connection, reqwest::Method::POST, "core/install/v8.0.37", STATUS_TIMEOUT)
+        .await
+        .unwrap();
+    assert!(installed.install_dir.is_empty() && installed.binary_path.is_none());
+    let off = host_request(&connection.host_control_origin, KEY, reqwest::Method::POST, "settings/start-core-on-launch/off", STATUS_TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(off.start_core_on_launch, Some(false));
+    assert_eq!(*calls.lock().unwrap(), vec!["latest", "install-task", "install-version", "launch-off"]);
+    cancel.cancel();
+
+    let (address, _, cancel) = start_server(true).await;
+    let busy = CoreConnection { host_control_origin: format!("http://{address}"), ..connection };
+    let error = host_request_json::<CoreInstallResult>(&busy, reqwest::Method::POST, "core/install/latest", STATUS_TIMEOUT)
+        .await
+        .unwrap_err();
+    assert!(error.contains("another operation"), "{error}");
+    cancel.cancel();
+}
+
+#[test]
+fn older_hosts_without_the_launch_setting_still_parse() {
+    let mut value = serde_json::to_value(sample_status(true)).unwrap();
+    value.as_object_mut().unwrap().remove("startCoreOnLaunch");
+    let parsed = parse_host_response(200, value.to_string().as_bytes()).unwrap();
+    assert_eq!(parsed.start_core_on_launch, None);
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[test]
+fn remote_tray_offers_process_actions_only_through_reachable_host_control() {
+    use crate::core_connection::CoreConnectionTestResult as Management;
+    let connection = CoreConnection {
+        mode: CoreConnectionMode::Remote,
+        management_origin: "http://100.64.0.1:8317".into(),
+        management_key: "management".into(),
+        host_control_origin: "http://100.64.0.1:8417".into(),
+        host_control_key: KEY.into(),
+    };
+    let down = || Management { connected: false, version: None, message: "down".into() };
+    let up = || Management { connected: true, version: Some("8.0.36".into()), message: "Connected".into() };
+
+    let stopped = remote_status_with_host(&connection, down(), Some(Ok(sample_status(false))));
+    let tray = crate::windows_tray_presentation(&stopped, false, "en");
+    assert_eq!(tray.status_text, "Remote core: stopped on host");
+    assert_eq!(tray.toggle_text, "Start Core");
+    assert!(tray.toggle_enabled && !tray.restart_enabled);
+
+    let running = remote_status_with_host(&connection, up(), Some(Ok(sample_status(true))));
+    let tray = crate::windows_tray_presentation(&running, false, "en");
+    assert_eq!(tray.status_text, "Remote core: connected");
+    assert!(tray.toggle_enabled && tray.restart_enabled);
+    let busy = crate::windows_tray_presentation(&running, true, "en");
+    assert!(!busy.toggle_enabled && !busy.restart_enabled);
+
+    for host in [None, Some(Err("Unable to reach remote host control".to_string()))] {
+        let status = remote_status_with_host(&connection, up(), host);
+        let tray = crate::windows_tray_presentation(&status, false, "en");
+        assert!(!tray.toggle_enabled && !tray.restart_enabled);
+    }
+}
+
+#[test]
+fn install_progress_is_relayed_only_for_this_job_on_the_install_target() {
+    let target = CoreConnection {
+        mode: CoreConnectionMode::Remote,
+        host_control_origin: "http://100.64.0.1:8417".into(),
+        host_control_key: KEY.into(),
+        ..CoreConnection::default()
+    };
+    let ours = sample_task(true);
+    assert!(relays_task(&ours, JOB, &target, Some(&target)));
+    // The first poll can see the host idle or still showing an earlier install.
+    let idle = CoreInstallTask::default();
+    assert!(!relays_task(&idle, JOB, &target, Some(&target)));
+    let earlier = CoreInstallTask { job: Some("job-earlier-0000000000000000000".into()), ..sample_task(false) };
+    assert!(!relays_task(&earlier, JOB, &target, Some(&target)));
+    let unlabelled = CoreInstallTask { job: None, ..sample_task(true) };
+    assert!(!relays_task(&unlabelled, JOB, &target, Some(&target)), "a host-side or older install");
+    // Another target became current: nothing from the old one reaches its UI.
+    let other = CoreConnection { host_control_origin: "http://100.64.0.2:8417".into(), ..target.clone() };
+    assert!(!relays_task(&ours, JOB, &target, Some(&other)));
+    assert!(!relays_task(&ours, JOB, &target, None));
+}
+
+#[test]
+fn a_running_remote_install_holds_the_connection_and_its_own_cancel() {
+    let target = CoreConnection {
+        mode: CoreConnectionMode::Remote,
+        host_control_origin: "http://100.64.0.1:8417".into(),
+        host_control_key: KEY.into(),
+        ..CoreConnection::default()
+    };
+    ensure_no_remote_install().unwrap();
+    {
+        let _guard = begin_remote_install(&target, JOB).unwrap();
+        assert!(ensure_no_remote_install().is_err(), "connection changes wait for the install");
+        assert!(begin_remote_install(&target, "job-second-0000000000000000000").is_err());
+        assert!(running_remote_install() == Some((target.clone(), JOB.to_string())), "cancel goes to this target and job");
+    }
+    ensure_no_remote_install().unwrap();
+    assert!(running_remote_install().is_none());
+    let job = new_job_id().unwrap();
+    assert!(valid_job(&job) && job != new_job_id().unwrap());
+}
+
+#[test]
+fn install_task_messages_on_the_wire_are_public() {
+    let failed = CoreInstallTask {
+        running: false,
+        message: Some("Failed to replace /home/host/.cpa/cpa-core: permission denied".into()),
+        result: None,
+        ..sample_task(false)
+    };
+    assert_eq!(task_without_paths(failed).message.as_deref(), Some(PRIVATE_FAILURE));
+    for message in [crate::OFFICIAL_CHECKSUM_MISSING, crate::OFFICIAL_CHECKSUM_MISMATCH, "Download canceled", "v8.0.37 installation complete"] {
+        let task = CoreInstallTask { message: Some(message.into()), ..sample_task(false) };
+        assert_eq!(task_without_paths(task).message.as_deref(), Some(message));
+    }
+}
+
+#[test]
+fn official_checksums_are_required_and_must_agree() {
+    let digest = "a".repeat(64);
+    let name = "CLIProxyAPI_8.0.36_linux_amd64.tar.gz";
+    let file = format!("{digest}  {name}\n{}  CLIProxyAPI_8.0.36_windows_amd64.zip\n", "b".repeat(64));
+    assert_eq!(crate::checksum_entry(&file, name), Some(digest.clone()));
+    assert_eq!(crate::checksum_entry(&format!("{digest} *{name}"), name), Some(digest.clone()));
+    assert_eq!(crate::checksum_entry(&file, "CLIProxyAPI_8.0.36_darwin_amd64.tar.gz"), None, "missing");
+    assert_eq!(crate::checksum_entry(&format!("{file}{}  {name}\n", "c".repeat(64)), name), None, "ambiguous");
+    assert_eq!(crate::checksum_entry(&format!("{}  {name}", "z".repeat(64)), name), None, "not hex");
+    assert_eq!(crate::checksum_entry(&format!("{}  {name}", "a".repeat(63)), name), None, "short");
+    assert_eq!(crate::required_digest(None, &digest).unwrap(), format!("sha256:{digest}"));
+    assert_eq!(crate::required_digest(Some(&format!("sha256:{}", digest.to_uppercase())), &digest).unwrap(), format!("sha256:{digest}"));
+    assert_eq!(crate::required_digest(Some(&format!("sha256:{}", "b".repeat(64))), &digest).unwrap_err(), crate::OFFICIAL_CHECKSUM_MISMATCH);
+    // A downloaded archive that does not hash to the official digest is refused.
+    assert!(crate::validate_download_metadata(10, None, &"b".repeat(64), Some(&format!("sha256:{digest}"))).is_err());
+    assert!(crate::validate_download_metadata(10, None, &digest, Some(&format!("sha256:{digest}"))).is_ok());
+}
+
+async fn serve_once(status: u16, body: &'static str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buffer = [0u8; 4096];
+        let _ = stream.read(&mut buffer).await;
+        let reply = format!("HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        let _ = stream.write_all(reply.as_bytes()).await;
+    });
+    format!("http://{address}/checksums.txt")
+}
+
+#[tokio::test]
+async fn official_checksum_download_fails_closed() {
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let token = CancellationToken::new();
+    let name = "CLIProxyAPI_8.0.36_linux_amd64.tar.gz";
+    let url = serve_once(200, "1111111111111111111111111111111111111111111111111111111111111111  CLIProxyAPI_8.0.36_linux_amd64.tar.gz\n").await;
+    assert_eq!(crate::fetch_core_checksum(&client, &url, name, &token).await.unwrap(), "1".repeat(64));
+    let url = serve_once(200, "2222222222222222222222222222222222222222222222222222222222222222  other.tar.gz\n").await;
+    assert_eq!(crate::fetch_core_checksum(&client, &url, name, &token).await.unwrap_err(), crate::OFFICIAL_CHECKSUM_MISSING);
+    let url = serve_once(404, "").await;
+    assert_eq!(crate::fetch_core_checksum(&client, &url, name, &token).await.unwrap_err(), crate::OFFICIAL_CHECKSUM_MISSING);
+    assert_eq!(
+        crate::fetch_core_checksum(&client, "http://127.0.0.1:1/checksums.txt", name, &token).await.unwrap_err(),
+        crate::OFFICIAL_CHECKSUM_MISSING
+    );
+}
+
+#[test]
+fn official_checksum_urls_take_only_plain_version_tags() {
+    assert_eq!(
+        crate::official_checksums_url("v8.0.36").unwrap(),
+        "https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.0.36/checksums.txt"
+    );
+    for tag in ["v8.0.36/../../../attacker/repo/releases/download/x", "../x", "v8.0.36?x", "latest", ""] {
+        assert_eq!(crate::official_checksums_url(tag).unwrap_err(), crate::OFFICIAL_CHECKSUM_MISSING, "{tag}");
+    }
 }

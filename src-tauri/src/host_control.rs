@@ -9,8 +9,11 @@
 
 use crate::{
     core_connection::{CoreConnection, CoreConnectionTestResult},
-    CoreConnectionMode, CoreOperation, CoreProcessState, CoreStatus, GuiConfigFile, GuiConfigState,
+    CoreConnectionMode, CoreDownloadState, CoreInstallResult, CoreInstallTask, CoreLatest,
+    CoreOperation, CoreProcessState, CoreStatus, GuiConfigFile, GuiConfigState,
 };
+use serde::de::DeserializeOwned;
+use tauri::Emitter;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -51,6 +54,10 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 /// Start and restart wait for the core's management port on the host.
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(120);
+/// An install downloads, verifies and swaps the core on the host before replying.
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(1200);
+const LATEST_TIMEOUT: Duration = Duration::from_secs(60);
+const INSTALL_POLL: Duration = Duration::from_millis(700);
 const FAILURE_WINDOW: Duration = Duration::from_secs(60);
 const MAX_FAILURES: u32 = 10;
 const MAX_TRACKED_PEERS: usize = 1024;
@@ -103,6 +110,9 @@ pub(crate) struct HostCoreStatus {
     pub(crate) process_id: Option<u32>,
     pub(crate) current_version: Option<String>,
     pub(crate) message: String,
+    /// The host app's Start Core on Launch setting. Optional so older hosts still parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) start_core_on_launch: Option<bool>,
 }
 
 impl HostCoreStatus {
@@ -117,8 +127,41 @@ impl HostCoreStatus {
             process_id: status.process_id,
             current_version: status.current_version.clone(),
             message: status.message.clone(),
+            start_core_on_launch: None,
         }
     }
+}
+
+/// A core version for the install route: `v`, three numeric parts and an optional suffix.
+pub(crate) fn valid_core_version(version: &str) -> bool {
+    let version = version.strip_prefix('v').unwrap_or(version);
+    let (core, suffix) = match version.split_once('-') {
+        Some((_, "")) => return false,
+        Some((core, suffix)) => (core, suffix),
+        None => (version, ""),
+    };
+    let parts = core.split('.').collect::<Vec<_>>();
+    version.len() <= 64
+        && parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.')
+}
+
+/// Install results and tasks leave the host without its local paths.
+fn without_paths(mut result: CoreInstallResult) -> CoreInstallResult {
+    result.install_dir.clear();
+    result.binary_path = None;
+    result
+}
+
+fn task_without_paths(mut task: CoreInstallTask) -> CoreInstallTask {
+    task.result = task.result.map(without_paths);
+    task.message = task.message.as_deref().map(public_message);
+    task
 }
 
 /// Part of a Remote `CoreStatus` when host control is configured.
@@ -290,6 +333,16 @@ impl Reply {
 pub(crate) enum Route {
     Status,
     Operate(HostOperation),
+    /// The latest core release for the host's platform and download source.
+    Latest,
+    /// The host's core install task (progress).
+    InstallTask,
+    /// Install a core version (`None`: the latest) with the host's download, the official
+    /// checksum required, and the client's job id on the task.
+    Install { version: Option<String>, job: Option<String> },
+    /// Cancel the running install, only if it is this job's.
+    CancelInstall { job: String },
+    StartCoreOnLaunch(bool),
 }
 
 /// `Ok(None)` while the head is incomplete.
@@ -351,18 +404,52 @@ pub(crate) fn authenticate(request: &Request, key: &str) -> bool {
 }
 
 pub(crate) fn route(request: &Request) -> Result<Route, Reply> {
-    let operation = match request.path.strip_prefix(PATH_PREFIX) {
-        Some("/status") => None,
-        Some("/core/start") => Some(HostOperation::Start),
-        Some("/core/stop") => Some(HostOperation::Stop),
-        Some("/core/restart") => Some(HostOperation::Restart),
-        _ => return Err(Reply::error(404, "Not found")),
+    let not_found = || Reply::error(404, "Not found");
+    let path = request.path.strip_prefix(PATH_PREFIX).ok_or_else(not_found)?;
+    let (method, route) = match path {
+        "/status" => ("GET", Route::Status),
+        "/core/start" => ("POST", Route::Operate(HostOperation::Start)),
+        "/core/stop" => ("POST", Route::Operate(HostOperation::Stop)),
+        "/core/restart" => ("POST", Route::Operate(HostOperation::Restart)),
+        "/core/latest" => ("GET", Route::Latest),
+        "/core/install" => ("GET", Route::InstallTask),
+        "/core/install/cancel" => ("POST", Route::CancelInstall { job: String::new() }),
+        "/core/install/latest" => ("POST", Route::Install { version: None, job: None }),
+        "/settings/start-core-on-launch/on" => ("POST", Route::StartCoreOnLaunch(true)),
+        "/settings/start-core-on-launch/off" => ("POST", Route::StartCoreOnLaunch(false)),
+        other => match other.strip_prefix("/core/install/") {
+            Some(version) if valid_core_version(version) => {
+                ("POST", Route::Install { version: Some(version.to_string()), job: None })
+            }
+            _ => return Err(not_found()),
+        },
     };
-    match (request.method.as_str(), operation) {
-        ("GET", None) => Ok(Route::Status),
-        ("POST", Some(operation)) => Ok(Route::Operate(operation)),
-        _ => Err(Reply::error(405, "Method not allowed")),
+    if request.method != method {
+        return Err(Reply::error(405, "Method not allowed"));
     }
+    let job = match request.single(INSTALL_JOB_HEADER) {
+        None => None,
+        Some(value) => Some(
+            std::str::from_utf8(value)
+                .ok()
+                .filter(|job| valid_job(job))
+                .ok_or_else(|| Reply::error(400, "Invalid install job"))?
+                .to_string(),
+        ),
+    };
+    match route {
+        Route::Install { version, .. } => Ok(Route::Install { version, job }),
+        Route::CancelInstall { .. } => job
+            .map(|job| Route::CancelInstall { job })
+            .ok_or_else(|| Reply::error(400, "Missing install job")),
+        other => Ok(other),
+    }
+}
+
+pub(crate) const INSTALL_JOB_HEADER: &str = "x-easycli-install-job";
+
+pub(crate) fn valid_job(job: &str) -> bool {
+    (16..=64).contains(&job.len()) && job.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
 /// Throttles failed authentications per peer address. Only failed keys are counted and only
@@ -417,9 +504,7 @@ type HostError = (u16, String);
 
 /// What the listener controls. The app implementation drives this computer's core.
 pub(crate) trait HostBackend: Send + Sync + 'static {
-    fn status(&self) -> BoxFuture<'static, Result<HostCoreStatus, HostError>>;
-    fn operate(&self, operation: HostOperation)
-        -> BoxFuture<'static, Result<HostCoreStatus, HostError>>;
+    fn handle(&self, route: Route) -> BoxFuture<'static, Result<serde_json::Value, HostError>>;
 }
 
 pub(crate) struct Context {
@@ -457,13 +542,12 @@ pub(crate) async fn respond(request: &Request, peer: IpAddr, context: &Context) 
             Reply::error(401, "Missing or invalid host control key")
         };
     }
-    let result = match route(request) {
-        Ok(Route::Status) => context.backend.status().await,
-        Ok(Route::Operate(operation)) => context.backend.operate(operation).await,
+    let route = match route(request) {
+        Ok(route) => route,
         Err(reply) => return reply,
     };
-    match result {
-        Ok(status) => Reply::json(&status),
+    match context.backend.handle(route).await {
+        Ok(value) => Reply::json(&value),
         Err((status, message)) => Reply::error(status, &message),
     }
 }
@@ -579,12 +663,28 @@ fn require_host_mode(app: &tauri::AppHandle) -> Result<(), HostError> {
 
 /// Reasons that are safe to send to the client. Anything else can name local paths (startup
 /// logs, install and rollback directories), so it stays in this host's log.
-const PUBLIC_REASONS: [&str; 4] = [
+const PUBLIC_REASONS: [&str; 8] = [
     crate::CORE_OPERATION_BUSY,
     "CPA kernel is not currently running",
     "This operation is only available for the local core",
     "Application is exiting; kernel operation canceled",
+    crate::OFFICIAL_CHECKSUM_MISSING,
+    crate::OFFICIAL_CHECKSUM_MISMATCH,
+    "Downloaded file SHA-256 verification failed",
+    "Download canceled",
 ];
+
+/// A message for the wire: a known public reason or a completed-install note, else the generic one.
+pub(crate) fn public_message(message: &str) -> String {
+    let completed = message.ends_with(" installation complete")
+        && !message.contains(['/', '\\'])
+        && message.len() <= 80;
+    if PUBLIC_REASONS.contains(&message) || completed {
+        message.to_string()
+    } else {
+        PRIVATE_FAILURE.to_string()
+    }
+}
 pub(crate) const PRIVATE_FAILURE: &str =
     "The operation failed on the remote host; the details are in that EasyCLIProxyAPI's log";
 
@@ -601,34 +701,93 @@ pub(crate) fn operation_error(error: String) -> HostError {
     }
 }
 
-impl HostBackend for AppBackend {
-    fn status(&self) -> BoxFuture<'static, Result<HostCoreStatus, HostError>> {
-        let app = self.0.clone();
-        Box::pin(async move {
-            require_host_mode(&app)?;
-            tauri::async_runtime::spawn_blocking(move || {
-                let port = app.state::<GuiConfigState>().snapshot()?.port;
-                crate::current_core_status(Some(app.state::<CoreProcessState>().inner()), Some(port))
-            })
-            .await
-            .map_err(|error| operation_error(error.to_string()))?
-            .map(|status| HostCoreStatus::from_status(&status))
-            .map_err(operation_error)
-        })
-    }
+fn json<T: Serialize>(value: T) -> Result<serde_json::Value, HostError> {
+    serde_json::to_value(value).map_err(|error| (500, error.to_string()))
+}
 
-    fn operate(
-        &self,
-        operation: HostOperation,
-    ) -> BoxFuture<'static, Result<HostCoreStatus, HostError>> {
+async fn host_status(app: tauri::AppHandle) -> Result<HostCoreStatus, HostError> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<HostCoreStatus, String> {
+        let config = app.state::<GuiConfigState>().snapshot()?;
+        let status =
+            crate::current_core_status(Some(app.state::<CoreProcessState>().inner()), Some(config.port))?;
+        Ok(HostCoreStatus {
+            start_core_on_launch: Some(config.start_core_on_launch),
+            ..HostCoreStatus::from_status(&status)
+        })
+    })
+    .await
+    .map_err(|error| operation_error(error.to_string()))?
+    .map_err(operation_error)
+}
+
+fn with_start_core_on_launch(app: &tauri::AppHandle, status: &CoreStatus) -> HostCoreStatus {
+    HostCoreStatus {
+        start_core_on_launch: app
+            .state::<GuiConfigState>()
+            .snapshot()
+            .ok()
+            .map(|config| config.start_core_on_launch),
+        ..HostCoreStatus::from_status(status)
+    }
+}
+
+impl HostBackend for AppBackend {
+    fn handle(&self, route: Route) -> BoxFuture<'static, Result<serde_json::Value, HostError>> {
         let app = self.0.clone();
         Box::pin(async move {
             require_host_mode(&app)?;
-            // Same path as this app's buttons: lock, Local check, lifecycle, status event.
-            crate::run_core_command(app, operation.local())
-                .await
-                .map(|status| HostCoreStatus::from_status(&status))
-                .map_err(operation_error)
+            match route {
+                Route::Status => json(host_status(app).await?),
+                // Same path as this app's buttons: lock, Local check, lifecycle, status event.
+                Route::Operate(operation) => {
+                    let status = crate::run_core_command(app.clone(), operation.local())
+                        .await
+                        .map_err(operation_error)?;
+                    json(with_start_core_on_launch(&app, &status))
+                }
+                Route::Latest => json(
+                    crate::check_latest_core_local(&app)
+                        .await
+                        .map_err(|error| (500, error))?,
+                ),
+                Route::InstallTask => {
+                    json(task_without_paths(app.state::<CoreDownloadState>().snapshot()))
+                }
+                // The host's own install: core-operation lock, staged download, checksum, swap
+                // with rollback, and the previous running state restored. Progress also shows on
+                // the host's window.
+                Route::Install { version, job } => {
+                    let window = crate::main_window(&app)
+                        .ok_or((500, "The host app's main window is not available".to_string()))?;
+                    let result = tauri::async_runtime::spawn_blocking(move || {
+                        crate::install_core_version_blocking(&app, &window, version, true, job)
+                    })
+                    .await
+                    .map_err(|error| (500, error.to_string()))?
+                    .map_err(operation_error)?;
+                    json(without_paths(result))
+                }
+                Route::CancelInstall { job } => {
+                    let state = app.state::<CoreDownloadState>();
+                    let task = state.snapshot();
+                    if task.running && task.job.as_deref() != Some(job.as_str()) {
+                        return Err((409, "Another install is running on this host".into()));
+                    }
+                    if task.running {
+                        state.cancel();
+                    }
+                    json(task_without_paths(state.snapshot()))
+                }
+                Route::StartCoreOnLaunch(enabled) => {
+                    app.state::<GuiConfigState>()
+                        .update(|config| {
+                            config.start_core_on_launch = enabled;
+                            Ok(())
+                        })
+                        .map_err(|error| (500, error))?;
+                    json(host_status(app).await?)
+                }
+            }
         })
     }
 }
@@ -858,31 +1017,41 @@ pub(crate) fn parse_host_response(status: u16, body: &[u8]) -> Result<HostCoreSt
         parsed.current_version = parsed.current_version.map(|version| display_text(&version, 64));
         return Ok(parsed);
     }
+    Err(host_error(status, body))
+}
+
+/// Error text for a non-200 host reply; the host's own message is sanitised.
+pub(crate) fn host_error(status: u16, body: &[u8]) -> String {
     let message = serde_json::from_slice::<serde_json::Value>(body)
         .ok()
         .and_then(|value| value.get("error")?.as_str().map(|text| display_text(text, 300)))
         .filter(|message| !message.is_empty());
-    Err(match status {
+    match status {
         401 => "Remote host rejected the host control key".into(),
         403 => "Remote host refused the request".into(),
-        404 => "Remote host does not offer host control at this URL".into(),
+        404 => "Remote host does not offer this host control request (update EasyCLIProxyAPI there, or check the URL)".into(),
         429 => "Too many failed attempts; try again in a minute".into(),
         _ => message.unwrap_or_else(|| format!("Remote host control failed (HTTP {status})")),
-    })
+    }
 }
 
-async fn host_request(
+async fn host_body(
     origin: &str,
     key: &str,
     method: reqwest::Method,
     path: &str,
     timeout: Duration,
-) -> Result<HostCoreStatus, String> {
-    let mut response = host_http_client()?
+    job: Option<&str>,
+) -> Result<(u16, Vec<u8>), String> {
+    let mut request = host_http_client()?
         .request(method, format!("{origin}{PATH_PREFIX}/{path}"))
         .header(reqwest::header::AUTHORIZATION, format!("Bearer {key}"))
         .header(PROTOCOL_HEADER, "1")
-        .timeout(timeout)
+        .timeout(timeout);
+    if let Some(job) = job {
+        request = request.header(INSTALL_JOB_HEADER, job);
+    }
+    let mut response = request
         .send()
         .await
         .map_err(|error| {
@@ -904,7 +1073,49 @@ async fn host_request(
         }
         body.extend_from_slice(&chunk);
     }
+    Ok((status, body))
+}
+
+async fn host_request(
+    origin: &str,
+    key: &str,
+    method: reqwest::Method,
+    path: &str,
+    timeout: Duration,
+) -> Result<HostCoreStatus, String> {
+    let (status, body) = host_body(origin, key, method, path, timeout, None).await?;
     parse_host_response(status, &body)
+}
+
+async fn host_request_json<T: DeserializeOwned>(
+    connection: &CoreConnection,
+    method: reqwest::Method,
+    path: &str,
+    timeout: Duration,
+) -> Result<T, String> {
+    host_request_job(connection, method, path, timeout, None).await
+}
+
+async fn host_request_job<T: DeserializeOwned>(
+    connection: &CoreConnection,
+    method: reqwest::Method,
+    path: &str,
+    timeout: Duration,
+    job: Option<&str>,
+) -> Result<T, String> {
+    let (status, body) = host_body(
+        &connection.host_control_origin,
+        &connection.host_control_key,
+        method,
+        path,
+        timeout,
+        job,
+    )
+    .await?;
+    if status != 200 {
+        return Err(host_error(status, &body));
+    }
+    serde_json::from_slice(&body).map_err(|_| "Remote host control returned an invalid reply".to_string())
 }
 
 pub(crate) async fn fetch_host_status(origin: &str, key: &str) -> Result<HostCoreStatus, String> {
@@ -920,12 +1131,9 @@ pub(crate) async fn request_host_operation(
     host_request(origin, key, reqwest::Method::POST, &path, OPERATION_TIMEOUT).await
 }
 
-/// `None` in Local mode. In Remote mode, sends the operation to the remote host's EasyCLIProxyAPI,
-/// or refuses when host control is not set up.
-pub(crate) async fn forward_remote_core_command(
-    app: &tauri::AppHandle,
-    operation: HostOperation,
-) -> Option<Result<CoreStatus, String>> {
+/// `None` in Local mode. In Remote mode the saved connection, or the refusal when host control is
+/// not set up.
+fn remote_host(app: &tauri::AppHandle) -> Option<Result<CoreConnection, String>> {
     let config = match app.state::<GuiConfigState>().snapshot() {
         Ok(config) => config,
         Err(error) => return Some(Err(error)),
@@ -934,7 +1142,244 @@ pub(crate) async fn forward_remote_core_command(
         return None;
     }
     let connection = CoreConnection::from(&config);
+    Some(if connection.host_control_origin.is_empty() {
+        Err(NOT_CONFIGURED.into())
+    } else {
+        Ok(connection)
+    })
+}
+
+/// `None` in Local mode. In Remote mode, sends the operation to the remote host's EasyCLIProxyAPI,
+/// or refuses when host control is not set up.
+pub(crate) async fn forward_remote_core_command(
+    app: &tauri::AppHandle,
+    operation: HostOperation,
+) -> Option<Result<CoreStatus, String>> {
+    let connection = match remote_host(app)? {
+        Ok(connection) => connection,
+        Err(error) => return Some(Err(error)),
+    };
     Some(remote_core_command(app, connection, operation).await)
+}
+
+/// Tray Start/Stop (by the current remote state) or Restart, through remote host control.
+pub(crate) async fn remote_tray_action(
+    app: &tauri::AppHandle,
+    restart: bool,
+) -> Result<CoreStatus, String> {
+    let connection = remote_host(app).ok_or("This tray action is only for a remote core")??;
+    let operation = if restart {
+        HostOperation::Restart
+    } else if crate::core_connection::current_remote_status(&connection)
+        .await
+        .running
+    {
+        HostOperation::Stop
+    } else {
+        HostOperation::Start
+    };
+    remote_core_command(app, connection, operation).await
+}
+
+/// `None` in Local mode; the host's latest core release in Remote mode.
+pub(crate) async fn forward_check_latest(app: &tauri::AppHandle) -> Option<Result<CoreLatest, String>> {
+    let connection = match remote_host(app)? {
+        Ok(connection) => connection,
+        Err(error) => return Some(Err(error)),
+    };
+    Some(host_request_json(&connection, reqwest::Method::GET, "core/latest", LATEST_TIMEOUT).await)
+}
+
+/// `None` in Local mode; the host's install task in Remote mode (idle when not set up).
+pub(crate) async fn forward_install_task(app: &tauri::AppHandle) -> Option<Result<CoreInstallTask, String>> {
+    let connection = match remote_host(app)? {
+        Ok(connection) => connection,
+        Err(_) => return Some(Ok(app.state::<CoreDownloadState>().snapshot())),
+    };
+    Some(host_request_json(&connection, reqwest::Method::GET, "core/install", STATUS_TIMEOUT).await)
+}
+
+/// The remote install this app started: its target and job. While it runs the connection cannot
+/// change, progress is relayed only for this job, and Cancel goes to this target and job.
+static REMOTE_INSTALL: Mutex<Option<(CoreConnection, String)>> = Mutex::new(None);
+
+pub(crate) struct RemoteInstallGuard;
+
+impl Drop for RemoteInstallGuard {
+    fn drop(&mut self) {
+        if let Ok(mut install) = REMOTE_INSTALL.lock() {
+            *install = None;
+        }
+    }
+}
+
+pub(crate) fn begin_remote_install(
+    connection: &CoreConnection,
+    job: &str,
+) -> Result<RemoteInstallGuard, String> {
+    let mut install = REMOTE_INSTALL
+        .lock()
+        .map_err(|_| "Remote install state is poisoned".to_string())?;
+    if install.is_some() {
+        return Err("An install on the remote host started from this app is still running".into());
+    }
+    *install = Some((connection.clone(), job.to_string()));
+    Ok(RemoteInstallGuard)
+}
+
+/// Refuses connection changes while this app's remote install runs.
+pub(crate) fn ensure_no_remote_install() -> Result<(), String> {
+    match REMOTE_INSTALL.lock() {
+        Ok(install) if install.is_none() => Ok(()),
+        _ => Err("Wait for the core install on the remote host to finish before changing the connection".into()),
+    }
+}
+
+fn running_remote_install() -> Option<(CoreConnection, String)> {
+    REMOTE_INSTALL.lock().ok().and_then(|install| install.clone())
+}
+
+pub(crate) fn new_job_id() -> Result<String, String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| format!("Failed to create an install job id: {error}"))?;
+    Ok(format!("job-{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()))
+}
+
+/// A host task is relayed only when it is this job's and the install's target is still current.
+pub(crate) fn relays_task(
+    task: &CoreInstallTask,
+    job: &str,
+    install_target: &CoreConnection,
+    current_target: Option<&CoreConnection>,
+) -> bool {
+    task.job.as_deref() == Some(job) && current_target == Some(install_target)
+}
+
+fn current_target(app: &tauri::AppHandle) -> Option<CoreConnection> {
+    app.state::<GuiConfigState>()
+        .snapshot()
+        .ok()
+        .map(|config| CoreConnection::from(&config))
+}
+
+/// Cancels only the install this app started, on the target it started on.
+pub(crate) async fn forward_cancel_install(app: &tauri::AppHandle) -> Option<Result<(), String>> {
+    let _ = remote_host(app)?;
+    let Some((connection, job)) = running_remote_install() else {
+        return Some(Err("No install started from this app is running on the remote host".into()));
+    };
+    Some(
+        host_request_job::<CoreInstallTask>(
+            &connection,
+            reqwest::Method::POST,
+            "core/install/cancel",
+            STATUS_TIMEOUT,
+            Some(&job),
+        )
+        .await
+        .map(|_| ()),
+    )
+}
+
+/// `None` in Local mode. In Remote mode, installs on the remote host: the request returns when the
+/// host has finished; meanwhile this job's host task is polled and re-emitted as this window's
+/// install progress, so the Version Management dialog works unchanged. Snapshots of an earlier or
+/// another client's task (or from before the host has started this job) are never relayed.
+pub(crate) async fn forward_install(
+    app: &tauri::AppHandle,
+    version: Option<String>,
+) -> Option<Result<CoreInstallResult, String>> {
+    let connection = match remote_host(app)? {
+        Ok(connection) => connection,
+        Err(error) => return Some(Err(error)),
+    };
+    let path = match version.as_deref().map(str::trim) {
+        None | Some("") => "core/install/latest".to_string(),
+        Some(version) if valid_core_version(version) => format!("core/install/{version}"),
+        Some(_) => return Some(Err("Invalid core version".into())),
+    };
+    let job = match new_job_id() {
+        Ok(job) => job,
+        Err(error) => return Some(Err(error)),
+    };
+    let _guard = match begin_remote_install(&connection, &job) {
+        Ok(guard) => guard,
+        Err(error) => return Some(Err(error)),
+    };
+    let relay = |task: CoreInstallTask| {
+        if relays_task(&task, &job, &connection, current_target(app).as_ref()) {
+            let _ = app.emit(crate::CORE_INSTALL_PROGRESS_EVENT, task);
+        }
+    };
+    let install = host_request_job::<CoreInstallResult>(
+        &connection,
+        reqwest::Method::POST,
+        &path,
+        INSTALL_TIMEOUT,
+        Some(&job),
+    );
+    tokio::pin!(install);
+    let mut ticker = tokio::time::interval(INSTALL_POLL);
+    let result = loop {
+        tokio::select! {
+            result = &mut install => break result,
+            _ = ticker.tick() => {
+                if let Ok(task) = host_request_json::<CoreInstallTask>(
+                    &connection, reqwest::Method::GET, "core/install", STATUS_TIMEOUT,
+                ).await {
+                    relay(task);
+                }
+            }
+        }
+    };
+    if let Ok(task) =
+        host_request_json::<CoreInstallTask>(&connection, reqwest::Method::GET, "core/install", STATUS_TIMEOUT).await
+    {
+        relay(task);
+    }
+    let status = crate::core_connection::current_remote_status(&connection).await;
+    let _ = crate::core_connection::publish_remote_status(app, &connection, status);
+    Some(result)
+}
+
+/// The remote host app's Start Core on Launch; `None` without host control or from an older host.
+#[tauri::command]
+pub(crate) async fn get_remote_start_core_on_launch(
+    app: tauri::AppHandle,
+) -> Result<Option<bool>, String> {
+    match remote_host(&app) {
+        Some(Ok(connection)) => Ok(fetch_host_status(
+            &connection.host_control_origin,
+            &connection.host_control_key,
+        )
+        .await?
+        .start_core_on_launch),
+        Some(Err(_)) => Ok(None),
+        None => Err("Start Core on Launch of a remote host applies only in Remote mode".into()),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn set_remote_start_core_on_launch(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<bool, String> {
+    let connection = remote_host(&app)
+        .ok_or("Start Core on Launch of a remote host applies only in Remote mode")??;
+    let path = format!(
+        "settings/start-core-on-launch/{}",
+        if enabled { "on" } else { "off" }
+    );
+    host_request(
+        &connection.host_control_origin,
+        &connection.host_control_key,
+        reqwest::Method::POST,
+        &path,
+        STATUS_TIMEOUT,
+    )
+    .await?
+    .start_core_on_launch
+    .ok_or_else(|| "The remote host did not confirm the setting".into())
 }
 
 async fn remote_core_command(

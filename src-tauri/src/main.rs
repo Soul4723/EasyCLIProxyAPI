@@ -447,7 +447,7 @@ struct CoreStatus {
     host_control: Option<host_control::HostControlView>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CoreLatest {
     version: String,
@@ -595,7 +595,7 @@ struct BundledCoreInfo {
     size_bytes: u64,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CoreInstallResult {
     version: String,
@@ -604,7 +604,7 @@ struct CoreInstallResult {
     binary_path: Option<String>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CoreInstallTask {
     running: bool,
@@ -615,6 +615,9 @@ struct CoreInstallTask {
     percent: Option<f64>,
     message: Option<String>,
     result: Option<CoreInstallResult>,
+    /// Set for installs requested through remote host control, so a client follows only its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    job: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1730,6 +1733,7 @@ impl Default for CoreInstallTask {
             percent: None,
             message: None,
             result: None,
+            job: None,
         }
     }
 }
@@ -1771,9 +1775,16 @@ impl CoreDownloadState {
             percent: None,
             message: None,
             result: None,
+            job: None,
         };
 
         Ok(())
+    }
+
+    fn set_job(&self, job: Option<String>) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.task.job = job;
+        }
     }
 
     fn cancel(&self) {
@@ -2504,7 +2515,7 @@ struct GithubRelease {
     assets: Vec<GithubAsset>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct GithubAsset {
     name: String,
     browser_download_url: String,
@@ -2856,6 +2867,8 @@ fn main() {
             host_control::get_host_control_settings,
             host_control::save_host_control_settings,
             host_control::test_host_control,
+            host_control::get_remote_start_core_on_launch,
+            host_control::set_remote_start_core_on_launch,
             get_gui_settings,
             get_usage_view_preferences,
             save_usage_view_preferences,

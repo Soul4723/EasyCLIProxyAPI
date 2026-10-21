@@ -24,3 +24,7 @@ export function isValidListenAddress(value: string, corePort?: number) {
   const port = Number(match[3]);
   return port >= 1024 && port <= 65535 && port !== corePort;
 }
+
+// Remote mode: the remote host app's own Start Core on Launch, through remote host control (null when unavailable).
+export const getRemoteStartCoreOnLaunch = () => invoke<boolean | null>('get_remote_start_core_on_launch');
+export const setRemoteStartCoreOnLaunch = (enabled: boolean) => invoke<boolean>('set_remote_start_core_on_launch', { enabled });

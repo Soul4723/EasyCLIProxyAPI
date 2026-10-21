@@ -501,6 +501,8 @@ export const en: Record<MessageKey, string> = {
   "connection.hostControlUnavailable": "Remote host control is unavailable: {error}",
   "connection.hostControlRequired": "Set up remote host control in Core connection to start, stop or restart this core",
   "connection.hostControlUnreachable": "Remote host control is not reachable",
+  "connection.versionsRemoteHost": "Checks and installs run on the remote host with its own download source.",
+  "connection.startCoreOnLaunchRemote": "The remote host app's setting; changes apply there at once.",
   "hostControl.title": "Remote control of this core",
   "hostControl.description": "Let EasyCLIProxyAPI on another computer start, stop and restart the core on this computer.",
   "hostControl.enable": "Allow remote control",

@@ -60,6 +60,7 @@ import {
 import { useCoreRuntime } from '../coreRuntime';
 import { CoreConnectionSettings } from './CoreConnectionSettings';
 import { HostControlSettings } from './HostControlSettings';
+import { RemoteStartCoreOnLaunchSwitch } from './RemoteStartCoreOnLaunch';
 import { useI18n } from '../i18n';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
 import { webUiManagementUrl } from '../services/clientAccess';
@@ -1943,10 +1944,11 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                       <strong>{t('config.software.startCoreOnLaunch')}</strong>
                     </div>
                   </div>
-                  <Switch title={remote ? t('connection.remoteManaged') : t('config.software.startCoreOnLaunch')} aria-label={t('config.software.startCoreOnLaunch')} checked={softwareStartCoreDraft} disabled={remote || softwareSettingsLoading || softwareSettings === null || busyAction !== null} onChange={(event) => {
+                  {remote ? <RemoteStartCoreOnLaunchSwitch onError={(error) => softwareFeedback.showNotice({ key: 'config.error.saveFailed', variables: { error } }, 'error')} />
+                    : <Switch title={t('config.software.startCoreOnLaunch')} aria-label={t('config.software.startCoreOnLaunch')} checked={softwareStartCoreDraft} disabled={softwareSettingsLoading || softwareSettings === null || busyAction !== null} onChange={(event) => {
                         setSoftwareSavedStatusVisible(false);
                         setSoftwareStartCoreDraft(event.currentTarget.checked);
-                      }} />
+                      }} />}
                 </div>
                 {remote ? null : <div className="config-software-setting-row">
                   <div className="config-software-setting-copy">
