@@ -207,8 +207,10 @@ const path = require('node:path');
     assert.equal(await page.locator('#config-native-software').getByRole('button', { name: 'Save', exact: true }).isDisabled(), true, 'no local software draft became dirty');
 
     // Version Management opens remotely; this computer's download source and bundled core do not apply.
-    assert.equal(await nav('Version Management').isDisabled(), false, 'Version Management unlocked by remote host control');
-    await nav('Version Management').click();
+    // Unlocked, the item can also carry the update indicator, which extends its accessible name.
+    const versions = page.locator('.nav-section').getByRole('button', { name: /^Version Management/ });
+    assert.equal(await versions.isDisabled(), false, 'Version Management unlocked by remote host control');
+    await versions.click();
     await page.getByText('Checks and installs run on the remote host with its own download source.').waitFor();
     assert.equal(await page.getByRole('button', { name: 'Add Custom Source' }).isDisabled(), true, 'local download source is not used remotely');
     const bundled = page.getByRole('button', { name: 'Install Bundled Core' });
