@@ -265,3 +265,30 @@ test('component-owned queries retain explicit resume ownership', async () => {
     expect(reads).toBe(2);
   } finally { off(); activity.mockRestore(); subscription.mockRestore(); }
 });
+
+test('active stale-focus refreshes coalesce and stop after unsubscribe', async () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const win = new EventTarget();
+  Object.defineProperty(globalThis, 'window', { value: win, configurable: true });
+  let now = 1_000;
+  const clock = spyOn(Date, 'now').mockImplementation(() => now);
+  let reads = 0;
+  const source = createDataSource({ focusMs: 1_000, load: async () => ++reads });
+  const off = source.subscribe(() => {});
+  try {
+    await source.load();
+    win.dispatchEvent(new Event('focus'));
+    expect(reads).toBe(1);
+    now = 2_001;
+    for (let i = 0; i < 20; i++) win.dispatchEvent(new Event('focus'));
+    await source.load();
+    expect(reads).toBe(2);
+    off(); now = 4_000;
+    win.dispatchEvent(new Event('focus'));
+    expect(reads).toBe(2);
+  } finally {
+    off(); clock.mockRestore();
+    if (previous) Object.defineProperty(globalThis, 'window', previous);
+    else Reflect.deleteProperty(globalThis, 'window');
+  }
+});

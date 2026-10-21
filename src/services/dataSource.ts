@@ -133,6 +133,10 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
     if (dirty || Date.now() - lastSuccessfulAt > (options.focusMs ?? 30_000)) invalidate();
     else poll();
   };
+  const onFocus = () => {
+    if (!visible() || request || throttle) return;
+    if (Date.now() - lastSuccessfulAt > (options.focusMs ?? 30_000)) invalidate();
+  };
   const subscribe = (fn: () => void) => {
     listeners.add(fn);
     if (listeners.size === 1) {
@@ -146,6 +150,7 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
       const customStop = options.subscribeEvents?.(invalidateFromEvent);
       stopEvents = () => { disposed = true; stops.forEach(stop => stop()); customStop?.(); };
       stopActivity = windowActivity.subscribe(onVisible);
+      if (typeof window !== 'undefined') window.addEventListener('focus', onFocus);
       if (dirty || !lastSuccessfulAt) { if (!request && visible()) void read(false); }
       else poll();
     }
@@ -156,6 +161,7 @@ export function createDataSource<T>(options: DataSourceOptions<T>) {
       queued = queuedExplicit; refreshAfterCurrent = false;
       stopEvents?.();
       stopActivity?.(); stopActivity = undefined;
+      if (typeof window !== 'undefined') window.removeEventListener('focus', onFocus);
     };
   };
   return {

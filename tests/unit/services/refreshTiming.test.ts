@@ -217,3 +217,25 @@ test('standalone timing remains active without a document or activity initializa
     else Object.defineProperty(globalThis, 'document', { value: browserDocument, configurable: true });
   }
 });
+
+test('stale visible focus refresh remains bounded and ignores hidden focus', () => {
+  let now = 1_000;
+  const clock = spyOn(Date, 'now').mockImplementation(() => now);
+  let reads = 0;
+  const refresh = startStaleFocusRefresh(() => reads++, 1_000, () => false);
+  try {
+    browserWindow.dispatchEvent(new Event('focus'));
+    expect(reads).toBe(0);
+    now = 2_001;
+    for (let i = 0; i < 20; i++) browserWindow.dispatchEvent(new Event('focus'));
+    expect(reads).toBe(1);
+    browserDocument.hidden = true; browserDocument.dispatchEvent(new Event('visibilitychange'));
+    now = 4_000;
+    browserWindow.dispatchEvent(new Event('focus'));
+    expect(reads).toBe(1);
+    refresh.stop();
+    browserDocument.hidden = false; browserDocument.dispatchEvent(new Event('visibilitychange'));
+    browserWindow.dispatchEvent(new Event('focus'));
+    expect(reads).toBe(1);
+  } finally { refresh.stop(); clock.mockRestore(); browserDocument.hidden = false; }
+});

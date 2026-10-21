@@ -7,7 +7,7 @@
   one refresh runs on resume. Explicit action `refresh()`/`load()` reads still
   complete while hidden, including OAuth completion and bounded plugin reconciliation. Browser-only initialization falls back to Page
   Visibility, while uninitialized standalone fixtures remain active. Sources back
-  off on errors and preserve equal snapshots and the last good value. `mutate`
+  off on errors, refresh stale data on focus while active, and preserve equal snapshots and the last good value. `mutate`
   fences reads when a write returns authoritative data.
 - Use `useResource(load, dependencies)` for component-owned, parameterized queries.
   Dependencies must include every request input and target identity. It isolates old

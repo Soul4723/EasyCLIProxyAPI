@@ -81,7 +81,8 @@ h.runUiTest('providers', async ({ base, newPage }) => {
   await batch.waitFor();
   const batchChecks = batch.locator('input[type=checkbox]');
   assert.ok(await batchChecks.count() > 0, 'batch management shows the currently filtered credentials');
-  await batchChecks.first().check();
+  await batch.locator('label.ec-checkbox').first().click();
+  assert.equal(await batchChecks.first().isChecked(), true);
   assert.equal(await batch.getByRole('button', { name: 'Refresh credentials', exact: true }).isEnabled(), true);
   assert.equal(await batch.getByRole('button', { name: 'Enable', exact: true }).isEnabled(), true);
   assert.equal(await batch.getByRole('button', { name: 'Disable', exact: true }).isEnabled(), true);

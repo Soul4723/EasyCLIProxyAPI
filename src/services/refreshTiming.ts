@@ -103,5 +103,14 @@ export function startStaleFocusRefresh(refresh: () => void, staleMs: number, pen
     wasActive = active;
   };
   const unsubscribe = windowActivity.subscribe(onActivity);
-  return { markFresh, stop: unsubscribe };
+  const onFocus = () => {
+    if (!windowActivity.active() || pending() || Date.now() - refreshedAt <= staleMs) return;
+    markFresh();
+    refresh();
+  };
+  if (typeof window !== 'undefined') window.addEventListener('focus', onFocus);
+  return { markFresh, stop() {
+    unsubscribe();
+    if (typeof window !== 'undefined') window.removeEventListener('focus', onFocus);
+  } };
 }
