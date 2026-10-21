@@ -158,6 +158,7 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
   const pollingTimers = useRef<Partial<Record<OAuthProviderId, number>>>({});
   const pollingRequests = useRef<Partial<Record<OAuthProviderId, boolean>>>({});
   const pollingSessions = useRef<Partial<Record<OAuthProviderId, string>>>({});
+  const loginAttempts = useRef<Partial<Record<OAuthProviderId, number>>>({});
   const credentialSnapshots = useRef<Partial<Record<OAuthProviderId, AuthFileSnapshot>>>({});
 
   useEffect(() => {
@@ -332,6 +333,9 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
 
   useEffect(() => {
     return () => {
+      // Leaving the page stops polling but leaves core sessions alone, so a sign-in finished in the
+      // browser still completes. Fence starts still in flight so they cannot restart polling.
+      BUILTIN_OAUTH_PROVIDER_IDS.forEach((id) => { loginAttempts.current[id] = (loginAttempts.current[id] ?? 0) + 1; });
       pollingSessions.current = {};
       Object.values(pollingTimers.current).forEach((timer) => {
         if (timer !== undefined) window.clearInterval(timer);
@@ -340,6 +344,9 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
   }, []);
 
   const startLogin = async (provider: OAuthProviderId) => {
+    const attempt = (loginAttempts.current[provider] ?? 0) + 1;
+    loginAttempts.current[provider] = attempt;
+    const isAttempt = () => loginAttempts.current[provider] === attempt;
     clearPollingTimer(provider);
     updateProviderState(provider, {
       url: undefined,
@@ -355,10 +362,12 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
 
     try {
       await captureCredentialSnapshot(provider);
+      if (!isAttempt()) return;
       const result = await startOAuthLogin({
         provider,
         browser: selectedBrowser,
       });
+      if (!isAttempt()) return;
       if (!result.state) {
         updateProviderState(provider, {
           url: result.url,
@@ -389,6 +398,7 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
         );
       }
     } catch (error) {
+      if (!isAttempt()) return;
       delete credentialSnapshots.current[provider];
       updateProviderState(provider, {
         status: 'error',
@@ -401,6 +411,8 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
 
   const refreshLoginLink = async (provider: OAuthProviderId) => {
     const currentState = states[provider]?.state;
+    const attempt = loginAttempts.current[provider];
+    const isCurrent = () => loginAttempts.current[provider] === attempt;
     clearPollingTimer(provider);
     updateProviderState(provider, { refreshing: true });
     try {
@@ -408,6 +420,7 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
         await managementApi.delete('/oauth/session', { query: { state: currentState } });
       }
     } catch (error) {
+      if (!isCurrent()) return;
       if (provider === 'devin') {
         updateProviderState(provider, { refreshing: false });
         if (currentState) startPolling(provider, currentState);
@@ -416,6 +429,7 @@ export function OAuthLoginPage({ onOpenAuthFiles }: { onOpenAuthFiles?: (provide
       }
       console.warn('Failed to cancel the previous OAuth session before refreshing', error);
     }
+    if (!isCurrent()) return;
     try {
       await startLogin(provider);
     } finally {
