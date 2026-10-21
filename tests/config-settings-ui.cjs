@@ -129,6 +129,12 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
         const hasDirtyMarker = async id => page.locator(`#config-subpage-tab-${id}`).evaluate(element =>
           Boolean(element.querySelector('.config-nav-dirty, .config-settings-dirty, [data-dirty="true"]'))
           || /未保存|unsaved/i.test([element.getAttribute('aria-label'), element.getAttribute('title'), element.textContent].join(' ')));
+        const waitForDirtyMarker = async (id, expected = true) => page.waitForFunction(({ key, wantDirty }) => {
+          const element = document.querySelector(`#config-subpage-tab-${key}`);
+          const dirty = Boolean(element?.querySelector('.config-nav-dirty, .config-settings-dirty, [data-dirty="true"]'))
+            || /未保存|unsaved/i.test([element?.getAttribute('aria-label'), element?.getAttribute('title'), element?.textContent].join(' '));
+          return dirty === wantDirty;
+        }, { key: id, wantDirty: expected });
         const search = page.getByLabel(locale === 'en' ? 'Search settings' : '搜索设置', { exact: true });
         const retrySection = page.locator('#config-retry-section-title').locator('xpath=ancestor::section[1]');
         const exerciseHelp = async (trigger, context) => {
@@ -492,6 +498,7 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
           await tab('general');
           const remoteManagement = page.locator('#template-management-0');
           await remoteManagement.check();
+          await waitForDirtyMarker('general');
           assert.equal(await hasDirtyMarker('general'), true, `${label}: template drafts mark their category`);
           await tab('requests');
           const retryInput = retrySection.locator('input[type="text"]').first();
@@ -499,6 +506,7 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
           const cooling = page.getByRole('switch', { name: locale === 'en' ? 'Enable cooldowns' : '启用冷却', exact: true });
           assert.equal(await cooling.isChecked(), true, 'existing false disable-cooling means enabled');
           await cooling.uncheck();
+          await waitForDirtyMarker('requests');
           assert.equal(await hasDirtyMarker('requests'), true, `${label}: core drafts mark their category`);
           await tab('software');
           assert.equal(await hasDirtyMarker('requests'), true, `${label}: dirty category remains marked while inactive`);
@@ -509,6 +517,7 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
           await page.waitForFunction(button => {
             return button?.disabled && !/正在保存|保存中|saving/i.test(button.textContent);
           }, await retrySave.elementHandle());
+          await waitForDirtyMarker('requests', false);
           assert.equal(await hasDirtyMarker('requests'), false, `${label}: saving clears the category marker`);
           await tab('software');
           await tab('requests');
@@ -525,11 +534,13 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
           const management = page.locator('#template-group-management').locator('xpath=ancestor::section[1]');
           await management.getByRole('button', { name: locale === 'en' ? 'Discard changes' : '放弃本组修改', exact: true }).click();
           assert.equal(await remoteManagement.isChecked(), false);
+          await waitForDirtyMarker('general', false);
           assert.equal(await hasDirtyMarker('general'), false, `${label}: discarding clears the category marker`);
 
           await tab('requests');
           const sensitiveWord = page.locator('.config-sensitive-words-row input').first();
           await sensitiveWord.fill('settings-navigation-draft');
+          await waitForDirtyMarker('requests');
           await tab('software');
           assert.equal(await hasDirtyMarker('requests'), true, `${label}: sensitive-word drafts mark their category`);
           await tab('requests');
