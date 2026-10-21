@@ -41,7 +41,7 @@ const path = require('node:path');
     assert.equal(await testButton.isDisabled(), true, 'an invalid URL cannot be tested');
     await dialog.getByLabel('Management URL').fill('http://10.0.0.5:8317');
     await dialog.getByText(/HTTP is unencrypted/).waitFor();
-    await dialog.getByRole('button', { name: 'Show key' }).click();
+    await dialog.getByRole('button', { name: 'Show key' }).first().click();
     assert.equal(await dialog.getByLabel('Management key', { exact: true }).getAttribute('type'), 'text', 'the key can be revealed');
     await testButton.click();
     await dialog.getByText('Connection failed').waitFor();
@@ -64,6 +64,37 @@ const path = require('node:path');
     assert.equal(await card.getByRole('radio', { name: 'Local core' }).getAttribute('aria-checked'), 'true');
     assert.equal(await page.locator('#config-native-software').getByText('Silent Launch').count() > 0, true, 'Silent Launch shown locally');
 
+    // This computer as a remote host: opt-in, off by default, validated address, key generated on save.
+    const host = page.locator('#config-host-control');
+    await host.waitFor({ state: 'visible' });
+    const allow = host.getByRole('switch', { name: 'Allow remote control' });
+    assert.equal(await allow.isChecked(), false, 'remote control is off by default');
+    await host.getByText('Remote control is off.').waitFor();
+    const hostSave = host.getByRole('button', { name: 'Save', exact: true });
+    assert.equal(await hostSave.isDisabled(), true, 'unchanged settings cannot be saved');
+    const listen = host.getByLabel('Listen address');
+    assert.equal(await listen.inputValue(), '', 'no address is saved by default');
+    assert.equal(await listen.getAttribute('placeholder'), '0.0.0.0:8417', 'the default follows the core port + 100, apart from every channel core port');
+    await host.getByText(/Leave empty for the default, 0\.0\.0\.0:8417/).waitFor();
+    await listen.fill('localhost:8417');
+    await host.getByText(/Enter an IP address and a port/).waitFor();
+    assert.equal(await hostSave.isDisabled(), true, 'a host name is not a listen address');
+    await listen.fill('0.0.0.0:8317');
+    assert.equal(await hostSave.isDisabled(), true, 'the core port cannot be reused');
+    await listen.fill('100.64.0.1:8417');
+    await allow.click();
+    await host.getByText(/Anyone who can reach this address with the key/).waitFor();
+    assert.equal(await host.getByRole('button', { name: 'Generate new key' }).isDisabled(), true, 'unsaved changes come first');
+    await hostSave.click();
+    await host.getByText('Listening on 100.64.0.1:8417').waitFor();
+    const hostKey = host.getByLabel('Host control key');
+    const firstKey = await hostKey.inputValue();
+    assert.match(firstKey, /^ehc_/, 'saving with remote control allowed generates a key');
+    assert.equal(await hostKey.getAttribute('type'), 'password', 'the key is masked');
+    await host.getByRole('button', { name: 'Generate new key' }).click();
+    await host.getByText(/New key generated/).waitFor();
+    assert.notEqual(await hostKey.inputValue(), firstKey, 'the key can be replaced');
+
     // Saving from the Home dialog reloads into Remote mode.
     await nav('Home').click();
     dialog = await openDialog();
@@ -85,8 +116,8 @@ const path = require('node:path');
     assert.equal(await runtime.getByText('443', { exact: true }).count(), 1, 'port comes from the remote origin');
     for (const name of ['Stop', 'Restart']) {
       const button = runtime.getByRole('button', { name, exact: true });
-      assert.equal(await button.isDisabled(), true, `${name} shown but disabled remotely`);
-      assert.equal(await button.getAttribute('title'), 'Managed on the remote host');
+      assert.equal(await button.isDisabled(), true, `${name} shown but disabled without remote host control`);
+      assert.equal(await button.getAttribute('title'), 'Set up remote host control in Core connection to start, stop or restart this core');
     }
     await page.locator('.home-access-panel').getByText('https://other.example/v1').waitFor();
     await page.getByRole('button', { name: 'Core connection settings', exact: true }).click();
@@ -120,13 +151,50 @@ const path = require('node:path');
     assert.equal(await software.getByRole('switch', { name: 'Start Core on Launch' }).isDisabled(), true, 'start core on launch shown but disabled');
     assert.equal(await software.getByText('Silent Launch').count(), 0, 'Silent Launch hidden remotely');
     assert.equal(await card.getByLabel('Management URL').inputValue(), 'https://other.example', 'both hosts show the saved connection');
+    const remoteHost = page.locator('#config-host-control');
+    await remoteHost.getByText('Available when this app runs the local core.').waitFor();
+    assert.equal(await remoteHost.getByRole('switch', { name: 'Allow remote control' }).isDisabled(), true, 'this app cannot host while Remote');
 
     await nav('Plugins').click();
     await page.getByRole('region', { name: 'Plugins' }).waitFor();
     const install = page.getByRole('button', { name: 'Install local plugin' });
     assert.equal(await install.isDisabled(), true, 'local plugin install shown but disabled remotely');
     assert.equal(await install.getAttribute('title'), 'Not available in Remote mode yet');
+
+    // Remote host control: optional URL and key, validated, tested next to the management API, then saved.
+    await nav('Home').click();
+    dialog = await openDialog();
+    const hostUrl = dialog.getByLabel('Host control URL');
+    const hostKeyField = dialog.getByLabel('Host control key', { exact: true });
+    const saveRemote = dialog.getByRole('button', { name: 'Save & connect', exact: true });
+    await hostUrl.fill('http://other.example:8417');
+    await dialog.getByText('Enter both the host control URL and key, or leave both empty.').waitFor();
+    assert.equal(await saveRemote.isDisabled(), true, 'host control needs both URL and key');
+    await hostKeyField.fill('secret');
+    await dialog.getByText(/not the management key/).waitFor();
+    assert.equal(await saveRemote.isDisabled(), true, 'the management key is not a host control key');
+    await hostKeyField.fill('ehc_test-host-control-key-0123456789abcdef');
+    await dialog.getByRole('button', { name: 'Test connection', exact: true }).click();
+    await dialog.getByText('Remote host control available').waitFor();
+    await dialog.getByText('The core is running on the remote host.').waitFor();
+    await Promise.all([page.waitForEvent('load'), saveRemote.click()]);
+    await page.locator('.app-shell').waitFor();
+    assert.equal((await savedConnection()).hostControlOrigin, 'http://other.example:8417');
+
+    // Home's Start/Stop/Restart now go to the remote host's EasyCLIProxyAPI.
+    const controlled = page.locator('.control-panel');
+    await controlled.getByText('52817', { exact: true }).waitFor();
+    const stop = controlled.getByRole('button', { name: 'Stop', exact: true });
+    assert.equal(await stop.isEnabled(), true, 'Stop is available through remote host control');
+    assert.equal(await stop.getAttribute('title'), null);
+    await stop.click();
+    await controlled.getByText('Stopped on remote host', { exact: true }).waitFor();
+    assert.equal(await controlled.getByRole('button', { name: 'Restart', exact: true }).isDisabled(), true, 'a stopped core cannot be restarted');
+    await controlled.getByRole('button', { name: /^start$/i }).click();
+    await controlled.getByText('Connected', { exact: true }).waitFor();
+    await controlled.getByRole('button', { name: 'Restart', exact: true }).click();
+    await controlled.getByText('52819', { exact: true }).waitFor();
     assert.deepEqual(errors, []);
-    console.log('PASS: one connection component on Home and in Advanced Features; Remote keeps the Local layout with remote values, read-only settings and in-place disabled local actions; Silent Launch hidden.');
+    console.log('PASS: one connection component on Home and in Advanced Features; Remote keeps the Local layout with remote values, read-only settings and in-place disabled local actions; Silent Launch hidden; remote host control hosts locally and drives Start/Stop/Restart remotely.');
   } finally { await browser?.close(); await server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

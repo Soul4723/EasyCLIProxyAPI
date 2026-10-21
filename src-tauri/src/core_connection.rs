@@ -6,12 +6,17 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
-#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CoreConnection {
     pub(crate) mode: CoreConnectionMode,
     pub(crate) management_origin: String,
     pub(crate) management_key: String,
+    /// Optional EasyCLIProxyAPI host control on the remote core's computer; empty when not set up.
+    #[serde(default)]
+    pub(crate) host_control_origin: String,
+    #[serde(default)]
+    pub(crate) host_control_key: String,
 }
 
 impl From<&GuiConfigFile> for CoreConnection {
@@ -20,6 +25,8 @@ impl From<&GuiConfigFile> for CoreConnection {
             mode: config.connection_mode,
             management_origin: config.remote_management_origin.clone(),
             management_key: config.remote_management_key.clone(),
+            host_control_origin: config.remote_host_control_origin.clone(),
+            host_control_key: config.remote_host_control_key.clone(),
         }
     }
 }
@@ -50,6 +57,13 @@ pub(crate) fn normalize_origin(value: &str) -> Result<String, String> {
 pub(crate) fn normalize_connection(mut connection: CoreConnection) -> Result<CoreConnection, String> {
     connection.management_origin = normalize_origin(&connection.management_origin)?;
     connection.management_key = crate::normalize_management_secret_key(connection.management_key)?;
+    let (origin, key) = crate::host_control::normalize_remote_target(
+        &connection.host_control_origin,
+        &connection.host_control_key,
+        &connection.management_key,
+    )?;
+    connection.host_control_origin = origin;
+    connection.host_control_key = key;
     Ok(connection)
 }
 
@@ -159,6 +173,8 @@ pub(crate) fn save_core_connection(
         if connection.mode == CoreConnectionMode::Remote {
             config.remote_management_origin = connection.management_origin;
             config.remote_management_key = connection.management_key;
+            config.remote_host_control_origin = connection.host_control_origin;
+            config.remote_host_control_key = connection.host_control_key;
         }
         Ok(())
     })?;
@@ -195,7 +211,12 @@ async fn check_remote_connection(
     connection: CoreConnection,
     full_config: bool,
 ) -> Result<CoreConnectionTestResult, String> {
-    let connection = normalize_connection(connection)?;
+    // Management reachability only; host control is checked separately.
+    let connection = normalize_connection(CoreConnection {
+        host_control_origin: String::new(),
+        host_control_key: String::new(),
+        ..connection
+    })?;
     let config = GuiConfigFile {
         connection_mode: CoreConnectionMode::Remote,
         remote_management_origin: connection.management_origin,
@@ -277,5 +298,88 @@ pub(crate) fn remote_status(
         remote_origin: Some(connection.management_origin.clone()),
         message: result.message,
         recovery: None,
+        host_control: None,
     }
+}
+
+/// Remote status: management reachability from the core itself, plus (when configured) the process
+/// state reported by the remote host's EasyCLIProxyAPI. Both are read concurrently.
+pub(crate) async fn current_remote_status(connection: &CoreConnection) -> CoreStatus {
+    let host = async {
+        if connection.host_control_origin.is_empty() {
+            None
+        } else {
+            Some(
+                crate::host_control::fetch_host_status(
+                    &connection.host_control_origin,
+                    &connection.host_control_key,
+                )
+                .await,
+            )
+        }
+    };
+    let management = async {
+        poll_core_connection(connection.clone())
+            .await
+            .unwrap_or_else(|message| CoreConnectionTestResult {
+                connected: false,
+                version: None,
+                message,
+            })
+    };
+    let (management, host) = tokio::join!(management, host);
+    remote_status_with_host(connection, management, host)
+}
+
+pub(crate) fn remote_status_with_host(
+    connection: &CoreConnection,
+    management: CoreConnectionTestResult,
+    host: Option<Result<crate::host_control::HostCoreStatus, String>>,
+) -> CoreStatus {
+    let mut status = remote_status(connection, management);
+    let Some(host) = host else {
+        return status;
+    };
+    status.host_control = Some(match host {
+        Ok(host) => {
+            // The host's EasyCLIProxyAPI reports the process; `ready` stays management reachability.
+            status.installed = host.installed;
+            status.running = host.running || status.ready;
+            status.starting = host.starting;
+            status.process_id = host.process_id.filter(|_| host.running);
+            if status.current_version.is_none() {
+                status.current_version = host.current_version;
+            }
+            if !status.ready && !host.running {
+                status.message = crate::host_control::STOPPED_ON_REMOTE_HOST.into();
+            }
+            crate::host_control::HostControlView {
+                reachable: true,
+                message: host.message,
+            }
+        }
+        Err(message) => crate::host_control::HostControlView {
+            reachable: false,
+            message,
+        },
+    });
+    status
+}
+
+/// Publishes a remote status unless Save has selected another target meanwhile.
+pub(crate) fn publish_remote_status(
+    app: &tauri::AppHandle,
+    connection: &CoreConnection,
+    status: CoreStatus,
+) -> Result<CoreStatus, String> {
+    let gui_config_state = app.state::<GuiConfigState>();
+    let current = gui_config_state
+        .inner
+        .lock()
+        .map_err(|_| "GUI configuration status lock is poisoned")?;
+    if CoreConnection::from(&*current) != *connection {
+        return Err("Core connection changed; refresh status".into());
+    }
+    crate::emit_core_status(app, &status);
+    Ok(status)
 }

@@ -405,3 +405,29 @@ fn physical_window_size_uses_display_scale_and_ignores_minimized_sizes() {
     assert!(logical_window_size_from_physical(&tauri::PhysicalSize::new(0, 0), 1.0).is_none());
     assert!(logical_window_size_from_physical(&physical_size, 0.0).is_none());
 }
+
+#[cfg(unix)]
+#[test]
+fn configuration_files_holding_keys_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = agent_test_home("owner-only-config");
+    let created = home.join("config.toml");
+    write_bytes_directly(&created, b"host-control-key = \"secret\"\n").unwrap();
+    assert_eq!(fs::metadata(&created).unwrap().permissions().mode() & 0o777, 0o600);
+    let existing = home.join("config.yaml");
+    fs::write(&existing, b"port: 8317\n").unwrap();
+    fs::set_permissions(&existing, fs::Permissions::from_mode(0o644)).unwrap();
+    write_bytes_directly(&existing, b"port: 8318\n").unwrap();
+    assert_eq!(fs::metadata(&existing).unwrap().permissions().mode() & 0o777, 0o600, "tightened on save");
+    assert_eq!(fs::read(&existing).unwrap(), b"port: 8318\n");
+    let gui = GuiConfigFile {
+        host_control_key: "ehc_host-key-0123456789abcdef-0123456789".into(),
+        ..GuiConfigFile::default()
+    };
+    let via_writer = home.join("gui.toml");
+    fs::write(&via_writer, b"").unwrap();
+    fs::set_permissions(&via_writer, fs::Permissions::from_mode(0o664)).unwrap();
+    write_gui_config_to_path(&gui, &via_writer).unwrap();
+    assert_eq!(fs::metadata(&via_writer).unwrap().permissions().mode() & 0o777, 0o600);
+    fs::remove_dir_all(home).unwrap();
+}

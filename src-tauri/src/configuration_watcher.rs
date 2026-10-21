@@ -167,6 +167,11 @@ fn handle_configuration_file_changes(
                     if CoreConnection::from(&current) != CoreConnection::from(&config) {
                         return Err("Use Core connection settings to change the active core connection".into());
                     }
+                    if crate::host_control::listener_settings(&current)
+                        != crate::host_control::listener_settings(&config)
+                    {
+                        return Err("Use the remote control settings to change remote host control".into());
+                    }
                     gui_state.replace_external(config.clone())?;
                     if !preserve_invalid_core_file {
                         patch_core_from_gui_config_if_valid(&config)?;

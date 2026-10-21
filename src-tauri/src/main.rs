@@ -11,6 +11,7 @@ mod core_config;
 mod core_runtime;
 mod core_connection;
 mod core_recovery;
+mod host_control;
 mod desktop_theme;
 mod instance_lock;
 #[cfg(any(target_os = "linux", test))]
@@ -441,6 +442,9 @@ struct CoreStatus {
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     recovery: Option<core_recovery::RecoveryStatus>,
+    /// Remote mode only, when remote host control is configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host_control: Option<host_control::HostControlView>,
 }
 
 #[derive(Serialize)]
@@ -619,6 +623,13 @@ struct GuiConfigFile {
     connection_mode: CoreConnectionMode,
     remote_management_origin: String,
     remote_management_key: String,
+    // Remote mode: the remote host's EasyCLIProxyAPI host control endpoint (optional).
+    remote_host_control_origin: String,
+    remote_host_control_key: String,
+    // Local mode: let another computer's EasyCLIProxyAPI control this app's core (opt-in).
+    host_control_enabled: bool,
+    host_control_address: String,
+    host_control_key: String,
     locale: String,
     port: u16,
     allow_lan: bool,
@@ -942,6 +953,11 @@ impl Default for GuiConfigFile {
             connection_mode: CoreConnectionMode::Local,
             remote_management_origin: String::new(),
             remote_management_key: String::new(),
+            remote_host_control_origin: String::new(),
+            remote_host_control_key: String::new(),
+            host_control_enabled: false,
+            host_control_address: String::new(),
+            host_control_key: String::new(),
             locale: "en".to_string(),
             port: 8317,
             allow_lan: false,
@@ -2116,6 +2132,7 @@ impl GuiConfigState {
             .inner
             .lock()
             .map_err(|_| "GUI configuration status lock is poisoned".to_string())?;
+        host_control::note_config_change(&current, &config);
         *current = config;
         Ok(())
     }
@@ -2133,6 +2150,7 @@ impl GuiConfigState {
         apply_external_core_proxy_override(&mut config, settings)?;
         sanitize_gui_config(&mut config)?;
         validate_gui_config(&config)?;
+        host_control::note_config_change(&current, &config);
         *current = config.clone();
         Ok(config)
     }
@@ -2280,6 +2298,7 @@ impl GuiConfigState {
         config.prefer_gitcode_downloads = fallback_source.source == VersionDownloadSource::Gitcode;
         sanitize_gui_config(&mut config)?;
         write_gui_config(&config)?;
+        host_control::note_config_change(&current, &config);
         *current = config.clone();
         Ok(Some(config))
     }
@@ -2392,6 +2411,7 @@ impl GuiConfigState {
         update(&mut config)?;
         sanitize_gui_config(&mut config)?;
         write_gui_config(&config)?;
+        host_control::note_config_change(&current, &config);
         *current = config.clone();
         Ok(config)
     }
@@ -2587,6 +2607,7 @@ fn main() {
         .manage(DeepSeekHarnessProcessState::default())
         .manage(usage::UsageCollectorState::default())
         .manage(GuiConfigState::new(gui_config))
+        .manage(host_control::HostControlState::default())
         .manage(plugin_webview::PluginWebviewState::default())
         .manage(MainWindowState::new(
             initial_window_size,
@@ -2717,6 +2738,7 @@ fn main() {
 
             network_proxy::start_monitor(app.handle().clone());
             core_recovery::start(app.handle().clone());
+            host_control::start(app.handle().clone());
             start_codex_model_catalog_sync(app.handle().clone());
 
             let usage_app = app.handle().clone();
@@ -2831,6 +2853,9 @@ fn main() {
             core_connection::get_core_connection,
             core_connection::save_core_connection,
             core_connection::test_core_connection,
+            host_control::get_host_control_settings,
+            host_control::save_host_control_settings,
+            host_control::test_host_control,
             get_gui_settings,
             get_usage_view_preferences,
             save_usage_view_preferences,
