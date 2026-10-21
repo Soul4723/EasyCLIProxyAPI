@@ -90,8 +90,41 @@ fn clean_text(value: &str, max_chars: usize) -> String {
 
 fn clean_label(value: &str) -> String {
     let label = clean_text(value, 40);
-    // Defence in depth: the frontend masks, and an unmasked address must never reach the cache.
-    if label.contains('@') && !label.contains("***@") { "***".to_string() } else { label }
+    mask_identifier(&label)
+}
+
+fn clean_group(value: &str) -> String {
+    let group = clean_text(value, 40);
+    // Groups are display text, not opaque account identifiers, but emails still must not reach the cache.
+    if group.contains('@') && !group.contains("***@") { "***".to_string() } else { group }
+}
+
+/// `maskEmail` / `maskIdentifier` in `privacyMask.ts`.
+pub(crate) fn mask_email(email: &str) -> String {
+    let Some(at) = email.rfind('@').filter(|at| *at > 0) else { return mask_identifier(email) };
+    let (local, domain) = (&email[..at], &email[at + 1..]);
+    let (host, suffix) = match domain.rfind('.').filter(|dot| *dot > 0) {
+        Some(dot) => (&domain[..dot], &domain[dot..]),
+        None => (domain, ""),
+    };
+    let keep = |text: &str, count: usize| text.chars().take(count).collect::<String>();
+    format!("{}***@{}***{suffix}", keep(local, if local.chars().count() > 4 { 2 } else { 1 }), keep(host, 1))
+}
+
+pub(crate) fn mask_identifier(value: &str) -> String {
+    let text = value.trim();
+    if text.contains("***") {
+        return text.to_string();
+    }
+    if text.contains('@') {
+        return mask_email(text);
+    }
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= 4 {
+        return if text.is_empty() { value.to_string() } else { "***".to_string() };
+    }
+    let visible = if chars.len() > 10 { 2 } else { 1 };
+    format!("{}***{}", chars[..visible].iter().collect::<String>(), chars[chars.len() - visible..].iter().collect::<String>())
 }
 
 fn clean_balance(value: &str) -> Option<String> {
@@ -130,7 +163,7 @@ pub(crate) fn sanitize_accounts(accounts: Vec<QuotaAccount>) -> Vec<QuotaAccount
                         "5h" | "weekly" => window.kind,
                         _ => "other".to_string(),
                     },
-                    group: clean_label(&window.group),
+                    group: clean_group(&window.group),
                     remaining_percent: window.remaining_percent.filter(|p| p.is_finite()).map(|p| p.clamp(0.0, 100.0)),
                     reset_at_ms: window.reset_at_ms.filter(|ms| *ms > 0),
                     available: window.available,

@@ -5,7 +5,7 @@
 //! no inference endpoint. Reads go to their own file, so `quota.json` keeps its single writer (the
 //! app); the two are merged per account and the newest read wins.
 use super::cli::{now_ms, read_part, wait_for_lock, LockAcquireError, RefreshLock};
-use super::model::{sanitize_accounts, CorePart, QuotaAccount, QuotaPart, QuotaWindow};
+use super::model::{mask_email, mask_identifier, sanitize_accounts, CorePart, QuotaAccount, QuotaPart, QuotaWindow};
 use super::refresh::{get_json, normalize_provider};
 use crate::management_api::{management_authorization, management_endpoint, management_http_client_for};
 use crate::GuiConfigFile;
@@ -703,31 +703,6 @@ fn codex_records(file: &Value) -> Vec<Value> {
 
 fn first(records: &[Value], keys: &[&str]) -> String {
     records.iter().map(|record| read_string(record, keys)).find(|text| !text.is_empty()).unwrap_or_default()
-}
-
-/// `maskEmail` / `maskIdentifier` in `privacyMask.ts`.
-fn mask_email(email: &str) -> String {
-    let Some(at) = email.rfind('@').filter(|at| *at > 0) else { return mask_identifier(email) };
-    let (local, domain) = (&email[..at], &email[at + 1..]);
-    let (host, suffix) = match domain.rfind('.').filter(|dot| *dot > 0) {
-        Some(dot) => (&domain[..dot], &domain[dot..]),
-        None => (domain, ""),
-    };
-    let keep = |text: &str, count: usize| text.chars().take(count).collect::<String>();
-    format!("{}***@{}***{suffix}", keep(local, if local.chars().count() > 4 { 2 } else { 1 }), keep(host, 1))
-}
-
-pub(crate) fn mask_identifier(value: &str) -> String {
-    let text = value.trim();
-    if text.contains('@') {
-        return mask_email(text);
-    }
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= 4 {
-        return if text.is_empty() { value.to_string() } else { "***".to_string() };
-    }
-    let visible = if chars.len() > 10 { 2 } else { 1 };
-    format!("{}***{}", chars[..visible].iter().collect::<String>(), chars[chars.len() - visible..].iter().collect::<String>())
 }
 
 fn mask_text(text: &str) -> String {

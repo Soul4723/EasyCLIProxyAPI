@@ -448,6 +448,13 @@ fn sanitize_bounds_and_validates_what_the_webview_sends() {
     assert_eq!(clean[0].windows[0].kind, "other");
     assert_eq!(clean[0].windows[0].remaining_percent, None);
     assert_eq!(clean[0].windows[1].remaining_percent, Some(100.0));
+    let labels = sanitize_accounts(vec![
+        QuotaAccount { auth_index: "alice".into(), provider: "claude".into(), label: "alice".into(), ..Default::default() },
+        QuotaAccount { auth_index: "masked".into(), provider: "claude".into(), label: "al***@g***.com".into(), ..Default::default() },
+    ]);
+    assert_eq!(labels[0].label, "a***e");
+    assert_eq!(labels[1].label, "al***@g***.com");
+    assert_eq!(mask_identifier(&mask_identifier("alice")), "a***e");
     let many = (0..300).map(|n| QuotaAccount { auth_index: format!("i{n}"), provider: "codex".into(), ..Default::default() }).collect();
     assert_eq!(sanitize_accounts(many).len(), 200);
 }
