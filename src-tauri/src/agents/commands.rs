@@ -678,6 +678,8 @@ pub(crate) async fn create_thinking_alias(
     original_alias: Option<String>,
     original_entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
+    // Local core only: Remote mode shows the remote core's settings read-only.
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let config = gui_config_state.snapshot()?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
@@ -756,6 +758,8 @@ pub(crate) async fn delete_thinking_alias(
     oauth_channel: Option<String>,
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
+    // Local core only: Remote mode shows the remote core's settings read-only.
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let config = gui_config_state.snapshot()?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
@@ -802,6 +806,8 @@ pub(crate) async fn create_speed_alias(
     source_id: String,
     alias: String,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
+    // Local core only: Remote mode shows the remote core's settings read-only.
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let config = gui_config_state.snapshot()?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
@@ -840,6 +846,8 @@ pub(crate) async fn delete_speed_alias(
     oauth_channel: Option<String>,
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
+    // Local core only: Remote mode shows the remote core's settings read-only.
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let config = gui_config_state.snapshot()?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
