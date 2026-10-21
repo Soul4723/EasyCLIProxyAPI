@@ -2236,6 +2236,21 @@ pub(crate) fn write_gui_config_to_path(
         root.remove("image-generation-user-selected");
     }
     for (key, item) in [
+        (
+            "connection-mode",
+            value(match config.connection_mode {
+                CoreConnectionMode::Local => "local",
+                CoreConnectionMode::Remote => "remote",
+            }),
+        ),
+        (
+            "remote-management-origin",
+            value(config.remote_management_origin.as_str()),
+        ),
+        (
+            "remote-management-key",
+            value(config.remote_management_key.as_str()),
+        ),
         ("locale", value(config.locale.as_str())),
         ("port", value(i64::from(config.port))),
         ("allow-lan", value(config.allow_lan)),

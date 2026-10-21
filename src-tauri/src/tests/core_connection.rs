@@ -1,3 +1,4 @@
+use super::support::*;
 use super::*;
 use crate::core_connection::{
     normalize_origin, require_local, test_core_connection, CoreConnection,
@@ -52,8 +53,11 @@ fn connection_defaults_and_toml_round_trip() {
     assert_eq!(old.connection_mode, CoreConnectionMode::Local);
     assert!(old.remote_management_origin.is_empty());
     assert!(old.remote_management_key.is_empty());
-    let restored: GuiConfigFile =
-        toml::from_str(&toml::to_string(&remote_config()).unwrap()).unwrap();
+    let home = agent_test_home("core-connection-round-trip");
+    let path = home.join("config.toml");
+    write_gui_config_to_path(&remote_config(), &path).unwrap();
+    let restored: GuiConfigFile = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    fs::remove_dir_all(home).unwrap();
     assert_eq!(restored.connection_mode, CoreConnectionMode::Remote);
     assert_eq!(
         restored.remote_management_origin,
