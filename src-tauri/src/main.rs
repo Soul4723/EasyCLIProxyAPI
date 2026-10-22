@@ -1063,7 +1063,7 @@ struct GuiSettings {
     close_behavior: WindowsCloseBehavior,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct VersionSourceSettings {
     source: String,
@@ -2981,6 +2981,7 @@ fn main() {
             open_oauth_url,
             open_external_url,
             get_version_source_settings,
+            host_control::remote_version_source,
             set_download_source,
             add_custom_download_mirror,
             remove_custom_download_mirror,

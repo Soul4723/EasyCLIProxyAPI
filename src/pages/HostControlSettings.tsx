@@ -31,7 +31,7 @@ export function HostControlSettings({ hidden }: { hidden?: boolean }) {
 
   const available = settings?.available === true;
   const disabled = busy || !available;
-  // Empty keeps the default address, derived from this core's port.
+  // Empty keeps localhost-only access on this core's port + 100; LAN/VPN access needs an explicit address.
   const addressValid = address.trim() === '' ? Boolean(settings?.defaultAddress) : isValidListenAddress(address, corePort);
   const dirty = Boolean(settings && (enabled !== settings.enabled || address.trim() !== settings.address));
 

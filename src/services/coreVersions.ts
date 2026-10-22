@@ -87,3 +87,6 @@ export async function followInstallTask(
     if (!task.running) return;
   }
 }
+
+export const remoteVersionSource = (action = '', value?: string): Promise<VersionSourceSettings> =>
+  invoke<VersionSourceSettings>('remote_version_source', { action, value: value ?? null });

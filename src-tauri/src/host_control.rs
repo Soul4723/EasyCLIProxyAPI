@@ -214,7 +214,7 @@ pub(crate) fn validate_host_key(config: &GuiConfigFile) -> Result<(), String> {
 
 pub(crate) fn parse_listen_address(value: &str, core_port: u16) -> Result<SocketAddr, String> {
     let address: SocketAddr = value.trim().parse().map_err(|_| {
-        "Listen address must be an IP address and port, for example 0.0.0.0:8417".to_string()
+        "Listen address must be an IP address and port, for example 127.0.0.1:8417".to_string()
     })?;
     if address.port() < 1024 {
         return Err("Choose a listen port from 1024 to 65535".into());
@@ -225,11 +225,11 @@ pub(crate) fn parse_listen_address(value: &str, core_port: u16) -> Result<Socket
     Ok(address)
 }
 
-/// Used when no listen address is saved: every interface, on the core's port + 100.
+/// Used when no listen address is saved: localhost only, on the core's port + 100.
 pub(crate) fn default_address(core_port: u16) -> Option<String> {
     core_port
         .checked_add(PORT_OFFSET)
-        .map(|port| format!("0.0.0.0:{port}"))
+        .map(|port| format!("127.0.0.1:{port}"))
 }
 
 /// The saved listen address, or the default for this core's port when none is saved.
@@ -353,6 +353,7 @@ pub(crate) enum Route {
     /// Cancel the running install, only if it is this job's.
     CancelInstall { job: String },
     StartCoreOnLaunch(bool),
+    DownloadSource { action: String, value: Option<String> },
 }
 
 /// `Ok(None)` while the head is incomplete.
@@ -416,6 +417,29 @@ pub(crate) fn authenticate(request: &Request, key: &str) -> bool {
 pub(crate) fn route(request: &Request) -> Result<Route, Reply> {
     let not_found = || Reply::error(404, "Not found");
     let path = request.path.strip_prefix(PATH_PREFIX).ok_or_else(not_found)?;
+    if let Some(source) = path.strip_prefix("/settings/download-source") {
+        if source.contains('#') { return Err(Reply::error(400, "Fragments are not accepted")); }
+        let (action, query) = source.split_once('?').unwrap_or((source, ""));
+        let method = match action { "" => "GET", "/select" | "/mirrors/add" | "/mirrors/remove" => "POST", _ => return Err(not_found()) };
+        if request.method != method { return Err(Reply::error(405, "Method not allowed")); }
+        let pairs = reqwest::Url::parse(&format!("http://localhost/?{query}"))
+            .map_err(|_| Reply::error(400, "Invalid source parameters"))?
+            .query_pairs().map(|(key, value)| (key.into_owned(), value.into_owned())).collect::<Vec<_>>();
+        let value = if action.is_empty() {
+            if !pairs.is_empty() { return Err(Reply::error(400, "Unexpected source parameters")); }
+            None
+        } else {
+            if pairs.len() != 1 || pairs[0].0 != "value" { return Err(Reply::error(400, "Expected one value parameter")); }
+            let value = &pairs[0].1;
+            if action == "/select" {
+                validate_download_source(value).map_err(|_| Reply::error(400, "Invalid download source"))?;
+            } else {
+                crate::normalize_custom_download_mirror_url(value).map_err(|_| Reply::error(400, "Invalid HTTPS mirror prefix"))?;
+            }
+            Some(value.clone())
+        };
+        return Ok(Route::DownloadSource { action: action.into(), value });
+    }
     if let Some(usage) = path.strip_prefix("/usage/") {
         let (kind, query) = usage.split_once('?').unwrap_or((usage, ""));
         if !matches!(kind, "status" | "overview" | "analysis" | "events" | "pricing" | "storage") { return Err(not_found()); }
@@ -758,6 +782,18 @@ impl HostBackend for AppBackend {
         Box::pin(async move {
             require_host_mode(&app)?;
             match route {
+                Route::DownloadSource { action, value } => {
+                    let state = app.state::<GuiConfigState>();
+                    let settings = match action.as_str() {
+                        "" => crate::get_version_source_settings(state),
+                        "/select" => crate::set_download_source(state, value.unwrap_or_default()),
+                        "/mirrors/add" => crate::add_custom_download_mirror(state, value.unwrap_or_default()),
+                        "/mirrors/remove" => crate::remove_custom_download_mirror(state, value.unwrap_or_default()),
+                        _ => unreachable!(),
+                    }.map_err(operation_error)?;
+                    if !action.is_empty() { let _ = app.emit("version-download-source-changed", &settings); }
+                    json(settings)
+                }
                 Route::Status => json(host_status(app).await?),
                 Route::Usage { kind, query } => crate::usage::host_usage_read(app, kind, query).await.map_err(operation_error),
                 // Same path as this app's buttons: lock, Local check, lifecycle, status event.
@@ -1507,6 +1543,46 @@ async fn remote_usage_read<T: DeserializeOwned>(
         data
     };
     serde_json::from_value(data).map_err(|_| "Invalid remote usage data".into())
+}
+
+
+// A separate command keeps this computer's application update source local in Remote mode.
+#[tauri::command]
+pub(crate) async fn remote_version_source(
+    app: tauri::AppHandle,
+    action: String,
+    value: Option<String>,
+) -> Result<crate::VersionSourceSettings, String> {
+    let state = app.state::<GuiConfigState>();
+    let config = state.snapshot()?;
+    if config.connection_mode != CoreConnectionMode::Remote { return Err("Host download sources apply only in Remote mode".into()); }
+    let connection = CoreConnection::from(&config);
+    if connection.host_control_origin.is_empty() { return Err(NOT_CONFIGURED.into()); }
+    let _target = if action.is_empty() { None } else { Some(crate::core_connection::begin_target_write(&state, &config)?) };
+    request_version_source(&connection, &action, value.as_deref()).await
+}
+
+async fn request_version_source(connection: &CoreConnection, action: &str, value: Option<&str>) -> Result<crate::VersionSourceSettings, String> {
+    if !matches!(action, "" | "/select" | "/mirrors/add" | "/mirrors/remove") { return Err("Unsupported source action".into()); }
+    let mut path = format!("settings/download-source{action}");
+    if let Some(value) = value {
+        let mut url = reqwest::Url::parse("http://localhost/").unwrap();
+        url.query_pairs_mut().append_pair("value", value);
+        path.push('?');
+        path.push_str(url.query().unwrap_or_default());
+    }
+    let (status, body) = host_body(&connection.host_control_origin, &connection.host_control_key,
+        if action.is_empty() { reqwest::Method::GET } else { reqwest::Method::POST }, &path, STATUS_TIMEOUT, None).await?;
+    if status == 404 { return Err("Update EasyCLIProxyAPI on the core's computer to change its download source".into()); }
+    if status != 200 { return Err(host_error(status, &body)); }
+    serde_json::from_slice(&body).map_err(|_| "Remote host control returned an invalid reply".into())
+}
+
+fn validate_download_source(value: &str) -> Result<(), String> {
+    if let Some(url) = value.strip_prefix("custom:") {
+        crate::normalize_custom_download_mirror_url(url).map(|_| ())
+    } else if matches!(value, "github" | "gitcode" | "gh-proxy" | "gh-fast") { Ok(()) }
+    else { Err("Unsupported download source".into()) }
 }
 
 #[cfg(test)]
