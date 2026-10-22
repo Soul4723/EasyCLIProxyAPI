@@ -1041,3 +1041,62 @@ async fn alias_transaction_checks_core_before_a_local_only_commit() {
     assert!(committed.load(Ordering::SeqCst));
     assert_eq!(core.finish().0, yaml_json(&current));
 }
+
+#[tokio::test]
+async fn oauth_definition_reads_are_bounded_and_keep_channel_order() {
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let config = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: format!("http://{}", listener.local_addr().unwrap()),
+        remote_management_key: "fixture-key".into(),
+        port: 0,
+        ..GuiConfigFile::default()
+    };
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let requests = Arc::new(AtomicUsize::new(0));
+    let counters = (active.clone(), peak.clone(), requests.clone());
+    let server = tokio::spawn(async move {
+        let (active, peak, requests) = counters;
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (active, peak, requests) = (active.clone(), peak.clone(), requests.clone());
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let mut bytes = [0; 2048];
+                    let count = socket.read(&mut bytes).await.unwrap();
+                    if count == 0 { return; }
+                    request.extend_from_slice(&bytes[..count]);
+                }
+                let request = String::from_utf8_lossy(&request);
+                assert!(request.contains("Bearer fixture-key"));
+                requests.fetch_add(1, Ordering::SeqCst);
+                let path = request.split_whitespace().nth(1).unwrap();
+                let channel = path.rsplit('/').next().unwrap();
+                let (status, body) = if channel == "credentials" || channel == "meta" {
+                    (500, "{}".to_string())
+                } else {
+                    peak.fetch_max(active.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                    // The first channel finishes last; output must still follow channel order.
+                    tokio::time::sleep(Duration::from_millis(if channel == "vertex" { 120 } else { 60 })).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    (200, format!("{{\"models\":[{{\"id\":\"{channel}-model\"}}]}}"))
+                };
+                let response = format!("HTTP/1.1 {status} OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                socket.write_all(response.as_bytes()).await.unwrap();
+            });
+        }
+    });
+    let started = std::time::Instant::now();
+    let definitions = fetch_oauth_model_definitions(&config).await;
+    println!("OAuth fixture: {} requests, peak {}, elapsed {:?}", requests.load(Ordering::SeqCst), peak.load(Ordering::SeqCst), started.elapsed());
+    assert_eq!(requests.load(Ordering::SeqCst), 10);
+    assert_eq!(peak.load(Ordering::SeqCst), 3);
+    assert_eq!(definitions.iter().map(|definition| definition.channel.key).collect::<Vec<_>>(),
+        OAUTH_ALIAS_CHANNELS.iter().filter(|channel| channel.key != "meta").map(|channel| channel.key).collect::<Vec<_>>());
+    assert!(definitions.iter().all(|definition| definition.models[0].id == format!("{}-model", definition.channel.key)));
+    server.abort();
+}

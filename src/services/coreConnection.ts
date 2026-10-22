@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { singleFlight } from './inFlight';
 
 // hostControlOrigin/hostControlKey: optional remote host control on the core's computer; both empty when not set up.
 export type CoreConnection = {
@@ -8,7 +9,7 @@ export type CoreConnection = {
 export type ConnectionTestResult = { connected: boolean; version: string | null; message: string };
 export type HostControlTestResult = { connected: boolean; running: boolean | null; message: string };
 
-export const getCoreConnection = () => invoke<CoreConnection>('get_core_connection');
+export const getCoreConnection = singleFlight(() => invoke<CoreConnection>('get_core_connection'));
 export const saveCoreConnection = (connection: CoreConnection) => invoke<CoreConnection>('save_core_connection', { connection });
 export const testCoreConnection = (connection: CoreConnection) => invoke<ConnectionTestResult>('test_core_connection', { connection });
 export const testHostControl = (connection: CoreConnection) => invoke<HostControlTestResult>('test_host_control', { connection });

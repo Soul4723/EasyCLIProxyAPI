@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { singleFlight } from './inFlight';
 
 // This computer's remote host control listener (Local mode): lets another EasyCLIProxyAPI start, stop and restart this core.
 export type HostControlSettings = {
@@ -13,7 +14,7 @@ export type HostControlSettings = {
 };
 export type HostControlUpdate = { enabled: boolean; address: string; regenerateKey?: boolean };
 
-export const getHostControlSettings = () => invoke<HostControlSettings>('get_host_control_settings');
+export const getHostControlSettings = singleFlight(() => invoke<HostControlSettings>('get_host_control_settings'));
 export const saveHostControlSettings = (update: HostControlUpdate) => invoke<HostControlSettings>('save_host_control_settings', { update });
 
 // Mirrors the native check: an IP literal and port 1024-65535 that is not the core's port.

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { singleFlight } from './inFlight';
 import type { AppLocale } from '../i18n/index';
 
 export type GuiSettings = {
@@ -17,8 +18,8 @@ export const setAppLocale = (args: { locale: AppLocale; }): Promise<string> =>
 export const openExternalUrl = (args: { url: string; }): Promise<void> =>
   invoke<void>('open_external_url', args);
 
-export const getGuiSettings = (): Promise<GuiSettings> =>
-  invoke<GuiSettings>('get_gui_settings');
+export const getGuiSettings = singleFlight((): Promise<GuiSettings> =>
+  invoke<GuiSettings>('get_gui_settings'));
 
 export const resolveWindowsCloseRequest = (args: { action: WindowsCloseAction; remember: boolean; }): Promise<void> =>
   invoke<void>('resolve_windows_close_request', args);

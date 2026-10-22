@@ -1,4 +1,5 @@
-import { pollWhileActive, windowActivity } from './services/windowActivity';
+import { startCoreStatusPolling } from './services/coreStatusPolling';
+import { windowActivity } from './services/windowActivity';
 import { onCoreStatusChanged } from './services/events';
 import { getCoreStatus } from './services/coreLifecycle';
 import type { CoreStatus } from './services/coreLifecycle';
@@ -20,8 +21,11 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
   const [statusError, setStatusError] = useState('');
   const refreshRequest = useRef<Promise<void> | null>(null);
   const statusRevision = useRef(0);
+  const reachable = useRef(true);
 
   const publishStatus = useCallback((nextStatus: CoreStatus | null) => {
+    reachable.current = nextStatus !== null && (nextStatus.connectionMode !== 'remote' || nextStatus.ready
+      || nextStatus.hostControl?.reachable === true);
     ++statusRevision.current;
     setStatus((previous) => JSON.stringify(previous) === JSON.stringify(nextStatus) ? previous : nextStatus);
     if (nextStatus) {
@@ -38,6 +42,7 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
       })
       .catch((error) => {
         if (revision !== statusRevision.current) return;
+        reachable.current = false;
         setStatus(null);
         setStatusError(String(error));
       })
@@ -65,7 +70,10 @@ export function CoreRuntimeProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const stopPolling = pollWhileActive(() => { void refreshStatus(); }, 10_000);
+    const stopPolling = startCoreStatusPolling(windowActivity, async () => {
+      await refreshStatus();
+      return reachable.current;
+    });
 
     return () => {
       disposed = true;
