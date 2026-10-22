@@ -141,7 +141,7 @@ export function ConfigPanelPage() {
     : <ConfigPanelContent remote={status.connectionMode === 'remote'} />;
 }
 
-// In Remote mode the core categories show the remote core's settings read-only.
+// In Remote mode the core categories show and edit the remote core's settings.
 function ConfigPanelContent({ remote }: { remote: boolean }) {
   const { t, locale } = useI18n();
   const { askConfirmation, confirmationDialog } = useConfirmation();
@@ -928,8 +928,10 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
   };
 
   const controlsDisabled = loading || settings === null || busyAction !== null;
-  // A remote core's settings are shown read-only.
-  const editsDisabled = controlsDisabled || remote;
+  const editsDisabled = controlsDisabled;
+  // A remote core's address, TLS and management key decide how this app reaches it; they are changed there.
+  const remoteConnectionHint = remote ? t('connection.remoteConnectionSetting') : undefined;
+  const managementEditsDisabled = editsDisabled || remote;
   const networkSettingsDirty = Boolean(settings) && (
     hostDraft.trim() !== settings?.host
     || portDraft !== String(settings?.port)
@@ -1206,6 +1208,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
 
           <div className="config-management-content">
             {settings?.managementSecretConfigured === false ? <p role="status">{templateText(templateMessages.managementDisabled, locale)}</p> : null}
+            {remote ? <p role="status">{remoteConnectionHint}</p> : null}
 
             <form
               className="config-management-form"
@@ -1219,7 +1222,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                     autoComplete="new-password"
                     maxLength={512}
                     value={managementSecretDraft}
-                    disabled={editsDisabled}
+                    disabled={managementEditsDisabled}
                     aria-invalid={Boolean(managementSecretError)}
                     placeholder={t('config.webuiKey.placeholder')}
                     onChange={(event) => {
@@ -1230,7 +1233,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                   <button
                     type="button"
                     className="icon-button quiet"
-                    disabled={editsDisabled}
+                    disabled={managementEditsDisabled}
                     onClick={() => setShowManagementSecret((value) => !value)}
                     title={showManagementSecret ? t('config.keys.hide') : t('config.keys.show')}
                     aria-label={showManagementSecret ? t('config.keys.hide') : t('config.keys.show')}
@@ -1252,7 +1255,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                   autoComplete="new-password"
                   maxLength={512}
                   value={managementSecretConfirm}
-                  disabled={editsDisabled}
+                  disabled={managementEditsDisabled}
                   aria-invalid={Boolean(managementSecretError)}
                   placeholder={t('config.webuiKey.confirmPlaceholder')}
                   onChange={(event) => {
@@ -1270,13 +1273,13 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                   {managementSecretError || ' '}
                 </span>
                 <div className="config-management-actions">
-                  <button type="button" className="secondary-button compact-button" disabled={editsDisabled || settings?.managementSecretConfigured === false} onClick={() => void disableManagement()}>
+                  <button type="button" className="secondary-button compact-button" disabled={managementEditsDisabled || settings?.managementSecretConfigured === false} onClick={() => void disableManagement()}>
                     {templateText(templateMessages.disableManagement, locale)}
                   </button>
                   <button
                     type="button"
                     className="secondary-button compact-button"
-                  disabled={editsDisabled}
+                  disabled={managementEditsDisabled}
                   onClick={generateManagementSecret}
                 >
                     {t('config.webuiKey.generate')}
@@ -1284,7 +1287,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                   <button
                     type="submit"
                     className="primary-button compact-button"
-                    disabled={editsDisabled || !managementSecretDraft.trim()}
+                    disabled={managementEditsDisabled || !managementSecretDraft.trim()}
                   >
                     <Check size={16} aria-hidden="true" />
                     {managementSecretBusy ? t('common.saving') : t('config.webuiKey.save')}
@@ -1319,9 +1322,9 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
               pattern="[0-9]*"
               maxLength={5}
               value={portDraft}
-              disabled={editsDisabled}
+              disabled={editsDisabled || remote}
               aria-invalid={Boolean(portError)}
-              title={portError || t('config.network.portHint')}
+              title={remoteConnectionHint || portError || t('config.network.portHint')}
               onChange={(event) => {
                 markDraftDirty('port');
                 setPortDraft(event.currentTarget.value.replace(/\D/g, '').slice(0, 5));
@@ -1346,10 +1349,10 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                   className={`config-network-input ${hostError ? 'error' : ''}`}
                   type="text"
                   value={hostDraft}
-                  disabled={editsDisabled}
+                  disabled={editsDisabled || remote}
                   placeholder="127.0.0.1"
                   aria-invalid={Boolean(hostError)}
-                  title={hostError || templateText(templateMessages.hostHint, locale)}
+                  title={remoteConnectionHint || hostError || templateText(templateMessages.hostHint, locale)}
                   onChange={(event) => {
                     markDraftDirty('host');
                     setHostDraft(event.currentTarget.value);
@@ -1374,9 +1377,10 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                     {t('config.network.proxyUrl')}
                   </label>
                   <SettingsHelp label={t('config.network.proxyUrl')}>{t('config.network.proxyHint')} {t('config.network.systemProxyHint')}</SettingsHelp>
-                  <label className="config-proxy-system-toggle" title={t('config.network.systemProxyHint')}>
+                  <label className="config-proxy-system-toggle" title={remote ? t('connection.remoteSystemProxy') : t('config.network.systemProxyHint')}>
                     <span>{t('config.network.systemProxy')}</span>
-                    <Switch checked={!proxyOverrideDraft} disabled={editsDisabled} onChange={(event) => {
+                    {/* This computer's system proxy means nothing to a remote core: its URL is used as entered, empty is direct. */}
+                    <Switch checked={!remote && !proxyOverrideDraft} disabled={editsDisabled || remote} onChange={(event) => {
                           markDraftDirty('proxyOverride');
                           setProxyOverrideDraft(!event.currentTarget.checked);
                         }} />
@@ -1387,7 +1391,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                   className="config-network-input"
                   type="text"
                   value={proxyUrlDraft}
-                  disabled={editsDisabled || !proxyOverrideDraft}
+                  disabled={editsDisabled || (!remote && !proxyOverrideDraft)}
                   placeholder={t('config.network.proxyPlaceholder')}
                   onChange={(event) => {
                     markDraftDirty('proxyUrl');
@@ -1445,7 +1449,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
 
                 </div>
               </div>
-              <Switch title={t('config.tls.enable')} aria-label={t('config.tls.enable')} checked={tlsEnabledDraft} disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null} onChange={(event) => {
+              <Switch title={remoteConnectionHint || t('config.tls.enable')} aria-label={t('config.tls.enable')} checked={tlsEnabledDraft} disabled={remote || tlsSettingsLoading || tlsSettings === null || busyAction !== null} onChange={(event) => {
                     setTlsSavedStatusVisible(false);
                     setTlsError('');
                     setTlsEnabledDraft(event.currentTarget.checked);
@@ -1884,8 +1888,8 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
               <button
                 type="button"
                 className="secondary-button compact-button"
-                disabled={editsDisabled}
-                title={remote ? t('connection.remoteDisabledTitle') : undefined}
+                disabled={editsDisabled || remote}
+                title={remote ? t('connection.remoteLocalFolder') : undefined}
                 onClick={() => void handleOpenCoreLogsDirectory()}
               >
                 <FolderOpen size={16} aria-hidden="true" />
@@ -2036,9 +2040,9 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
             <CoreConnectionSettings hidden={searching || activeSubpage !== 'software'} />
             <HostControlSettings hidden={searching || activeSubpage !== 'software'} />
           </div>
-          <div id="config-template-panel" hidden={searching || templateGroups.length === 0}><TemplateConfigSection readOnly={remote} groups={allSettingsTemplateGroups} visibleGroups={templateGroups.map(group => group.id)} onDirtyGroupsChange={setDirtyTemplateGroups} /></div>
-          <div className="surface-card" id="config-native-aliases" tabIndex={-1} role="region" aria-label={t('app.nav.thinkingAliases')} hidden={searching || activeSubpage !== 'aliases'}>{aliasesVisited ? <ThinkingAliasesPage embedded readOnly={remote} /> : null}</div>
-          <div className="surface-card" id="config-native-sensitive-words" tabIndex={-1} role="region" aria-label={t('config.sensitiveWords.title')} hidden={searching || activeSubpage !== 'requests'}>{sensitiveWordsVisited ? <SensitiveWordsPage readOnly={remote} onDirtyChange={setSensitiveWordsDirty} /> : null}</div>
+          <div id="config-template-panel" hidden={searching || templateGroups.length === 0}><TemplateConfigSection remote={remote} groups={allSettingsTemplateGroups} visibleGroups={templateGroups.map(group => group.id)} onDirtyGroupsChange={setDirtyTemplateGroups} /></div>
+          <div className="surface-card" id="config-native-aliases" tabIndex={-1} role="region" aria-label={t('app.nav.thinkingAliases')} hidden={searching || activeSubpage !== 'aliases'}>{aliasesVisited ? <ThinkingAliasesPage embedded /> : null}</div>
+          <div className="surface-card" id="config-native-sensitive-words" tabIndex={-1} role="region" aria-label={t('config.sensitiveWords.title')} hidden={searching || activeSubpage !== 'requests'}>{sensitiveWordsVisited ? <SensitiveWordsPage onDirtyChange={setSensitiveWordsDirty} /> : null}</div>
         </div>
       </div>
 
@@ -2113,7 +2117,8 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                 setNewApiKeyRemark(event.currentTarget.value);
                 setFormError('');
               }}
-              disabled={keyMutationBusy}
+              disabled={keyMutationBusy || remote}
+              title={remote ? t('connection.remoteKeyRemark') : undefined}
               placeholder={t('config.keys.remarkPlaceholder')}
             />
           </label>

@@ -23,21 +23,29 @@ import { open } from '../services/platform';
 import { ExternalLink, Eye, EyeOff, RotateCcw, Save } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { templateMessages, templateText } from '../i18n/templateConfig';
-import { useCoreRuntime } from '../coreRuntime';
+import { useCoreRuntime, useRemoteHostControl } from '../coreRuntime';
 import { SettingsHelp } from './SettingsHelp';
 import { Select } from './Select';
 import '../styles/template-config.css';
 
 const restartHint = { zh: '需重启内核', en: 'Core restart required', ja: 'コアの再起動が必要' } satisfies TemplateText;
 
-export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChange, readOnly = false }: {
-  readOnly?: boolean;
+// In Remote mode these decide how this app reaches the core, so they are changed on the core's computer.
+const remoteConnectionPaths = [['server', 'host'], ['server', 'port'], ['server', 'tls'], ['management']];
+const isRemoteConnectionField = (field: TemplateConfigField) =>
+  remoteConnectionPaths.some((prefix) => prefix.every((segment, index) => field.path[index] === segment));
+
+export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChange, remote = false }: {
+  /** Remote mode: edits go to the remote core; connection fields and this computer's folders are disabled. */
+  remote?: boolean;
   groups: readonly TemplateConfigGroup[];
   visibleGroups?: readonly string[];
   onDirtyGroupsChange?: (groupIds: readonly string[]) => void;
 }) {
   const { locale, t } = useI18n();
   const { status, publishStatus, refreshStatus } = useCoreRuntime();
+  const remoteHostControl = useRemoteHostControl();
+  const remoteRestartUnavailable = remote && !remoteHostControl;
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [drafts, setDrafts] = useState<Record<string, TemplateConfigDraft>>({});
   const [loadError, setLoadError] = useState('');
@@ -161,9 +169,10 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
   };
 
   const control = (group: TemplateConfigGroup, field: TemplateConfigField, value: unknown, id: string, invalid: boolean) => {
-    const disabled = busy !== null || config === null || readOnly;
+    const connectionLocked = remote && isRemoteConnectionField(field);
+    const disabled = busy !== null || config === null || connectionLocked;
     const onChange = (next: unknown) => changeField(group, field, next);
-    const common = { id, disabled, 'aria-invalid': invalid || undefined, 'aria-describedby': invalid ? `${id}-error` : undefined };
+    const common = { id, disabled, title: connectionLocked ? t('connection.remoteConnectionSetting') : undefined, 'aria-invalid': invalid || undefined, 'aria-describedby': invalid ? `${id}-error` : undefined };
     if (field.type === 'custom' && field.render) return field.render({ value, onChange, disabled, id });
     if (field.type === 'boolean') return <Switch {...common} checked={value === true} onChange={(event) => onChange(event.currentTarget.checked)} />;
     if (field.type === 'select') {
@@ -187,14 +196,14 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
       const link = field.link;
       return <div className="template-config-directory">{secret}<button type="button" className="secondary-button compact-button" onClick={() => void openExternalUrl({ url: link.url }).catch((error) => setGroupErrors((previous) => ({ ...previous, [group.id]: String(error) })))}><ExternalLink size={15} aria-hidden="true" />{templateText(link.label, locale)}</button></div>;
     }
-    return field.directory ? <div className="template-config-directory">{secret}<button type="button" className="secondary-button compact-button" disabled={disabled} onClick={() => void chooseDirectory(group, field)} aria-label={`${tr('chooseDirectory')}: ${templateText(field.label, locale)}`}>{tr('chooseDirectory')}</button></div> : secret;
+    return field.directory ? <div className="template-config-directory">{secret}<button type="button" className="secondary-button compact-button" disabled={disabled || remote} title={remote ? t('connection.remoteFolderPicker') : undefined} onClick={() => void chooseDirectory(group, field)} aria-label={`${tr('chooseDirectory')}: ${templateText(field.label, locale)}`}>{tr('chooseDirectory')}</button></div> : secret;
   };
 
   const visible = groups.filter((group) => !visibleGroups || visibleGroups.includes(group.id));
   return <div className="template-config-section" hidden={visible.length === 0}>
     {loadError ? <Notice tone="error" icon={false} className="template-config-notice" action={<button type="button" className="secondary-button compact-button" disabled={busy !== null} onClick={() => void reload()}>{tr('reload')}</button>}>{loadError}</Notice> : null}
     {!config && !loadError ? <p role="status">{tr('loading')}</p> : null}
-    {restartNeeded ? <Notice tone="info" icon={false} className="template-config-notice" action={status?.running ? <button type="button" className="secondary-button compact-button" disabled={busy !== null || readOnly} onClick={() => void restart()}>{tr('restartNow')}</button> : undefined}>{tr('restart')}</Notice> : null}
+    {restartNeeded ? <Notice tone="info" icon={false} className="template-config-notice" action={status?.running ? <button type="button" className="secondary-button compact-button" disabled={busy !== null || remoteRestartUnavailable} title={remoteRestartUnavailable ? t('connection.hostControlRequired') : undefined} onClick={() => void restart()}>{tr('restartNow')}</button> : undefined}>{tr('restart')}</Notice> : null}
     {groups.map((group) => {
       const dirty = group.fields.some((field) => drafts[templateFieldKey(field.path)]);
       const needsRestart = group.fields.some((field) => field.restart);
@@ -211,7 +220,7 @@ export function TemplateConfigSection({ groups, visibleGroups, onDirtyGroupsChan
           const description = [templateText(field.description, locale), field.type === 'string-list' ? tr('list') : ''].filter(Boolean).join(' ');
           const resetLabel = `${tr('default')}: ${templateText(field.label, locale)}`;
           return <div key={key} id={`template-field-${group.id}-${index}`} data-field-type={field.type} tabIndex={-1} className={`template-config-field${field.type === 'custom' || field.type === 'json' || field.type === 'string-list' ? ' template-config-field-wide' : ''}${field.type === 'boolean' ? ' template-config-toggle' : ''}${draft ? ' template-config-field-dirty' : ''}`}>
-            <div className="template-config-label">{field.type === 'custom' ? <span id={`${id}-label`}>{templateText(field.label, locale)}</span> : <label htmlFor={id}>{templateText(field.label, locale)}</label>}<div className="template-config-label-tools">{description ? <SettingsHelp label={templateText(field.label, locale)}>{description}</SettingsHelp> : null}{exists ? <button type="button" className="icon-button quiet ghost tiny-button template-config-reset" disabled={busy !== null || !config || readOnly} title={resetLabel} aria-label={resetLabel} onClick={() => changeField(group, field, null, true)}><RotateCcw size={14} aria-hidden="true" /></button> : null}</div></div>
+            <div className="template-config-label">{field.type === 'custom' ? <span id={`${id}-label`}>{templateText(field.label, locale)}</span> : <label htmlFor={id}>{templateText(field.label, locale)}</label>}<div className="template-config-label-tools">{description ? <SettingsHelp label={templateText(field.label, locale)}>{description}</SettingsHelp> : null}{exists ? <button type="button" className="icon-button quiet ghost tiny-button template-config-reset" disabled={busy !== null || !config || (remote && isRemoteConnectionField(field))} title={resetLabel} aria-label={resetLabel} onClick={() => changeField(group, field, null, true)}><RotateCcw size={14} aria-hidden="true" /></button> : null}</div></div>
             {field.type === 'custom' ? <details className="surface-section template-config-custom"><summary aria-labelledby={`${id}-label ${id}-edit`} aria-describedby={validation ? `${id}-error` : undefined}><span id={`${id}-edit`}>{tr('editDetails')}</span></summary><div className="template-config-control" role="group" aria-labelledby={`${id}-label`}>{control(group, field, value, id, Boolean(validation))}</div></details> : <div className="template-config-control">{control(group, field, value, id, Boolean(validation))}</div>}
             {field.link?.hint ? <small className="template-config-link-hint">{templateText(field.link.hint, locale)}</small> : null}
             {validation ? <small id={`${id}-error`} className="template-config-error" role="alert">{templateText(validation, locale)}</small> : null}

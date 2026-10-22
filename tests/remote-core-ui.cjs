@@ -134,14 +134,22 @@ const path = require('node:path');
     }
     await page.locator('#nav-plugin-children').waitFor();
 
-    // Advanced Features keeps every category and search; core values are read-only.
+    // Advanced Features keeps every category and search and edits the remote core's settings, except
+    // those that decide how this app reaches it (address, port, TLS, management key).
     await nav('Advanced Features').click();
-    await page.getByText(/Showing the remote core's current settings/).waitFor();
+    await page.getByText(/These are the remote core's settings/).waitFor();
     for (const id of ['general', 'aliases', 'routing', 'requests', 'oauth', 'diagnostics', 'software']) assert.equal(await page.locator(`#config-subpage-tab-${id}`).isEnabled(), true, `${id} category available remotely`);
     const keys = page.locator('#config-native-keys');
     await keys.getByRole('button', { name: /Copy/ }).first().waitFor();
-    assert.equal(await keys.getByRole('button', { name: 'Add Authentication Key' }).isDisabled(), true, 'remote keys are read-only');
+    assert.equal(await keys.getByRole('button', { name: 'Add Authentication Key' }).isEnabled(), true, 'remote keys can be added');
     assert.equal(await keys.getByRole('button', { name: /Copy/ }).first().isEnabled(), true, 'remote keys can be copied');
+    const connectionHint = "This decides how this app reaches the remote core. Change it on the core's computer, then update Core connection.";
+    const port = page.locator('#config-input-config-network-port');
+    assert.equal(await port.isDisabled(), true, 'the remote core\'s port is changed on its computer');
+    assert.equal(await port.getAttribute('title'), connectionHint);
+    assert.equal(await page.locator('#config-network-proxy-url').isEnabled(), true, 'the remote core\'s proxy can be edited');
+    assert.equal(await page.locator('#config-native-tls').getByRole('switch', { name: 'Enable TLS' }).isDisabled(), true, 'TLS decides the connection');
+    await page.locator('#config-native-management').getByText(connectionHint).waitFor();
     await page.getByRole('searchbox').fill('retry');
     await page.locator('.config-search-result-list').waitFor();
     await page.getByRole('searchbox').fill('');
@@ -218,6 +226,6 @@ const path = require('node:path');
     assert.equal(await bundled.getAttribute('title'), 'Not available in Remote mode yet');
     assert.equal(await page.getByRole('button', { name: 'Stop and Update' }).isEnabled(), true, 'the remote core can be updated');
     assert.deepEqual(errors, []);
-    console.log('PASS: one connection component on Home and in Advanced Features; Remote keeps the Local layout with remote values, read-only settings and in-place disabled local actions; Silent Launch hidden; remote host control hosts locally and drives Start/Stop/Restart remotely.');
+    console.log('PASS: one connection component on Home and in Advanced Features; Remote keeps the Local layout with remote values, editable remote settings and in-place disabled local actions; Silent Launch hidden; remote host control hosts locally and drives Start/Stop/Restart remotely.');
   } finally { await browser?.close(); await server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
