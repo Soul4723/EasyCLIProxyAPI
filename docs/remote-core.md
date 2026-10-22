@@ -42,10 +42,11 @@ supervises the core on its own computer can do it instead, if you allow it.
 1. Run EasyCLIProxyAPI in **Local** mode; it manages the core as usual.
 2. Open **Advanced Features → App preferences → Remote control of this computer's core**,
    turn on **Allow remote control**, check the **Listen address** and save.
-   The address is an IP literal and port. Left empty, it is every network on
-   the core's port + 100 (`0.0.0.0:8417` for a core on 8317), which keeps it
-   apart from the core ports 8317–8319 and from each other. Enter a VPN
-   address, for example your Tailscale IP, to listen only there. The port must
+   The address is an IP literal and port. Left empty, it is localhost only on
+   the core's port + 100 (`127.0.0.1:8417` for a core on 8317), which keeps it
+   apart from the core ports 8317–8319 and from each other. Only this computer
+   can connect by default. To connect from another computer, enter an explicit
+   address and port, for example this computer's Tailscale IP, to listen there. The port must
    be 1024–65535 and differ from the core's port. When the core's port changes
    (in the app or in the core's configuration), the default listener moves
    with it at once; the app refuses a core port equal to an explicit listen
@@ -92,7 +93,12 @@ Also through reachable host control:
   until it finishes. An install already running when the page opens (from the
   host itself or another computer) is followed until it ends. This computer's
   download source and custom mirrors apply only to this app's updates, not the
-  remote core. **Install Bundled Core** is hidden in Remote mode.
+  remote core. **Install Bundled Core** stays disabled with a reason in Remote mode.
+  **Download source on <host>**, labelled **App on <host>**, reads and changes
+  the host's source and custom mirrors immediately. These settings are shared
+  with the host app's own updates; the next remote core check or install uses
+  them. Without host control this section is disabled with a reason. An older
+  host returning 404 asks you to update EasyCLIProxyAPI on the core's computer.
 - **Start Core on Launch** is under **Advanced Features → App preferences →
   Host app settings**. It changes the host app's own setting at once. This
   computer's App preferences card does not show that switch in Remote mode;
@@ -145,7 +151,16 @@ Base path `/host-control/v1`, HTTP/1.1, `Connection: close`, JSON replies with
 | `POST /host-control/v1/core/install/<version>` | the same for one version (`v`, three numbers, optional `-suffix`) |
 | `GET /host-control/v1/core/install` | the host's install task (phase, bytes, percent, result, `job`); messages are public |
 | `POST /host-control/v1/core/install/cancel` | cancel the running install if it carries this job (`X-EasyCLI-Install-Job`, required); another job's install gets 409 |
+| `GET /host-control/v1/settings/download-source` | host source settings: `source`, `gitcodeAvailable`, `customMirrors`; built-ins are `github`, `gitcode`, `gh-proxy`, `gh-fast` |
+| `POST /host-control/v1/settings/download-source/select?value=<source>` | select a built-in or saved `custom:<HTTPS prefix>` on the host |
+| `POST /host-control/v1/settings/download-source/mirrors/add?value=<HTTPS prefix>` | add and select a custom mirror on the host (up to 12) |
+| `POST /host-control/v1/settings/download-source/mirrors/remove?value=<HTTPS prefix>` | remove a mirror; selected mirror falls back to GitHub |
 | `POST /host-control/v1/settings/start-core-on-launch/on` (or `/off`) | set the host app's Start Core on Launch; replies with the status |
+
+Source route values are URL-encoded query parameters, never request bodies, within
+the existing 8 KiB request-head limit. Mirrors use the same HTTPS-prefix validator
+as local commands: no credentials, explicit port, query or fragment. Replies
+contain no local paths. Authentication and browser refusal apply to all routes.
 
 Usage adds read-only GET routes under the same authenticated listener (no bodies):
 
@@ -259,7 +274,7 @@ Agents shows **Agent clients: This computer → Core** with the machine labels.
   Application card updates this app on this computer; the download source and
   custom mirrors apply here. The core card identifies the remote core and needs
   reachable [remote host control](#remote-host-control) to check or install
-  core versions. It uses the host's download settings instead.
+  core versions. Its separate **Download source on <host>** section changes the host's download settings instead.
 
 ## Editing the remote core's settings
 

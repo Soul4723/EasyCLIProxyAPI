@@ -110,7 +110,7 @@ fn host_key_must_differ_from_management_and_client_keys() {
 
 #[test]
 fn listen_address_is_an_ip_and_unprivileged_port_other_than_the_core() {
-    for value in ["0.0.0.0:8417", " 100.64.0.1:8417 ", "127.0.0.1:65535", "[::]:9000"] {
+    for value in ["0.0.0.0:8417", "127.0.0.1:8417", " 100.64.0.1:8417 ", "127.0.0.1:65535", "[::]:9000"] {
         parse_listen_address(value, 8317).unwrap();
     }
     for value in [
@@ -122,7 +122,7 @@ fn listen_address_is_an_ip_and_unprivileged_port_other_than_the_core() {
         "0.0.0.0:80",
         "0.0.0.0:0",
         "0.0.0.0:8317",
-        "http://0.0.0.0:8417",
+        "http://127.0.0.1:8417",
     ] {
         assert!(parse_listen_address(value, 8317).is_err(), "{value:?}");
     }
@@ -132,10 +132,11 @@ fn listen_address_is_an_ip_and_unprivileged_port_other_than_the_core() {
 fn default_listen_address_follows_the_core_port_apart_from_every_channel_core() {
     // Stable, Beta and Dev cores default to 8317, 8318 and 8319.
     for (core, listener) in [(8317, 8417), (8318, 8418), (8319, 8419)] {
-        assert_eq!(default_address(core).unwrap(), format!("0.0.0.0:{listener}"));
+        assert_eq!(default_address(core).unwrap(), format!("127.0.0.1:{listener}"));
         let config = GuiConfigFile { port: core, ..GuiConfigFile::default() };
         let address = effective_address(&config).unwrap();
         assert_eq!(address.port(), listener);
+        assert!(address.ip().is_loopback());
         assert!(!(8317..=8319).contains(&address.port()));
     }
     assert!(default_address(65500).is_none());
@@ -385,6 +386,7 @@ struct Recorder {
 impl HostBackend for Recorder {
     fn handle(&self, route: Route) -> BoxFuture<'static, Result<serde_json::Value, HostError>> {
         let name = match &route {
+            Route::DownloadSource { .. } => "source",
             Route::Status => "status",
             Route::Usage { .. } => "usage",
             Route::Operate(operation) => operation.name(),
@@ -403,6 +405,7 @@ impl HostBackend for Recorder {
                 return Err(operation_error(CORE_OPERATION_BUSY.to_string()));
             }
             Ok(match route {
+                Route::DownloadSource { value, .. } => Ok(serde_json::json!({"source": value.unwrap_or("github".into()), "gitcodeAvailable": false, "customMirrors": []})),
                 Route::Status => serde_json::to_value(sample_status(true)),
                 Route::Usage { query, .. } => Ok(if query.contains("revision=1") {
                     serde_json::json!({"revision":"1", "unchanged":true})
@@ -696,9 +699,9 @@ fn settings_updates_generate_keys_and_fail_closed() {
     apply_update(&mut config, update(true, "", false)).unwrap();
     assert!(config.host_control_enabled);
     assert!(config.host_control_address.is_empty(), "the default is not written as an address");
-    assert_eq!(effective_address(&config).unwrap().to_string(), "0.0.0.0:8417");
-    apply_update(&mut config, update(true, " 0.0.0.0:8417 ", false)).unwrap();
-    assert_eq!(config.host_control_address, "0.0.0.0:8417");
+    assert_eq!(effective_address(&config).unwrap().to_string(), "127.0.0.1:8417");
+    apply_update(&mut config, update(true, " 127.0.0.1:8417 ", false)).unwrap();
+    assert_eq!(config.host_control_address, "127.0.0.1:8417");
     let first = config.host_control_key.clone();
     validate_host_key(&config).unwrap();
     apply_update(&mut config, update(true, "100.64.0.1:8417", false)).unwrap();
@@ -1175,4 +1178,49 @@ async fn usage_listener_enforces_the_response_budget() {
     assert_eq!(status, 413);
     assert!(String::from_utf8(body).unwrap().contains("narrow the time window"));
     cancel.cancel();
+}
+
+#[test]
+fn download_source_routes_validate_parameters_like_local_commands() {
+    let prefix = "/host-control/v1/settings/download-source";
+    assert_eq!(route(&authorized("GET", prefix, &[])).unwrap(), Route::DownloadSource { action: "".into(), value: None });
+    for action in ["/select", "/mirrors/add", "/mirrors/remove"] {
+        let value = if action == "/select" { "custom:https://mirror.example/prefix/" } else { "https://mirror.example/prefix/" };
+        let mut url = reqwest::Url::parse("http://localhost/").unwrap();
+        url.query_pairs_mut().append_pair("value", value);
+        let path = format!("{prefix}{action}?{}", url.query().unwrap());
+        assert_eq!(route(&authorized("POST", &path, &[])).unwrap(), Route::DownloadSource { action: action.into(), value: Some(value.into()) });
+        assert_eq!(route(&authorized("GET", &path, &[])).unwrap_err().status, 405);
+    }
+    for query in ["", "value=unknown", "value=github&value=gh-fast", "other=github", "value=custom:http://mirror.example/", "value=custom:https://mirror.example/#fragment"] {
+        assert_eq!(route(&authorized("POST", &format!("{prefix}/select?{query}"), &[])).unwrap_err().status, 400);
+    }
+    for url in ["http://mirror.example", "https://user:password@mirror.example", "https://mirror.example:8443", "https://mirror.example/?token=secret", "https://mirror.example/#fragment", "file:///home/host"] {
+        let mut encoded = reqwest::Url::parse("http://localhost/").unwrap();
+        encoded.query_pairs_mut().append_pair("value", url);
+        for action in ["/mirrors/add", "/mirrors/remove"] {
+            assert_eq!(route(&authorized("POST", &format!("{prefix}{action}?{}", encoded.query().unwrap()), &[])).unwrap_err().status, 400);
+        }
+    }
+}
+
+#[tokio::test]
+async fn download_source_client_uses_authenticated_bodyless_listener_and_handles_old_hosts() {
+    let (address, calls, cancel) = start_server(false).await;
+    let connection = CoreConnection { mode: CoreConnectionMode::Remote, host_control_origin: format!("http://{address}"), host_control_key: KEY.into(), ..CoreConnection::default() };
+    assert_eq!(request_version_source(&connection, "", None).await.unwrap().source, "github");
+    for (action, value) in [("/select", "gh-fast"), ("/mirrors/add", "https://mirror.example/prefix/"), ("/mirrors/remove", "https://mirror.example/prefix/")] {
+        assert_eq!(request_version_source(&connection, action, Some(value)).await.unwrap().source, value);
+    }
+    let wrong_key = CoreConnection { host_control_key: "wrong".into(), ..connection.clone() };
+    assert!(request_version_source(&wrong_key, "", None).await.unwrap_err().contains("key"));
+    let context = new_context(KEY.into(), Arc::new(Recorder { calls: calls.clone(), busy: false }));
+    for (header, value, status) in [("Origin", "https://browser.example", 403), ("Content-Length", "1", 413)] {
+        let reply = respond(&authorized("POST", "/host-control/v1/settings/download-source/select?value=github", &[(header, value)]), "127.0.0.1".parse().unwrap(), &context).await;
+        assert_eq!(reply.status, status);
+    }
+    cancel.cancel();
+    let origin = serve_once(404, r#"{"error":"Not found"}"#).await;
+    let old = CoreConnection { host_control_origin: origin.trim_end_matches("/checksums.txt").into(), ..connection };
+    assert!(request_version_source(&old, "", None).await.unwrap_err().contains("Update EasyCLIProxyAPI"));
 }

@@ -973,6 +973,7 @@ export function createBrowserMockRuntime(
   onPluginWebview?: (state: PluginWebviewMockState) => void,
 ): BrowserMockRuntime {
   const state = createState(scenario);
+  const hostVersionSource = { source: 'github', gitcodeAvailable: false, customMirrors: [] as string[] };
   let usageViewPreferences: Record<string, string> = {};
   let privacyMode: boolean | null = null;
   const connectionStorageKey = 'browser-mock.core-connection';
@@ -998,7 +999,7 @@ export function createBrowserMockRuntime(
     ...JSON.parse(globalThis.sessionStorage?.getItem(hostControlStorageKey) ?? 'null'),
   };
   const hostControlView = () => {
-    const defaultAddress = `0.0.0.0:${state.guiSettings.port + 100}`;
+    const defaultAddress = `127.0.0.1:${state.guiSettings.port + 100}`;
     return {
       ...hostControlSettings, defaultAddress, available: coreConnection.mode === 'local',
       listening: coreConnection.mode === 'local' && hostControlSettings.enabled ? hostControlSettings.address || defaultAddress : null, error: null,
@@ -1273,6 +1274,23 @@ export function createBrowserMockRuntime(
       }
       case 'cancel_core_install': return null;
       case 'detect_bundled_core': return clone(BUNDLED_CORE);
+      case 'remote_version_source': {
+        if (!remoteHostControl) throw new Error('Set up remote host control');
+        if (coreConnection.hostControlOrigin.includes('older-host')) throw new Error("Update EasyCLIProxyAPI on the core's computer to change its download source");
+        const source = hostVersionSource;
+        const value = readString(payload.value);
+        if (payload.action === '/select') source.source = value;
+        if (payload.action === '/mirrors/add') {
+          if (!value.startsWith('https://')) throw new Error('Invalid HTTPS mirror prefix');
+          if (!source.customMirrors.includes(value)) source.customMirrors.push(value);
+          source.source = `custom:${value}`;
+        }
+        if (payload.action === '/mirrors/remove') {
+          source.customMirrors = source.customMirrors.filter(url => url !== value);
+          if (source.source === `custom:${value}`) source.source = 'github';
+        }
+        return clone(source);
+      }
       case 'get_version_source_settings': return clone(state.versionSource);
       case 'set_download_source': {
         state.versionSource.source = readString(payload.source) || 'github';
