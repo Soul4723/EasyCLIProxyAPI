@@ -1576,19 +1576,20 @@ pub(crate) async fn fetch_oauth_model_definitions(
     config: &GuiConfigFile,
 ) -> Vec<OAuthModelDefinitions> {
     let active_channels = fetch_active_oauth_alias_channels(config).await.ok();
-    let mut definitions = Vec::new();
-    for channel in OAUTH_ALIAS_CHANNELS {
-        if active_channels
-            .as_ref()
-            .is_some_and(|active| !active.contains(channel.key))
-        {
-            continue;
-        }
-        if let Ok(models) = fetch_oauth_channel_model_definitions(config, channel.key).await {
-            definitions.push(OAuthModelDefinitions { channel, models });
-        }
-    }
-    definitions
+    use futures_util::{stream, StreamExt};
+    let channels = OAUTH_ALIAS_CHANNELS.into_iter().filter(|channel| {
+        active_channels.as_ref().is_none_or(|active| active.contains(channel.key))
+    });
+    // Keep the channel order and partial-success behavior, without serializing
+    // up to nine network round trips. Bound fan-out for slower remote hosts.
+    stream::iter(channels.map(|channel| async move {
+        fetch_oauth_channel_model_definitions(config, channel.key).await
+            .ok().map(|models| OAuthModelDefinitions { channel, models })
+    }))
+    .buffered(3)
+    .filter_map(|definition| async move { definition })
+    .collect()
+    .await
 }
 
 #[cfg(test)]

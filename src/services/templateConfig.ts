@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { singleFlight } from './inFlight';
 import type { ReactNode } from 'react';
 
 export type TemplateText = string | { zh: string; en: string; ja?: string };
@@ -103,8 +104,8 @@ export function templateFieldSaveValue(field: TemplateConfigField, value: unknow
   return value;
 }
 
-export const getExtendedCoreConfig = (): Promise<Record<string, unknown>> =>
-  invoke<Record<string, unknown>>('get_extended_core_config');
+export const getExtendedCoreConfig = singleFlight((): Promise<Record<string, unknown>> =>
+  invoke<Record<string, unknown>>('get_extended_core_config'));
 
 export const saveExtendedCoreConfig = (args: { changes: TemplateConfigChange[]; }): Promise<TemplateConfigSaveResult> =>
   invoke<TemplateConfigSaveResult>('save_extended_core_config', args);
