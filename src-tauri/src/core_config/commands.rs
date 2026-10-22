@@ -11,7 +11,8 @@ async fn save_remote_core_settings(
 ) -> Result<CoreConfigView, String> {
     crate::core_connection::edit_remote_core_config(state, |content| {
         let updated = patch(content)?;
-        let view = crate::core_connection::remote_config_view_of(updated.as_deref().unwrap_or(content))?;
+        let view =
+            crate::core_connection::remote_config_view_of(updated.as_deref().unwrap_or(content))?;
         Ok((updated, view))
     })
     .await
@@ -74,7 +75,10 @@ pub(crate) async fn save_core_sensitive_words_settings(
     let normalized = normalize_core_sensitive_words_settings(settings);
     if remote_mode(&gui_config_state)? {
         return crate::core_connection::edit_remote_core_config(&gui_config_state, |content| {
-            Ok((patch_core_sensitive_words_yaml(content, &normalized)?, normalized.clone()))
+            Ok((
+                patch_core_sensitive_words_yaml(content, &normalized)?,
+                normalized.clone(),
+            ))
         })
         .await;
     }
@@ -233,7 +237,9 @@ pub(crate) async fn save_network_endpoint_settings(
             if current.port != port || current.host.trim() != host {
                 return Err(REMOTE_CONNECTION_SETTING.into());
             }
-            let Some(proxy_url) = proxy_url else { return Ok(None) };
+            let Some(proxy_url) = proxy_url else {
+                return Ok(None);
+            };
             patch_core_yaml_document(content, |document| {
                 set_core_yaml_schema_value(
                     document,
@@ -300,7 +306,10 @@ pub(crate) async fn save_retry_settings(
     next.max_retry_interval = settings.max_retry_interval;
     next.streaming_bootstrap_retries = settings.streaming_bootstrap_retries;
     if previous.connection_mode == CoreConnectionMode::Remote {
-        return save_remote_core_settings(&gui_config_state, |content| patch_core_retry_yaml(content, &next)).await;
+        return save_remote_core_settings(&gui_config_state, |content| {
+            patch_core_retry_yaml(content, &next)
+        })
+        .await;
     }
     patch_core_retry_settings(&next)?;
     let config = match gui_config_state.update_retry_settings(&next) {
@@ -374,7 +383,8 @@ pub(crate) async fn save_core_logging_settings(
                 next.logs_max_total_size_mb = settings.logs_max_total_size_mb;
                 next.error_logs_max_files = settings.error_logs_max_files;
                 next.usage_statistics_enabled = settings.usage_statistics_enabled;
-                next.redis_usage_queue_retention_seconds = settings.redis_usage_queue_retention_seconds;
+                next.redis_usage_queue_retention_seconds =
+                    settings.redis_usage_queue_retention_seconds;
                 apply_core_logging_settings(document, &next)
             })
         })
@@ -591,7 +601,14 @@ pub(crate) async fn set_core_plugins_enabled(
 ) -> Result<CoreConfigView, String> {
     if remote_mode(&gui_config_state)? {
         return save_remote_core_settings(&gui_config_state, |content| {
-            patch_core_yaml_document(content, |document| set_core_yaml_nested_value(document, "plugins", "enabled", serde_norway::Value::Bool(enabled)))
+            patch_core_yaml_document(content, |document| {
+                set_core_yaml_nested_value(
+                    document,
+                    "plugins",
+                    "enabled",
+                    serde_norway::Value::Bool(enabled),
+                )
+            })
         })
         .await;
     }
@@ -609,7 +626,14 @@ pub(crate) async fn set_core_request_log(
 ) -> Result<CoreConfigView, String> {
     if remote_mode(&gui_config_state)? {
         return save_remote_core_settings(&gui_config_state, |content| {
-            patch_core_yaml_document(content, |document| set_core_yaml_schema_value(document, &["request-log"], &["observability", "logs", "request-log"], serde_norway::Value::Bool(enabled)))
+            patch_core_yaml_document(content, |document| {
+                set_core_yaml_schema_value(
+                    document,
+                    &["request-log"],
+                    &["observability", "logs", "request-log"],
+                    serde_norway::Value::Bool(enabled),
+                )
+            })
         })
         .await;
     }
@@ -635,7 +659,14 @@ pub(crate) async fn set_core_routing_strategy(
     validate_routing_strategy(&strategy)?;
     if remote_mode(&gui_config_state)? {
         return save_remote_core_settings(&gui_config_state, |content| {
-            patch_core_yaml_document(content, |document| set_core_yaml_nested_value(document, "routing", "strategy", serde_norway::Value::String(strategy)))
+            patch_core_yaml_document(content, |document| {
+                set_core_yaml_nested_value(
+                    document,
+                    "routing",
+                    "strategy",
+                    serde_norway::Value::String(strategy),
+                )
+            })
         })
         .await;
     }
@@ -655,7 +686,12 @@ pub(crate) async fn set_core_proxy_url(
         let proxy_url = network_proxy::normalize_optional_proxy_url(&proxy_url)?;
         return save_remote_core_settings(&gui_config_state, |content| {
             patch_core_yaml_document(content, |document| {
-                set_core_yaml_schema_value(document, &["proxy-url"], &["requests", "proxy-url"], serde_norway::Value::String(proxy_url))
+                set_core_yaml_schema_value(
+                    document,
+                    &["proxy-url"],
+                    &["requests", "proxy-url"],
+                    serde_norway::Value::String(proxy_url),
+                )
             })
         })
         .await;
@@ -671,7 +707,14 @@ pub(crate) async fn set_core_session_affinity(
 ) -> Result<CoreConfigView, String> {
     if remote_mode(&gui_config_state)? {
         return save_remote_core_settings(&gui_config_state, |content| {
-            patch_core_yaml_document(content, |document| set_core_yaml_nested_value(document, "routing", "session-affinity", serde_norway::Value::Bool(enabled)))
+            patch_core_yaml_document(content, |document| {
+                set_core_yaml_nested_value(
+                    document,
+                    "routing",
+                    "session-affinity",
+                    serde_norway::Value::Bool(enabled),
+                )
+            })
         })
         .await;
     }
@@ -698,7 +741,12 @@ pub(crate) async fn set_core_session_affinity_ttl(
         let ttl = normalize_session_affinity_ttl(ttl)?;
         return save_remote_core_settings(&gui_config_state, |content| {
             patch_core_yaml_document(content, |document| {
-                set_core_yaml_nested_value(document, "routing", "session-affinity-ttl", serde_norway::Value::String(ttl))
+                set_core_yaml_nested_value(
+                    document,
+                    "routing",
+                    "session-affinity-ttl",
+                    serde_norway::Value::String(ttl),
+                )
             })
         })
         .await;

@@ -132,8 +132,14 @@ pub(crate) async fn edit_remote_core_config<T>(
         return Err("The core connection changed; reload before saving".into());
     }
     let mut request = crate::management_api::management_http_client_for(&config)?
-        .put(crate::management_api::management_endpoint(&config, "config.yaml")?)
-        .header("Authorization", crate::management_api::management_authorization(&config)?)
+        .put(crate::management_api::management_endpoint(
+            &config,
+            "config.yaml",
+        )?)
+        .header(
+            "Authorization",
+            crate::management_api::management_authorization(&config)?,
+        )
         .header(reqwest::header::CONTENT_TYPE, "application/yaml")
         .body(updated);
     if let Some(etag) = etag {
@@ -158,29 +164,48 @@ pub(crate) async fn edit_remote_core_config<T>(
 const REMOTE_CONFIG_CHANGED: &str =
     "The remote core's configuration was changed elsewhere since it was read. Nothing was saved; reload and try again";
 
-async fn fetch_remote_config_yaml(config: &GuiConfigFile) -> Result<(String, Option<String>), String> {
+async fn fetch_remote_config_yaml(
+    config: &GuiConfigFile,
+) -> Result<(String, Option<String>), String> {
     let response = crate::management_api::management_http_client_for(config)?
-        .get(crate::management_api::management_endpoint(config, "config.yaml")?)
-        .header("Authorization", crate::management_api::management_authorization(config)?)
-        .header(reqwest::header::ACCEPT, "application/yaml,text/yaml,text/plain")
+        .get(crate::management_api::management_endpoint(
+            config,
+            "config.yaml",
+        )?)
+        .header(
+            "Authorization",
+            crate::management_api::management_authorization(config)?,
+        )
+        .header(
+            reqwest::header::ACCEPT,
+            "application/yaml,text/yaml,text/plain",
+        )
         .send()
         .await
         .map_err(|error| {
-            crate::management_api::format_management_request_error("Failed to read the remote core configuration", &error)
+            crate::management_api::format_management_request_error(
+                "Failed to read the remote core configuration",
+                &error,
+            )
         })?;
     let etag = response
         .headers()
         .get(reqwest::header::ETAG)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    Ok((crate::management_api::read_management_text(response).await?, etag))
+    Ok((
+        crate::management_api::read_management_text(response).await?,
+        etag,
+    ))
 }
 
 /// Settings view of the remote core after an edit (or unchanged).
 pub(crate) fn remote_config_view_of(content: &str) -> Result<CoreConfigView, String> {
     let document = serde_norway::from_str(content)
         .map_err(|error| format!("Failed to parse the remote core configuration: {error}"))?;
-    Ok(remote_config_view(crate::core_config::core_config_settings_from_value(&document)?))
+    Ok(remote_config_view(
+        crate::core_config::core_config_settings_from_value(&document)?,
+    ))
 }
 
 /// Settings view of a remote core. Key remarks are GUI metadata of this computer, so none are shown.
@@ -306,7 +331,11 @@ async fn check_remote_connection(
     let response = crate::management_api::management_http_client_for(&config)?
         .get(crate::management_api::management_endpoint(
             &config,
-            if full_config { "config" } else { "config/config-version" },
+            if full_config {
+                "config"
+            } else {
+                "config/config-version"
+            },
         )?)
         .header(
             "Authorization",

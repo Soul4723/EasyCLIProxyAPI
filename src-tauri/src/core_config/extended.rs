@@ -1101,7 +1101,8 @@ pub(crate) async fn get_extended_core_config(
     extended_config_view(&document)
 }
 
-const REMOTE_CONNECTION_PATHS: [&str; 4] = ["server/host", "server/port", "server/tls", "management"];
+const REMOTE_CONNECTION_PATHS: [&str; 4] =
+    ["server/host", "server/port", "server/tls", "management"];
 
 #[tauri::command]
 pub(crate) async fn save_extended_core_config(
@@ -1111,7 +1112,9 @@ pub(crate) async fn save_extended_core_config(
     if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
         // The address, TLS and management settings decide how this app reaches the remote core.
         if changes.iter().any(|change| {
-            REMOTE_CONNECTION_PATHS.iter().any(|prefix| change.path.starts_with(&parts(prefix)))
+            REMOTE_CONNECTION_PATHS
+                .iter()
+                .any(|prefix| change.path.starts_with(&parts(prefix)))
         }) {
             return Err("This setting decides how this app reaches the remote core. Change it on the core's computer, then update Core connection".into());
         }
