@@ -8,6 +8,7 @@ import {
 import type { WindowsCloseAction } from './services/appSettings';
 import { closePluginWebview } from './services/pluginWebview';
 import { WindowFrame } from './components/WindowFrame';
+import { ChannelBadge } from './components/ChannelBadge';
 import { MessageNotice } from './appNotice';
 import { ThemeSelector } from './components/ThemeSelector';
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -370,7 +371,7 @@ function AppContent() {
             <div className="sidebar-brand" title={t('app.desktopConsole')}>
               <img src={appLogo} alt="" className="brand-mark brand-logo" />
               <div className="sidebar-brand-text">
-                <strong>EasyCLIProxyAPI</strong>
+                <strong>EasyCLIProxyAPI<ChannelBadge /></strong>
                 <span>{t('app.desktopConsole')}</span>
               </div>
             </div>

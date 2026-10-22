@@ -1,3 +1,4 @@
+import { defaultCorePort } from '../channel';
 import { Notice } from '../components/Notice';
 import { EmptyState } from '../components/EmptyState';
 import { Switch } from '../components/Switch';
@@ -239,7 +240,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [pendingDestination]);
-  const [portDraft, setPortDraft] = useState('8317');
+  const [portDraft, setPortDraft] = useState(String(defaultCorePort));
   const [hostDraft, setHostDraft] = useState('127.0.0.1');
   const [proxyUrlDraft, setProxyUrlDraft] = useState('');
   const [proxyOverrideDraft, setProxyOverrideDraft] = useState(false);

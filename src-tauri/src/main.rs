@@ -113,14 +113,15 @@ const RELEASE_PAGE_URL: &str = "https://github.com/router-for-me/CLIProxyAPI/rel
 const RELEASE_ATOM_URL: &str = "https://github.com/router-for-me/CLIProxyAPI/releases.atom";
 const RELEASE_DOWNLOAD_PREFIX: &str =
     "https://github.com/router-for-me/CLIProxyAPI/releases/download/";
+const APP_RELEASE_REPOSITORY: &str = env!("APP_RELEASE_REPOSITORY");
+const APP_RELEASE_CHANNEL: &str = env!("APP_RELEASE_CHANNEL");
 #[cfg(windows)]
-const APP_UPDATE_MANIFEST_URL: &str = "https://github.com/router-for-me/EasyCLIProxyAPI/releases/latest/download/portable-update-windows.json";
+const APP_UPDATE_MANIFEST_URL: &str = concat!(env!("APP_RELEASE_FEED"), "/portable-update-windows.json");
 #[cfg(target_os = "linux")]
-const APP_UPDATE_MANIFEST_URL: &str = "https://github.com/router-for-me/EasyCLIProxyAPI/releases/latest/download/portable-update-linux.json";
+const APP_UPDATE_MANIFEST_URL: &str = concat!(env!("APP_RELEASE_FEED"), "/portable-update-linux.json");
 #[cfg(target_os = "macos")]
-const APP_UPDATE_MANIFEST_URL: &str = "https://github.com/router-for-me/EasyCLIProxyAPI/releases/latest/download/portable-update-darwin-v2.json";
-const APP_RELEASE_DOWNLOAD_PREFIX: &str =
-    "https://github.com/router-for-me/EasyCLIProxyAPI/releases/download/";
+const APP_UPDATE_MANIFEST_URL: &str = concat!(env!("APP_RELEASE_FEED"), "/portable-update-darwin-v2.json");
+const APP_RELEASE_DOWNLOAD_PREFIX: &str = concat!("https://github.com/", env!("APP_RELEASE_REPOSITORY"), "/releases/download/");
 #[cfg(windows)]
 const APP_UPDATE_MANIFEST_NAME: &str = "portable-update-windows.json";
 #[cfg(target_os = "linux")]
@@ -943,7 +944,11 @@ impl Default for GuiConfigFile {
             remote_management_origin: String::new(),
             remote_management_key: String::new(),
             locale: "en".to_string(),
-            port: 8317,
+            port: match APP_RELEASE_CHANNEL {
+                "beta" => 8318,
+                "dev" => 8319,
+                _ => 8317,
+            },
             allow_lan: false,
             host: "127.0.0.1".to_string(),
             run_on_startup: false,

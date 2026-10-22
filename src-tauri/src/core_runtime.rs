@@ -1796,7 +1796,7 @@ pub(crate) fn core_base_dir() -> Result<PathBuf, String> {
         return Ok(home_dir
             .join("Library")
             .join("Application Support")
-            .join("com.cpa.gui"));
+            .join(env!("APP_IDENTIFIER")));
     }
     Ok(executable_dir)
 }

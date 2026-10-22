@@ -1,3 +1,4 @@
+import { defaultCorePort } from '../channel';
 import { Notice } from '../components/Notice';
 import { onConfigFilesChanged } from '../services/events';
 import { restartCoreProcess, startCoreProcess, stopCoreProcess } from '../services/coreLifecycle';
@@ -41,7 +42,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
 
   const [installedAppVersion, setInstalledAppVersion] = useState('');
   const [listenHost, setListenHost] = useState('127.0.0.1');
-  const [customPort, setCustomPort] = useState('8317');
+  const [customPort, setCustomPort] = useState(String(defaultCorePort));
   const [processBusy, setProcessBusy] = useState(false);
   const processFeedback = useAppNotice();
   const { showNotice: showProcessNotice, clearNotice: clearProcessNotice } = processFeedback;
@@ -53,7 +54,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
   const [tlsEnabled, setTlsEnabled] = useState(false);
   const [connectionOpen, setConnectionOpen] = useState(false);
 
-  const savedPortRef = useRef(8317);
+  const savedPortRef = useRef(defaultCorePort);
   const copiedApiTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
