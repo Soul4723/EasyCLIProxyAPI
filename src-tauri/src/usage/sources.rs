@@ -9,6 +9,7 @@ pub(super) struct Source {
     provider: String,
 }
 
+#[derive(Clone)]
 pub(super) struct Snapshot {
     scope: String,
     oauth: Option<HashMap<String, Source>>,
@@ -288,6 +289,61 @@ pub(super) async fn fetch(config: &GuiConfigFile) -> Snapshot {
     }
 }
 
+// Remote reads refresh metadata even when the host Usage page is closed. Keep this
+// cache in memory: serving a GET must never write the usage database.
+#[derive(Default)]
+struct HostCache {
+    entry: Option<(String, std::time::Instant, Snapshot)>,
+}
+
+impl HostCache {
+    async fn read(&mut self, config: &GuiConfigFile) -> Snapshot {
+        let scope = hash_text(&serde_json::to_string(config).expect("config serializes"));
+        if let Some((cached_scope, refreshed, snapshot)) = &self.entry {
+            if cached_scope == &scope && refreshed.elapsed() < Duration::from_secs(60) {
+                return snapshot.clone();
+            }
+        }
+        let mut snapshot = fetch(config).await;
+        if let Some((cached_scope, _, previous)) = &self.entry {
+            if cached_scope == &scope {
+                if snapshot.oauth.is_none() { snapshot.oauth = previous.oauth.clone(); }
+                if snapshot.providers.is_none() { snapshot.providers = previous.providers.clone(); }
+            }
+        }
+        self.entry = Some((scope, std::time::Instant::now(), snapshot.clone()));
+        snapshot
+    }
+}
+
+pub(super) async fn host_snapshot(config: &GuiConfigFile) -> Snapshot {
+    static CACHE: LazyLock<tokio::sync::Mutex<HostCache>> =
+        LazyLock::new(|| tokio::sync::Mutex::new(HostCache::default()));
+    CACHE.lock().await.read(config).await
+}
+
+pub(super) fn host_entries(snapshot: &Snapshot, kind: &str) -> Option<HashMap<String, Source>> {
+    match kind {
+        "oauth" => snapshot.oauth.clone(),
+        "providers" => snapshot.providers.clone(),
+        _ => None,
+    }
+}
+
+pub(super) fn remote_group_key(label: &str) -> String {
+    format!("source-group:{}", hash_text(label))
+}
+
+pub(super) fn resolve_remote_group(query: &mut UsageQuery, sources: &HashMap<String, Source>) {
+    let Some(key) = query.upstream.as_deref().filter(|key| key.starts_with("source-group:")) else { return; };
+    let mut members: Vec<_> = sources.iter()
+        .filter(|(_, source)| remote_group_key(&source.label) == key)
+        .map(|(id, _)| format!("auth:{id}"))
+        .collect();
+    members.sort();
+    query.upstream = Some(format!("group:{}", serde_json::to_string(&members).expect("string keys serialize")));
+}
+
 // Cache only sanitized display metadata. Failed fetches preserve the last successful
 // snapshot; a successful empty list removes stale identities, as keeper does.
 pub(super) fn resolve(
@@ -391,6 +447,131 @@ pub(super) fn apply_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn remote_value(db: &Connection, config: &GuiConfigFile, kind: &str, query: &UsageQuery, snapshot: Option<&Snapshot>) -> Value {
+        host_usage_value(db, Path::new("/not-exported"), config, UsageCollectorStatus::waiting(), kind, query, None, snapshot).unwrap()
+    }
+
+    #[test]
+    fn remote_short_provider_keys_never_escape_with_or_without_metadata() {
+        let mut db = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&db).unwrap();
+        let config = GuiConfigFile::default();
+        let secret = "relay-private-123456";
+        let mut record = super::super::tests::sample_record("private", "2026-10-13T00:00:00Z", "model");
+        record.auth_index = "api".into();
+        record.auth_type = "apikey".into();
+        record.provider = "codex".into();
+        record.source = secret.into();
+        insert_usage_records(&mut db, &[record]).unwrap();
+        for registry in [HashMap::new(), HashMap::from([("api".into(), Source { label: "My relay".into(), provider: "codex".into() })])] {
+            let snapshot = Snapshot { scope: "test".into(), oauth: Some(HashMap::new()), providers: Some(registry.clone()) };
+            let mut local = load_usage_events_with_notes(&db, &UsageQuery::default(), &config, &HashMap::new()).unwrap();
+            apply_events(&mut local, &registry, &config);
+            let remote = remote_value(&db, &config, "events", &UsageQuery::default(), Some(&snapshot));
+            assert_eq!(remote["data"]["items"][0]["source_display"], local.items[0].source_display);
+            for kind in ["events", "analysis"] {
+                assert!(!remote_value(&db, &config, kind, &UsageQuery::default(), Some(&snapshot)).to_string().contains(secret));
+                assert!(!remote_value(&db, &config, kind, &UsageQuery::default(), None).to_string().contains(secret));
+            }
+        }
+    }
+
+    #[test]
+    fn remote_large_group_tokens_resolve_all_members_for_reads_and_exports() {
+        let mut db = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&db).unwrap();
+        let config = GuiConfigFile::default();
+        let mut registry = HashMap::new();
+        let records: Vec<_> = (0..221).map(|i| {
+            let mut record = super::super::tests::sample_record(&format!("record-{i}"), "2026-10-13T00:00:00Z", "model");
+            record.auth_index = format!("{i:016x}");
+            registry.insert(record.auth_index.clone(), Source { label: if i < 220 { "Shared relay" } else { "Other" }.into(), provider: "codex".into() });
+            record
+        }).collect();
+        insert_usage_records(&mut db, &records).unwrap();
+        db.pragma_update(None, "query_only", true).unwrap();
+        let snapshot = Snapshot { scope: "test".into(), oauth: Some(HashMap::new()), providers: Some(registry) };
+        let analysis = remote_value(&db, &config, "analysis", &UsageQuery::default(), Some(&snapshot));
+        let group = analysis["data"]["upstreams"].as_array().unwrap().iter().find(|entry| entry["label"] == "Shared relay").unwrap();
+        let key = group["key"].as_str().unwrap();
+        assert_eq!(key, remote_group_key("Shared relay"));
+        assert!(key.len() < 80);
+        let mut query = UsageQuery { upstream: Some(key.into()), page_size: Some(200), ..Default::default() };
+        let first = remote_value(&db, &config, "events", &query, Some(&snapshot));
+        assert_eq!(first["data"]["total"], 220);
+        assert_eq!(first["data"]["items"].as_array().unwrap().len(), 200);
+        query.before_id = first["data"]["nextCursor"].as_i64();
+        query.snapshot_id = first["data"]["snapshotId"].as_i64();
+        assert_eq!(remote_value(&db, &config, "events", &query, Some(&snapshot))["data"]["items"].as_array().unwrap().len(), 20);
+        query.before_id = None;
+        assert_eq!(remote_value(&db, &config, "overview", &query, Some(&snapshot))["data"]["totalRequests"], 220);
+        assert_eq!(remote_value(&db, &config, "analysis", &query, Some(&snapshot))["data"]["upstreams"].as_array().unwrap().len(), 1);
+        query.upstream = Some(remote_group_key("Deleted"));
+        assert_eq!(remote_value(&db, &config, "events", &query, Some(&snapshot))["data"]["total"], 0);
+    }
+
+    #[tokio::test]
+    async fn remote_metadata_refreshes_additions_and_renames_without_local_usage_writes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut config = GuiConfigFile::default();
+        config.host = "127.0.0.1".into();
+        config.port = listener.local_addr().unwrap().port();
+        config.management_secret_key = "test-management-key".into();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let server_calls = calls.clone();
+        let server = tokio::spawn(async move {
+            for i in 0..6 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let mut buffer = [0; 2048];
+                    let count = stream.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                server_calls.fetch_add(1, Ordering::SeqCst);
+                let body = if request.starts_with(b"GET /v8/management/credentials ") {
+                    if i < 2 { r#"{"files":[{"auth_index":"a","note":"Old A"}]}"# }
+                    else { r#"{"files":[{"auth_index":"a","note":"Renamed A"},{"auth_index":"b","note":"New B"}]}"# }
+                } else {
+                    assert!(request.starts_with(b"GET /v8/management/config/api-keys "));
+                    "{}"
+                };
+                let status = if i < 4 { 200 } else { 503 };
+                stream.write_all(format!("HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let mut db = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&db).unwrap();
+        let records: Vec<_> = ["a", "b"].into_iter().map(|id| {
+            let mut record = super::super::tests::sample_record(id, "2026-10-13T00:00:00Z", "model");
+            record.auth_index = id.into();
+            record
+        }).collect();
+        insert_usage_records(&mut db, &records).unwrap();
+        let mut cache = HostCache::default();
+        let initial = cache.read(&config).await;
+        resolve(&db, initial.clone()).unwrap(); // stale persisted host UI snapshot
+        db.pragma_update(None, "query_only", true).unwrap();
+        cache.read(&config).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 2); // rate limited
+        let before = remote_value(&db, &config, "analysis", &UsageQuery::default(), Some(&initial));
+        cache.entry.as_mut().unwrap().1 = std::time::Instant::now() - Duration::from_secs(61);
+        let refreshed = cache.read(&config).await;
+        let after = remote_value(&db, &config, "analysis", &UsageQuery::default(), Some(&refreshed));
+        assert_ne!(before["revision"], after["revision"]);
+        assert_eq!(after["data"]["upstreams"].as_array().unwrap().len(), 2);
+        assert!(after.to_string().contains("Renamed A"));
+        assert!(after.to_string().contains("New B"));
+        assert!(!after.to_string().contains("Old A"));
+        cache.entry.as_mut().unwrap().1 = std::time::Instant::now() - Duration::from_secs(61);
+        let failed = cache.read(&config).await;
+        assert_eq!(remote_value(&db, &config, "analysis", &UsageQuery::default(), Some(&failed)), after);
+        server.await.unwrap();
+    }
 
     #[test]
     fn late_remarks_resolve_shared_keys_by_record() {
