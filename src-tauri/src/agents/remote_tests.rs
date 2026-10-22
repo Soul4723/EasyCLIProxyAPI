@@ -62,7 +62,6 @@ async fn remote_agents_write_detect_and_fetch_using_only_remote_client_credentia
         assert!(agent_has_managed_marker(client, &paths).unwrap());
         let images = config_images(&config_paths(client.id(), &home).unwrap()).unwrap();
         backups::validate_restore_target(&remote, client.id(), &images, &key).unwrap();
-        assert!(backups::validate_restore_target(&GuiConfigFile::default(), client.id(), &images, &key).is_err());
         if client == AgentClient::Codex {
             switch_codex_remote_compaction_for_target(&home, true, &remote).unwrap();
             assert!(codex_remote_compaction_enabled(&home).unwrap());
@@ -74,10 +73,9 @@ async fn remote_agents_write_detect_and_fetch_using_only_remote_client_credentia
         for update in updates { write_bytes_directly(&update.path, update.after.as_bytes()).unwrap(); }
         assert!(inspect_agent_managed_config(client, &paths, &local, "local-client-key").unwrap().0);
         assert!(!inspect_agent_managed_config(client, &paths, &remote, &key).unwrap().0);
-        // Local restores accept this computer's core with any key, and refuse a backup made remotely.
+        // Local restores keep accepting this computer's core, whatever its port or key.
         let local_images = config_images(&config_paths(client.id(), &home).unwrap()).unwrap();
-        backups::validate_restore_target(&local, client.id(), &local_images, "rotated-key").unwrap();
-        assert!(backups::validate_restore_target(&local, client.id(), &images, "local-client-key").is_err());
+        backups::validate_restore_target(&GuiConfigFile::default(), client.id(), &local_images, "rotated-key").unwrap();
     }
     assert_eq!(fetch_agent_models(&remote, &key).await.unwrap()[0].name, "fixture-model");
     assert_eq!(fetch_codex_runtime_models(&remote, &key).await.unwrap()[0].slug, "fixture-model");
@@ -134,4 +132,22 @@ fn deepseek_harness_backups_expect_the_writers_base_url() {
         backups::validate_restore_target(&remote, "deepseek-harness", &backup(api, url), "client-key").unwrap();
     }
     assert!(backups::validate_restore_target(&remote, "deepseek-harness", &backup("anthropic-messages", "https://core.example:9443/v1"), "client-key").is_err());
+}
+
+#[test]
+fn local_restore_refuses_a_backup_made_against_another_computer() {
+    let remote = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: "https://core.example:9443".into(),
+        ..GuiConfigFile::default()
+    };
+    let home = std::env::temp_dir().join(format!("remote-restore-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+    fs::create_dir_all(&home).unwrap();
+    for update in build_agent_updates(AgentClient::OpenCode, &home, &remote, "remote-client-key", "fixture-model", &[], None).unwrap() {
+        write_bytes_directly(&update.path, update.after.as_bytes()).unwrap();
+    }
+    let images = config_images(&config_paths(AgentClient::OpenCode.id(), &home).unwrap()).unwrap();
+    backups::validate_restore_target(&remote, AgentClient::OpenCode.id(), &images, "remote-client-key").unwrap();
+    assert!(backups::validate_restore_target(&GuiConfigFile::default(), AgentClient::OpenCode.id(), &images, "local-client-key").is_err());
+    fs::remove_dir_all(home).unwrap();
 }

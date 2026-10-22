@@ -209,21 +209,14 @@ pub(crate) fn validate_restore_target(
         _ => {}
     }
     if config.local_client() {
-        // A Local backup must point at this computer's core (any loopback name). Its key is not
-        // checked, so a backup taken before a key rotation still restores, as before.
-        let local = |url: &str, expected: &str| {
-            let (Ok(url), Ok(expected)) = (reqwest::Url::parse(url), reqwest::Url::parse(expected)) else {
-                return false;
-            };
-            url.scheme() == expected.scheme()
-                && url.port_or_known_default() == expected.port_or_known_default()
-                && url.path() == expected.path()
-                && url.host_str().is_some_and(crate::core_config::is_loopback_host)
-        };
-        if credentials.iter().all(|(url, _, expected)| url.as_deref().is_some_and(|url| local(url, expected))) {
-            return Ok(());
-        }
-        return Err(MISMATCH.into());
+        // Local restores keep their earlier behaviour (older ports and keys included), except that a
+        // backup made against a core on another computer is refused: it would point the client there.
+        let elsewhere = credentials.iter().any(|(url, _, _)| {
+            url.as_deref()
+                .and_then(|url| reqwest::Url::parse(url).ok())
+                .is_some_and(|url| !url.host_str().is_some_and(crate::core_config::is_loopback_host))
+        });
+        return if elsewhere { Err(MISMATCH.into()) } else { Ok(()) };
     }
     if !credentials.is_empty() {
         config
