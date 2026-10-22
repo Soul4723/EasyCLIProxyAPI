@@ -970,13 +970,41 @@ export function createBrowserMockRuntime(
   let usageViewPreferences: Record<string, string> = {};
   let privacyMode: boolean | null = null;
   const connectionStorageKey = 'browser-mock.core-connection';
-  let coreConnection = JSON.parse(globalThis.sessionStorage?.getItem(connectionStorageKey) ?? 'null')
-    ?? { mode: 'local', managementOrigin: '', managementKey: '' };
+  let coreConnection = {
+    mode: 'local', managementOrigin: '', managementKey: '', hostControlOrigin: '', hostControlKey: '',
+    ...JSON.parse(globalThis.sessionStorage?.getItem(connectionStorageKey) ?? 'null'),
+  };
+  // With remote host control configured, the mock host reports a running core and accepts lifecycle requests.
+  const remoteHostControl = coreConnection.mode === 'remote' && Boolean(coreConnection.hostControlOrigin);
   if (coreConnection.mode === 'remote') Object.assign(state.coreStatus, {
-    installed: false, running: true, ready: true, managed: false, processId: null,
+    installed: remoteHostControl, running: true, ready: true, managed: false, processId: remoteHostControl ? 52817 : null,
     installDir: '', binaryPath: null, currentVersion: 'v8.0.35',
     connectionMode: 'remote', remoteOrigin: coreConnection.managementOrigin,
+    hostControl: remoteHostControl ? { reachable: true, message: 'Browser Mock host core is running' } : undefined,
   });
+  let remoteStartCoreOnLaunch = true;
+  const hostControlStorageKey = 'browser-mock.host-control';
+  let hostControlSettings: { enabled: boolean; address: string; key: string } = {
+    enabled: false, address: '', key: '',
+    ...JSON.parse(globalThis.sessionStorage?.getItem(hostControlStorageKey) ?? 'null'),
+  };
+  const hostControlView = () => {
+    const defaultAddress = `0.0.0.0:${state.guiSettings.port + 100}`;
+    return {
+      ...hostControlSettings, defaultAddress, available: coreConnection.mode === 'local',
+      listening: coreConnection.mode === 'local' && hostControlSettings.enabled ? hostControlSettings.address || defaultAddress : null, error: null,
+    };
+  };
+  // Remote lifecycle goes to the mock remote host; without host control it is refused like the native command.
+  const remoteLifecycle = (running: boolean, processId: number | null) => {
+    if (!remoteHostControl) throw new Error('Set up remote host control in Core connection to start, stop or restart a remote core');
+    Object.assign(state.coreStatus, {
+      running, ready: running, starting: false, processId,
+      message: running ? 'Connected' : 'Stopped on remote host',
+    });
+    emit('core-status-changed', state.coreStatus);
+    return clone(state.coreStatus);
+  };
   let themeSelection: ThemeSelection | null = null;
   if (scenario === 'empty') {
     state.usageEvents = [];
@@ -1040,6 +1068,7 @@ export function createBrowserMockRuntime(
       case 'get_core_status': return clone(state.coreStatus);
       case 'main_window_active': return !document.hidden;
       case 'start_core_process': {
+        if (coreConnection.mode === 'remote') return remoteLifecycle(true, 52818);
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
         Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42817, message: 'Browser Mock core is running' });
         state.guiSettings.runOnStartup = true;
@@ -1047,12 +1076,14 @@ export function createBrowserMockRuntime(
         return clone(state.coreStatus);
       }
       case 'stop_core_process': {
+        if (coreConnection.mode === 'remote') return remoteLifecycle(false, null);
         Object.assign(state.coreStatus, { running: false, ready: false, managed: false, starting: false, processId: null, message: 'Browser Mock core is stopped' });
         state.guiSettings.runOnStartup = false;
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }
       case 'restart_core_process': {
+        if (coreConnection.mode === 'remote') return remoteLifecycle(true, 52819);
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
         Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42818, message: 'Browser Mock core restarted' });
         emit('core-status-changed', state.coreStatus);
@@ -1073,6 +1104,27 @@ export function createBrowserMockRuntime(
         globalThis.sessionStorage?.setItem(connectionStorageKey, JSON.stringify(coreConnection));
         return clone(coreConnection);
       case 'test_core_connection': return { connected: false, version: null, message: 'Browser Mock: no remote core' };
+      case 'test_host_control': return { connected: true, running: true, message: 'Browser Mock host core is running' };
+      case 'get_remote_start_core_on_launch': {
+        if (coreConnection.mode !== 'remote') throw new Error('Start Core on Launch of a remote host applies only in Remote mode');
+        return remoteHostControl ? remoteStartCoreOnLaunch : null;
+      }
+      case 'set_remote_start_core_on_launch': {
+        if (!remoteHostControl) throw new Error('Set up remote host control in Core connection to start, stop or restart a remote core');
+        remoteStartCoreOnLaunch = Boolean(payload.enabled);
+        return remoteStartCoreOnLaunch;
+      }
+      case 'get_host_control_settings': return hostControlView();
+      case 'save_host_control_settings': {
+        const update = asObject(payload.update);
+        if (update.enabled && coreConnection.mode !== 'local') throw new Error('Remote control is available only while this app runs the local core');
+        if (typeof update.address !== 'string' || (update.address.trim() && !/^[\d.]+:\d+$|^\[[\da-fA-F:.]+\]:\d+$/.test(update.address.trim()))) throw new Error('Listen address must be an IP address and port');
+        const key = update.regenerateKey || (update.enabled && !hostControlSettings.key)
+          ? `ehc_browser-mock-${Math.random().toString(36).slice(2).padEnd(12, '0')}-0123456789abcdef` : hostControlSettings.key;
+        hostControlSettings = { enabled: Boolean(update.enabled), address: update.address.trim(), key };
+        globalThis.sessionStorage?.setItem(hostControlStorageKey, JSON.stringify(hostControlSettings));
+        return hostControlView();
+      }
       case 'get_privacy_mode': return privacyMode;
       case 'save_privacy_mode': {
         if (typeof payload.enabled !== 'boolean') throw new Error('Invalid privacy mode');

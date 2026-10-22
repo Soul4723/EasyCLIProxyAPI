@@ -254,12 +254,35 @@ pub(crate) fn windows_tray_presentation(
     locale: &str,
 ) -> WindowsTrayPresentation {
     if status.connection_mode == CoreConnectionMode::Remote {
+        // Process actions only through a reachable remote host control (the remote host's EasyCLIProxyAPI).
+        let controllable = status
+            .host_control
+            .as_ref()
+            .is_some_and(|host| host.reachable);
+        let status_text = if status.ready {
+            NativeText::RemoteConnected
+        } else if controllable && !status.running {
+            NativeText::RemoteStopped
+        } else {
+            NativeText::RemoteDisconnected
+        };
+        let toggle_text = if busy {
+            NativeText::Working
+        } else if status.running {
+            NativeText::StopCore
+        } else {
+            NativeText::StartCore
+        };
         return WindowsTrayPresentation {
-            status_text: native_text(locale, if status.ready { NativeText::RemoteConnected } else { NativeText::RemoteDisconnected }).into(),
-            toggle_text: native_text(locale, NativeText::StartCore).into(),
-            toggle_enabled: false,
-            restart_enabled: false,
-            tooltip: native_text(locale, NativeText::TooltipRemoteCore).into(),
+            status_text: native_text(locale, status_text).into(),
+            toggle_text: native_text(locale, toggle_text).into(),
+            toggle_enabled: controllable && status.installed && !busy,
+            restart_enabled: controllable && status.installed && status.running && !busy,
+            tooltip: native_text(
+                locale,
+                if busy { NativeText::TooltipCoreWorking } else { NativeText::TooltipRemoteCore },
+            )
+            .into(),
         };
     }
     let status_text = if busy {
@@ -496,6 +519,27 @@ pub(crate) fn run_windows_tray_core_action(
         ))) {
             eprintln!("Failed to update desktop tray busy tooltip: {error}");
         }
+    }
+
+    let remote = app_handle
+        .state::<GuiConfigState>()
+        .snapshot()
+        .is_ok_and(|config| config.connection_mode == CoreConnectionMode::Remote);
+    if remote {
+        // Forwarded to the remote host's EasyCLIProxyAPI; refused there or here when it is not set up.
+        let app_handle = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            let restart = matches!(action, WindowsTrayCoreAction::Restart);
+            let result = crate::host_control::remote_tray_action(&app_handle, restart).await;
+            if let Some(tray_state) = app_handle.try_state::<WindowsTrayState>() {
+                tray_state.finish_action();
+            }
+            match result {
+                Ok(status) => emit_core_status(&app_handle, &status),
+                Err(error) => show_windows_tray_action_error(&app_handle, &error),
+            }
+        });
+        return;
     }
 
     let app_handle = app_handle.clone();

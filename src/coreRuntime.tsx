@@ -87,6 +87,12 @@ export function useRemoteMode() {
   return useContext(CoreRuntimeContext)?.status?.connectionMode === 'remote';
 }
 
+// Remote mode with a reachable remote host control: lifecycle actions go to the core's computer.
+export function useRemoteHostControl() {
+  const status = useContext(CoreRuntimeContext)?.status;
+  return status?.connectionMode === 'remote' && status.hostControl?.reachable === true;
+}
+
 export function useCoreRuntime() {
   const context = useContext(CoreRuntimeContext);
   if (!context) {

@@ -1149,6 +1149,7 @@ pub(crate) fn save_extended_core_config(
         next.auth_dir_user_selected = true;
     }
     validate_gui_config(&next)?;
+    crate::host_control::check_core_port(&next)?;
     if fs::read_to_string(&path).map_err(|error| error.to_string())? != content {
         return Err("Configuration changed externally. Reload before saving".into());
     }

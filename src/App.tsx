@@ -36,7 +36,7 @@ import {
   X,
 } from 'lucide-react';
 import appLogo from './assets/logo.jpg';
-import { CoreRuntimeProvider, useCoreRuntime } from './coreRuntime';
+import { CoreRuntimeProvider, useCoreRuntime, useRemoteHostControl } from './coreRuntime';
 import { CoreUpdateProvider, useCoreUpdate } from './coreUpdate';
 import { ConfigPanelPage } from './pages/ConfigPanel';
 import { ApiAccessPage } from './pages/ApiAccessPage';
@@ -177,7 +177,8 @@ function AppContent() {
   const { status } = useCoreRuntime();
   const coreReady = Boolean(status?.ready);
   const localBlocked = !status || status.connectionMode === 'remote';
-  const remoteDisabled = (pageId: string) => localBlocked && isRemoteDisabledPage(pageId);
+  const remoteHostControl = useRemoteHostControl();
+  const remoteDisabled = (pageId: string) => localBlocked && isRemoteDisabledPage(pageId, remoteHostControl);
   const [navElement, setNavElement] = useState<HTMLElement | null>(null);
   const pluginTarget = !status ? null : status.connectionMode === 'remote' ? status.remoteOrigin ?? null : 'local';
   const { entries: pluginEntries, fetched: pluginEntriesFetched } = usePluginNavEntries(coreReady, pluginTarget);
@@ -208,7 +209,7 @@ function AppContent() {
     if (!canOpenAppPage(active, coreReady) || remoteDisabled(active)) {
       setActive('home');
     }
-  }, [active, coreReady, localBlocked]);
+  }, [active, coreReady, localBlocked, remoteHostControl]);
 
   useEffect(() => {
     if (!coreReady) void closePluginWebview().catch(() => undefined);
@@ -306,7 +307,7 @@ function AppContent() {
     }
     if (pageId !== active) requestAppNavigation(() => setActive(pageId));
     else if (isPluginRoute(pageId)) setPluginReload((value) => value + 1);
-  }, [active, coreReady, localBlocked]);
+  }, [active, coreReady, localBlocked, remoteHostControl]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {

@@ -60,6 +60,8 @@ import {
 } from 'lucide-react';
 import { useCoreRuntime } from '../coreRuntime';
 import { CoreConnectionSettings } from './CoreConnectionSettings';
+import { HostControlSettings } from './HostControlSettings';
+import { RemoteStartCoreOnLaunchSwitch } from './RemoteStartCoreOnLaunch';
 import { useI18n } from '../i18n';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
 import { webUiManagementUrl } from '../services/clientAccess';
@@ -1037,7 +1039,8 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
     { category: 'requests', target: 'config-native-retry', title: st('nativeRetry'), context: '', keywords: [t('config.network.enableCooling'), t('config.network.disableCooling'), t('config.network.requestRetry'), t('config.network.maxRetryCredentials'), t('config.network.maxRetryInterval'), t('config.network.streamingBootstrapRetries'), 'retry retries cooldown 重试 冷却 流式 失败 fallback'].join(' ') },
     { category: 'diagnostics', target: 'config-native-logging', title: t('config.diagnostics.title'), context: '', keywords: [t('config.diagnostics.debug.title'), t('config.diagnostics.commercial.title'), t('config.diagnostics.fileLogging.title'), t('config.diagnostics.usage.title'), t('config.diagnostics.maxSize.title'), t('config.diagnostics.errorFiles.title'), t('config.diagnostics.redisRetention.title'), 'debug commercial-mode logging logs usage statistics redis retention 日志 调试 商业模式 用量 统计 留存 文件 容量'].join(' ') },
     { category: 'software', target: 'config-native-software', title: t('config.software.title'), context: '', keywords: [t('config.software.autostart'), t('config.software.startCoreOnLaunch'), t('config.software.silentStart'), t('config.software.closeBehavior'), t('config.software.defaultTerminal'), 'startup autostart silent tray close terminal 软件 自启动 启动 静默 托盘 关闭 终端'].join(' ') },
-    { category: 'software', target: 'config-core-connection', title: t('connection.title'), context: '', keywords: [t('connection.local'), t('connection.remote'), t('connection.managementOrigin'), t('connection.managementKey'), 'core connection remote local management URL key 内核 连接 远程 本地 管理'].join(' ') },
+    { category: 'software', target: 'config-core-connection', title: t('connection.title'), context: '', keywords: [t('connection.local'), t('connection.remote'), t('connection.managementOrigin'), t('connection.managementKey'), t('connection.hostControl.title'), 'core connection remote local management URL key host control 内核 连接 远程 本地 管理 主机 控制'].join(' ') },
+    { category: 'software', target: 'config-host-control', title: t('hostControl.title'), context: '', keywords: [t('hostControl.enable'), t('hostControl.address'), t('hostControl.key'), 'remote host control start stop restart listen address key tailscale 远程 控制 启动 停止 重启 监听 密钥'].join(' ') },
     { category: 'aliases', target: 'config-native-aliases', title: t('app.nav.thinkingAliases'), context: '', keywords: 'thinking reasoning speed aliases effort 思考 推理 速度 别名 模型' },
     { category: 'requests', target: 'config-native-sensitive-words', title: t('config.sensitiveWords.title'), context: '', keywords: 'sensitive words filters antigravity devin 敏感词 内容 过滤' },
   ];
@@ -1942,10 +1945,11 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                       <strong>{t('config.software.startCoreOnLaunch')}</strong>
                     </div>
                   </div>
-                  <Switch title={remote ? t('connection.remoteManaged') : t('config.software.startCoreOnLaunch')} aria-label={t('config.software.startCoreOnLaunch')} checked={softwareStartCoreDraft} disabled={remote || softwareSettingsLoading || softwareSettings === null || busyAction !== null} onChange={(event) => {
+                  {remote ? <RemoteStartCoreOnLaunchSwitch onError={(error) => softwareFeedback.showNotice({ key: 'config.error.saveFailed', variables: { error } }, 'error')} />
+                    : <Switch title={t('config.software.startCoreOnLaunch')} aria-label={t('config.software.startCoreOnLaunch')} checked={softwareStartCoreDraft} disabled={softwareSettingsLoading || softwareSettings === null || busyAction !== null} onChange={(event) => {
                         setSoftwareSavedStatusVisible(false);
                         setSoftwareStartCoreDraft(event.currentTarget.checked);
-                      }} />
+                      }} />}
                 </div>
                 {remote ? null : <div className="config-software-setting-row">
                   <div className="config-software-setting-copy">
@@ -2030,6 +2034,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                 </button></div>
         </section>
             <CoreConnectionSettings hidden={searching || activeSubpage !== 'software'} />
+            <HostControlSettings hidden={searching || activeSubpage !== 'software'} />
           </div>
           <div id="config-template-panel" hidden={searching || templateGroups.length === 0}><TemplateConfigSection readOnly={remote} groups={allSettingsTemplateGroups} visibleGroups={templateGroups.map(group => group.id)} onDirtyGroupsChange={setDirtyTemplateGroups} /></div>
           <div className="surface-card" id="config-native-aliases" tabIndex={-1} role="region" aria-label={t('app.nav.thinkingAliases')} hidden={searching || activeSubpage !== 'aliases'}>{aliasesVisited ? <ThinkingAliasesPage embedded readOnly={remote} /> : null}</div>

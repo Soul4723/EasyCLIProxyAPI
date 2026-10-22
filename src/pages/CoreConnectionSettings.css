@@ -9,10 +9,14 @@
 .core-connection-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
 .core-connection-actions button { margin: 0; white-space: nowrap; }
 .core-connection-footer { align-items: center; }
+.core-connection-host-control { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent); }
+.core-connection-host-control > div > strong { font-size: 13px; }
+.core-connection-card .core-connection-host-control .core-connection-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .core-connection-dialog.core-health-dialog { width: min(560px, 100%); }
 .core-connection-body { padding: 0 24px 20px; }
 .config-page .config-settings-content .core-connection-card { width: min(100%, 1000px); justify-self: center; }
 @media (max-width: 640px) {
-  .core-connection-card .core-connection-fields { grid-template-columns: minmax(0, 1fr); }
+  .core-connection-card .core-connection-fields, .core-connection-card .core-connection-host-control .core-connection-fields { grid-template-columns: minmax(0, 1fr); }
   .core-connection-body { padding: 0 16px 16px; }
 }
+.host-control-field { display: grid; gap: 6px; min-width: 0; align-content: start; }

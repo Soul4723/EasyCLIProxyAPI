@@ -1,6 +1,8 @@
 use super::*;
 
 pub(crate) static CORE_OPERATION_LOCK: Mutex<()> = Mutex::new(());
+pub(crate) const CORE_OPERATION_BUSY: &str =
+    "The kernel is performing another operation. Try again later";
 const BUNDLED_CORE_HANDLED_VERSION_FILE: &str = "cpa-gui-bundled-core-handled.txt";
 
 pub(crate) fn lock_core_operation(
@@ -8,7 +10,7 @@ pub(crate) fn lock_core_operation(
 ) -> Result<std::sync::MutexGuard<'static, ()>, String> {
     let guard = CORE_OPERATION_LOCK
         .try_lock()
-        .map_err(|_| "The kernel is performing another operation. Try again later".to_string())?;
+        .map_err(|_| CORE_OPERATION_BUSY.to_string())?;
     process_state.ensure_active()?;
     Ok(guard)
 }
@@ -120,15 +122,28 @@ pub(crate) fn spawn_core_child_on_lifetime_thread(command: Command) -> Result<Ch
         .map_err(|error| format!("Failed to start CPA kernel: {error}"))
 }
 
-async fn run_core_command(
+pub(crate) type CoreOperation = fn(&CoreProcessState, &GuiConfigState) -> Result<CoreStatus, String>;
+
+/// Runs one local lifecycle operation under the core-operation lock. Shared by this app's buttons
+/// and by remote host control, so both refuse with `CORE_OPERATION_BUSY` while another operation runs.
+pub(crate) fn run_locked_core_operation(
+    process_state: &CoreProcessState,
+    gui_config_state: &GuiConfigState,
+    operation: CoreOperation,
+) -> Result<CoreStatus, String> {
+    let _guard = lock_core_operation(process_state)?;
+    operation(process_state, gui_config_state)
+}
+
+pub(crate) async fn run_core_command(
     app: tauri::AppHandle,
-    operation: fn(&CoreProcessState, &GuiConfigState) -> Result<CoreStatus, String>,
+    operation: CoreOperation,
 ) -> Result<CoreStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
-        let status = operation(
+        let status = run_locked_core_operation(
             app.state::<CoreProcessState>().inner(),
             app.state::<GuiConfigState>().inner(),
+            operation,
         )?;
         emit_core_status(&app, &status);
         Ok(status)
@@ -138,10 +153,16 @@ async fn run_core_command(
 }
 
 #[tauri::command]
-pub(crate) async fn check_latest_core(
-    app: tauri::AppHandle,
-    gui_config_state: tauri::State<'_, GuiConfigState>,
-) -> Result<CoreLatest, String> {
+pub(crate) async fn check_latest_core(app: tauri::AppHandle) -> Result<CoreLatest, String> {
+    // In Remote mode, the remote host's latest release, through remote host control.
+    if let Some(result) = crate::host_control::forward_check_latest(&app).await {
+        return result;
+    }
+    check_latest_core_local(&app).await
+}
+
+pub(crate) async fn check_latest_core_local(app: &tauri::AppHandle) -> Result<CoreLatest, String> {
+    let gui_config_state = app.state::<GuiConfigState>();
     let _detection_guard = VERSION_SOURCE_DETECTION_LOCK.lock().await;
     let platform = current_core_platform()?;
     let config = gui_config_state.snapshot()?;
@@ -156,7 +177,7 @@ pub(crate) async fn check_latest_core(
     )
     .await?;
     persist_automatic_download_source_switch(
-        &app,
+        app,
         gui_config_state.inner(),
         &requested_source,
         &resolved_source,
@@ -170,7 +191,13 @@ pub(crate) async fn check_latest_core(
 }
 
 #[tauri::command]
-pub(crate) fn detect_bundled_core() -> Result<Option<BundledCoreInfo>, String> {
+pub(crate) fn detect_bundled_core(
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<Option<BundledCoreInfo>, String> {
+    // This distribution's bundled core is for this computer; a remote host has its own.
+    if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
+        return Ok(None);
+    }
     bundled_core_archive().map(|value| value.map(|(info, _)| info))
 }
 
@@ -294,13 +321,20 @@ pub(crate) fn auto_install_bundled_core_if_needed(app: &tauri::AppHandle) -> Res
 }
 
 #[tauri::command]
-pub(crate) fn cancel_core_install(state: tauri::State<'_, CoreDownloadState>) {
-    state.cancel();
+pub(crate) async fn cancel_core_install(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(result) = crate::host_control::forward_cancel_install(&app).await {
+        return result;
+    }
+    app.state::<CoreDownloadState>().cancel();
+    Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn get_core_install_task(state: tauri::State<'_, CoreDownloadState>) -> CoreInstallTask {
-    state.snapshot()
+pub(crate) async fn get_core_install_task(app: tauri::AppHandle) -> Result<CoreInstallTask, String> {
+    if let Some(result) = crate::host_control::forward_install_task(&app).await {
+        return result;
+    }
+    Ok(app.state::<CoreDownloadState>().snapshot())
 }
 
 pub(crate) struct StagedCoreInstall {
@@ -317,7 +351,25 @@ pub(crate) async fn install_core_version(
     window: tauri::Window,
     version: Option<String>,
 ) -> Result<CoreInstallResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    // In Remote mode, installed on the remote host by its EasyCLIProxyAPI, with its checks.
+    if let Some(result) = crate::host_control::forward_install(&app, version.clone()).await {
+        return result;
+    }
+    tauri::async_runtime::spawn_blocking(move || install_core_version_blocking(&app, &window, version, false, None))
+        .await
+        .map_err(|error| format!("Kernel installation background task failed: {error}"))?
+}
+
+/// Download, verify and install a core version under the core-operation lock, restoring the
+/// previous running state. Also used by remote host control on the host.
+pub(crate) fn install_core_version_blocking(
+    app: &tauri::AppHandle,
+    window: &tauri::Window,
+    version: Option<String>,
+    require_official_checksum: bool,
+    remote_job: Option<String>,
+) -> Result<CoreInstallResult, String> {
+    {
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
         let state = app.state::<CoreDownloadState>();
         let process_state = app.state::<CoreProcessState>();
@@ -329,11 +381,12 @@ pub(crate) async fn install_core_version(
         archive_previous_core_rollback(&rollback_dir)?;
         let token = CancellationToken::new();
         state.start(token.clone(), version.clone())?;
+        state.set_job(remote_job);
 
         // Stage download, SHA-256 verification, and archive extraction BEFORE stopping the running core.
         let staged_result = tauri::async_runtime::block_on(stage_core_version_inner(
-            &app,
-            &window,
+            app,
+            window,
             state.inner(),
             gui_config_state.inner(),
             token,
@@ -341,10 +394,11 @@ pub(crate) async fn install_core_version(
             &proxy_url,
             config.selected_download_candidate(),
             config.custom_download_mirrors.clone(),
+            require_official_checksum,
         ));
 
         let result = staged_result.and_then(|staged| {
-            let was_running = pause_core_for_install(&app, process_state.inner(), &config)?;
+            let was_running = pause_core_for_install(app, process_state.inner(), &config)?;
             let swap_and_restore = apply_staged_core_with_rollback(
                 &staged.install_dir,
                 &staged.staging_dir,
@@ -368,7 +422,7 @@ pub(crate) async fn install_core_version(
                 }
                 other => other,
             };
-            emit_current_core_status(&app, process_state.inner(), config.port);
+            emit_current_core_status(app, process_state.inner(), config.port);
             swap_and_restore.map(|()| CoreInstallResult {
                 version: staged.version,
                 asset_name: staged.asset_name,
@@ -382,12 +436,10 @@ pub(crate) async fn install_core_version(
         if result.is_err() {
             let _ = cleanup_core_work_dirs();
         }
-        state.finish(&window, result.clone());
+        state.finish(window, result.clone());
 
         result
-    })
-    .await
-    .map_err(|error| format!("Kernel installation background task failed: {error}"))?
+    }
 }
 
 fn install_core_with_runtime_restore<F>(
@@ -471,6 +523,12 @@ fn emit_current_core_status(app: &tauri::AppHandle, process_state: &CoreProcessS
 
 #[tauri::command]
 pub(crate) async fn start_core_process(app: tauri::AppHandle) -> Result<CoreStatus, String> {
+    // In Remote mode, forwarded to the remote host's EasyCLIProxyAPI when host control is set up.
+    if let Some(result) =
+        crate::host_control::forward_remote_core_command(&app, crate::host_control::HostOperation::Start).await
+    {
+        return result;
+    }
     run_core_command(app, start_core_process_with_state).await
 }
 
@@ -492,6 +550,12 @@ pub(crate) fn start_core_process_with_state(
 
 #[tauri::command]
 pub(crate) async fn stop_core_process(app: tauri::AppHandle) -> Result<CoreStatus, String> {
+    // In Remote mode, forwarded to the remote host's EasyCLIProxyAPI when host control is set up.
+    if let Some(result) =
+        crate::host_control::forward_remote_core_command(&app, crate::host_control::HostOperation::Stop).await
+    {
+        return result;
+    }
     run_core_command(app, stop_core_process_with_state).await
 }
 
@@ -507,6 +571,12 @@ pub(crate) fn stop_core_process_with_state(
 
 #[tauri::command]
 pub(crate) async fn restart_core_process(app: tauri::AppHandle) -> Result<CoreStatus, String> {
+    // In Remote mode, forwarded to the remote host's EasyCLIProxyAPI when host control is set up.
+    if let Some(result) =
+        crate::host_control::forward_remote_core_command(&app, crate::host_control::HostOperation::Restart).await
+    {
+        return result;
+    }
     run_core_command(app, restart_core_process_with_state).await
 }
 
@@ -539,6 +609,7 @@ pub(crate) async fn stage_core_version_inner(
     proxy_url: &str,
     download_source: VersionDownloadCandidate,
     custom_mirrors: Vec<String>,
+    require_official_checksum: bool,
 ) -> Result<StagedCoreInstall, String> {
     let platform = current_core_platform()?;
     let client = http_client(proxy_url, &custom_mirrors)?;
@@ -552,7 +623,15 @@ pub(crate) async fn stage_core_version_inner(
         &custom_mirrors,
     )
     .await?;
-    let asset = select_release_asset(&release, &platform)?;
+    let mut asset = select_release_asset(&release, &platform)?.clone();
+    if require_official_checksum {
+        // Installs requested through remote host control fail closed without the official
+        // checksum: whatever source serves the archive, it must match the release's checksums.txt.
+        let url = official_checksums_url(&release.tag_name)?;
+        let expected = fetch_core_checksum(&client, &url, &asset.name, &token).await?;
+        asset.digest = Some(required_digest(asset.digest.as_deref(), &expected)?);
+    }
+    let asset = &asset;
     let download_candidates = core_download_candidates(
         &release.tag_name,
         asset,
@@ -1369,6 +1448,7 @@ pub(crate) fn current_core_status(
         connection_mode: CoreConnectionMode::Local,
         remote_origin: None,
         message,
+        host_control: None,
     })
 }
 
@@ -2025,6 +2105,77 @@ pub(crate) fn migrate_core_config_for_update(
         )
     })?;
     Ok(())
+}
+
+pub(crate) const OFFICIAL_CHECKSUM_MISSING: &str =
+    "The official release has no checksum for this core archive; the install was refused";
+pub(crate) const OFFICIAL_CHECKSUM_MISMATCH: &str =
+    "The core archive does not match the official release checksum; the install was refused";
+
+/// The SHA-256 for `archive_name` in a `checksums.txt` (`<hex>  [*]<name>` lines); exactly one entry.
+pub(crate) fn checksum_entry(checksums: &str, archive_name: &str) -> Option<String> {
+    let mut matches = checksums.lines().filter_map(|line| {
+        let mut fields = line.split_whitespace();
+        let digest = fields.next()?;
+        let name = fields.next()?.trim_start_matches('*');
+        (name == archive_name
+            && fields.next().is_none()
+            && digest.len() == 64
+            && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| digest.to_ascii_lowercase())
+    });
+    let first = matches.next()?;
+    matches.next().is_none().then_some(first)
+}
+
+/// The official `checksums.txt` URL for a release tag. The tag can come from a mirror's listing,
+/// so only a plain version tag may go into the path (no `..`, slashes or queries).
+pub(crate) fn official_checksums_url(tag: &str) -> Result<String, String> {
+    if !crate::host_control::valid_core_version(tag) {
+        return Err(OFFICIAL_CHECKSUM_MISSING.to_string());
+    }
+    Ok(format!("{RELEASE_DOWNLOAD_PREFIX}{tag}/{CORE_CHECKSUMS_FILE}"))
+}
+
+/// The digest a download must match: the official one; a different published digest refuses.
+pub(crate) fn required_digest(published: Option<&str>, official: &str) -> Result<String, String> {
+    if let Some(published) = published {
+        let published = published.strip_prefix("sha256:").unwrap_or(published).to_ascii_lowercase();
+        if !published.is_empty() && published != official {
+            return Err(OFFICIAL_CHECKSUM_MISMATCH.to_string());
+        }
+    }
+    Ok(format!("sha256:{official}"))
+}
+
+/// Reads the release's `checksums.txt` (the caller passes the official GitHub URL, never a
+/// mirror) and returns this archive's SHA-256; anything else fails closed.
+pub(crate) async fn fetch_core_checksum(
+    client: &reqwest::Client,
+    url: &str,
+    archive_name: &str,
+    token: &CancellationToken,
+) -> Result<String, String> {
+    let request = async {
+        let response = client
+            .get(url)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|_| OFFICIAL_CHECKSUM_MISSING.to_string())?;
+        if !response.status().is_success() {
+            return Err(OFFICIAL_CHECKSUM_MISSING.to_string());
+        }
+        if response.content_length().is_some_and(|length| length > 256 * 1024) {
+            return Err(OFFICIAL_CHECKSUM_MISSING.to_string());
+        }
+        let body = response.text().await.map_err(|_| OFFICIAL_CHECKSUM_MISSING.to_string())?;
+        checksum_entry(&body, archive_name).ok_or_else(|| OFFICIAL_CHECKSUM_MISSING.to_string())
+    };
+    tokio::select! {
+        _ = token.cancelled() => Err("Download canceled".to_string()),
+        result = request => result,
+    }
 }
 
 pub(crate) fn validate_bundled_core_checksum(archive_path: &Path) -> Result<(), String> {
