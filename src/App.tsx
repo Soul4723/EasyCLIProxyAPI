@@ -456,8 +456,8 @@ function AppContent() {
                 <button
                   type="button"
                   className="sidebar-link sidebar-easy-entry"
-                  disabled={localBlocked}
-                  title={localBlocked ? t('connection.remoteDisabledTitle') : undefined}
+                  disabled={remoteDisabled('easy')}
+                  title={remoteDisabled('easy') ? t('connection.remoteDisabledTitle') : undefined}
                   onClick={() => select('easy')}
                 >
                   <Sprout size={16} strokeWidth={1.75} aria-hidden="true" />

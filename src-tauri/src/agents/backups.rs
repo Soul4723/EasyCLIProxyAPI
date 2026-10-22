@@ -2,6 +2,9 @@ use super::*;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+mod target;
+#[cfg(test)]
+pub(crate) use target::validate_restore_target;
 mod restore;
 pub(crate) use restore::*;
 

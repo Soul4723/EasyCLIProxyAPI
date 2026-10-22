@@ -269,6 +269,4 @@ fn remote_mode_refuses_local_core_settings_writes() {
     refused(delete_core_api_key(gui.clone(), "client-key".into()).err());
     refused(clear_core_management_secret_key(gui.clone()).err());
     refused(save_extended_core_config(gui.clone(), Vec::new()).err());
-    refused(tauri::async_runtime::block_on(delete_thinking_alias(gui.clone(), "alias".into(), None, None)).err());
-    refused(tauri::async_runtime::block_on(delete_speed_alias(gui.clone(), "alias".into(), None, None)).err());
 }

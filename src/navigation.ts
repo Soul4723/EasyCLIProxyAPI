@@ -11,7 +11,7 @@ export function canOpenAppPage(pageId: string, coreReady: boolean) {
 // Version Management works remotely through a reachable remote host control.
 export function isRemoteDisabledPage(pageId: string, remoteHostControl = false) {
   if (pageId === 'versions' && remoteHostControl) return false;
-  return ['easy', 'agents', 'usage-records', 'versions'].includes(pageId);
+  return ['usage-records', 'versions'].includes(pageId);
 }
 
 export const APP_NAVIGATION_REQUEST_EVENT = 'cpa-gui-navigation-request';
