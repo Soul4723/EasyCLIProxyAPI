@@ -819,10 +819,10 @@ pub(crate) async fn fetch_release(
         };
         match result {
             Ok(release) => return Ok((release, candidate)),
-            Err(error) => failures.push(format!("{}: {error}", candidate.display_name())),
+            Err(error) => failures.push((candidate.display_name(), error)),
         }
     }
-    Err(format!("All kernel version check sources failed: {}", failures.join("；")))
+    Err(source_failures_message("Core version check", &failures))
 }
 
 pub(crate) async fn fetch_release_from_github(

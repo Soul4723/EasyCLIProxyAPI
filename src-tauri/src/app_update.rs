@@ -285,10 +285,26 @@ pub(crate) async fn fetch_portable_update_manifest(
         };
         match result {
             Ok(manifest) => return Ok((manifest, candidate)),
-            Err(error) => failures.push(format!("{}: {error}", candidate.display_name())),
+            Err(error) => failures.push((candidate.display_name(), error)),
         }
     }
-    Err(format!("All application version check sources failed: {}", failures.join("; ")))
+    Err(source_failures_message("App update check", &failures))
+}
+
+/// Every source failed: the cause once when they all report the same one, otherwise each source with its own.
+pub(crate) fn source_failures_message(subject: &str, failures: &[(String, String)]) -> String {
+    match failures {
+        [(_, first), rest @ ..] if rest.iter().all(|(_, error)| error == first) => {
+            format!("{subject} failed: {first}")
+        }
+        _ => {
+            let failures = failures
+                .iter()
+                .map(|(source, error)| format!("{source}: {error}"))
+                .collect::<Vec<_>>();
+            format!("{subject} failed on every source: {}", failures.join("; "))
+        }
+    }
 }
 
 pub(crate) async fn fetch_portable_update_manifest_from_gitcode(
@@ -317,7 +333,7 @@ pub(crate) async fn fetch_portable_update_manifest_url(
     client: &reqwest::Client,
     url: &str,
 ) -> Result<PortableUpdateManifest, String> {
-    let manifest = app_update_metadata_request(client, url)
+    let mut manifest = app_update_metadata_request(client, url)
         .header(reqwest::header::ACCEPT, "application/json")
         .header(reqwest::header::USER_AGENT, APP_USER_AGENT)
         .send()
@@ -328,8 +344,21 @@ pub(crate) async fn fetch_portable_update_manifest_url(
         .json::<PortableUpdateManifest>()
         .await
         .map_err(|error| format!("parse update manifest: {error}"))?;
+    drop_unconfigured_gitcode_fallbacks(&mut manifest, configured_gitcode_gui_repository());
     validate_portable_update_manifest(&manifest)?;
     Ok(manifest)
+}
+
+/// Release manifests list GitCode mirrors of their packages. A build without a GitCode repository can
+/// neither trust nor use them, so it drops them and checks the GitHub packages alone.
+pub(crate) fn drop_unconfigured_gitcode_fallbacks(manifest: &mut PortableUpdateManifest, repository: Option<&str>) {
+    if repository.is_some() {
+        return;
+    }
+    let full_assets = manifest.full_assets.iter_mut().flat_map(|assets| assets.values_mut());
+    for asset in manifest.assets.values_mut().chain(full_assets) {
+        asset.fallback_urls.clear();
+    }
 }
 
 fn app_update_metadata_request(client: &reqwest::Client, url: &str) -> reqwest::RequestBuilder {

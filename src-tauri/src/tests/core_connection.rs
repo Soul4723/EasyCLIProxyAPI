@@ -230,7 +230,7 @@ fn remote_tray_never_offers_process_actions() {
         },
     );
     let presentation = windows_tray_presentation(&status, false, "en");
-    assert_eq!(presentation.status_text, "Remote core: connected");
+    assert_eq!(presentation.status_text, "Core on core.example: connected");
     assert!(!presentation.toggle_enabled);
     assert!(!presentation.restart_enabled);
 }

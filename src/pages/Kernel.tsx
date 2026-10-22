@@ -17,6 +17,7 @@ import { HomeAccessPanel } from './HomeAccessPanel';
 import { HomeOverviewCards } from './HomeOverviewCards';
 import { CoreHealthPanel } from './CoreHealthPanel';
 import { CoreConnectionSettings } from './CoreConnectionSettings';
+import { ScopeLabel } from '../components/ScopeLabel';
 import { useHomeOverview } from './useHomeOverview';
 import './HomeDashboard.css';
 
@@ -245,7 +246,7 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
         <div className="panel surface-panel control-panel">
           <div className="panel-heading home-panel-heading">
             <div>
-              <h2>{t('kernel.control.title')}</h2>
+              <div className="home-panel-title"><h2>{t('kernel.control.title')}</h2><ScopeLabel scope="core" /></div>
               <p>{t(remoteMode ? coreReady ? 'connection.remoteReady' : remoteStopped ? 'connection.remoteStopped' : 'connection.remoteUnreachable' : coreReady ? 'home.runtime.ready' : coreInstalled ? 'home.runtime.stopped' : 'home.runtime.notInstalled')}</p>
             </div>
             <div className="home-runtime-actions">
@@ -277,10 +278,14 @@ export function KernelPage({ view = 'home' }: { view?: KernelView }) {
                 </span>
               </dd>
             </div>
-            <div className="panel-detail-row">
+            {/* This app's version is this computer's; on a remote core's card the row says what runs Start/Stop. */}
+            {remoteMode ? <div className="panel-detail-row" data-runtime="host-control">
+              <dt>{t('connection.hostControlRow')}</dt>
+              <dd>{t(remoteControllable ? 'connection.hostControlState.available' : hostControl ? 'connection.hostControlState.unreachable' : 'connection.hostControlState.none')}</dd>
+            </div> : <div className="panel-detail-row">
               <dt>{t('kernel.overview.appVersion')}</dt>
               <dd><span className="mono-tag">{currentAppVersion}</span></dd>
-            </div>
+            </div>}
             <div className="panel-detail-row">
               <dt>{t('kernel.control.pid')}</dt>
               <dd><span className="mono-tag" title={remoteMode ? t('connection.remoteManaged') : undefined}>{remoteMode ? (remoteControllable && coreStatus?.processId) || '—' : coreStatus?.processId || t('kernel.control.noPid')}</span></dd>

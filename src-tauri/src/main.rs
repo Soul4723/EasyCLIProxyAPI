@@ -2866,6 +2866,7 @@ fn main() {
             health_check,
             detect_core_platform,
             get_core_status,
+            core_connection::get_computer_name,
             core_connection::get_core_connection,
             core_connection::save_core_connection,
             core_connection::test_core_connection,

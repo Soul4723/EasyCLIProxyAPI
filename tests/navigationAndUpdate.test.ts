@@ -52,13 +52,12 @@ describe('软件与内核更新导航提示点', () => {
 });
 
 describe('远程内核本地功能导航', () => {
-  test('本机客户端和新手模式可用，使用记录和无主机控制的版本页禁用', () => {
-    for (const page of ['usage-records', 'versions']) expect(isRemoteDisabledPage(page)).toBe(true);
-    for (const page of ['easy', 'agents', 'home', 'api', 'oauth', 'quota', 'config', 'plugins', '/plugin-pages/demo/0']) expect(isRemoteDisabledPage(page)).toBe(false);
+  test('without host control only Usage is locked; Version Management keeps this app\'s updates', () => {
+    expect(isRemoteDisabledPage('usage-records')).toBe(true);
+    for (const page of ['versions', 'easy', 'agents', 'home', 'api', 'oauth', 'quota', 'config', 'plugins', '/plugin-pages/demo/0']) expect(isRemoteDisabledPage(page)).toBe(false);
   });
 
-  test('remote host control unlocks Version Management and host Usage', () => {
-    expect(isRemoteDisabledPage('versions', true)).toBe(false);
+  test('remote host control unlocks host Usage', () => {
     expect(isRemoteDisabledPage('usage-records', true)).toBe(false);
   });
 });

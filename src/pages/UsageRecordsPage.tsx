@@ -1,5 +1,5 @@
 import { useRemoteMode } from '../coreRuntime';
-import { getCoreConnection } from '../services/coreConnection';
+import { ScopeLabel } from '../components/ScopeLabel';
 import { pollWhileActive, windowActivity } from '../services/windowActivity';
 import { Notice } from '../components/Notice';
 import { EmptyState } from '../components/EmptyState';
@@ -187,12 +187,6 @@ export function UsageRecordsPage() {
   const { t } = useI18n();
   const privacy = usePrivacyMask();
   const remote = useRemoteMode();
-  const [usageHost, setUsageHost] = useState('');
-  useEffect(() => {
-    if (remote) void getCoreConnection()
-      .then(connection => setUsageHost(new URL(connection.hostControlOrigin || connection.managementOrigin).host))
-      .catch(() => {});
-  }, [remote]);
   const lastRemoteLoad = useRef({ revision: '', at: 0, scope: '' });
   const [activeTab, setActiveTab] = useState<UsageTab>(loadTab);
   const [range, setRange] = useState<UsageRange>(loadRange);
@@ -503,7 +497,7 @@ export function UsageRecordsPage() {
 
   return (
     <section className="page management-page usage-records-page" data-active-tab={activeTab}>
-      {remote ? <p role="note">{t('usage.remote.recordedBy', { host: privacy.text(usageHost) })}</p> : null}
+      {remote ? <Notice tone="info" live={false} className="usage-remote-scope"><ScopeLabel scope="host" /> {t('usage.remote.recordedBy')}</Notice> : null}
       {remote && error && (overview || events || pricing) ? <p role="note">{t('usage.remote.stale')}</p> : null}
       {error ? <MessageNotice message={error} onDismiss={() => setError('')} /> : null}
 

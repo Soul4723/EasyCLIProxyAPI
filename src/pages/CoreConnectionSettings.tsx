@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { Check, Eye, EyeOff, Link2, LoaderCircle, PlugZap, X } from 'lucide-react';
 import { Dialog } from '../components/Dialog';
 import { Notice } from '../components/Notice';
+import { ScopeLabel } from '../components/ScopeLabel';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { useCoreRuntime } from '../coreRuntime';
 import { useI18n } from '../i18n';
@@ -176,7 +177,7 @@ export function CoreConnectionSettings({ variant = 'card', hidden, onClose }: {
 
   return <section id="config-core-connection" tabIndex={-1} hidden={hidden} className="panel surface-card core-connection-card" aria-labelledby="core-connection-title">
     <div className="config-panel-heading">
-      <div className="config-heading-title"><Link2 size={18} aria-hidden="true" /><h2 id="core-connection-title">{t('connection.title')}</h2></div>
+      <div className="config-heading-title"><Link2 size={18} aria-hidden="true" /><h2 id="core-connection-title">{t('connection.title')}</h2><ScopeLabel scope="computer" /></div>
     </div>
     {form}
     <div className="config-settings-save-row core-connection-footer">{footnote}{actions}</div>

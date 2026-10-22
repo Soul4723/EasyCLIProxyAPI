@@ -113,6 +113,11 @@ const path = require('node:path');
     await runtime.getByText('Connected', { exact: true }).waitFor();
     await runtime.getByText('other.example', { exact: true }).waitFor();
     assert.equal(await runtime.locator('.panel-detail-row').count(), 6, 'same grid as Local');
+    // Which machine: the core's host in the sidebar and on the core cards; no app version on a remote core's card.
+    assert.equal(await page.locator('.sidebar-brand .scope-label').textContent(), 'Core · other.example');
+    assert.equal(await runtime.locator('.scope-label').textContent(), 'Core · other.example');
+    assert.equal(await runtime.getByText('App Version').count(), 0, 'this app\'s version is not shown as the core\'s');
+    await runtime.locator('[data-runtime="host-control"]').getByText('Not set up').waitFor();
     assert.equal(await runtime.getByText('443', { exact: true }).count(), 1, 'port comes from the remote origin');
     for (const name of ['Stop', 'Restart']) {
       const button = runtime.getByRole('button', { name, exact: true });
@@ -129,18 +134,26 @@ const path = require('node:path');
 
     await page.waitForFunction(() => document.querySelector('.sidebar-easy-entry')?.disabled === false);
     assert.equal(await nav('Agent Configuration').isEnabled(), true, 'local agent clients available against the remote core');
-    for (const [name, reason] of [
-      ['Usage', 'Set up reachable remote host control in Core connection to read usage recorded on the core’s computer.'],
-      ['Version Management', 'Set up remote host control in Core connection to check and install core versions on the remote host.'],
-    ]) {
-      assert.equal(await nav(name).isDisabled(), true, `${name} locked remotely`);
-      assert.equal(await nav(name).getAttribute('title'), reason);
-    }
+    assert.equal(await nav('Usage').isDisabled(), true, 'Usage locked without remote host control');
+    assert.equal(await nav('Usage').getAttribute('title'), 'Set up reachable remote host control in Core connection to read usage recorded on the core’s computer.');
     await page.locator('#nav-plugin-children').waitFor();
+
+    // Version Management stays open for this app's own updates; only the core's versions need host control.
+    await page.locator('.nav-section').getByRole('button', { name: /^Version Management/ }).click();
+    const coreCard = page.locator('.core-module-card');
+    const coreVersionsReason = 'Set up remote host control in Core connection to check and install versions of this core.';
+    await coreCard.getByText(coreVersionsReason).waitFor();
+    assert.equal(await coreCard.getByRole('button', { name: 'Check for Updates' }).isDisabled(), true);
+    assert.equal(await coreCard.getByRole('button', { name: 'Check for Updates' }).getAttribute('title'), coreVersionsReason);
+    assert.equal(await page.getByRole('button', { name: 'Install Bundled Core' }).count(), 0, 'the bundled core is for this computer only');
+    assert.equal(await page.locator('.app-module-card').getByRole('button', { name: 'Check for Updates' }).isEnabled(), true, 'this app checks its own updates');
+    assert.equal(await page.locator('.app-module-card .scope-label').textContent(), 'This computer · mock-desktop');
 
     // Agents and Codex sessions belong to this computer, even with a remote core.
     await page.evaluate(() => localStorage.setItem('cpa-gui.agent-selected-client.v1', 'codex'));
     await nav('Agent Configuration').click();
+    assert.deepEqual(await page.locator('.agent-target-route .scope-label').allTextContents(), ['This computer · mock-desktop', 'Core · other.example'],
+      'agents configure this computer\'s clients against the remote core');
     await page.locator('#agent-subpage-tab-sessions').click();
     await page.locator('#agent-subpage-panel-sessions').waitFor({ state: 'visible' });
     await page.locator('.sidebar-easy-entry').click();
@@ -150,7 +163,8 @@ const path = require('node:path');
     // Advanced Features keeps every category and search and edits the remote core's settings, except
     // those that decide how this app reaches it (address, port, TLS, management key).
     await nav('Advanced Features').click();
-    await page.getByText(/These are the remote core's settings/).waitFor();
+    await page.locator('.config-remote-notice').getByText(/Saved on this core\./).waitFor();
+    assert.equal(await page.locator('.config-remote-notice .scope-label').textContent(), 'Core · other.example');
     for (const id of ['general', 'aliases', 'routing', 'requests', 'oauth', 'diagnostics', 'software']) assert.equal(await page.locator(`#config-subpage-tab-${id}`).isEnabled(), true, `${id} category available remotely`);
     const keys = page.locator('#config-native-keys');
     await keys.getByRole('button', { name: /Copy/ }).first().waitFor();
@@ -169,12 +183,20 @@ const path = require('node:path');
     await page.locator('#config-subpage-tab-software').click();
     const software = page.locator('#config-native-software');
     await software.waitFor({ state: 'visible' });
-    assert.equal(await software.getByRole('switch', { name: 'Start Core on Launch' }).isDisabled(), true, 'start core on launch shown but disabled');
+    // App preferences are this computer's: no remote-core banner, and no local core to start or keep in the tray.
+    assert.equal(await page.locator('.config-remote-notice').count(), 0, 'the remote-core banner is not over this computer\'s settings');
+    assert.equal(await software.locator('.scope-label').textContent(), 'This computer · mock-desktop');
+    assert.equal(await software.getByText('Start Core on Launch').count(), 0, 'this computer\'s Start Core on Launch is for Local mode');
     assert.equal(await software.getByText('Silent Launch').count(), 0, 'Silent Launch hidden remotely');
     assert.equal(await card.getByLabel('Management URL').inputValue(), 'https://other.example', 'both hosts show the saved connection');
+    // The host app's own setting has its own card, disabled until remote host control is set up.
+    const hostApp = page.locator('#config-remote-host');
+    assert.equal(await hostApp.locator('.scope-label').textContent(), 'App on other.example');
+    assert.equal(await hostApp.getByRole('switch', { name: 'Start Core on Launch' }).isDisabled(), true);
+    await hostApp.getByText('Needs remote host control, set up in Core connection.').waitFor();
     const remoteHost = page.locator('#config-host-control');
-    await remoteHost.getByText('Available when this app runs the local core.').waitFor();
-    assert.equal(await remoteHost.getByRole('switch', { name: 'Allow remote control' }).isDisabled(), true, 'this app cannot host while Remote');
+    await remoteHost.getByText(/^Off while this app uses a remote core\./).waitFor();
+    assert.equal(await remoteHost.getByRole('switch', { name: 'Allow remote control' }).count(), 0, 'no hosting form while Remote');
 
     await nav('Plugins').click();
     await page.getByRole('region', { name: 'Plugins' }).waitFor();
@@ -216,32 +238,33 @@ const path = require('node:path');
     await controlled.getByRole('button', { name: 'Restart', exact: true }).click();
     await controlled.getByText('52819', { exact: true }).waitFor();
 
-    // Start Core on Launch is the remote host's own setting, changed at once.
+    await controlled.locator('[data-runtime="host-control"]').getByText('Available').waitFor();
+
+    // Start Core on Launch is the remote host's own setting, changed at once in the host app's card.
     await nav('Advanced Features').click();
     await page.locator('#config-subpage-tab-software').click();
-    const remoteLaunch = page.locator('#config-native-software').getByRole('switch', { name: 'Start Core on Launch' });
-    await page.waitForFunction(() => !document.querySelector('#config-native-software [role="switch"][aria-label="Start Core on Launch"]')?.disabled);
+    const remoteLaunch = page.locator('#config-remote-host').getByRole('switch', { name: 'Start Core on Launch' });
+    await page.waitForFunction(() => !document.querySelector('#config-remote-host [role="switch"][aria-label="Start Core on Launch"]')?.disabled);
     assert.equal(await remoteLaunch.isChecked(), true, 'shows the host value');
-    assert.equal(await page.locator('#config-native-software .switch-control[title="The remote host app\'s setting; changes apply there at once."]').count(), 1);
+    await page.locator('#config-remote-host').getByText('Starts the core when the app on that computer starts. Changes apply there at once.').waitFor();
     await remoteLaunch.click();
-    await page.waitForFunction(() => document.querySelector('#config-native-software [role="switch"][aria-label="Start Core on Launch"]')?.checked === false);
+    await page.waitForFunction(() => document.querySelector('#config-remote-host [role="switch"][aria-label="Start Core on Launch"]')?.checked === false);
     assert.equal(await page.locator('#config-native-software').getByRole('button', { name: 'Save', exact: true }).isDisabled(), true, 'no local software draft became dirty');
 
-    // Version Management opens remotely; this computer's download source and bundled core do not apply.
-    // Unlocked, the item can also carry the update indicator, which extends its accessible name.
-    const versions = page.locator('.nav-section').getByRole('button', { name: /^Version Management/ });
-    assert.equal(await versions.isDisabled(), false, 'Version Management unlocked by remote host control');
-    await versions.click();
-    await page.getByText('Checks and installs run on the remote host with its own download source.').waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Add Custom Source' }).isDisabled(), true, 'local download source is not used remotely');
-    const bundled = page.getByRole('button', { name: 'Install Bundled Core' });
-    assert.equal(await bundled.isDisabled(), true);
-    assert.equal(await bundled.getAttribute('title'), 'The bundled core is for this computer. Install a version for the remote host from the list.');
+    // With host control the core's versions are checked and installed on its computer, with that computer's
+    // source; this computer's source stays editable for this app's own updates.
+    // The item can carry the update indicator, which extends its accessible name.
+    await page.locator('.nav-section').getByRole('button', { name: /^Version Management/ }).click();
+    await page.getByText('Checked and installed by the app on that computer, with its own download source.').waitFor();
+    await page.getByText("In Remote mode this source is used only for this app's own updates.").waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Add Custom Source' }).isEnabled(), true, 'this computer\'s download source stays editable');
+    assert.equal(await page.getByRole('button', { name: 'Install Bundled Core' }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Stop and Update' }).isEnabled(), true, 'the remote core can be updated');
     // Usage reads the host store, with a distinct fixture from this computer's Local history.
     assert.equal(await nav('Usage').isEnabled(), true);
     await nav('Usage').click();
-    await page.getByText('Usage recorded by EasyCLIProxyAPI on other.example:8417', { exact: true }).waitFor();
+    await page.getByText("Usage history is recorded on the core's computer and is read-only here.").waitFor();
+    assert.equal(await page.locator('.usage-remote-scope .scope-label').textContent(), 'App on other.example');
     await page.getByRole('tab', { name: 'Price Statistics', exact: true }).click();
     await page.getByText(/Read-only host data/).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Add Manually', exact: true }).isDisabled(), true);
@@ -250,6 +273,6 @@ const path = require('node:path');
     await nav('Home').click();
     await page.locator('[data-stat="usage"] .home-stat-value').filter({ hasText: /90/ }).waitFor();
     assert.deepEqual(errors, []);
-    console.log('PASS: one connection component on Home and in Advanced Features; Remote keeps the Local layout with remote values, editable remote settings and in-place disabled local actions; Silent Launch hidden; remote host control hosts locally and drives Start/Stop/Restart remotely.');
+    console.log('PASS: one connection component on Home and in Advanced Features; Remote keeps the Local layout with remote values, editable remote settings and in-place disabled local actions; every card names its machine; this computer\'s preferences, the host app\'s settings and hosting are separate; remote host control hosts locally and drives Start/Stop/Restart, versions and usage remotely.');
   } finally { await browser?.close(); await server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

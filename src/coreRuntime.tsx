@@ -95,6 +95,14 @@ export function useRemoteMode() {
   return useContext(CoreRuntimeContext)?.status?.connectionMode === 'remote';
 }
 
+// The remote core's host name in Remote mode; null while this app uses the core on this computer.
+export function useRemoteCoreHost() {
+  const status = useContext(CoreRuntimeContext)?.status;
+  if (status?.connectionMode !== 'remote') return null;
+  const origin = status.remoteOrigin ?? '';
+  try { return new URL(origin).hostname; } catch { return origin; }
+}
+
 // Remote mode with a reachable remote host control: lifecycle actions go to the core's computer.
 export function useRemoteHostControl() {
   const status = useContext(CoreRuntimeContext)?.status;

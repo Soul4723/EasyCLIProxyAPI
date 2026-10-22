@@ -1,4 +1,4 @@
-import { isTauri as nativeIsTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri as nativeIsTauri } from '@tauri-apps/api/core';
 import { getVersion as nativeGetVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow as nativeWindow } from '@tauri-apps/api/window';
 import { getCurrentWebview as nativeWebview } from '@tauri-apps/api/webview';
@@ -6,6 +6,10 @@ import { open as nativeOpen, save as nativeSave } from '@tauri-apps/plugin-dialo
 
 export const isTauri = (): boolean => nativeIsTauri();
 export const getVersion = (): Promise<string> => nativeGetVersion();
+// This computer's host name (empty when unknown); it does not change while the app runs.
+let computerName: Promise<string> | null = null;
+export const getComputerName = (): Promise<string> =>
+  computerName ??= invoke<string>('get_computer_name').catch(() => '');
 
 type FileFilter = { name: string; extensions: string[] };
 type FileDialogOptions = { title?: string; defaultPath?: string; filters?: FileFilter[] };

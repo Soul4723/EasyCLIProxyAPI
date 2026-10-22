@@ -604,6 +604,41 @@ fn portable_update_asset_accepts_only_the_configured_gitcode_fallback() {
 }
 
 #[test]
+fn builds_without_gitcode_drop_its_fallbacks_instead_of_rejecting_the_manifest() {
+    let mut manifest = portable_update_test_manifest("1.2.3");
+    let (_, display, suffix) = portable_update_asset_platform().unwrap();
+    for (key, asset) in manifest.assets.iter_mut() {
+        let arch = key.rsplit('-').next().unwrap();
+        let filename = format!("EasyCLIProxyAPI-v1.2.3-{display}-{arch}.{suffix}");
+        asset.fallback_urls = vec![gitcode_release_attachment_url("mirror-owner/EasyCLIProxyAPI", "v1.2.3", &filename)];
+    }
+    manifest.full_assets = Some(manifest.assets.clone());
+    assert!(validate_portable_update_manifest(&manifest).is_err());
+
+    let mut configured = manifest.clone();
+    drop_unconfigured_gitcode_fallbacks(&mut configured, Some("mirror-owner/EasyCLIProxyAPI"));
+    assert!(configured.assets.values().all(|asset| asset.fallback_urls.len() == 1));
+
+    drop_unconfigured_gitcode_fallbacks(&mut manifest, None);
+    let full_assets = manifest.full_assets.as_ref().unwrap().values();
+    assert!(manifest.assets.values().chain(full_assets).all(|asset| asset.fallback_urls.is_empty()));
+    assert!(validate_portable_update_manifest(&manifest).is_ok());
+}
+
+#[test]
+fn source_failures_name_a_shared_cause_once() {
+    let same = [("GitHub", "offline"), ("gh-proxy.com", "offline")]
+        .map(|(source, error)| (source.to_string(), error.to_string()));
+    assert_eq!(source_failures_message("App update check", &same), "App update check failed: offline");
+    let different = [("GitHub", "HTTP 404"), ("ghfast.top", "timed out")]
+        .map(|(source, error)| (source.to_string(), error.to_string()));
+    assert_eq!(
+        source_failures_message("App update check", &different),
+        "App update check failed on every source: GitHub: HTTP 404; ghfast.top: timed out"
+    );
+}
+
+#[test]
 fn portable_update_download_order_respects_gitcode_preference() {
     let mut asset = portable_update_test_asset("1.2.3", "amd64");
     let (_, display, suffix) = portable_update_asset_platform().unwrap();

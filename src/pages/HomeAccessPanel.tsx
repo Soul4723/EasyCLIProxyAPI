@@ -6,6 +6,7 @@ import geminiIcon from '../assets/icons/gemini.svg';
 import { Tabs } from '../components/Tabs';
 import type { ClientApiProfile } from '../services/clientAccess';
 import { useI18n } from '../i18n';
+import { ScopeLabel } from '../components/ScopeLabel';
 
 type Props = {
   profiles: ClientApiProfile[];
@@ -30,7 +31,7 @@ export function HomeAccessPanel({ profiles, apiKey, keyError, ready, copiedField
   return (
     <section className="panel surface-panel home-access-panel" aria-labelledby="home-access-title">
       <div className="home-panel-heading">
-        <div><h2 id="home-access-title">{t('home.access.title')}</h2><p>{t('home.access.description')}</p></div>
+        <div><div className="home-panel-title"><h2 id="home-access-title">{t('home.access.title')}</h2><ScopeLabel scope="core" /></div><p>{t('home.access.description')}</p></div>
         <span className={`home-connection-state ${ready ? 'ready' : ''}`}>
           <span aria-hidden="true" />{t(ready ? 'kernel.access.connectable' : 'kernel.access.waiting')}
         </span>

@@ -555,6 +555,37 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
+/* Which machine a card acts on (ScopeLabel). */
+.scope-label {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 1px 8px;
+  border: 1px solid var(--theme-d5d2cb);
+  border-radius: 999px;
+  background: var(--theme-fffdf8);
+  color: var(--theme-5f5a53);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.scope-label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope-label svg {
+  flex: none;
+}
+
+.scope-label.host {
+  border-style: dashed;
+}
+
 .state-pill.success {
   border-color: var(--theme-b6d3bd);
   background: var(--theme-eef7f0);

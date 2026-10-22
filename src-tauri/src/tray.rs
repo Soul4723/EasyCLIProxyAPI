@@ -273,16 +273,22 @@ pub(crate) fn windows_tray_presentation(
         } else {
             NativeText::StartCore
         };
+        let origin = status.remote_origin.as_deref().unwrap_or_default();
+        let host = reqwest::Url::parse(origin)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_string))
+            .unwrap_or_else(|| origin.to_string());
+        let with_host = |text| native_text(locale, text).replace("{host}", &host);
         return WindowsTrayPresentation {
-            status_text: native_text(locale, status_text).into(),
+            status_text: with_host(status_text),
             toggle_text: native_text(locale, toggle_text).into(),
             toggle_enabled: controllable && status.installed && !busy,
             restart_enabled: controllable && status.installed && status.running && !busy,
-            tooltip: native_text(
-                locale,
-                if busy { NativeText::TooltipCoreWorking } else { NativeText::TooltipRemoteCore },
-            )
-            .into(),
+            tooltip: if busy {
+                native_text(locale, NativeText::TooltipCoreWorking).into()
+            } else {
+                with_host(NativeText::TooltipRemoteCore)
+            },
         };
     }
     let status_text = if busy {

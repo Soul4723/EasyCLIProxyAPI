@@ -25,6 +25,7 @@
 }
 .home-panel-heading, .home-overview-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .home-panel-heading > div { min-width: 0; }
+.home-panel-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .home-panel-heading { flex-wrap: wrap; align-items: flex-start; }
 .home-runtime-actions { display: flex; flex: none; gap: 4px; }
 .home-dashboard .home-top-grid .panel-heading { flex-direction: row; align-items: flex-start; min-height: 48px; margin: 0; padding: 0; }
