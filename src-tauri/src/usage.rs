@@ -4897,7 +4897,7 @@ pub(crate) fn host_usage_query(encoded: &str) -> Result<(UsageQuery, Option<Stri
     Ok((query, revision))
 }
 
-/// Only reads the host store. No management API or queue subscription occurs here.
+/// Reads the host store and display metadata, never the usage queue or collector.
 pub(crate) async fn host_usage_read(
     app: tauri::AppHandle, kind: String, encoded: String,
 ) -> Result<Value, String> {
@@ -4905,47 +4905,59 @@ pub(crate) async fn host_usage_read(
     query.timeline_utc = true;
     let config = app.state::<GuiConfigState>().snapshot()?;
     let status = app.state::<UsageCollectorState>().status()?;
+    let metadata = sources::host_snapshot(&config).await;
     run_usage_task(move || {
         let root = usage_root_dir()?;
         let mut connection = Connection::open_with_flags(root.join(USAGE_DATABASE_FILE), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|e| e.to_string())?;
         connection.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
         let tx = connection.transaction().map_err(|e| e.to_string())?;
-        host_usage_value(&tx, &root, &config, status, &kind, &query, revision.as_deref())
+        host_usage_value(&tx, &root, &config, status, &kind, &query, revision.as_deref(), Some(&metadata))
     }).await
 }
 
 fn host_usage_value(
     connection: &Connection, root: &Path, config: &GuiConfigFile, mut status: UsageCollectorStatus,
-    kind: &str, query: &UsageQuery, previous: Option<&str>,
+    kind: &str, query: &UsageQuery, previous: Option<&str>, metadata: Option<&sources::Snapshot>,
 ) -> Result<Value, String> {
     let revision: String = connection.query_row(
         "SELECT value FROM usage_metadata WHERE key='remote_revision'", [], |r| r.get(0)
     ).map_err(|e| e.to_string())?;
     // A store replacement must invalidate the client's revision too.
     let identity: String = connection.query_row("SELECT value FROM usage_metadata WHERE key='remote_store_id'", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let (source_registry, source_revision) = host_usage_sources(connection, config)?;
+    let (source_registry, source_revision) = host_usage_sources(connection, config, metadata)?;
     let labels_revision = hash_text(&format!("{}:{source_revision}", serde_json::to_string(config).map_err(|e| e.to_string())?));
     let revision = format!("{identity}:{revision}:{}", &labels_revision[..16]);
     if !matches!(kind, "status" | "storage") && previous == Some(&revision) {
         return Ok(serde_json::json!({"revision": revision, "unchanged": true}));
     }
+    let mut query = query.clone();
+    sources::resolve_remote_group(&mut query, &source_registry);
+    let query = &query;
     let mut data = match kind {
         "overview" => serde_json::to_value(load_usage_overview(connection, query)?),
         "analysis" => {
             let mut analysis = load_usage_analysis_with_notes(connection, query, config, &HashMap::new())?;
-            if !source_registry.is_empty() { sources::apply_analysis(&mut analysis, &source_registry); }
+            sources::apply_analysis(&mut analysis, &source_registry);
             // Raw queue source values can be credentials or local filenames. Filter by upstream instead.
             for source in &mut analysis.sources {
                 source.key = hash_text(&source.key);
-                source.label = usage_source_display(config, "", &source.label);
+                source.label = format!("Source {}", &source.key[..12]);
+            }
+            for upstream in &mut analysis.upstreams {
+                if upstream.category.key.starts_with("group:") {
+                    upstream.category.key = sources::remote_group_key(&upstream.category.label);
+                }
             }
             serde_json::to_value(analysis)
         }
         "events" => {
             let mut events = load_usage_events_with_notes(connection, query, config, &HashMap::new())?;
-            if !source_registry.is_empty() { sources::apply_events(&mut events, &source_registry, config); }
+            sources::apply_events(&mut events, &source_registry, config);
             for item in &mut events.items {
+                if !source_registry.contains_key(item.auth_index.trim()) {
+                    item.source_display = if item.provider.is_empty() { "Unknown source".into() } else { item.provider.clone() };
+                }
                 item.id = item.row_id.clone().unwrap_or_default();
                 item.source = item.source_display.clone();
                 item.api_key_display = mask_api_key(&item.api_key_display);
@@ -5024,17 +5036,23 @@ fn decode_host_events(value: Value) -> Result<UsageEventPage, String> {
     Ok(page)
 }
 
-fn host_usage_sources(connection: &Connection, config: &GuiConfigFile) -> Result<(HashMap<String, sources::Source>, String), String> {
-    if !usage_table_exists(connection, "usage_source_snapshots")? { return Ok((HashMap::new(), String::new())); }
+fn host_usage_sources(connection: &Connection, config: &GuiConfigFile, metadata: Option<&sources::Snapshot>) -> Result<(HashMap<String, sources::Source>, String), String> {
     let scope = hash_text(&management_endpoint(config, "").unwrap_or_default());
-    let mut statement = connection.prepare("SELECT payload FROM usage_source_snapshots WHERE scope=?1 ORDER BY kind").map_err(|e| e.to_string())?;
-    let rows = statement.query_map([scope], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
     let mut result = HashMap::new();
     let mut revision = String::new();
-    for row in rows {
-        let payload = row.map_err(|e| e.to_string())?;
-        revision.push_str(&payload);
-        let entries: HashMap<String, sources::Source> = serde_json::from_str(&payload).map_err(|e| e.to_string())?;
+    for kind in ["oauth", "providers"] {
+        let incoming = metadata.and_then(|snapshot| sources::host_entries(snapshot, kind));
+        let entries = if let Some(entries) = incoming {
+            entries
+        } else if usage_table_exists(connection, "usage_source_snapshots")? {
+            let payload: Option<String> = connection.query_row(
+                "SELECT payload FROM usage_source_snapshots WHERE scope=?1 AND kind=?2", params![scope, kind], |r| r.get(0)
+            ).optional().map_err(|e| e.to_string())?;
+            serde_json::from_str(&payload.unwrap_or_else(|| "{}".into())).map_err(|e| e.to_string())?
+        } else { HashMap::new() };
+        // Stable ordering keeps conditional revisions independent of HashMap iteration.
+        let ordered: BTreeMap<_, _> = entries.iter().collect();
+        revision.push_str(&serde_json::to_string(&ordered).map_err(|e| e.to_string())?);
         result.extend(entries);
     }
     Ok((result, hash_text(&revision)))
@@ -5309,7 +5327,7 @@ mod tests {
     }
 
     fn remote_test_value(connection: &Connection, kind: &str, query: &UsageQuery, previous: Option<&str>) -> Value {
-        host_usage_value(connection, Path::new("/not-exported"), &GuiConfigFile::default(), UsageCollectorStatus::waiting(), kind, query, previous).unwrap()
+        host_usage_value(connection, Path::new("/not-exported"), &GuiConfigFile::default(), UsageCollectorStatus::waiting(), kind, query, previous, None).unwrap()
     }
 
     #[test]

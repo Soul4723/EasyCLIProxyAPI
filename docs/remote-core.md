@@ -160,6 +160,8 @@ All Usage routes accept `q=<URL-encoded JSON UsageQuery>` and optional
 `model`, `provider`, `source`, `upstream`, `api_key_hash`, `failed`, `canceled`,
 `page`/`page_size`, and optional numeric `before_id`, `after_id`, `snapshot_id`.
 Unknown or duplicate parameters, invalid instants and negative cursors get 400.
+`upstream` group selectors returned by Remote analysis are compact
+`source-group:<digest>` tokens, resolved against current host display metadata.
 `page_size` is clamped to 1–200. Normal pages preserve Local's timestamp order;
 ID cursors seek in descending ID order. Use `before_id` to fetch older records,
 `after_id` for records inserted since an ID (including late-arriving timestamps),
@@ -173,7 +175,9 @@ transactional revision (insert/update/delete of events or prices), and a digest
 of the host's label settings invalidate cached results. Reads use a read-only
 SQLite connection and one snapshot transaction. Status always returns data;
 storage is also re-read so a vacuum's disk-size change is not cached. No route
-pulls the core's queue, creates a collector, or writes the database.
+pulls the core's queue, creates a collector, or writes the database. The host
+refreshes sanitized account metadata through read-only management GETs at most
+once a minute, independently of its Usage page; failed reads retain cached labels.
 
 On both host and client, events/overview have a 2 MiB budget, analysis/pricing
 have 512 KiB, and status/storage and other host-control replies retain 64 KiB. An oversized result returns 413:
@@ -187,7 +191,8 @@ rolling windows). Filter changes and manual refresh still check the requested
 view. There is no full-history transfer on polls.
 
 Raw source values can be credentials or local filenames: source category keys
-are hashed; use `upstream` identity for account filtering. Request sources use
+are hashed and their labels use safe hashed fallbacks; use `upstream` identity
+for account filtering. Request sources use
 masked display labels, API keys are masked, request IDs/executor internals are
 omitted, and error bodies are replaced with a privacy note (they may echo
 credentials/paths). Known configured secrets and host paths are scrubbed from

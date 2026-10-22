@@ -1127,6 +1127,30 @@ async fn usage_listener_requires_auth_refuses_browsers_and_supports_conditional_
 }
 
 #[tokio::test]
+async fn usage_large_group_selector_fits_listener_head_limit() {
+    let (address, _, cancel) = start_server(false).await;
+    let connection = CoreConnection {
+        mode: CoreConnectionMode::Remote, host_control_origin: format!("http://{address}"),
+        host_control_key: KEY.into(), ..CoreConnection::default()
+    };
+    let members: Vec<_> = (0..220).map(|i| format!("auth:{i:016x}")).collect();
+    let oversized = serde_json::json!({"upstream": format!("group:{}", serde_json::to_string(&members).unwrap())});
+    let mut url = reqwest::Url::parse("http://host/").unwrap();
+    url.query_pairs_mut().append_pair("q", &oversized.to_string());
+    let path = format!("usage/overview?{}", url.query().unwrap());
+    let (status, _) = host_body(&connection.host_control_origin, KEY, reqwest::Method::GET, &path, STATUS_TIMEOUT, None).await.unwrap();
+    assert_eq!(status, 431, "expanded membership exceeds the unchanged head limit");
+    // Analysis emits this fixed-size token even for hundreds of group members.
+    let query: crate::usage::UsageQuery = serde_json::from_value(serde_json::json!({
+        "upstream": format!("source-group:{:x}", Sha256::digest(b"Shared relay")),
+        "page_size": 200, "before_id": 221, "snapshot_id": 221
+    })).unwrap();
+    let result: serde_json::Value = remote_usage_read(&connection, "overview", &query).await.unwrap();
+    assert_eq!(result["totalRequests"], 42);
+    cancel.cancel();
+}
+
+#[tokio::test]
 async fn usage_client_tells_older_hosts_to_update() {
     let origin = serve_once(404, r#"{"error":"Not found"}"#).await;
     let connection = CoreConnection { mode: CoreConnectionMode::Remote, host_control_origin: origin.trim_end_matches("/checksums.txt").into(),
