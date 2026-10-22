@@ -167,13 +167,15 @@ impl Default for UsageCollectorState {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UsageCollectorStatus {
     state: String,
     message: String,
     last_collected_at: Option<String>,
     total_records: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    revision: Option<String>,
 }
 
 impl UsageCollectorStatus {
@@ -183,6 +185,7 @@ impl UsageCollectorStatus {
             message: "Waiting for kernel startup".to_string(),
             last_collected_at: None,
             total_records: 0,
+            revision: None,
         }
     }
 }
@@ -276,7 +279,7 @@ pub(crate) struct UsageRecord {
     tokens: UsageTokenStats,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct UsageRecordCost {
     total: f64,
     pricing_model: String,
@@ -296,7 +299,8 @@ struct LegacyUsageInboxFile {
     records: Vec<UsageRecord>,
 }
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct UsageQuery {
     #[serde(default)]
     start: Option<String>,
@@ -320,9 +324,17 @@ pub(crate) struct UsageQuery {
     page: Option<usize>,
     #[serde(default)]
     page_size: Option<usize>,
+    #[serde(default)]
+    after_id: Option<i64>,
+    #[serde(default)]
+    before_id: Option<i64>,
+    #[serde(default)]
+    snapshot_id: Option<i64>,
+    #[serde(skip)]
+    timeline_utc: bool,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UsageOverview {
     total_requests: u64,
@@ -356,7 +368,7 @@ pub(crate) struct UsageRepairResult {
     backup_path: Option<String>,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UsageStorageSettings {
     max_database_size_mb: u64,
@@ -414,7 +426,7 @@ struct CostTokens {
     long_cache_creation: u64,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UsagePricing {
     rows: Vec<UsagePriceRow>,
@@ -424,7 +436,7 @@ pub(crate) struct UsagePricing {
     saved_prices: usize,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UsagePriceRow {
     model: String,
@@ -466,7 +478,7 @@ struct UsageCostGroup {
     total_tokens: u64,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UsageTimelineModel {
     key: String,
@@ -475,7 +487,7 @@ struct UsageTimelineModel {
     requests: u64,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UsageTimelinePoint {
     hour: String,
@@ -487,7 +499,7 @@ struct UsageTimelinePoint {
     models: Vec<UsageTimelineModel>,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UsageAnalysis {
     models: Vec<UsageCategory>,
@@ -497,7 +509,7 @@ pub(crate) struct UsageAnalysis {
     upstreams: Vec<UsageUpstream>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct UsageUpstream {
     #[serde(flatten)]
     category: UsageCategory,
@@ -510,7 +522,7 @@ struct UsageUpstream {
 // raw source value that could contain an upstream or client secret.
 const USAGE_UPSTREAM_SQL: &str = "CASE WHEN TRIM(auth_index) != '' THEN 'auth:' || TRIM(auth_index) ELSE 'provider:' || TRIM(provider) END";
 
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UsageCategory {
     key: String,
@@ -520,7 +532,7 @@ struct UsageCategory {
     tokens: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UsageEventPage {
     items: Vec<UsageRecord>,
@@ -528,6 +540,10 @@ pub(crate) struct UsageEventPage {
     page: usize,
     page_size: usize,
     total_pages: usize,
+    #[serde(default)]
+    snapshot_id: i64,
+    #[serde(default)]
+    next_cursor: Option<i64>,
 }
 
 struct UsageSqlFilter {
@@ -667,12 +683,14 @@ fn initialize_usage_storage_at(root: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) async fn repair_usage_cache_records() -> Result<UsageRepairResult, String> {
+pub(crate) async fn repair_usage_cache_records(app: tauri::AppHandle) -> Result<UsageRepairResult, String> {
+    require_local_usage_write(&app)?;
     run_usage_task(|| repair_usage_cache_records_at(&usage_root_dir()?)).await
 }
 
 #[tauri::command]
-pub(crate) async fn get_usage_storage_settings() -> Result<UsageStorageSettings, String> {
+pub(crate) async fn get_usage_storage_settings(app: tauri::AppHandle) -> Result<UsageStorageSettings, String> {
+    if let Some(result) = crate::host_control::forward_usage(&app, "storage", &UsageQuery::default()).await { return result; }
     run_usage_task(|| {
         let root = usage_root_dir()?;
         let connection = open_usage_database_at(&root)?;
@@ -686,6 +704,7 @@ pub(crate) async fn save_usage_storage_settings(
     app: tauri::AppHandle,
     max_database_size_mb: u64,
 ) -> Result<UsageStorageSettings, String> {
+    require_local_usage_write(&app)?;
     let settings = run_usage_task(move || {
         let root = usage_root_dir()?;
         let connection = open_usage_database_at(&root)?;
@@ -707,6 +726,7 @@ pub(crate) async fn shrink_usage_database(
     app: tauri::AppHandle,
     target_database_size_mb: u64,
 ) -> Result<UsageStorageSettings, String> {
+    require_local_usage_write(&app)?;
     let settings = run_usage_task(move || {
         let root = usage_root_dir()?;
         let connection = open_usage_database_at(&root)?;
@@ -804,7 +824,8 @@ fn migrate_usage_database(connection: &mut Connection, root: &Path) -> Result<()
         UsageDatabaseLayout::Empty => initialize_usage_schema(connection),
         UsageDatabaseLayout::CurrentV3 => {
             initialize_usage_schema(connection)?;
-            migrate_usage_event_key_uniqueness(connection)
+            migrate_usage_event_key_uniqueness(connection)?;
+            initialize_usage_revision(connection)
         }
         UsageDatabaseLayout::LegacyV2 => {
             let backup_path = create_usage_migration_backup(connection, root)?;
@@ -1339,6 +1360,7 @@ fn initialize_usage_schema(connection: &Connection) -> Result<(), String> {
             "#,
         )
         .map_err(|error| format!("Failed to initialize SQLite usage records schema: {error}"))?;
+    initialize_usage_revision(connection)?;
     ensure_usage_failure_columns(connection)?;
     ensure_usage_response_model_column(connection)?;
     connection
@@ -1350,6 +1372,20 @@ fn initialize_usage_schema(connection: &Connection) -> Result<(), String> {
     connection
         .pragma_update(None, "user_version", USAGE_DATABASE_SCHEMA_VERSION)
         .map_err(|error| format!("Failed to update SQLite usage records version: {error}"))
+}
+
+fn initialize_usage_revision(connection: &Connection) -> Result<(), String> {
+    connection.execute_batch("INSERT OR IGNORE INTO usage_metadata(key,value) VALUES ('remote_revision', '0'); INSERT OR IGNORE INTO usage_metadata(key,value) VALUES ('remote_store_id', lower(hex(randomblob(16))));")
+        .map_err(|error| error.to_string())?;
+    for table in ["usage_events", "model_prices"] {
+        for action in ["INSERT", "UPDATE", "DELETE"] {
+            connection.execute_batch(&format!(
+                "CREATE TRIGGER IF NOT EXISTS remote_revision_{table}_{action} AFTER {action} ON {table}
+                 BEGIN UPDATE usage_metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = 'remote_revision'; END;"
+            )).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 fn ensure_usage_response_model_column(connection: &Connection) -> Result<(), String> {
@@ -2271,6 +2307,7 @@ fn set_collector_status(
         last_collected_at: last_collected_at
             .or_else(|| previous.and_then(|value| value.last_collected_at)),
         total_records,
+        revision: None,
     });
 }
 
@@ -2934,6 +2971,12 @@ fn build_usage_filter(query: &UsageQuery) -> UsageSqlFilter {
             clauses.push("failed = 0".to_string());
         }
     }
+    for (bound, op) in [(query.after_id, ">"), (query.before_id, "<"), (query.snapshot_id, "<=")] {
+        if let Some(id) = bound {
+            clauses.push(format!("id {op} ?"));
+            params.push(SqlValue::Integer(id));
+        }
+    }
     UsageSqlFilter {
         clause: if clauses.is_empty() {
             String::new()
@@ -2957,14 +3000,17 @@ fn add_text_filter(
 }
 
 #[tauri::command]
-pub(crate) fn get_usage_collector_status(
+pub(crate) async fn get_usage_collector_status(
+    app: tauri::AppHandle,
     state: tauri::State<'_, UsageCollectorState>,
 ) -> Result<UsageCollectorStatus, String> {
+    if let Some(result) = crate::host_control::forward_usage(&app, "status", &UsageQuery::default()).await { return result; }
     state.status()
 }
 
 #[tauri::command]
-pub(crate) async fn get_usage_overview(query: UsageQuery) -> Result<UsageOverview, String> {
+pub(crate) async fn get_usage_overview(app: tauri::AppHandle, query: UsageQuery) -> Result<UsageOverview, String> {
+    if let Some(result) = crate::host_control::forward_usage(&app, "overview", &query).await { return result; }
     run_usage_task(move || load_usage_overview(&open_usage_database()?, &query)).await
 }
 
@@ -3038,17 +3084,20 @@ fn load_usage_overview(
 
     let (estimated_cost, priced_requests) = load_estimated_cost(connection, &filter)?;
 
+    let timezone = if query.timeline_utc { "" } else { ", 'localtime'" };
+    let hour_format = if query.timeline_utc { "%Y-%m-%dT%H:" } else { "%Y-%m-%d-%H-" };
+    let suffix = if query.timeline_utc { ":00Z" } else { "" };
     let timeline_sql = format!(
         r#"
         SELECT
             CASE
                 WHEN timestamp_ms > 0 THEN
-                    strftime('%Y-%m-%d-%H-', datetime(timestamp_ms / 1000, 'unixepoch', 'localtime'))
+                    strftime('{hour_format}', datetime(timestamp_ms / 1000, 'unixepoch'{timezone}))
                     || CASE
-                        WHEN CAST(strftime('%M', datetime(timestamp_ms / 1000, 'unixepoch', 'localtime')) AS INTEGER) < 30
+                        WHEN CAST(strftime('%M', datetime(timestamp_ms / 1000, 'unixepoch'{timezone})) AS INTEGER) < 30
                         THEN '00'
                         ELSE '30'
-                    END
+                    END || '{suffix}'
                 ELSE local_hour || '-00'
             END,
             {USAGE_DISPLAY_MODEL_SQL},
@@ -3730,7 +3779,8 @@ fn upsert_model_price(connection: &Connection, price: &ModelPrice) -> Result<(),
 }
 
 #[tauri::command]
-pub(crate) async fn get_usage_pricing(query: UsageQuery) -> Result<UsagePricing, String> {
+pub(crate) async fn get_usage_pricing(app: tauri::AppHandle, query: UsageQuery) -> Result<UsagePricing, String> {
+    if let Some(result) = crate::host_control::forward_usage(&app, "pricing", &query).await { return result; }
     run_usage_task(move || load_usage_pricing(&open_usage_database()?, &query)).await
 }
 
@@ -3806,7 +3856,8 @@ fn load_usage_pricing(connection: &Connection, query: &UsageQuery) -> Result<Usa
 }
 
 #[tauri::command]
-pub(crate) async fn save_usage_model_price(mut price: ModelPrice) -> Result<(), String> {
+pub(crate) async fn save_usage_model_price(app: tauri::AppHandle, mut price: ModelPrice) -> Result<(), String> {
+    require_local_usage_write(&app)?;
     price.model = price.model.trim().to_string();
     price.source = "manual".to_string();
     price.source_model_id.clear();
@@ -3815,7 +3866,8 @@ pub(crate) async fn save_usage_model_price(mut price: ModelPrice) -> Result<(), 
 }
 
 #[tauri::command]
-pub(crate) async fn delete_usage_model_price(model: String) -> Result<(), String> {
+pub(crate) async fn delete_usage_model_price(app: tauri::AppHandle, model: String) -> Result<(), String> {
+    require_local_usage_write(&app)?;
     run_usage_task(move || {
         let connection = open_usage_database()?;
         connection
@@ -3990,10 +4042,12 @@ async fn fetch_model_price_catalog(
 
 #[tauri::command]
 pub(crate) async fn preview_usage_model_prices(
+    app: tauri::AppHandle,
     query: UsageQuery,
     source: String,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<ModelPriceSyncPreview, String> {
+    require_local_usage_write(&app)?;
     let (source_name, source_url) = match source.as_str() {
         "models-dev" => ("Models.dev", MODEL_PRICE_SYNC_URL),
         "litellm" => ("LiteLLM", LITELLM_PRICE_SYNC_URL),
@@ -4031,7 +4085,8 @@ pub(crate) async fn preview_usage_model_prices(
 }
 
 #[tauri::command]
-pub(crate) async fn apply_usage_model_prices(prices: Vec<ModelPrice>) -> Result<ModelPriceSyncResult, String> {
+pub(crate) async fn apply_usage_model_prices(app: tauri::AppHandle, prices: Vec<ModelPrice>) -> Result<ModelPriceSyncResult, String> {
+    require_local_usage_write(&app)?;
     let mut seen = std::collections::HashSet::new();
     for price in &prices {
         validate_model_price(price)?;
@@ -4080,9 +4135,11 @@ fn normalized_model_tail(value: &str) -> String {
 
 #[tauri::command]
 pub(crate) async fn get_usage_analysis(
+    app: tauri::AppHandle,
     query: UsageQuery,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<UsageAnalysis, String> {
+    if let Some(result) = crate::host_control::forward_usage(&app, "analysis", &query).await { return result; }
     let config = gui_config_state.snapshot()?;
     let metadata = sources::fetch(&config).await;
     run_usage_task(move || {
@@ -4477,9 +4534,13 @@ mod save_usage_events_export_tests {
 
 #[tauri::command]
 pub(crate) async fn get_usage_events(
+    app: tauri::AppHandle,
     query: UsageQuery,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<UsageEventPage, String> {
+    if let Some(result) = crate::host_control::forward_usage::<Value>(&app, "events", &query).await {
+        return decode_host_events(result?);
+    }
     let config = gui_config_state.snapshot()?;
     let metadata = sources::fetch(&config).await;
     run_usage_task(move || {
@@ -4524,10 +4585,11 @@ fn load_usage_events_with_notes(
             cache_creation_tokens, total_tokens, canceled, failure_status,
             failure_body, id, response_model
         FROM usage_events{}
-        ORDER BY timestamp_ms DESC, id DESC
+        ORDER BY {order}
         LIMIT ? OFFSET ?
         "#,
-        filter.clause
+        filter.clause,
+        order = if query.after_id.is_some() || query.before_id.is_some() { "id DESC" } else { "timestamp_ms DESC, id DESC" }
     );
     let mut values = filter.params;
     values.push(SqlValue::Integer(page_size as i64));
@@ -4557,7 +4619,11 @@ fn load_usage_events_with_notes(
         item.source_display = identity;
         item.cost = usage_record_cost(item, &prices);
     }
+    let snapshot_id = query.snapshot_id.unwrap_or(connection.query_row("SELECT COALESCE(MAX(id),0) FROM usage_events", [], |r| r.get(0)).map_err(|e| e.to_string())?);
+    let next_cursor = items.last().and_then(|item| item.row_id.as_deref()).and_then(|id| id.parse().ok());
     Ok(UsageEventPage {
+        snapshot_id,
+        next_cursor,
         items,
         total,
         page,
@@ -4793,6 +4859,185 @@ fn usage_source_display(config: &GuiConfigFile, provider: &str, source: &str) ->
     } else {
         source.to_string()
     }
+}
+
+
+fn require_local_usage_write(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.state::<GuiConfigState>().snapshot()?.connection_mode == crate::CoreConnectionMode::Remote {
+        return Err("Usage prices and storage are read-only here; change them in EasyCLIProxyAPI on the core's computer".into());
+    }
+    Ok(())
+}
+
+/// Validated GET query. JSON is URL-encoded in `q`; it is never a request body.
+pub(crate) fn host_usage_query(encoded: &str) -> Result<(UsageQuery, Option<String>), String> {
+    let url = reqwest::Url::parse(&format!("http://host/?{encoded}")).map_err(|_| "Invalid usage query")?;
+    let mut query = UsageQuery::default();
+    let mut revision = None;
+    let mut seen = HashSet::new();
+    for (key, value) in url.query_pairs() {
+        if !seen.insert(key.to_string()) { return Err("Duplicate usage query parameter".into()); }
+        match key.as_ref() {
+            "q" => query = serde_json::from_str(&value).map_err(|_| "Invalid usage query")?,
+            "revision" if value.len() <= 128 => revision = Some(value.to_string()),
+            _ => return Err("Unknown usage query parameter".into()),
+        }
+    }
+    for time in [&query.start, &query.end].into_iter().flatten() {
+        if parse_timestamp_millis(time).is_none() { return Err("Invalid usage time window".into()); }
+    }
+    if query.start.as_deref().and_then(parse_timestamp_millis).zip(query.end.as_deref().and_then(parse_timestamp_millis)).is_some_and(|(start, end)| start > end) {
+        return Err("Invalid usage time window".into());
+    }
+    if query.after_id.is_some_and(|v| v < 0) || query.before_id.is_some_and(|v| v < 0)
+        || query.snapshot_id.is_some_and(|v| v < 0) || query.page.is_some_and(|v| v > 1_000_000) {
+        return Err("Invalid usage cursor or page".into());
+    }
+    query.page_size = Some(query.page_size.unwrap_or(50).clamp(1, 200));
+    Ok((query, revision))
+}
+
+/// Only reads the host store. No management API or queue subscription occurs here.
+pub(crate) async fn host_usage_read(
+    app: tauri::AppHandle, kind: String, encoded: String,
+) -> Result<Value, String> {
+    let (mut query, revision) = host_usage_query(&encoded)?;
+    query.timeline_utc = true;
+    let config = app.state::<GuiConfigState>().snapshot()?;
+    let status = app.state::<UsageCollectorState>().status()?;
+    run_usage_task(move || {
+        let root = usage_root_dir()?;
+        let mut connection = Connection::open_with_flags(root.join(USAGE_DATABASE_FILE), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| e.to_string())?;
+        connection.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
+        let tx = connection.transaction().map_err(|e| e.to_string())?;
+        host_usage_value(&tx, &root, &config, status, &kind, &query, revision.as_deref())
+    }).await
+}
+
+fn host_usage_value(
+    connection: &Connection, root: &Path, config: &GuiConfigFile, mut status: UsageCollectorStatus,
+    kind: &str, query: &UsageQuery, previous: Option<&str>,
+) -> Result<Value, String> {
+    let revision: String = connection.query_row(
+        "SELECT value FROM usage_metadata WHERE key='remote_revision'", [], |r| r.get(0)
+    ).map_err(|e| e.to_string())?;
+    // A store replacement must invalidate the client's revision too.
+    let identity: String = connection.query_row("SELECT value FROM usage_metadata WHERE key='remote_store_id'", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let (source_registry, source_revision) = host_usage_sources(connection, config)?;
+    let labels_revision = hash_text(&format!("{}:{source_revision}", serde_json::to_string(config).map_err(|e| e.to_string())?));
+    let revision = format!("{identity}:{revision}:{}", &labels_revision[..16]);
+    if !matches!(kind, "status" | "storage") && previous == Some(&revision) {
+        return Ok(serde_json::json!({"revision": revision, "unchanged": true}));
+    }
+    let mut data = match kind {
+        "overview" => serde_json::to_value(load_usage_overview(connection, query)?),
+        "analysis" => {
+            let mut analysis = load_usage_analysis_with_notes(connection, query, config, &HashMap::new())?;
+            if !source_registry.is_empty() { sources::apply_analysis(&mut analysis, &source_registry); }
+            // Raw queue source values can be credentials or local filenames. Filter by upstream instead.
+            for source in &mut analysis.sources {
+                source.key = hash_text(&source.key);
+                source.label = usage_source_display(config, "", &source.label);
+            }
+            serde_json::to_value(analysis)
+        }
+        "events" => {
+            let mut events = load_usage_events_with_notes(connection, query, config, &HashMap::new())?;
+            if !source_registry.is_empty() { sources::apply_events(&mut events, &source_registry, config); }
+            for item in &mut events.items {
+                item.id = item.row_id.clone().unwrap_or_default();
+                item.source = item.source_display.clone();
+                item.api_key_display = mask_api_key(&item.api_key_display);
+                item.request_id.clear();
+                item.executor_type.clear();
+                if let Ok(mut url) = reqwest::Url::parse(&item.endpoint) {
+                    let _ = url.set_username("");
+                    let _ = url.set_password(None);
+                    url.set_query(None);
+                    url.set_fragment(None);
+                    item.endpoint = url.to_string();
+                }
+                // Upstream error bodies are untrusted and can echo credentials and host paths.
+                if !item.failure_body.is_empty() { item.failure_body = "Error body omitted from remote usage for privacy".into(); }
+            }
+            serde_json::to_value(events)
+        }
+        "pricing" => serde_json::to_value(load_usage_pricing(connection, query)?),
+        "storage" => serde_json::to_value(load_usage_storage_settings(connection, root, 0)?),
+        "status" => {
+            status.message = match status.state.as_str() {
+                "collecting" => "The host is collecting usage", "error" => "The host usage collector needs attention",
+                _ => "The host is waiting for its core",
+            }.into();
+            status.revision = Some(revision.clone());
+            serde_json::to_value(status)
+        }
+        _ => return Err("Unknown usage view".into()),
+    }.map_err(|e| e.to_string())?;
+    let mut secrets = vec![config.management_secret_key.clone(), config.host_control_key.clone()];
+    secrets.extend(config.api_keys.iter().map(|entry| entry.key.clone()));
+    collect_usage_secrets(&serde_json::to_value(config).map_err(|e| e.to_string())?, &mut secrets);
+    scrub_host_usage(&mut data, &secrets);
+    Ok(serde_json::json!({"revision": revision, "data": data}))
+}
+
+fn scrub_host_usage(value: &mut Value, secrets: &[String]) {
+    match value {
+        Value::String(text) => {
+            for secret in secrets.iter().filter(|secret| !secret.is_empty()) { *text = text.replace(secret, "[redacted]"); }
+            if (text.starts_with('/') && !text.starts_with("/v1/") && !text.starts_with("/v8/"))
+                || ["/home/", "/Users/", "/tmp/", "/etc/", "/root/", "/var/"].iter().any(|path| text.contains(path)) || text.contains(":\\") || text.starts_with("\\\\") {
+                *text = "[host path omitted]".into();
+            } else if text.starts_with("sk-") || text.starts_with("AIza") || text.starts_with("key-") {
+                *text = mask_api_key(text);
+            }
+        }
+        Value::Array(items) => for item in items { scrub_host_usage(item, secrets); },
+        Value::Object(items) => for item in items.values_mut() { scrub_host_usage(item, secrets); },
+        _ => {}
+    }
+}
+
+fn collect_usage_secrets(value: &Value, secrets: &mut Vec<String>) {
+    match value {
+        Value::Object(entries) => for (name, value) in entries {
+            let name = name.to_ascii_lowercase();
+            if name == "key" || name.contains("api-key") || name.contains("secret") || name.contains("token") || name.contains("password") {
+                if let Some(secret) = value.as_str().filter(|v| !v.is_empty()) { secrets.push(secret.into()); }
+            }
+            collect_usage_secrets(value, secrets);
+        },
+        Value::Array(items) => for item in items { collect_usage_secrets(item, secrets); },
+        _ => {}
+    }
+}
+
+// Imported queue records never trust costs; the read-only host response is a different boundary.
+fn decode_host_events(value: Value) -> Result<UsageEventPage, String> {
+    let mut page: UsageEventPage = serde_json::from_value(value.clone()).map_err(|_| "Invalid remote usage events")?;
+    if let Some(items) = value["items"].as_array() {
+        for (record, wire) in page.items.iter_mut().zip(items) {
+            record.cost = serde_json::from_value(wire["cost"].clone()).map_err(|_| "Invalid remote usage cost")?;
+        }
+    }
+    Ok(page)
+}
+
+fn host_usage_sources(connection: &Connection, config: &GuiConfigFile) -> Result<(HashMap<String, sources::Source>, String), String> {
+    if !usage_table_exists(connection, "usage_source_snapshots")? { return Ok((HashMap::new(), String::new())); }
+    let scope = hash_text(&management_endpoint(config, "").unwrap_or_default());
+    let mut statement = connection.prepare("SELECT payload FROM usage_source_snapshots WHERE scope=?1 ORDER BY kind").map_err(|e| e.to_string())?;
+    let rows = statement.query_map([scope], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    let mut result = HashMap::new();
+    let mut revision = String::new();
+    for row in rows {
+        let payload = row.map_err(|e| e.to_string())?;
+        revision.push_str(&payload);
+        let entries: HashMap<String, sources::Source> = serde_json::from_str(&payload).map_err(|e| e.to_string())?;
+        result.extend(entries);
+    }
+    Ok((result, hash_text(&revision)))
 }
 
 #[cfg(test)]
@@ -5061,6 +5306,103 @@ mod tests {
 
         state.apply_record_changes(0, 100);
         assert_eq!(state.status().unwrap().total_records, 0);
+    }
+
+    fn remote_test_value(connection: &Connection, kind: &str, query: &UsageQuery, previous: Option<&str>) -> Value {
+        host_usage_value(connection, Path::new("/not-exported"), &GuiConfigFile::default(), UsageCollectorStatus::waiting(), kind, query, previous).unwrap()
+    }
+
+    #[test]
+    fn remote_usage_cursors_are_bounded_and_revision_covers_inserts_edits_and_deletes() {
+        let mut db = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&db).unwrap();
+        let records: Vec<_> = (0..405).map(|i| sample_record(&format!("remote-{i}"), "2026-10-20T12:00:00Z", "model-a")).collect();
+        insert_usage_records(&mut db, &records).unwrap();
+        let (query, _) = host_usage_query("q=%7B%22page_size%22:5000,%22before_id%22:9999%7D").unwrap();
+        let first = remote_test_value(&db, "events", &query, None);
+        assert_eq!(first["data"]["items"].as_array().unwrap().len(), 200);
+        let revision = first["revision"].as_str().unwrap();
+        assert_eq!(remote_test_value(&db, "overview", &query, Some(revision))["unchanged"], true);
+        let query2 = UsageQuery { before_id: first["data"]["nextCursor"].as_i64(), snapshot_id: first["data"]["snapshotId"].as_i64(), ..query.clone() };
+        insert_usage_records(&mut db, &[sample_record("new-record", "2026-10-20T13:00:00Z", "model-a")]).unwrap();
+        let second = remote_test_value(&db, "events", &query2, None);
+        assert_eq!(second["data"]["items"].as_array().unwrap().len(), 200);
+        assert_ne!(second["revision"], first["revision"]);
+        assert!(second["data"]["items"][0]["row_id"].as_str().unwrap().parse::<i64>().unwrap() < first["data"]["nextCursor"].as_i64().unwrap());
+        let after = UsageQuery { after_id: Some(405), ..Default::default() };
+        assert_eq!(remote_test_value(&db, "events", &after, None)["data"]["total"], 1);
+        db.execute("UPDATE usage_events SET model='edited' WHERE id=1", []).unwrap();
+        assert_ne!(remote_test_value(&db, "overview", &query, None)["revision"], second["revision"]);
+        let updated = remote_test_value(&db, "overview", &query, None);
+        db.execute("DELETE FROM usage_events WHERE id=1", []).unwrap();
+        assert_ne!(remote_test_value(&db, "overview", &query, None)["revision"], updated["revision"]);
+        let before_price = remote_test_value(&db, "pricing", &query, None);
+        upsert_model_price(&db, &ModelPrice { model: "model-a".into(), prompt: 1.0, prompt_configured: true, ..Default::default() }).unwrap();
+        assert_ne!(remote_test_value(&db, "pricing", &query, None)["revision"], before_price["revision"]);
+        let utc_query = UsageQuery { timeline_utc: true, ..Default::default() };
+        let utc = remote_test_value(&db, "overview", &utc_query, None);
+        assert!(utc["data"]["timeline"].as_array().unwrap().iter().all(|point| point["hour"].as_str().unwrap().ends_with('Z')));
+        assert!(host_usage_query("q=%7B%22after_id%22:-1%7D").is_err());
+        assert!(host_usage_query("q=%7B%22start%22:%22invalid%22%7D").is_err());
+        assert!(host_usage_query("q=%7B%22typo%22:1%7D").is_err());
+        assert!(host_usage_query("revision=a&revision=b").is_err());
+    }
+
+    #[test]
+    fn remote_usage_wire_omits_paths_raw_sources_and_error_secrets_and_keeps_host_costs() {
+        let mut db = Connection::open_in_memory().unwrap();
+        initialize_usage_schema(&db).unwrap();
+        let mut record = sample_record("private-request", "2026-10-20T12:00:00Z", "model-a");
+        record.source = "sk-upstream-secret-0123456789abcdef".into();
+        record.failure_body = "Bearer arbitrary-secret /tmp/host-private".into();
+        record.api_key_display = "sk-client-secret-0123456789abcdef".into();
+        record.endpoint = "/home/host/private".into();
+        insert_usage_records(&mut db, &[record]).unwrap();
+        let events = remote_test_value(&db, "events", &UsageQuery::default(), None);
+        let wire = events.to_string();
+        for secret in ["sk-upstream-secret-0123456789abcdef", "sk-client-secret-0123456789abcdef", "arbitrary-secret", "/home/host", "/tmp/host-private", "private-request"] { assert!(!wire.contains(secret), "wire leaked {secret}"); }
+        let page = decode_host_events(events["data"].clone()).unwrap();
+        assert_eq!(page.items.len(), 1);
+        let mut with_cost = events["data"].clone();
+        with_cost["items"][0]["cost"] = serde_json::json!({"total": 2.5, "pricing_model":"host-model"});
+        assert_eq!(decode_host_events(with_cost).unwrap().items[0].cost.as_ref().unwrap().total, 2.5);
+        enqueue_usage_queue_items(&mut db, "host-test", vec![serde_json::json!({"model":"queued-but-not-collected"})]).unwrap();
+        let inbox: i64 = db.query_row("SELECT COUNT(*) FROM usage_inbox", [], |r| r.get(0)).unwrap();
+        db.pragma_update(None, "query_only", true).unwrap();
+        let before: i64 = db.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0)).unwrap();
+        for kind in ["overview", "analysis", "pricing", "status"] { remote_test_value(&db, kind, &UsageQuery::default(), None); }
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get::<_, i64>(0)).unwrap(), before);
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM usage_inbox", [], |r| r.get::<_, i64>(0)).unwrap(), inbox);
+    }
+
+    #[test]
+    #[ignore = "manual remote Usage payload/latency measurement"]
+    fn remote_usage_benchmark() {
+        let root = test_root("remote-benchmark");
+        let mut db = open_test_database(&root);
+        let records: Vec<_> = (0..100_000).map(|i| {
+            let mut record = sample_record(&format!("bench-{i}"), &format!("2026-10-20T{:02}:{:02}:00Z", i % 24, (i / 24 % 2) * 30), &format!("model-{}", i % 12));
+            record.source = format!("account-{}@example.test", i % 24);
+            record.provider = ["codex", "claude", "gemini"][i % 3].into();
+            record.tokens.input_tokens = 1000;
+            record.tokens.output_tokens = 400;
+            record.tokens.total_tokens = 1400;
+            record
+        }).collect();
+        insert_usage_records(&mut db, &records).unwrap();
+        let query = UsageQuery { timeline_utc: true, start: Some("2026-10-20T00:00:00Z".into()), end: Some("2026-10-21T00:00:00Z".into()), page_size: Some(200), ..Default::default() };
+        for kind in ["overview", "analysis", "events", "pricing", "status"] {
+            let start = std::time::Instant::now();
+            let value = remote_test_value(&db, kind, &query, None);
+            let bytes = value.to_string().len();
+            let elapsed = start.elapsed();
+            let start = std::time::Instant::now();
+            let unchanged = remote_test_value(&db, kind, &query, value["revision"].as_str());
+            println!("remote-usage {kind}: rows=100000 bytes={bytes} elapsed={elapsed:?}; conditional_bytes={} conditional_elapsed={:?}", unchanged.to_string().len(), start.elapsed());
+            assert!(bytes < 2 * 1024 * 1024);
+        }
+        drop(db);
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn test_root(name: &str) -> PathBuf {

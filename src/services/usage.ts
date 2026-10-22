@@ -7,6 +7,8 @@ export type UsageEventPage = {
   page: number;
   pageSize: number;
   totalPages: number;
+  snapshotId?: number;
+  nextCursor?: number | null;
 };
 
 export type UsageRecord = {
@@ -57,6 +59,9 @@ export type UsageEventQuery = {
   canceled?: boolean;
   page?: number;
   page_size?: number;
+  after_id?: number;
+  before_id?: number;
+  snapshot_id?: number;
 };
 
 export type CollectorStatus = {
@@ -64,6 +69,7 @@ export type CollectorStatus = {
   message: string;
   lastCollectedAt: string | null;
   totalRecords: number;
+  revision?: string;
 };
 
 export type UsageAnalysis = {
@@ -94,6 +100,9 @@ export type UsageQuery = {
   canceled?: boolean;
   page?: number;
   page_size?: number;
+  after_id?: number;
+  before_id?: number;
+  snapshot_id?: number;
 };
 
 export type UsageOverview = {

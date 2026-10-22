@@ -1353,19 +1353,30 @@ export function createBrowserMockRuntime(
       }
       case 'submit_oauth_callback': return null;
 
-      case 'get_usage_collector_status': return {
-        state: state.coreStatus.ready ? 'collecting' : 'waiting-core',
-        message: state.coreStatus.ready ? 'Browser Mock is collecting usage records' : 'Waiting for the core to start',
-        lastCollectedAt: new Date().toISOString(),
-        totalRecords: state.usageOverview.totalRequests,
-      };
-      case 'get_usage_overview': return clone(state.usageOverview);
+      case 'get_usage_collector_status': {
+        if (coreConnection.mode === 'remote' && !remoteHostControl) throw new Error('Set up remote host control to read host usage');
+        return {
+          state: state.coreStatus.ready ? 'collecting' : 'waiting-core',
+          message: remoteHostControl ? 'The host is collecting usage' : 'Browser Mock is collecting usage records',
+          lastCollectedAt: new Date().toISOString(),
+          totalRecords: state.usageOverview.totalRequests,
+          revision: remoteHostControl ? 'host-store:1' : undefined,
+        };
+      }
+      case 'get_usage_overview': {
+        if (coreConnection.mode === 'remote' && !remoteHostControl) throw new Error('Set up remote host control to read host usage');
+        return clone({ ...state.usageOverview, ...(remoteHostControl ? { totalRequests: 900, successCount: 810, failureCount: 90, canceledCount: 0, successRate: 90 } : {}) });
+      }
       case 'get_usage_analysis': return clone(state.analysis);
       case 'get_usage_events': {
         const query = asObject(payload.query);
         const page = Math.max(1, readNumber(query.page, 1));
         const pageSize = Math.max(1, readNumber(query.page_size, 50));
         const events = state.usageEvents.filter(event => {
+          const id = Number(event.row_id);
+          if (typeof query.before_id === 'number' && id >= query.before_id) return false;
+          if (typeof query.after_id === 'number' && id <= query.after_id) return false;
+          if (typeof query.snapshot_id === 'number' && id > query.snapshot_id) return false;
           for (const key of ['model', 'provider', 'source', 'api_key_hash'] as const) {
             if (query[key] && event[key] !== query[key]) return false;
           }
@@ -1376,9 +1387,13 @@ export function createBrowserMockRuntime(
           return (!query.start || timestamp >= Date.parse(String(query.start)))
             && (!query.end || timestamp <= Date.parse(String(query.end)));
         });
+        if (query.before_id !== undefined || query.after_id !== undefined) events.sort((a, b) => Number(b.row_id) - Number(a.row_id));
         const start = (page - 1) * pageSize;
+        const items = events.slice(start, start + pageSize);
         return {
-          items: clone(events.slice(start, start + pageSize)),
+          snapshotId: query.snapshot_id ?? Math.max(0, ...state.usageEvents.map(event => Number(event.row_id))),
+          nextCursor: items.length ? Number(items[items.length - 1].row_id) : null,
+          items: clone(items),
           total: events.length,
           page,
           pageSize,

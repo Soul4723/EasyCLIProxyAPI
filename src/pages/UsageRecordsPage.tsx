@@ -1,3 +1,5 @@
+import { useRemoteMode } from '../coreRuntime';
+import { getCoreConnection } from '../services/coreConnection';
 import { pollWhileActive, windowActivity } from '../services/windowActivity';
 import { Notice } from '../components/Notice';
 import { EmptyState } from '../components/EmptyState';
@@ -184,6 +186,14 @@ const filterOptions = (items: UsageCategory[]) => items.filter((item) => item.ke
 export function UsageRecordsPage() {
   const { t } = useI18n();
   const privacy = usePrivacyMask();
+  const remote = useRemoteMode();
+  const [usageHost, setUsageHost] = useState('');
+  useEffect(() => {
+    if (remote) void getCoreConnection()
+      .then(connection => setUsageHost(new URL(connection.hostControlOrigin || connection.managementOrigin).host))
+      .catch(() => {});
+  }, [remote]);
+  const lastRemoteLoad = useRef({ revision: '', at: 0, scope: '' });
   const [activeTab, setActiveTab] = useState<UsageTab>(loadTab);
   const [range, setRange] = useState<UsageRange>(loadRange);
   const [customStart, setCustomStart] = useState('');
@@ -267,6 +277,14 @@ export function UsageRecordsPage() {
       if (!quiet) setLoading(true);
       try {
         const statusRequest = getUsageCollectorStatus();
+        const nextCollectorStatus = remote ? await statusRequest : null;
+        const scope = JSON.stringify([activeTab, filterScopeKey, model, source, apiKeyHash, result, page, pageSize]);
+        const previous = lastRemoteLoad.current;
+        if (remote && quiet && nextCollectorStatus?.revision && previous.revision === nextCollectorStatus.revision
+          && previous.scope === scope && Date.now() - previous.at < 60_000) {
+          if (requestId === requestIdRef.current) setStatus(nextCollectorStatus);
+          return;
+        }
         const filtersChanged = loadedFilterScopeKeyRef.current !== filterScopeKey;
         // Refresh explicitly and periodically: a fixed time range can still gain
         // new keys, and configured remarks can change without new usage records.
@@ -330,6 +348,7 @@ export function UsageRecordsPage() {
         }
         if (filtersChanged) loadedFilterScopeKeyRef.current = filterScopeKey;
         if (refreshOptions) optionsLoadedAtRef.current = Date.now();
+        lastRemoteLoad.current = { revision: nextCollectorStatus?.revision ?? '', at: Date.now(), scope };
         setError('');
       } catch (requestError) {
         if (requestId === requestIdRef.current) setError(String(requestError));
@@ -337,7 +356,7 @@ export function UsageRecordsPage() {
         if (requestId === requestIdRef.current) setLoading(false);
       }
     },
-    [activeTab, buildQueries, filterScopeKey, page, pageSize, model, source, apiKeyHash, result]
+    [activeTab, buildQueries, filterScopeKey, page, pageSize, model, source, apiKeyHash, result, remote]
   );
 
   const loadData = useCallback(
@@ -484,6 +503,8 @@ export function UsageRecordsPage() {
 
   return (
     <section className="page management-page usage-records-page" data-active-tab={activeTab}>
+      {remote ? <p role="note">{t('usage.remote.recordedBy', { host: privacy.text(usageHost) })}</p> : null}
+      {remote && error && (overview || events || pricing) ? <p role="note">{t('usage.remote.stale')}</p> : null}
       {error ? <MessageNotice message={error} onDismiss={() => setError('')} /> : null}
 
       <div className="usage-topbar">
@@ -498,7 +519,7 @@ export function UsageRecordsPage() {
             <span className="status-dot" />
             <strong>
               {status?.state === 'collecting'
-                ? t('usage.collector.collecting')
+                ? t(remote ? 'usage.remote.collecting' : 'usage.collector.collecting')
                 : status?.state === 'error'
                 ? t('usage.collector.error')
                 : t('usage.collector.waiting')}
@@ -557,6 +578,7 @@ export function UsageRecordsPage() {
 function UsageDataManagementView() {
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { t } = useI18n();
+  const remote = useRemoteMode();
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<UsageRepairResult | null>(null);
   const [error, setError] = useState('');
@@ -666,6 +688,8 @@ function UsageDataManagementView() {
   };
 
   return (
+    <fieldset disabled={remote} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }} title={remote ? t('usage.remote.readOnly') : undefined}>
+    {remote ? <p role="note">{t('usage.remote.readOnly')}</p> : null}
     <section className="panel surface-card usage-data-management-panel">
       {confirmationDialog}
       <div className="usage-data-management-heading">
@@ -773,6 +797,7 @@ function UsageDataManagementView() {
         </>
       ) : null}
     </section>
+    </fieldset>
   );
 }
 
@@ -1394,6 +1419,7 @@ function PricingView({
 }) {
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { t } = useI18n();
+  const remote = useRemoteMode();
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState<PriceDraft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1526,6 +1552,8 @@ function PricingView({
   };
 
   return (
+    <>
+    {remote ? <p role="note">{t('usage.remote.readOnly')}</p> : null}
     <section className="panel surface-card usage-pricing-panel">
       {confirmationDialog}
       <div className="usage-pricing-toolbar">
@@ -1547,7 +1575,7 @@ function PricingView({
               placeholder={t('usage.pricing.search')}
               aria-label={t('usage.pricing.search')}
             />
-            <button type="button" className="secondary-button compact-button" onClick={() => setDraft(emptyPriceDraft())}>
+            <button type="button" className="secondary-button compact-button" disabled={remote} title={remote ? t('usage.remote.readOnly') : undefined} onClick={() => setDraft(emptyPriceDraft())}>
               {t('usage.pricing.add')}
             </button>
           </div>
@@ -1556,7 +1584,7 @@ function PricingView({
               <option value="models-dev">Models.dev</option>
               <option value="litellm">LiteLLM</option>
             </Select>
-            <button type="button" className="primary-button compact-button" disabled={syncing} onClick={() => void previewPrices()}>
+            <button type="button" className="primary-button compact-button" disabled={remote || syncing} onClick={() => void previewPrices()}>
               {syncing ? t('usage.pricing.syncing') : t('usage.pricing.sync')}
             </button>
           </div>
@@ -1712,7 +1740,8 @@ function PricingView({
                       <button
                         type="button"
                         className="icon-button"
-                        title={t('common.edit')}
+                        disabled={remote}
+                        title={remote ? t('usage.remote.readOnly') : t('common.edit')}
                         aria-label={`${t('common.edit')}: ${row.model}`}
                         onClick={() => setDraft(priceDraftFor(row.model, row.price))}
                       >
@@ -1722,7 +1751,8 @@ function PricingView({
                         <button
                           type="button"
                           className="icon-button danger"
-                          title={t('common.delete')}
+                          disabled={remote}
+                          title={remote ? t('usage.remote.readOnly') : t('common.delete')}
                           aria-label={`${t('common.delete')}: ${row.model}`}
                           onClick={() => void deletePrice(row.model)}
                         >
@@ -1740,6 +1770,7 @@ function PricingView({
         <UsageEmpty />
       )}
     </section>
+    </>
   );
 }
 

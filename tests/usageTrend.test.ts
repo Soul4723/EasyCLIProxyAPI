@@ -326,3 +326,12 @@ describe('usage trend helpers', () => {
     expect(formatTrendRangeLabel({ ...hourPoint, end: new Date(2026, 8, 15, 0, 0, 0) }, 'en', 'day')).toMatch(/9\/14|14\/9/);
   });
 });
+
+test('remote UTC buckets preserve their instant across different host/client timezones', () => {
+  const utc = '2026-10-20T12:30:00Z';
+  expect(parseLocalHourKey(utc)?.getTime()).toBe(Date.parse(utc));
+  const series = buildUsageTrendSeries([{ hour: utc, requests: 1, success: 1, failure: 0, canceled: 0, tokens: 42 }],
+    { start: '2026-10-20T12:00:00Z', end: '2026-10-20T13:00:00Z' });
+  expect(series.totals.tokens).toBe(42);
+  expect(series.points.find(point => point.tokens === 42)?.start.getTime()).toBe(Date.parse(utc));
+});
