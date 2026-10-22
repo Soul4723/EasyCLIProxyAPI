@@ -77,7 +77,7 @@ Start, Stop and Restart on the host behave exactly like pressing them there.
 
 Also through reachable host control:
 
-- **Version Management** opens. Checking for the latest core and installing a
+- **Core versions:** checking for the latest core and installing a
   version (or the latest) run on the host, with the host's own download
   source, platform, staged download, rollback and restart of a running core,
   under its core-operation lock. A remote install **requires** the official
@@ -91,13 +91,16 @@ Also through reachable host control:
   started, on the host it started on, and the connection cannot be changed
   until it finishes. An install already running when the page opens (from the
   host itself or another computer) is followed until it ends. This computer's
-  download source, custom mirrors and bundled core do not apply and are
-  disabled.
-- **Start Core on Launch** (Advanced Features → App preferences) shows and
-  changes the host app's own setting at once. This computer's saved value is
-  kept for Local mode.
+  download source and custom mirrors apply only to this app's updates, not the
+  remote core. **Install Bundled Core** is hidden in Remote mode.
+- **Start Core on Launch** is under **Advanced Features → App preferences →
+  Host app settings**. It changes the host app's own setting at once. This
+  computer's App preferences card does not show that switch in Remote mode;
+  its saved value is kept for Local mode.
+- **Usage and Home success rate** read the host app's recorded history through
+  read-only routes. See [Available remotely](#available-remotely).
 - The **tray** (Linux and Windows) offers Start/Stop and Restart, and reads
-  "stopped on host" when the core is down but the host answers.
+  `Core on <host>: stopped` when the core is down but the host answers.
 
 ### Security model
 
@@ -212,6 +215,13 @@ Remote mode keeps the same pages, navigation and cards as Local; only the core
 they talk to changes. Values come from the remote core, or show "—" with a
 reason; this computer's local data is never shown as the remote core's.
 
+Scope labels say which machine a card or control acts on: `This computer · <hostname>`
+for this app and its agent clients, `Core · <host>` for the selected core,
+and `App on <host>` for the host app. App preferences has
+separate cards for this computer and the host app. In Remote mode, **Remote
+control of this core** only explains why this computer's listener is unavailable.
+Agents shows **Agent clients: This computer → Core** with the machine labels.
+
 - **Home:** credential, provider-key and model counts come from the remote core.
   Model Health checks the remote core's models through its client API
   (management origin + `/v1`) with the first client key configured on the remote
@@ -229,8 +239,8 @@ reason; this computer's local data is never shown as the remote core's.
   control, Usage stays disabled with setup instructions and Home success rate
   remains unknown. Unreachable/old hosts report their specific error; a failed
   read never falls back to this computer's store.
-- **Advanced Features:** every category shows the remote core's current settings
-  (read from its `config.yaml` through the management API) and saves changes on
+- **Advanced Features:** core settings categories show the remote core's current
+  settings (read from its `config.yaml` through the management API) and save changes on
   that core: client keys, proxy, routing, retry, logging and diagnostics, the
   structured settings editor, model aliases and sensitive words. See
   [Editing the remote core's settings](#editing-the-remote-cores-settings).
@@ -240,6 +250,11 @@ reason; this computer's local data is never shown as the remote core's.
 - **Agents, Beginner Mode and Codex sessions:** this computer's agent clients,
   pointed at the remote core. See
   [Agent clients on this computer](#agent-clients-on-this-computer).
+- **Version Management** opens even without host control. The Desktop
+  Application card updates this app on this computer; the download source and
+  custom mirrors apply here. The core card identifies the remote core and needs
+  reachable [remote host control](#remote-host-control) to check or install
+  core versions. It uses the host's download settings instead.
 
 ## Editing the remote core's settings
 
@@ -301,11 +316,9 @@ instead.
 These stay visible in place but are disabled, with the reason:
 
 - Start, Stop and Restart (Home, the plugin page's Restart core, the structured
-  editor's Restart now and the tray), Version Management and Start Core on Launch
-  without [remote host control](#remote-host-control), or while the host does not
-  answer.
-- Installing the bundled core, and this computer's download source and mirrors,
-  while Remote: they belong to this computer.
+  editor's Restart now and the tray), core version checks and installs, and the
+  host app's Start Core on Launch without
+  [remote host control](#remote-host-control), or while the host does not answer.
 - Usage and Home success rate without remote host control; reading the core's
   draining queue is never a fallback. The non-draining management API's per-key
   aggregates cannot supply the host's request details, history, charts or prices.
@@ -316,8 +329,10 @@ These stay visible in place but are disabled, with the reason:
   Store plugins install through the management API as in Local.
 - The remote core's listen address, port, TLS and management key (see above).
 
-Silent Launch is hidden and ignored in Remote mode: it keeps a locally hosted core
-in the tray, and there is none.
+Install Bundled Core is hidden in Remote mode: it installs the core bundled with
+this app on this computer, not the remote host. Silent Launch is hidden and
+ignored in Remote mode: it keeps a locally hosted core in the tray, and there is
+none.
 
 Select **Local core** and choose **Use local core** to return to the existing
 local core configuration. This computer's Start Core on Launch and Silent Launch

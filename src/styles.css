@@ -1066,7 +1066,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  flex: 1 1 120px;
+  flex: 1 0 max-content;
   white-space: nowrap;
 }
 
