@@ -58,6 +58,7 @@ import openaiIcon from "../assets/icons/openai-light.svg";
 import deepseekIcon from "../assets/icons/deepseek.svg";
 import geminiIcon from "../assets/icons/gemini.svg";
 import vertexIcon from '../assets/icons/vertex.svg';
+import { ScopeLabel } from '../components/ScopeLabel';
 
 type AuthMethod = "oauth" | "api";
 type SetupStep = 1 | 2;
@@ -709,6 +710,7 @@ export function EasyModePage({
               <div className="simple-mode-brand-title">
                 <strong>EasyCLIProxyAPI</strong>
                 <span className="simple-mode-badge">{t("easyMode.badge")}</span>
+                <ScopeLabel scope="core" />
               </div>
               <span className="simple-mode-brand-sub">{t("easyMode.brandSub")}</span>
             </div>

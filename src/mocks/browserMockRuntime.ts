@@ -239,6 +239,12 @@ function createAgentStatuses() {
     maxContextTokens: 200_000,
     autoCompactPct: 90,
     disableAutoCompact: false,
+    fable: '',
+    fable1m: false,
+    manageDefaultModel: true,
+    manageSubagentModel: true,
+    startupModel: null,
+    subagentModel: null,
   };
   return ids.map(([id, name], index) => ({
     id,
@@ -1035,6 +1041,7 @@ export function createBrowserMockRuntime(
 
     switch (command) {
       case 'plugin:app|version': return '0.2.97-mock';
+      case 'get_computer_name': return 'mock-desktop';
       case 'plugin:app|name': return 'EasyCLIProxyAPI Browser Mock';
       case 'plugin:app|tauri_version': return '2.x-mock';
       case 'plugin:app|identifier': return 'com.cpa.gui.browser-mock';

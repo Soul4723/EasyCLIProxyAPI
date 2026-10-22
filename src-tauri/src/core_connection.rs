@@ -285,6 +285,25 @@ pub(crate) fn remote_config_view(settings: CoreConfigSettings) -> CoreConfigView
     }
 }
 
+/// This computer's host name, so the UI can say which machine a setting belongs to. Empty when unknown.
+#[tauri::command]
+pub(crate) fn get_computer_name() -> String {
+    #[cfg(unix)]
+    {
+        let mut name = [0u8; 256];
+        // SAFETY: gethostname writes at most `name.len()` bytes into the buffer.
+        if unsafe { libc::gethostname(name.as_mut_ptr().cast(), name.len()) } != 0 {
+            return String::new();
+        }
+        let end = name.iter().position(|byte| *byte == 0).unwrap_or(name.len());
+        String::from_utf8_lossy(&name[..end]).trim().to_string()
+    }
+    #[cfg(windows)]
+    {
+        std::env::var("COMPUTERNAME").unwrap_or_default().trim().to_string()
+    }
+}
+
 #[tauri::command]
 pub(crate) fn get_core_connection(
     gui_config_state: tauri::State<'_, GuiConfigState>,

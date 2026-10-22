@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import appLogo from './assets/logo.jpg';
 import { CoreRuntimeProvider, useCoreRuntime, useRemoteHostControl } from './coreRuntime';
+import { ScopeLabel } from './components/ScopeLabel';
 import { CoreUpdateProvider, useCoreUpdate } from './coreUpdate';
 import { ConfigPanelPage } from './pages/ConfigPanel';
 import { ApiAccessPage } from './pages/ApiAccessPage';
@@ -374,7 +375,7 @@ function AppContent() {
               <img src={appLogo} alt="" className="brand-mark brand-logo" />
               <div className="sidebar-brand-text">
                 <strong>EasyCLIProxyAPI<ChannelBadge /></strong>
-                <span>{t('app.desktopConsole')}</span>
+                {status?.connectionMode === 'remote' ? <ScopeLabel scope="core" /> : <span>{t('app.desktopConsole')}</span>}
               </div>
             </div>
 
@@ -405,7 +406,7 @@ function AppContent() {
                       .join(' ')}
                     aria-current={page.id === active ? 'page' : undefined}
                     disabled={locked}
-                    title={remoteDisabled(page.id) ? t(remoteDisabledReason(page.id)) : locked ? t('app.nav.lockedHint') : undefined}
+                    title={remoteDisabled(page.id) ? t(remoteDisabledReason) : locked ? t('app.nav.lockedHint') : undefined}
                     onClick={() => select(page.id)}
                   >
                     <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -557,7 +558,7 @@ function AppContent() {
         <div className="workspace">
           <main className="content">
             {remoteDisabled(active) ? (
-              <RemoteUnavailablePage reason={remoteDisabledReason(active)} />
+              <RemoteUnavailablePage reason={remoteDisabledReason} />
             ) : !canOpenAppPage(active, coreReady) ? (
               <CoreLockedPage />
             ) : pluginEntry ? (

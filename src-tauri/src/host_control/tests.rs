@@ -963,13 +963,14 @@ fn remote_tray_offers_process_actions_only_through_reachable_host_control() {
 
     let stopped = remote_status_with_host(&connection, down(), Some(Ok(sample_status(false))));
     let tray = crate::windows_tray_presentation(&stopped, false, "en");
-    assert_eq!(tray.status_text, "Remote core: stopped on host");
+    assert_eq!(tray.status_text, "Core on 100.64.0.1: stopped");
     assert_eq!(tray.toggle_text, "Start Core");
     assert!(tray.toggle_enabled && !tray.restart_enabled);
 
     let running = remote_status_with_host(&connection, up(), Some(Ok(sample_status(true))));
     let tray = crate::windows_tray_presentation(&running, false, "en");
-    assert_eq!(tray.status_text, "Remote core: connected");
+    assert_eq!(tray.status_text, "Core on 100.64.0.1: connected");
+    assert_eq!(tray.tooltip, "EasyCLIProxyAPI · Core on 100.64.0.1");
     assert!(tray.toggle_enabled && tray.restart_enabled);
     let busy = crate::windows_tray_presentation(&running, true, "en");
     assert!(!busy.toggle_enabled && !busy.restart_enabled);

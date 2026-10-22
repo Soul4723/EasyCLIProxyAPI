@@ -2048,6 +2048,20 @@
   gap: 18px;
 }
 
+.agent-target-route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.agents-page:not(.agents-page-embedded) .agent-target-route {
+  margin-bottom: -6px;
+}
+
 .agents-page-embedded .management-header {
   align-items: center;
   min-height: 48px;
@@ -3208,7 +3222,7 @@
 .app-shell:has(.agents-page:not(.agents-page-embedded)) .agents-page:not(.agents-page-embedded) {
   min-height: 0;
   flex: 1 1 auto;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
 

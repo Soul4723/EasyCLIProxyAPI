@@ -30,7 +30,8 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useCoreRuntime } from '../coreRuntime';
+import { useCoreRuntime, useRemoteHostControl } from '../coreRuntime';
+import { ScopeLabel } from '../components/ScopeLabel';
 import { useCoreUpdate } from '../coreUpdate';
 import { useI18n } from '../i18n';
 import { useAppUpdate } from '../appUpdate';
@@ -91,9 +92,12 @@ export function VersionManagementPage() {
     status: coreStatus,
     refreshStatus,
   } = useCoreRuntime();
-  // Remote mode reaches this page only with remote host control: core checks and installs run on the
-  // remote host with its own download source; this computer's source and bundled core do not apply.
+  // This app's updates always use this computer's download source. In Remote mode core checks and installs
+  // run on the core's computer, through remote host control, with its own source; the bundled core is not offered.
   const remoteHost = coreStatus?.connectionMode === 'remote';
+  const remoteHostControl = useRemoteHostControl();
+  const coreVersionsUnavailable = remoteHost && !remoteHostControl
+    ? t(coreStatus?.hostControl ? 'connection.hostControlUnreachable' : 'connection.remoteVersions') : '';
   const {
     latest,
     error: latestError,
@@ -459,6 +463,8 @@ export function VersionManagementPage() {
 
   const coreVersionStatusLabel: string | null = installing || progress?.running
     ? (cancellingInstall ? t('kernel.install.cancelling') : progress?.phase ? localizeInstallPhase(progress.phase, t) : t('kernel.install.inProgress'))
+    : coreVersionsUnavailable
+      ? null
     : latestError
       ? t('kernel.update.failed')
       : coreHasUpdate
@@ -523,12 +529,12 @@ export function VersionManagementPage() {
       <section className="surface-bare version-list">
         <div className="version-source-row" aria-label={t('kernel.versions.downloadSource')}>
           <div className="version-source-copy">
-            <strong>{t('kernel.versions.downloadSource')}</strong>
+            <div className="version-card-top"><strong>{t('kernel.versions.downloadSource')}</strong><ScopeLabel scope="computer" /></div>
             <span>{t('kernel.versions.downloadSourceHint')}</span>
             {versionSource?.gitcodeAvailable === false ? (
               <span>{t('kernel.versions.gitcodeUnavailable')}</span>
             ) : null}
-            {remoteHost ? <span>{t('connection.versionsRemoteHost')}</span> : null}
+            {remoteHost ? <span>{t('connection.versionsSourceRemote')}</span> : null}
           </div>
           <div className="version-source-control">
             <label>
@@ -537,7 +543,6 @@ export function VersionManagementPage() {
                 value={versionSource?.source ?? DEFAULT_VERSION_DOWNLOAD_SOURCE}
                 disabled={
                   !versionSource
-                  || remoteHost
                   || versionSourceSaving
                   || appUpdateTask.running
                   || installing
@@ -561,7 +566,7 @@ export function VersionManagementPage() {
             <button
               type="button"
               className="primary-button version-source-add-button"
-              disabled={remoteHost || versionSourceSaving || appUpdateTask.running || installing}
+              disabled={versionSourceSaving || appUpdateTask.running || installing}
               onClick={() => {
                 setVersionSourceError('');
                 setCustomMirrorDialogOpen(true);
@@ -578,6 +583,7 @@ export function VersionManagementPage() {
           <div className="version-item-content">
             <div className="version-card-top">
               <h2>{t('kernel.versions.appCardTitle')}</h2>
+              <ScopeLabel scope="computer" />
               {appVersionStatusLabel ? (
                 <span className={`version-row-status ${appVersionStatusTone}`} title={appUpdateError || appVersionStatusLabel}>
                   {appVersionStatusLabel}
@@ -645,6 +651,7 @@ export function VersionManagementPage() {
           <div className="version-item-content">
             <div className="version-card-top">
               <h2>{t('kernel.versions.coreCardTitle')}</h2>
+              <ScopeLabel scope="core" />
               {coreVersionStatusLabel ? (
                 <span className={`version-row-status ${coreVersionStatusTone}`} title={coreVersionStatusLabel}>
                   {coreVersionStatusLabel}
@@ -661,13 +668,17 @@ export function VersionManagementPage() {
               </div>
               <div className={`surface-section surface-muted version-metric-tile ${coreHasUpdate ? 'has-update' : ''}`}>
                 <dt className="version-metric-label">{t('kernel.versions.latest')}</dt>
-                <dd className="version-metric-value" title={latestVersion || latestError || t('kernel.update.notChecked')}>
-                  {checkingLatest ? t('kernel.update.checking') : (latestVersion || (latestError ? t('common.detectionFailed') : t('kernel.update.notChecked')))}
+                <dd className="version-metric-value" title={coreVersionsUnavailable || latestVersion || latestError || t('kernel.update.notChecked')}>
+                  {coreVersionsUnavailable ? '—' : checkingLatest ? t('kernel.update.checking') : (latestVersion || (latestError ? t('common.detectionFailed') : t('kernel.update.notChecked')))}
                 </dd>
               </div>
             </dl>
 
-            {latestError ? (
+            {remoteHost ? <div className="version-alert-banner neutral">
+              <Info size={14} />
+              <span>{coreVersionsUnavailable || t('connection.versionsRemoteHost')}</span>
+            </div> : null}
+            {latestError && !coreVersionsUnavailable ? (
               <MessageNotice message={latestError} />
             ) : null}
           </div>
@@ -676,7 +687,8 @@ export function VersionManagementPage() {
             <button
               type="button"
               className="secondary-button"
-              disabled={busy}
+              disabled={busy || Boolean(coreVersionsUnavailable)}
+              title={coreVersionsUnavailable || undefined}
               onClick={() => void checkLatest(true)}
             >
               <RefreshCw size={15} className={checkingLatest ? 'spin' : ''} aria-hidden="true" />
@@ -686,24 +698,25 @@ export function VersionManagementPage() {
             <button
               type="button"
               className={latestVersion && (!coreInstalled || coreHasUpdate) ? 'primary-button' : 'secondary-button'}
-              title={latestVersion ? t('kernel.versions.stopAndUpdateVersion', { version: latestVersion }) : t('kernel.versions.installLatest')}
-              disabled={!latestVersion || busy}
+              title={coreVersionsUnavailable || (latestVersion ? t('kernel.versions.stopAndUpdateVersion', { version: latestVersion }) : t('kernel.versions.installLatest'))}
+              disabled={!latestVersion || busy || Boolean(coreVersionsUnavailable)}
               onClick={() => setConfirmUpdateOpen(true)}
             >
               <Download size={15} aria-hidden="true" />
               <span>{!coreInstalled ? t('kernel.versions.installLatestMissing') : t('kernel.versions.installLatest')}</span>
             </button>
 
-            <button
+            {/* The bundled core ships with this app for this computer; a remote core is installed from releases. */}
+            {remoteHost ? null : <button
               type="button"
               className="secondary-button"
-              title={remoteHost ? t('connection.remoteBundledCore') : bundledCoreError || (bundledCore ? t('kernel.versions.installBundledTitle', { version: bundledCore.version }) : t('kernel.versions.noBundled'))}
-              disabled={remoteHost || !bundledCore || installDisabled}
+              title={bundledCoreError || (bundledCore ? t('kernel.versions.installBundledTitle', { version: bundledCore.version }) : t('kernel.versions.noBundled'))}
+              disabled={!bundledCore || installDisabled}
               onClick={() => void installCore({ kind: 'bundled' })}
             >
               <Package size={15} aria-hidden="true" />
               <span>{t('kernel.versions.installBundled')}</span>
-            </button>
+            </button>}
           </div>
         </article>
         </div>

@@ -10,16 +10,13 @@ export function canOpenAppPage(pageId: string, coreReady: boolean) {
   return coreReady || isAlwaysAvailablePage(pageId);
 }
 
-// Version Management works remotely through a reachable remote host control.
+// Usage history is recorded by the app on the core's computer, so Remote mode reads it only through a reachable
+// remote host control. Version Management stays open: this app's own updates are this computer's.
 export function isRemoteDisabledPage(pageId: string, remoteHostControl = false) {
-  if (['usage-records', 'versions'].includes(pageId) && remoteHostControl) return false;
-  return ['usage-records', 'versions'].includes(pageId);
+  return pageId === 'usage-records' && !remoteHostControl;
 }
 
-// Why a page is locked in Remote mode (see isRemoteDisabledPage).
-export function remoteDisabledReason(pageId: string): MessageKey {
-  return pageId === 'versions' ? 'connection.remoteVersions' : 'connection.remoteUsage';
-}
+export const remoteDisabledReason: MessageKey = 'connection.remoteUsage';
 
 export const APP_NAVIGATION_REQUEST_EVENT = 'cpa-gui-navigation-request';
 

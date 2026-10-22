@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Check, Copy, Eye, EyeOff, RadioTower, RefreshCw } from 'lucide-react';
 import { Notice } from '../components/Notice';
+import { ScopeLabel } from '../components/ScopeLabel';
 import { Switch } from '../components/Switch';
 import { useI18n } from '../i18n';
 import { getGuiSettings } from '../services/appSettings';
@@ -53,13 +54,19 @@ export function HostControlSettings({ hidden }: { hidden?: boolean }) {
     : settings.error ? <Notice tone="error" variant="text">{t('hostControl.notRunning', { error: settings.error })}</Notice>
     : <p className="core-connection-hint">{t('hostControl.off')}</p>;
 
+  const heading = <div className="config-panel-heading">
+    <div className="config-heading-title"><RadioTower size={18} aria-hidden="true" /><h2 id="host-control-title">{t('hostControl.title')}</h2><ScopeLabel scope="computer" /></div>
+  </div>;
+  // While this app uses a remote core there is no core here to control: only say so, without a form.
+  if (settings && !available) return <section id="config-host-control" tabIndex={-1} hidden={hidden} className="panel surface-card core-connection-card" aria-labelledby="host-control-title">
+    {heading}
+    <p className="core-connection-hint">{t('hostControl.remoteUnavailable')}</p>
+  </section>;
+
   return <section id="config-host-control" tabIndex={-1} hidden={hidden} className="panel surface-card core-connection-card" aria-labelledby="host-control-title">
-    <div className="config-panel-heading">
-      <div className="config-heading-title"><RadioTower size={18} aria-hidden="true" /><h2 id="host-control-title">{t('hostControl.title')}</h2></div>
-    </div>
+    {heading}
     <div className="core-connection-form">
       <p className="core-connection-hint">{t('hostControl.description')}</p>
-      {settings && !available ? <Notice tone="info" variant="text">{t('hostControl.remoteUnavailable')}</Notice> : null}
       <Switch label={t('hostControl.enable')} checked={enabled} disabled={disabled}
         onChange={(event) => { setEnabled(event.currentTarget.checked); setSaved(''); }} />
       <div className="core-connection-fields">
