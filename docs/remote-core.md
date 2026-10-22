@@ -40,7 +40,7 @@ supervises the core on its own computer can do it instead, if you allow it.
 ### On the core's computer (the host)
 
 1. Run EasyCLIProxyAPI in **Local** mode; it manages the core as usual.
-2. Open **Advanced Features → App preferences → Remote control of this core**,
+2. Open **Advanced Features → App preferences → Remote control of this computer's core**,
    turn on **Allow remote control**, check the **Listen address** and save.
    The address is an IP literal and port. Left empty, it is every network on
    the core's port + 100 (`0.0.0.0:8417` for a core on 8317), which keeps it

@@ -515,7 +515,7 @@ export const en: Record<MessageKey, string> = {
   "connection.hostControlUnreachable": "Remote host control is not reachable",
   "connection.versionsRemoteHost": "Checked and installed by the app on that computer, with its own download source.",
   "connection.startCoreOnLaunchRemote": "Starts the core when the app on that computer starts. Changes apply there at once.",
-  "hostControl.title": "Remote control of this core",
+  "hostControl.title": "Remote control of this computer's core",
   "hostControl.description": "Let EasyCLIProxyAPI on another computer start, stop, restart and update the core on this computer, and read its usage.",
   "hostControl.enable": "Allow remote control",
   "hostControl.address": "Listen address",

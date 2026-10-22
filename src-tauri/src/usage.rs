@@ -4916,6 +4916,7 @@ pub(crate) async fn host_usage_read(
     }).await
 }
 
+#[allow(clippy::too_many_arguments)]
 fn host_usage_value(
     connection: &Connection, root: &Path, config: &GuiConfigFile, mut status: UsageCollectorStatus,
     kind: &str, query: &UsageQuery, previous: Option<&str>, metadata: Option<&sources::Snapshot>,

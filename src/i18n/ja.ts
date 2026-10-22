@@ -86,7 +86,7 @@ export const jaOverrides = {
   "connection.hostControlUnreachable": "リモートホスト制御に接続できません",
   "connection.versionsRemoteHost": "そのコンピューター上のアプリが、自身のダウンロード元で確認・インストールします。",
   "connection.startCoreOnLaunchRemote": "そのコンピューターのアプリの起動時にコアを起動します。変更はすぐにそちらに反映されます。",
-  "hostControl.title": "このコアのリモート制御",
+  "hostControl.title": "このコンピューターのコアのリモート制御",
   "hostControl.description": "ほかのコンピューターの EasyCLIProxyAPI から、このコンピューターのコアの起動、停止、再起動、更新と使用量の読み取りを許可します。",
   "hostControl.enable": "リモート制御を許可",
   "hostControl.address": "待ち受けアドレス",
