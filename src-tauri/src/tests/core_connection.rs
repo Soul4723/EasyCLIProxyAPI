@@ -234,3 +234,41 @@ fn remote_tray_never_offers_process_actions() {
     assert!(!presentation.toggle_enabled);
     assert!(!presentation.restart_enabled);
 }
+
+#[test]
+fn remote_mode_refuses_local_core_settings_writes() {
+    let app = tauri::test::mock_app();
+    app.manage(GuiConfigState::new(remote_config()));
+    app.manage(AgentConfigStatusCache::default());
+    let gui = app.state::<GuiConfigState>();
+    let cache = app.state::<AgentConfigStatusCache>();
+    let refused = |error: Option<String>| {
+        let error = error.expect("Remote mode must refuse a local core settings write");
+        assert!(error.contains("only available for the local core"), "{error}");
+    };
+    refused(
+        save_core_tls_settings(
+            gui.clone(),
+            cache.clone(),
+            CoreTlsSettings { enabled: true, cert: "cert.pem".into(), key: "key.pem".into() },
+        )
+        .err(),
+    );
+    refused(save_core_sensitive_words_settings(gui.clone(), CoreSensitiveWordsSettings::default()).err());
+    refused(
+        save_network_endpoint_settings(
+            gui.clone(),
+            cache.clone(),
+            GuiNetworkEndpointSettings { host: "127.0.0.1".into(), port: 9000, proxy_url: None, proxy_override: None },
+        )
+        .err(),
+    );
+    refused(set_core_plugins_enabled(gui.clone(), true).err());
+    refused(set_core_request_log(gui.clone(), true).err());
+    refused(set_core_proxy_url(gui.clone(), String::new()).err());
+    refused(delete_core_api_key(gui.clone(), "client-key".into()).err());
+    refused(clear_core_management_secret_key(gui.clone()).err());
+    refused(save_extended_core_config(gui.clone(), Vec::new()).err());
+    refused(tauri::async_runtime::block_on(delete_thinking_alias(gui.clone(), "alias".into(), None, None)).err());
+    refused(tauri::async_runtime::block_on(delete_speed_alias(gui.clone(), "alias".into(), None, None)).err());
+}
