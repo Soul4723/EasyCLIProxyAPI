@@ -57,8 +57,8 @@ describe('远程内核本地功能导航', () => {
     for (const page of ['easy', 'agents', 'home', 'api', 'oauth', 'quota', 'config', 'plugins', '/plugin-pages/demo/0']) expect(isRemoteDisabledPage(page)).toBe(false);
   });
 
-  test('remote host control unlocks Version Management only', () => {
+  test('remote host control unlocks Version Management and host Usage', () => {
     expect(isRemoteDisabledPage('versions', true)).toBe(false);
-    for (const page of ['usage-records']) expect(isRemoteDisabledPage(page, true)).toBe(true);
+    expect(isRemoteDisabledPage('usage-records', true)).toBe(false);
   });
 });

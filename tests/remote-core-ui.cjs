@@ -130,7 +130,7 @@ const path = require('node:path');
     await page.waitForFunction(() => document.querySelector('.sidebar-easy-entry')?.disabled === false);
     assert.equal(await nav('Agent Configuration').isEnabled(), true, 'local agent clients available against the remote core');
     for (const [name, reason] of [
-      ['Usage', 'Reading usage from a remote core would empty its usage queue, so Remote mode does not collect usage.'],
+      ['Usage', 'Set up reachable remote host control in Core connection to read usage recorded on the core’s computer.'],
       ['Version Management', 'Set up remote host control in Core connection to check and install core versions on the remote host.'],
     ]) {
       assert.equal(await nav(name).isDisabled(), true, `${name} locked remotely`);
@@ -238,6 +238,17 @@ const path = require('node:path');
     assert.equal(await bundled.isDisabled(), true);
     assert.equal(await bundled.getAttribute('title'), 'The bundled core is for this computer. Install a version for the remote host from the list.');
     assert.equal(await page.getByRole('button', { name: 'Stop and Update' }).isEnabled(), true, 'the remote core can be updated');
+    // Usage reads the host store, with a distinct fixture from this computer's Local history.
+    assert.equal(await nav('Usage').isEnabled(), true);
+    await nav('Usage').click();
+    await page.getByText('Usage recorded by EasyCLIProxyAPI on other.example:8417', { exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'Price Statistics', exact: true }).click();
+    await page.getByText(/Read-only host data/).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Add Manually', exact: true }).isDisabled(), true);
+    await page.getByRole('tab', { name: 'Data Management', exact: true }).click();
+    assert.equal(await page.locator('.usage-data-management-panel input').first().isDisabled(), true);
+    await nav('Home').click();
+    await page.locator('[data-stat="usage"] .home-stat-value').filter({ hasText: /90/ }).waitFor();
     assert.deepEqual(errors, []);
     console.log('PASS: one connection component on Home and in Advanced Features; Remote keeps the Local layout with remote values, editable remote settings and in-place disabled local actions; Silent Launch hidden; remote host control hosts locally and drives Start/Stop/Restart remotely.');
   } finally { await browser?.close(); await server.close(); }

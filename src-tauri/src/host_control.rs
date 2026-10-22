@@ -4,7 +4,7 @@
 //!
 //! Host side (Local mode, opt-in, off by default): one small HTTP/1.1 listener with its own key.
 //! Every operation reuses the local lifecycle functions under the core-operation lock.
-//! Client side (Remote mode): status and lifecycle requests to that listener.
+//! Client side (Remote mode): status, lifecycle and read-only Usage requests to that listener.
 //! The wire contract is documented in docs/remote-core.md.
 
 use crate::{
@@ -49,6 +49,15 @@ const MAX_HEAD_BYTES: usize = 8 * 1024;
 const MAX_HEADERS: usize = 32;
 const MAX_CONNECTIONS: usize = 8;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_USAGE_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+
+fn usage_response_budget(kind: &str) -> usize {
+    match kind {
+        "events" | "overview" => MAX_USAGE_RESPONSE_BYTES,
+        "analysis" | "pricing" => 512 * 1024,
+        _ => MAX_RESPONSE_BYTES,
+    }
+}
 const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
@@ -332,6 +341,7 @@ impl Reply {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Route {
     Status,
+    Usage { kind: String, query: String },
     Operate(HostOperation),
     /// The latest core release for the host's platform and download source.
     Latest,
@@ -406,6 +416,13 @@ pub(crate) fn authenticate(request: &Request, key: &str) -> bool {
 pub(crate) fn route(request: &Request) -> Result<Route, Reply> {
     let not_found = || Reply::error(404, "Not found");
     let path = request.path.strip_prefix(PATH_PREFIX).ok_or_else(not_found)?;
+    if let Some(usage) = path.strip_prefix("/usage/") {
+        let (kind, query) = usage.split_once('?').unwrap_or((usage, ""));
+        if !matches!(kind, "status" | "overview" | "analysis" | "events" | "pricing" | "storage") { return Err(not_found()); }
+        if request.method != "GET" { return Err(Reply::error(405, "Method not allowed")); }
+        crate::usage::host_usage_query(query).map_err(|_| Reply::error(400, "Invalid usage query"))?;
+        return Ok(Route::Usage { kind: kind.into(), query: query.into() });
+    }
     let (method, route) = match path {
         "/status" => ("GET", Route::Status),
         "/core/start" => ("POST", Route::Operate(HostOperation::Start)),
@@ -546,8 +563,12 @@ pub(crate) async fn respond(request: &Request, peer: IpAddr, context: &Context) 
         Ok(route) => route,
         Err(reply) => return reply,
     };
+    let cap = match &route { Route::Usage { kind, .. } => usage_response_budget(kind), _ => MAX_RESPONSE_BYTES };
     match context.backend.handle(route).await {
-        Ok(value) => Reply::json(&value),
+        Ok(value) => {
+            let reply = Reply::json(&value);
+            if reply.body.len() > cap { Reply::error(413, "Response exceeds its budget; narrow the time window or filters") } else { reply }
+        },
         Err((status, message)) => Reply::error(status, &message),
     }
 }
@@ -738,6 +759,7 @@ impl HostBackend for AppBackend {
             require_host_mode(&app)?;
             match route {
                 Route::Status => json(host_status(app).await?),
+                Route::Usage { kind, query } => crate::usage::host_usage_read(app, kind, query).await.map_err(operation_error),
                 // Same path as this app's buttons: lock, Local check, lifecycle, status event.
                 Route::Operate(operation) => {
                     let status = crate::run_core_command(app.clone(), operation.local())
@@ -1068,7 +1090,8 @@ async fn host_body(
         .await
         .map_err(|_| "Remote host control response was interrupted".to_string())?
     {
-        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+        let cap = path.strip_prefix("usage/").map(|path| usage_response_budget(path.split('?').next().unwrap_or_default())).unwrap_or(MAX_RESPONSE_BYTES);
+        if body.len() + chunk.len() > cap {
             return Err("Remote host control response is too large".into());
         }
         body.extend_from_slice(&chunk);
@@ -1441,6 +1464,49 @@ pub(crate) async fn test_host_control(
             message,
         },
     })
+}
+
+/// Bounded, target-keyed conditional cache. Never substitutes this computer's history.
+static USAGE_READ_CACHE: LazyLock<tokio::sync::Mutex<HashMap<String, (String, serde_json::Value)>>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
+
+pub(crate) async fn forward_usage<T: DeserializeOwned>(
+    app: &tauri::AppHandle, kind: &str, query: &crate::usage::UsageQuery,
+) -> Option<Result<T, String>> {
+    let connection = match remote_host(app)? {
+        Ok(connection) => connection,
+        Err(_) => return Some(Err("Set up remote host control in Core connection to read usage recorded on the core's computer".into())),
+    };
+    Some(remote_usage_read(&connection, kind, query).await)
+}
+
+async fn remote_usage_read<T: DeserializeOwned>(
+    connection: &CoreConnection, kind: &str, query: &crate::usage::UsageQuery,
+) -> Result<T, String> {
+    let encoded = serde_json::to_string(query).map_err(|e| e.to_string())?;
+    // Hash the credential as part of identity: changing credentials never reuses another access scope.
+    let credential_scope = Sha256::digest(connection.host_control_key.as_bytes());
+    let cache_key = format!("{}:{credential_scope:x}:{kind}:{encoded}", connection.host_control_origin);
+    let cached = USAGE_READ_CACHE.lock().await.get(&cache_key).cloned();
+    let mut url = reqwest::Url::parse("http://host/").unwrap();
+    url.query_pairs_mut().append_pair("q", &encoded);
+    if let Some((revision, _)) = &cached { url.query_pairs_mut().append_pair("revision", revision); }
+    let path = format!("usage/{kind}?{}", url.query().unwrap_or_default());
+    let envelope: serde_json::Value = host_request_json(connection, reqwest::Method::GET, &path, Duration::from_secs(30)).await
+        .map_err(|error| if error.contains("does not offer") {
+            "Update EasyCLIProxyAPI on the core's computer to read its recorded usage".into()
+        } else { error })?;
+    let data = if envelope["unchanged"] == true {
+        cached.map(|(_, data)| data).ok_or("Remote usage cache is unavailable; refresh again")?
+    } else {
+        let data = envelope.get("data").cloned().ok_or("Invalid remote usage response")?;
+        let revision = envelope["revision"].as_str().ok_or("Missing remote usage revision")?.to_string();
+        let mut cache = USAGE_READ_CACHE.lock().await;
+        if cache.len() >= 16 { cache.clear(); }
+        cache.insert(cache_key, (revision, data.clone()));
+        data
+    };
+    serde_json::from_value(data).map_err(|_| "Invalid remote usage data".into())
 }
 
 #[cfg(test)]

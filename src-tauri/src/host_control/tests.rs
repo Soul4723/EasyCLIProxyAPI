@@ -386,6 +386,7 @@ impl HostBackend for Recorder {
     fn handle(&self, route: Route) -> BoxFuture<'static, Result<serde_json::Value, HostError>> {
         let name = match &route {
             Route::Status => "status",
+            Route::Usage { .. } => "usage",
             Route::Operate(operation) => operation.name(),
             Route::Latest => "latest",
             Route::InstallTask => "install-task",
@@ -403,6 +404,9 @@ impl HostBackend for Recorder {
             }
             Ok(match route {
                 Route::Status => serde_json::to_value(sample_status(true)),
+                Route::Usage { query, .. } => Ok(if query.contains("revision=1") {
+                    serde_json::json!({"revision":"1", "unchanged":true})
+                } else { serde_json::json!({"revision":"1", "data": {"totalRequests":42}}) }),
                 Route::Operate(operation) => {
                     serde_json::to_value(sample_status(operation != HostOperation::Stop))
                 }
@@ -1094,4 +1098,56 @@ fn official_checksum_urls_take_only_plain_version_tags() {
     for tag in ["v8.0.36/../../../attacker/repo/releases/download/x", "../x", "v8.0.36?x", "latest", ""] {
         assert_eq!(crate::official_checksums_url(tag).unwrap_err(), crate::OFFICIAL_CHECKSUM_MISSING, "{tag}");
     }
+}
+
+#[tokio::test]
+async fn usage_listener_requires_auth_refuses_browsers_and_supports_conditional_client_reads() {
+    let (address, calls, cancel) = start_server(false).await;
+    let client = host_http_client().unwrap();
+    let url = format!("http://{address}{PATH_PREFIX}/usage/overview");
+    assert_eq!(client.get(&url).header(PROTOCOL_HEADER, "1").send().await.unwrap().status(), 401);
+    assert_eq!(client.get(&url).bearer_auth(KEY).header(PROTOCOL_HEADER, "1").header("Origin", "http://evil.test").send().await.unwrap().status(), 403);
+    let connection = CoreConnection {
+        mode: CoreConnectionMode::Remote, host_control_origin: format!("http://{address}"),
+        host_control_key: KEY.into(), ..CoreConnection::default()
+    };
+    let query = crate::usage::UsageQuery::default();
+    let first: serde_json::Value = remote_usage_read(&connection, "overview", &query).await.unwrap();
+    let second: serde_json::Value = remote_usage_read(&connection, "overview", &query).await.unwrap();
+    assert_eq!(first["totalRequests"], 42);
+    assert_eq!(first, second);
+    assert_eq!(*calls.lock().unwrap(), vec!["usage", "usage"]);
+    for (path, status) in [("usage/unknown", 404), ("usage/events?bogus=1", 400), ("usage/events?q=bad", 400)] {
+        let (actual, _) = host_body(&connection.host_control_origin, KEY, reqwest::Method::GET, path, STATUS_TIMEOUT, None).await.unwrap();
+        assert_eq!(actual, status);
+    }
+    assert_eq!(client.post(&url).bearer_auth(KEY).header(PROTOCOL_HEADER,"1").send().await.unwrap().status(), 405);
+    cancel.cancel();
+}
+
+#[tokio::test]
+async fn usage_client_tells_older_hosts_to_update() {
+    let origin = serve_once(404, r#"{"error":"Not found"}"#).await;
+    let connection = CoreConnection { mode: CoreConnectionMode::Remote, host_control_origin: origin.trim_end_matches("/checksums.txt").into(),
+        host_control_key: KEY.into(), ..CoreConnection::default() };
+    let error = remote_usage_read::<serde_json::Value>(&connection, "overview", &crate::usage::UsageQuery::default()).await.unwrap_err();
+    assert_eq!(error, "Update EasyCLIProxyAPI on the core's computer to read its recorded usage");
+}
+
+#[tokio::test]
+async fn usage_listener_enforces_the_response_budget() {
+    struct Oversized;
+    impl HostBackend for Oversized {
+        fn handle(&self, _: Route) -> BoxFuture<'static, Result<serde_json::Value, HostError>> {
+            Box::pin(async { Ok(serde_json::json!({"data":"x".repeat(MAX_USAGE_RESPONSE_BYTES)})) })
+        }
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    tokio::spawn(serve(listener, new_context_with(KEY.into(), Arc::new(Oversized), Limits::default()), cancel.clone()));
+    let (status, body) = host_body(&format!("http://{address}"), KEY, reqwest::Method::GET, "usage/events", STATUS_TIMEOUT, None).await.unwrap();
+    assert_eq!(status, 413);
+    assert!(String::from_utf8(body).unwrap().contains("narrow the time window"));
+    cancel.cancel();
 }

@@ -144,6 +144,58 @@ Base path `/host-control/v1`, HTTP/1.1, `Connection: close`, JSON replies with
 | `POST /host-control/v1/core/install/cancel` | cancel the running install if it carries this job (`X-EasyCLI-Install-Job`, required); another job's install gets 409 |
 | `POST /host-control/v1/settings/start-core-on-launch/on` (or `/off`) | set the host app's Start Core on Launch; replies with the status |
 
+Usage adds read-only GET routes under the same authenticated listener (no bodies):
+
+| Request | Host-store result |
+| --- | --- |
+| `GET /host-control/v1/usage/status` | collector state, stored count and store revision |
+| `GET /host-control/v1/usage/overview` | totals, costs and chart buckets computed on the host |
+| `GET /host-control/v1/usage/analysis` | model, provider, account and masked-key groups |
+| `GET /host-control/v1/usage/events` | one bounded request page, including detail and host-computed cost |
+| `GET /host-control/v1/usage/pricing` | the host's price catalog and windowed costs |
+| `GET /host-control/v1/usage/storage` | the host's database size, record count and size limit; no paths |
+
+All Usage routes accept `q=<URL-encoded JSON UsageQuery>` and optional
+`revision=<last revision>`. Query fields are `start`/`end` (RFC3339 instants),
+`model`, `provider`, `source`, `upstream`, `api_key_hash`, `failed`, `canceled`,
+`page`/`page_size`, and optional numeric `before_id`, `after_id`, `snapshot_id`.
+Unknown or duplicate parameters, invalid instants and negative cursors get 400.
+`page_size` is clamped to 1–200. Normal pages preserve Local's timestamp order;
+ID cursors seek in descending ID order. Use `before_id` to fetch older records,
+`after_id` for records inserted since an ID (including late-arriving timestamps),
+and `snapshot_id` to exclude later inserts during an export. Event results add
+`snapshotId` and `nextCursor`. Cursor clients ignore page totals and continue
+until a short/empty page; regular page controls retain the Local totals.
+
+Replies are `{"revision":"…","data":<the Local command's result>}` or
+`{"revision":"…","unchanged":true}`. A persisted random store identity plus a
+transactional revision (insert/update/delete of events or prices), and a digest
+of the host's label settings invalidate cached results. Reads use a read-only
+SQLite connection and one snapshot transaction. Status always returns data;
+storage is also re-read so a vacuum's disk-size change is not cached. No route
+pulls the core's queue, creates a collector, or writes the database.
+
+On both host and client, events/overview have a 2 MiB budget, analysis/pricing
+have 512 KiB, and status/storage and other host-control replies retain 64 KiB. An oversized result returns 413:
+narrow the time window/filters. Requests retain the existing 8 KiB header limit,
+browser refusal, authentication, timeouts and eight-connection concurrency cap.
+The client keeps at most 16 target/query-keyed conditional results in memory;
+credentials are hashed in cache keys, never sent in query parameters. Automatic
+Usage refresh checks the small status/revision every ten seconds while visible,
+and skips aggregate/page reads when unchanged (at most sixty seconds, to advance
+rolling windows). Filter changes and manual refresh still check the requested
+view. There is no full-history transfer on polls.
+
+Raw source values can be credentials or local filenames: source category keys
+are hashed; use `upstream` identity for account filtering. Request sources use
+masked display labels, API keys are masked, request IDs/executor internals are
+omitted, and error bodies are replaced with a privacy note (they may echo
+credentials/paths). Known configured secrets and host paths are scrubbed from
+all Usage strings. Status exposes only fixed public messages. Remote chart buckets use UTC instants and render in this computer’s timezone,
+matching the selected window even when the host is in another timezone.
+Older protocol-1 hosts without these routes return 404; the client says to
+update EasyCLIProxyAPI on the core's computer. Protocol 1 itself is unchanged.
+
 Status and lifecycle replies are the core status:
 `{"protocol":1,"installed":…,"running":…,"ready":…,"starting":…,"managed":…,"processId":…,"currentVersion":…,"message":…,"startCoreOnLaunch":…}`.
 `startCoreOnLaunch` is optional; clients accept hosts that do not send it, and
@@ -166,6 +218,17 @@ reason; this computer's local data is never shown as the remote core's.
   core; the management key is never used as a client key. Runtime Control shows
   the remote host, connection status, core version and port. Connect to CPA shows
   the remote client base URL and the remote core's first client key.
+- **Usage and Home success rate:** with reachable remote host control, read the
+  history recorded by EasyCLIProxyAPI on the core's computer, never this
+  computer's history. The same Overview, Request Details (including export),
+  Analysis, Price Statistics and Data Management views remain visible. A banner
+  identifies the host. Prices and estimated costs belong to the host; price
+  editing/synchronization and database maintenance are disabled with a reason,
+  and the native handlers refuse those writes. Change them in the host app.
+  Export files and view preferences remain on this computer. Without host
+  control, Usage stays disabled with setup instructions and Home success rate
+  remains unknown. Unreachable/old hosts report their specific error; a failed
+  read never falls back to this computer's store.
 - **Advanced Features:** every category shows the remote core's current settings
   (read from its `config.yaml` through the management API) and saves changes on
   that core: client keys, proxy, routing, retry, logging and diagnostics, the
@@ -243,8 +306,11 @@ These stay visible in place but are disabled, with the reason:
   answer.
 - Installing the bundled core, and this computer's download source and mirrors,
   while Remote: they belong to this computer.
-- Usage, and the Home success rate: reading usage from a remote core would empty
-  its usage queue, so no usage is collected in Remote mode.
+- Usage and Home success rate without remote host control; reading the core's
+  draining queue is never a fallback. The non-draining management API's per-key
+  aggregates cannot supply the host's request details, history, charts or prices.
+- Usage price edits, price sync, database repair, size-limit changes and shrink:
+  these belong to EasyCLIProxyAPI on the core's computer.
 - Opening local folders (credentials, logs) and installing a plugin from a file on
   this computer: they are on, or would have to be copied to, the core's computer.
   Store plugins install through the management API as in Local.

@@ -127,19 +127,20 @@ describe('home overview loading', () => {
     expect(requests.sort()).toEqual(['/config/api-keys', '/credentials']);
   });
 
-  it('reads a remote core through management and the core model command but never shows local usage', async () => {
+  it('keeps remote usage unknown when the native host-store read is unavailable', async () => {
     const calls: string[] = [];
     mockIPC((command, args) => {
       calls.push(command);
+      if (command === 'get_usage_overview') throw new Error('Set up remote host control to read host usage');
       if (command === 'get_core_models') return [{ name: 'remote-model' }];
       const request = args?.request as { path: string };
       if (request.path === '/credentials') return { files: [] };
       return { meta: [] };
     });
     const overview = await loadHomeOverview(true, Date.now(), true);
-    expect(calls).not.toContain('get_usage_overview');
+    expect(calls).toContain('get_usage_overview');
     expect(overview.usage).toBeNull();
-    expect(overview.errors.usage).toBe('Reading usage from a remote core would empty its usage queue, so Remote mode does not collect usage.');
+    expect(overview.errors.usage).toBe('Set up remote host control to read host usage');
     expect(overview.models).toEqual([{ name: 'remote-model' }]);
   });
 
