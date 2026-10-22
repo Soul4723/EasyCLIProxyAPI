@@ -1,9 +1,12 @@
 # Remote core
 
-Remote mode attaches this GUI to an **already-running CLIProxyAPI v8** server.
-It can start, stop, restart and update that server only through
-[remote host control](#remote-host-control): EasyCLIProxyAPI running on the
-core's computer, with remote control allowed there.
+Remote mode attaches this GUI to an **already-running CLIProxyAPI v8** server on
+another computer. The GUI controls that core: its settings, credentials,
+providers and plugins through the management API, and starting, stopping,
+restarting and updating it through [remote host control](#remote-host-control)
+(EasyCLIProxyAPI running on the core's computer, with remote control allowed
+there). Settings that are not about the core, such as this app's preferences,
+stay with the computer the GUI runs on.
 
 ## Connect
 
@@ -164,30 +167,70 @@ reason; this computer's local data is never shown as the remote core's.
   the remote host, connection status, core version and port. Connect to CPA shows
   the remote client base URL and the remote core's first client key.
 - **Advanced Features:** every category shows the remote core's current settings
-  (read from its `config.yaml` through the management API), read-only.
+  (read from its `config.yaml` through the management API) and saves changes on
+  that core: client keys, proxy, routing, retry, logging and diagnostics, the
+  structured settings editor, model aliases and sensitive words. See
+  [Editing the remote core's settings](#editing-the-remote-cores-settings).
 - **Management-API pages:** credentials, OAuth (with manual callback submission
   where needed), Vertex import, API providers with model discovery, plugin
   management, and plugin pages served by the remote core.
 
-## Not available remotely yet
+## Editing the remote core's settings
 
-These stay visible in place but are disabled, with a short reason:
+A save applies the same change Local mode makes to its own `config.yaml`, to the
+remote core's `config.yaml` through the management API:
 
-- Start, Stop and Restart (Home, the plugin page's Restart core and the tray),
-  Version Management and Start Core on Launch without
-  [remote host control](#remote-host-control), or while the host does not answer.
+1. `GET /v8/management/config.yaml`, keeping its `ETag`;
+2. the same YAML patch as Local;
+3. `PUT /v8/management/config.yaml` with the whole document and
+   `If-Match: <ETag>`.
+
+The core checks `If-Match` and writes under one lock (core 8.0.31 and later), so
+if anyone else saved in between, the save is refused (HTTP 412) and nothing is
+overwritten: "The remote core's configuration was changed elsewhere since it was
+read. Nothing was saved; reload and try again." A core without ETags (8.0.29 and
+8.0.30) gets a second read just before the write instead; a difference refuses
+the save, but a change in the instant between that read and the write cannot be
+detected. One save is one request, so it never applies partly. (Model aliases
+keep their own management routes, exactly as in Local.) Nothing is sent
+if the connection changed after the read. The core reloads its configuration
+after a management save; settings marked "Core restart required" apply when the
+remote core restarts (Restart works through
+[remote host control](#remote-host-control)).
+
+Settings that decide how this app reaches the remote core stay with that core's
+computer, because changing them from here would disconnect this app: the listen
+address and port, TLS, and the management key (set, generate or disable
+management). They are shown disabled with that reason, and the app refuses them
+natively in Remote mode, including through the structured editor
+(`server/host`, `server/port`, `server/tls/*`, `management/*`). Change them on
+the core's computer, then update **Core connection**.
+
+Also different from Local:
+
+- **Proxy:** this computer's system proxy does not apply to a remote core. The
+  proxy URL is written as entered; empty means a direct connection.
+- **Client key remarks** are notes this app keeps for its local core's keys; remote
+  keys have none, so the remark field is disabled.
+- **Folder pickers** (for example the credentials folder) are disabled: folders
+  are on the core's computer, so type the path.
+
+## Not available remotely
+
+These stay visible in place but are disabled, with the reason:
+
+- Start, Stop and Restart (Home, the plugin page's Restart core, the structured
+  editor's Restart now and the tray), Version Management and Start Core on Launch
+  without [remote host control](#remote-host-control), or while the host does not
+  answer.
 - Installing the bundled core, and this computer's download source and mirrors,
   while Remote: they belong to this computer.
-- Agent Configuration, Beginner Mode and Codex tools: machine and agent
-  configuration stays local for now.
-- Usage, and the Home success rate: reading usage from a remote core would consume
+- Usage, and the Home success rate: reading usage from a remote core would empty
   its usage queue, so no usage is collected in Remote mode.
-- Local folder buttons (credentials, logs) and local plugin file installation.
-- Editing any core setting: remote configuration is shown read-only. The app
-  also refuses these writes natively in Remote mode (core settings, keys, TLS,
-  sensitive words, network, retry and routing settings, the advanced editor and
-  model aliases), so they can never touch this computer's core files or the
-  remote core.
+- Opening local folders (credentials, logs) and installing a plugin from a file on
+  this computer: they are on, or would have to be copied to, the core's computer.
+  Store plugins install through the management API as in Local.
+- The remote core's listen address, port, TLS and management key (see above).
 
 Silent Launch is hidden and ignored in Remote mode: it keeps a locally hosted core
 in the tray, and there is none.
