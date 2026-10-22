@@ -36,7 +36,8 @@ import {
   X,
 } from 'lucide-react';
 import appLogo from './assets/logo.jpg';
-import { CoreRuntimeProvider, useCoreRuntime } from './coreRuntime';
+import { CoreRuntimeProvider, useCoreRuntime, useRemoteHostControl } from './coreRuntime';
+import { ScopeLabel } from './components/ScopeLabel';
 import { CoreUpdateProvider, useCoreUpdate } from './coreUpdate';
 import { ConfigPanelPage } from './pages/ConfigPanel';
 import { ApiAccessPage } from './pages/ApiAccessPage';
@@ -59,9 +60,10 @@ import {
   type PluginNavOverride,
 } from './services/pluginNavigation';
 import { languageOptions, useI18n } from './i18n';
+import type { MessageKey } from './i18n/resources';
 import { AppUpdateDialog, AppUpdateProvider, useAppUpdate } from './appUpdate';
 import { appUpdateIndicatorState } from './appUpdateModel';
-import { canOpenAppPage, isRemoteDisabledPage, requestAppNavigation } from './navigation';
+import { canOpenAppPage, isRemoteDisabledPage, remoteDisabledReason, requestAppNavigation } from './navigation';
 import { useThemePreference } from './theme';
 import { usePrivacyMode } from './privacy';
 import { Dialog } from './components/Dialog';
@@ -177,7 +179,8 @@ function AppContent() {
   const { status } = useCoreRuntime();
   const coreReady = Boolean(status?.ready);
   const localBlocked = !status || status.connectionMode === 'remote';
-  const remoteDisabled = (pageId: string) => localBlocked && isRemoteDisabledPage(pageId);
+  const remoteHostControl = useRemoteHostControl();
+  const remoteDisabled = (pageId: string) => localBlocked && isRemoteDisabledPage(pageId, remoteHostControl);
   const [navElement, setNavElement] = useState<HTMLElement | null>(null);
   const pluginTarget = !status ? null : status.connectionMode === 'remote' ? status.remoteOrigin ?? null : 'local';
   const { entries: pluginEntries, fetched: pluginEntriesFetched } = usePluginNavEntries(coreReady, pluginTarget);
@@ -208,7 +211,7 @@ function AppContent() {
     if (!canOpenAppPage(active, coreReady) || remoteDisabled(active)) {
       setActive('home');
     }
-  }, [active, coreReady, localBlocked]);
+  }, [active, coreReady, localBlocked, remoteHostControl]);
 
   useEffect(() => {
     if (!coreReady) void closePluginWebview().catch(() => undefined);
@@ -306,7 +309,7 @@ function AppContent() {
     }
     if (pageId !== active) requestAppNavigation(() => setActive(pageId));
     else if (isPluginRoute(pageId)) setPluginReload((value) => value + 1);
-  }, [active, coreReady, localBlocked]);
+  }, [active, coreReady, localBlocked, remoteHostControl]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -372,7 +375,7 @@ function AppContent() {
               <img src={appLogo} alt="" className="brand-mark brand-logo" />
               <div className="sidebar-brand-text">
                 <strong>EasyCLIProxyAPI<ChannelBadge /></strong>
-                <span>{t('app.desktopConsole')}</span>
+                {status?.connectionMode === 'remote' ? <ScopeLabel scope="core" /> : <span>{t('app.desktopConsole')}</span>}
               </div>
             </div>
 
@@ -403,7 +406,7 @@ function AppContent() {
                       .join(' ')}
                     aria-current={page.id === active ? 'page' : undefined}
                     disabled={locked}
-                    title={remoteDisabled(page.id) ? t('connection.remoteDisabledTitle') : locked ? t('app.nav.lockedHint') : undefined}
+                    title={remoteDisabled(page.id) ? t(remoteDisabledReason) : locked ? t('app.nav.lockedHint') : undefined}
                     onClick={() => select(page.id)}
                   >
                     <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -455,8 +458,6 @@ function AppContent() {
                 <button
                   type="button"
                   className="sidebar-link sidebar-easy-entry"
-                  disabled={localBlocked}
-                  title={localBlocked ? t('connection.remoteDisabledTitle') : undefined}
                   onClick={() => select('easy')}
                 >
                   <Sprout size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -557,7 +558,7 @@ function AppContent() {
         <div className="workspace">
           <main className="content">
             {remoteDisabled(active) ? (
-              <RemoteUnavailablePage />
+              <RemoteUnavailablePage reason={remoteDisabledReason} />
             ) : !canOpenAppPage(active, coreReady) ? (
               <CoreLockedPage />
             ) : pluginEntry ? (
@@ -652,12 +653,12 @@ function AppContent() {
   );
 }
 
-function RemoteUnavailablePage() {
+function RemoteUnavailablePage({ reason }: { reason: MessageKey }) {
   const { t } = useI18n();
   return (
     <section className="page core-locked-page">
       <EmptyState variant="box" icon={<Unplug size={26} />} title={t('connection.remoteDisabledTitle')}>
-        {t('connection.remoteDisabled')}
+        {t(reason)}
       </EmptyState>
     </section>
   );

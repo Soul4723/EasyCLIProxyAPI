@@ -22,7 +22,7 @@ import { useI18n } from '../i18n';
 import { pluginText } from '../i18n/plugins';
 import { FloatingNotice, useAppNotice } from '../appNotice';
 import { useConfirmation } from '../components/ConfirmationDialog';
-import { useRemoteMode } from '../coreRuntime';
+import { useRemoteHostControl, useRemoteMode } from '../coreRuntime';
 import { buildPluginResourceRoute, collectPluginResourceEntries, getPluginTitle, isDefaultPluginStoreSource, getPluginRepositorySlug, notifyPluginResourcesChanged, type PluginResourceEntry } from '../services/pluginResources';
 import { getPluginStatus, isPluginInstalled } from '../services/pluginStatus';
 import { refreshPluginReleaseVersions } from '../services/pluginReleaseVersions';
@@ -41,6 +41,9 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 
 export function PluginsPage() {
   const remoteMode = useRemoteMode();
+  // Restarting a remote core goes through the remote host's EasyCLIProxyAPI when it is reachable.
+  const remoteHostControl = useRemoteHostControl();
+  const remoteRestartUnavailable = remoteMode && !remoteHostControl;
   const { t, locale } = useI18n();
   const pt = (key: Parameters<typeof pluginText>[0]) => pluginText(key, locale);
   const [tab, setTab] = useState<Tab>('installed');
@@ -215,7 +218,7 @@ export function PluginsPage() {
         </div>
         {tab === 'store' && <Select aria-label={pt('store')} value={filter} onChange={e => setFilter(e.target.value)}>{['all', 'installed', 'updates'].map(value => <option key={value} value={value}>{pt(value as 'all' | 'installed' | 'updates')}</option>)}</Select>}
         </>}
-        {supported === true && <button type="button" className="secondary-button plugin-development-guide" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteDisabledTitle') : undefined} onClick={() => void installLocal()}><Download size={16} aria-hidden="true" />{pt('localInstall')}</button>}
+        {supported === true && <button type="button" className="secondary-button plugin-development-guide" disabled={locked || remoteMode} title={remoteMode ? t('connection.remotePluginFile') : undefined} onClick={() => void installLocal()}><Download size={16} aria-hidden="true" />{pt('localInstall')}</button>}
         <button type="button" className="secondary-button plugin-development-guide" onClick={() => void openExternalUrl({ url: 'https://help.router-for.me/cn/plugin/development.html' }).catch(reason => { if (mounted.current) setError(message(reason)); })}><ExternalLink size={16} aria-hidden="true" />{pt('developmentGuide')}</button>
         <button className="secondary-button plugin-refresh" disabled={locked} onClick={() => void load(tabRef.current, true)}><RefreshCw size={16} aria-hidden="true" />{t('common.refresh')}</button>
       </div>
@@ -224,7 +227,7 @@ export function PluginsPage() {
     {error && <Notice tone="error" icon={false} className="plugin-banner" action={<button className="secondary-button" disabled={busy || loading} onClick={() => void load(tabRef.current, true)}>{pt('retry')}</button>}>{error}{isGitHubRateLimit(error) ? <GitHubTokenHint /> : null}</Notice>}
     {supported === false ? <EmptyState className="plugin-empty" icon={<Puzzle size={36} />}>{pt('unsupported')}</EmptyState> : supported === null ? <EmptyState className="plugin-empty" role="status">{loading ? t('common.loading') : pt('retry')}</EmptyState> : <>
       {data && !data.pluginsEnabled && <Notice tone="info" icon={false} className="plugin-banner">{pt('disabledHint')}</Notice>}
-      {restartRequired && <Notice tone="info" icon={false} className="plugin-banner" action={<button className="secondary-button" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteManaged') : undefined} onClick={async () => { if (await askConfirmation({ title: pt('restartButton'), message: pt('restartConfirm') })) void mutate(async () => { await restartCoreProcess(); if (mounted.current) setRestartRequired(false); }, pt('saved')); }}>{pt('restartButton')}</button>}>{pt('restart')}</Notice>}
+      {restartRequired && <Notice tone="info" icon={false} className="plugin-banner" action={<button className="secondary-button" disabled={locked || remoteRestartUnavailable} title={remoteRestartUnavailable ? t('connection.hostControlRequired') : undefined} onClick={async () => { if (await askConfirmation({ title: pt('restartButton'), message: pt('restartConfirm') })) void mutate(async () => { await restartCoreProcess(); if (mounted.current) setRestartRequired(false); }, pt('saved')); }}>{pt('restartButton')}</button>}>{pt('restart')}</Notice>}
       <>
         {tab === 'settings' ? <PluginSettingsPanel onSaved={() => { notice.showNotice(pt('saved')); void load(); }} globalControl={<label className="plugin-global-toggle"><Switch checked={data?.pluginsEnabled ?? false} disabled={locked || !data} onChange={e => { const enabled = e.target.checked; void mutate(() => pluginsApi.updateSettings({ enabled }), pt('saved')); }} />{pt('global')}</label>} /> : <>
           {sourceErrors.length ? <details className="plugin-source-errors"><summary>{pt('sourceErrors')}</summary>{sourceErrors.map((entry, index) => <p key={index}>{entry.sourceName || entry.sourceId || entry.sourceUrl}: {entry.message}</p>)}{sourceErrors.some(entry => isGitHubRateLimit(entry.message)) ? <GitHubTokenHint /> : null}</details> : null}
@@ -246,7 +249,7 @@ export function PluginsPage() {
             {plugin.effectiveEnabled && plugin.supportsOAuth && plugin.oauthProvider && <button className="secondary-button compact-button" disabled={locked} onClick={() => setOAuthPlugin(plugin)}><LogIn size={15} />{pt('oauth')}</button>}
               {installed ? <button className="secondary-button compact-button" disabled={locked} onClick={() => void toggle(plugin)}>{pt(plugin.enabled ? 'disabled' : 'enabled')}</button> : <button className="secondary-button compact-button" disabled={locked} onClick={() => { setSearch(plugin.id); setFilter('all'); setTab('store'); }}><Download size={15} />{pt('findInStore')}</button>}
               <button className="secondary-button compact-button" disabled={locked} onClick={() => setConfigPlugin(plugin)}><Settings2 size={15} />{pt('configure')}</button>
-              {status === 'notLoaded' && <button className="secondary-button compact-button" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteDisabledTitle') : undefined} onClick={() => void openCoreLogsDirectory().catch(reason => { if (mounted.current) setError(message(reason)); })}><Folder size={15} />{pt('openLogs')}</button>}
+              {status === 'notLoaded' && <button className="secondary-button compact-button" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteLocalFolder') : undefined} onClick={() => void openCoreLogsDirectory().catch(reason => { if (mounted.current) setError(message(reason)); })}><Folder size={15} />{pt('openLogs')}</button>}
               <button className="icon-button danger plugin-delete" disabled={locked} aria-label={removeLabel} title={removeLabel} onClick={() => void remove(plugin)}><Trash2 size={16} /></button>
             </div>
           </article>; })}</div> : <>

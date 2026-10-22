@@ -63,6 +63,11 @@ const MODEL_COLORS = [
 ];
 
 export function parseLocalHourKey(value: string): Date | null {
+  // Remote hosts send absolute bucket instants; legacy Local keys are wall-clock values.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00Z$/.test(value)) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
   const match = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(?:-(\d{2}))?$/.exec(value.trim());
   if (!match) return null;
   const year = Number(match[1]);

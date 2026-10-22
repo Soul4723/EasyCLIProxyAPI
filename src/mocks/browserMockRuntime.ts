@@ -239,6 +239,12 @@ function createAgentStatuses() {
     maxContextTokens: 200_000,
     autoCompactPct: 90,
     disableAutoCompact: false,
+    fable: '',
+    fable1m: false,
+    manageDefaultModel: true,
+    manageSubagentModel: true,
+    startupModel: null,
+    subagentModel: null,
   };
   return ids.map(([id, name], index) => ({
     id,
@@ -967,16 +973,48 @@ export function createBrowserMockRuntime(
   onPluginWebview?: (state: PluginWebviewMockState) => void,
 ): BrowserMockRuntime {
   const state = createState(scenario);
+  const hostVersionSource = { source: 'github', gitcodeAvailable: false, customMirrors: [] as string[] };
   let usageViewPreferences: Record<string, string> = {};
   let privacyMode: boolean | null = null;
   const connectionStorageKey = 'browser-mock.core-connection';
-  let coreConnection = JSON.parse(globalThis.sessionStorage?.getItem(connectionStorageKey) ?? 'null')
-    ?? { mode: 'local', managementOrigin: '', managementKey: '' };
+  let coreConnection = {
+    mode: 'local', managementOrigin: '', managementKey: '', hostControlOrigin: '', hostControlKey: '',
+    ...JSON.parse(globalThis.sessionStorage?.getItem(connectionStorageKey) ?? 'null'),
+  };
+  // With remote host control configured, the mock host reports a running core and accepts lifecycle requests.
+  const remoteHostControl = coreConnection.mode === 'remote' && Boolean(coreConnection.hostControlOrigin);
   if (coreConnection.mode === 'remote') Object.assign(state.coreStatus, {
-    installed: false, running: true, ready: true, managed: false, processId: null,
+    installed: remoteHostControl, running: true, ready: true, managed: false, processId: remoteHostControl ? 52817 : null,
     installDir: '', binaryPath: null, currentVersion: 'v8.0.35',
     connectionMode: 'remote', remoteOrigin: coreConnection.managementOrigin,
+    hostControl: remoteHostControl ? { reachable: true, message: 'Browser Mock host core is running' } : undefined,
   });
+  if (coreConnection.mode === 'remote') {
+    state.harnessCatalog.baseUrl = `${coreConnection.managementOrigin.replace(/\/$/, '')}/v1`;
+  }
+  let remoteStartCoreOnLaunch = true;
+  const hostControlStorageKey = 'browser-mock.host-control';
+  let hostControlSettings: { enabled: boolean; address: string; key: string } = {
+    enabled: false, address: '', key: '',
+    ...JSON.parse(globalThis.sessionStorage?.getItem(hostControlStorageKey) ?? 'null'),
+  };
+  const hostControlView = () => {
+    const defaultAddress = `127.0.0.1:${state.guiSettings.port + 100}`;
+    return {
+      ...hostControlSettings, defaultAddress, available: coreConnection.mode === 'local',
+      listening: coreConnection.mode === 'local' && hostControlSettings.enabled ? hostControlSettings.address || defaultAddress : null, error: null,
+    };
+  };
+  // Remote lifecycle goes to the mock remote host; without host control it is refused like the native command.
+  const remoteLifecycle = (running: boolean, processId: number | null) => {
+    if (!remoteHostControl) throw new Error('Set up remote host control in Core connection to start, stop or restart a remote core');
+    Object.assign(state.coreStatus, {
+      running, ready: running, starting: false, processId,
+      message: running ? 'Connected' : 'Stopped on remote host',
+    });
+    emit('core-status-changed', state.coreStatus);
+    return clone(state.coreStatus);
+  };
   let themeSelection: ThemeSelection | null = null;
   if (scenario === 'empty') {
     state.usageEvents = [];
@@ -1004,6 +1042,7 @@ export function createBrowserMockRuntime(
 
     switch (command) {
       case 'plugin:app|version': return '0.2.97-mock';
+      case 'get_computer_name': return 'mock-desktop';
       case 'plugin:app|name': return 'EasyCLIProxyAPI Browser Mock';
       case 'plugin:app|tauri_version': return '2.x-mock';
       case 'plugin:app|identifier': return 'com.cpa.gui.browser-mock';
@@ -1040,6 +1079,7 @@ export function createBrowserMockRuntime(
       case 'get_core_status': return clone(state.coreStatus);
       case 'main_window_active': return !document.hidden;
       case 'start_core_process': {
+        if (coreConnection.mode === 'remote') return remoteLifecycle(true, 52818);
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
         Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42817, message: 'Browser Mock core is running' });
         state.guiSettings.runOnStartup = true;
@@ -1047,12 +1087,14 @@ export function createBrowserMockRuntime(
         return clone(state.coreStatus);
       }
       case 'stop_core_process': {
+        if (coreConnection.mode === 'remote') return remoteLifecycle(false, null);
         Object.assign(state.coreStatus, { running: false, ready: false, managed: false, starting: false, processId: null, message: 'Browser Mock core is stopped' });
         state.guiSettings.runOnStartup = false;
         emit('core-status-changed', state.coreStatus);
         return clone(state.coreStatus);
       }
       case 'restart_core_process': {
+        if (coreConnection.mode === 'remote') return remoteLifecycle(true, 52819);
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');
         Object.assign(state.coreStatus, { running: true, ready: true, managed: true, starting: false, processId: 42818, message: 'Browser Mock core restarted' });
         emit('core-status-changed', state.coreStatus);
@@ -1073,6 +1115,27 @@ export function createBrowserMockRuntime(
         globalThis.sessionStorage?.setItem(connectionStorageKey, JSON.stringify(coreConnection));
         return clone(coreConnection);
       case 'test_core_connection': return { connected: false, version: null, message: 'Browser Mock: no remote core' };
+      case 'test_host_control': return { connected: true, running: true, message: 'Browser Mock host core is running' };
+      case 'get_remote_start_core_on_launch': {
+        if (coreConnection.mode !== 'remote') throw new Error('Start Core on Launch of a remote host applies only in Remote mode');
+        return remoteHostControl ? remoteStartCoreOnLaunch : null;
+      }
+      case 'set_remote_start_core_on_launch': {
+        if (!remoteHostControl) throw new Error('Set up remote host control in Core connection to start, stop or restart a remote core');
+        remoteStartCoreOnLaunch = Boolean(payload.enabled);
+        return remoteStartCoreOnLaunch;
+      }
+      case 'get_host_control_settings': return hostControlView();
+      case 'save_host_control_settings': {
+        const update = asObject(payload.update);
+        if (update.enabled && coreConnection.mode !== 'local') throw new Error('Remote control is available only while this app runs the local core');
+        if (typeof update.address !== 'string' || (update.address.trim() && !/^[\d.]+:\d+$|^\[[\da-fA-F:.]+\]:\d+$/.test(update.address.trim()))) throw new Error('Listen address must be an IP address and port');
+        const key = update.regenerateKey || (update.enabled && !hostControlSettings.key)
+          ? `ehc_browser-mock-${Math.random().toString(36).slice(2).padEnd(12, '0')}-0123456789abcdef` : hostControlSettings.key;
+        hostControlSettings = { enabled: Boolean(update.enabled), address: update.address.trim(), key };
+        globalThis.sessionStorage?.setItem(hostControlStorageKey, JSON.stringify(hostControlSettings));
+        return hostControlView();
+      }
       case 'get_privacy_mode': return privacyMode;
       case 'save_privacy_mode': {
         if (typeof payload.enabled !== 'boolean') throw new Error('Invalid privacy mode');
@@ -1211,6 +1274,23 @@ export function createBrowserMockRuntime(
       }
       case 'cancel_core_install': return null;
       case 'detect_bundled_core': return clone(BUNDLED_CORE);
+      case 'remote_version_source': {
+        if (!remoteHostControl) throw new Error('Set up remote host control');
+        if (coreConnection.hostControlOrigin.includes('older-host')) throw new Error("Update EasyCLIProxyAPI on the core's computer to change its download source");
+        const source = hostVersionSource;
+        const value = readString(payload.value);
+        if (payload.action === '/select') source.source = value;
+        if (payload.action === '/mirrors/add') {
+          if (!value.startsWith('https://')) throw new Error('Invalid HTTPS mirror prefix');
+          if (!source.customMirrors.includes(value)) source.customMirrors.push(value);
+          source.source = `custom:${value}`;
+        }
+        if (payload.action === '/mirrors/remove') {
+          source.customMirrors = source.customMirrors.filter(url => url !== value);
+          if (source.source === `custom:${value}`) source.source = 'github';
+        }
+        return clone(source);
+      }
       case 'get_version_source_settings': return clone(state.versionSource);
       case 'set_download_source': {
         state.versionSource.source = readString(payload.source) || 'github';
@@ -1298,19 +1378,30 @@ export function createBrowserMockRuntime(
       }
       case 'submit_oauth_callback': return null;
 
-      case 'get_usage_collector_status': return {
-        state: state.coreStatus.ready ? 'collecting' : 'waiting-core',
-        message: state.coreStatus.ready ? 'Browser Mock is collecting usage records' : 'Waiting for the core to start',
-        lastCollectedAt: new Date().toISOString(),
-        totalRecords: state.usageOverview.totalRequests,
-      };
-      case 'get_usage_overview': return clone(state.usageOverview);
+      case 'get_usage_collector_status': {
+        if (coreConnection.mode === 'remote' && !remoteHostControl) throw new Error('Set up remote host control to read host usage');
+        return {
+          state: state.coreStatus.ready ? 'collecting' : 'waiting-core',
+          message: remoteHostControl ? 'The host is collecting usage' : 'Browser Mock is collecting usage records',
+          lastCollectedAt: new Date().toISOString(),
+          totalRecords: state.usageOverview.totalRequests,
+          revision: remoteHostControl ? 'host-store:1' : undefined,
+        };
+      }
+      case 'get_usage_overview': {
+        if (coreConnection.mode === 'remote' && !remoteHostControl) throw new Error('Set up remote host control to read host usage');
+        return clone({ ...state.usageOverview, ...(remoteHostControl ? { totalRequests: 900, successCount: 810, failureCount: 90, canceledCount: 0, successRate: 90 } : {}) });
+      }
       case 'get_usage_analysis': return clone(state.analysis);
       case 'get_usage_events': {
         const query = asObject(payload.query);
         const page = Math.max(1, readNumber(query.page, 1));
         const pageSize = Math.max(1, readNumber(query.page_size, 50));
         const events = state.usageEvents.filter(event => {
+          const id = Number(event.row_id);
+          if (typeof query.before_id === 'number' && id >= query.before_id) return false;
+          if (typeof query.after_id === 'number' && id <= query.after_id) return false;
+          if (typeof query.snapshot_id === 'number' && id > query.snapshot_id) return false;
           for (const key of ['model', 'provider', 'source', 'api_key_hash'] as const) {
             if (query[key] && event[key] !== query[key]) return false;
           }
@@ -1321,9 +1412,13 @@ export function createBrowserMockRuntime(
           return (!query.start || timestamp >= Date.parse(String(query.start)))
             && (!query.end || timestamp <= Date.parse(String(query.end)));
         });
+        if (query.before_id !== undefined || query.after_id !== undefined) events.sort((a, b) => Number(b.row_id) - Number(a.row_id));
         const start = (page - 1) * pageSize;
+        const items = events.slice(start, start + pageSize);
         return {
-          items: clone(events.slice(start, start + pageSize)),
+          snapshotId: query.snapshot_id ?? Math.max(0, ...state.usageEvents.map(event => Number(event.row_id))),
+          nextCursor: items.length ? Number(items[items.length - 1].row_id) : null,
+          items: clone(items),
           total: events.length,
           page,
           pageSize,

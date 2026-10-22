@@ -1101,11 +1101,29 @@ pub(crate) async fn get_extended_core_config(
     extended_config_view(&document)
 }
 
+const REMOTE_CONNECTION_PATHS: [&str; 4] =
+    ["server/host", "server/port", "server/tls", "management"];
+
 #[tauri::command]
-pub(crate) fn save_extended_core_config(
+pub(crate) async fn save_extended_core_config(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     changes: Vec<ExtendedConfigChange>,
 ) -> Result<ExtendedConfigResult, String> {
+    if gui_config_state.snapshot()?.connection_mode == CoreConnectionMode::Remote {
+        // The address, TLS and management settings decide how this app reaches the remote core.
+        if changes.iter().any(|change| {
+            REMOTE_CONNECTION_PATHS
+                .iter()
+                .any(|prefix| change.path.starts_with(&parts(prefix)))
+        }) {
+            return Err("This setting decides how this app reaches the remote core. Change it on the core's computer, then update Core connection".into());
+        }
+        return crate::core_connection::edit_remote_core_config(&gui_config_state, |content| {
+            let (updated, result) = prepare_patch(content, &changes)?;
+            Ok((Some(updated), result))
+        })
+        .await;
+    }
     let _guard = lock_core_config_file()?;
     let path = core_install_dir()?.join(CORE_CONFIG_FILE);
     let content = fs::read_to_string(&path)
@@ -1149,6 +1167,7 @@ pub(crate) fn save_extended_core_config(
         next.auth_dir_user_selected = true;
     }
     validate_gui_config(&next)?;
+    crate::host_control::check_core_port(&next)?;
     if fs::read_to_string(&path).map_err(|error| error.to_string())? != content {
         return Err("Configuration changed externally. Reload before saving".into());
     }

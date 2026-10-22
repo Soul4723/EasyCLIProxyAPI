@@ -2,6 +2,7 @@ import { onCoreInstallProgress, onConfigFilesChanged, onVersionDownloadSourceCha
 import { openExternalUrl } from '../services/appSettings';
 import {
   getVersionSourceSettings,
+  remoteVersionSource,
   getCoreInstallTask,
   setDownloadSource,
   addCustomDownloadMirror,
@@ -10,6 +11,7 @@ import {
   installCoreVersion,
   cancelCoreInstall,
   detectBundledCore,
+  followInstallTask,
 } from '../services/coreVersions';
 import type {
   VersionSourceSettings,
@@ -29,7 +31,9 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useCoreRuntime } from '../coreRuntime';
+import { useCoreRuntime, useRemoteHostControl, useRemoteCoreHost } from '../coreRuntime';
+import { usePrivacyMask } from '../privacy';
+import { ScopeLabel } from '../components/ScopeLabel';
 import { useCoreUpdate } from '../coreUpdate';
 import { useI18n } from '../i18n';
 import { useAppUpdate } from '../appUpdate';
@@ -90,6 +94,18 @@ export function VersionManagementPage() {
     status: coreStatus,
     refreshStatus,
   } = useCoreRuntime();
+  // This app's updates always use this computer's download source. In Remote mode core checks and installs
+  // run on the core's computer, through remote host control, with its own source; the bundled core stays disabled here.
+  const remoteHost = coreStatus?.connectionMode === 'remote';
+  const remoteHostControl = useRemoteHostControl();
+  const hostName = useRemoteCoreHost();
+  const privacy = usePrivacyMask();
+  const hostSourceTitle = t('connection.hostDownloadSource', { host: privacy.text(hostName ?? '') });
+  const [hostSource, setHostSource] = useState<VersionSourceSettings | null>(null);
+  const [hostSourceError, setHostSourceError] = useState('');
+  const [mirrorScope, setMirrorScope] = useState<'computer' | 'host'>('computer');
+  const coreVersionsUnavailable = remoteHost && !remoteHostControl
+    ? t(coreStatus?.hostControl ? 'connection.hostControlUnreachable' : 'connection.remoteVersions') : '';
   const {
     latest,
     error: latestError,
@@ -120,6 +136,8 @@ export function VersionManagementPage() {
 
   const customMirrorInputRef = useRef<HTMLInputElement>(null);
   const completedInstallKeyRef = useRef('');
+  const pageMountedRef = useRef(true);
+  useEffect(() => () => { pageMountedRef.current = false; }, []);
   const manualInstallInProgressRef = useRef(false);
   const pageVisitRef = useRef({});
 
@@ -181,10 +199,35 @@ export function VersionManagementPage() {
     }
   };
 
+  useEffect(() => {
+    let live = true;
+    setHostSource(null);
+    setHostSourceError('');
+    if (remoteHost && remoteHostControl) {
+      void remoteVersionSource().then(value => { if (live) setHostSource(value); })
+        .catch(error => { if (live) setHostSourceError(String(error)); });
+    }
+    return () => { live = false; };
+  }, [hostName, remoteHost, remoteHostControl]);
+
+  const updateHostSource = async (source: string) => {
+    setVersionSourceSaving(true);
+    setHostSourceError('');
+    try { setHostSource(await remoteVersionSource('/select', source)); resetLatest(); }
+    catch (error) { setHostSourceError(String(error)); }
+    finally { setVersionSourceSaving(false); }
+  };
+
   const loadInstallTask = async () => {
     try {
       const task = await getCoreInstallTask();
       applyInstallTask(task, false, false);
+      // An install already running when the page opens may send no progress here (Remote mode: another
+      // client's or the host's own); follow it until it finishes.
+      if (task.running) {
+        void followInstallTask(getCoreInstallTask, (next) => applyInstallTask(next, false, false),
+          () => pageMountedRef.current && !manualInstallInProgressRef.current);
+      }
     } catch {}
   };
 
@@ -212,8 +255,8 @@ export function VersionManagementPage() {
     setVersionSourceSaving(true);
     setVersionSourceError('');
     try {
-      const settings = await addCustomDownloadMirror({ url });
-      setVersionSource(settings);
+      const settings = mirrorScope === 'host' ? await remoteVersionSource('/mirrors/add', url) : await addCustomDownloadMirror({ url });
+      if (mirrorScope === 'host') setHostSource(settings); else setVersionSource(settings);
       setCustomMirrorDraft('');
       setCustomMirrorDialogOpen(false);
       resetLatest();
@@ -227,14 +270,12 @@ export function VersionManagementPage() {
   };
 
   const removeCustomMirror = async (url: string) => {
-    const wasSelected = versionSource?.source === `custom:${url}`;
+    const wasSelected = (mirrorScope === 'host' ? hostSource : versionSource)?.source === `custom:${url}`;
     setVersionSourceSaving(true);
     setVersionSourceError('');
     try {
-      const settings = await removeCustomDownloadMirror({
-        url,
-      });
-      setVersionSource(settings);
+      const settings = mirrorScope === 'host' ? await remoteVersionSource('/mirrors/remove', url) : await removeCustomDownloadMirror({ url });
+      if (mirrorScope === 'host') setHostSource(settings); else setVersionSource(settings);
       showNotice({ key: 'kernel.versions.customMirrorRemoved' }, 'success');
       if (wasSelected) {
         resetLatest();
@@ -447,6 +488,8 @@ export function VersionManagementPage() {
 
   const coreVersionStatusLabel: string | null = installing || progress?.running
     ? (cancellingInstall ? t('kernel.install.cancelling') : progress?.phase ? localizeInstallPhase(progress.phase, t) : t('kernel.install.inProgress'))
+    : coreVersionsUnavailable
+      ? null
     : latestError
       ? t('kernel.update.failed')
       : coreHasUpdate
@@ -511,11 +554,12 @@ export function VersionManagementPage() {
       <section className="surface-bare version-list">
         <div className="version-source-row" aria-label={t('kernel.versions.downloadSource')}>
           <div className="version-source-copy">
-            <strong>{t('kernel.versions.downloadSource')}</strong>
+            <div className="version-card-top"><strong>{t('kernel.versions.downloadSource')}</strong><ScopeLabel scope="computer" /></div>
             <span>{t('kernel.versions.downloadSourceHint')}</span>
             {versionSource?.gitcodeAvailable === false ? (
               <span>{t('kernel.versions.gitcodeUnavailable')}</span>
             ) : null}
+            {remoteHost ? <span>{t('connection.versionsSourceRemote')}</span> : null}
           </div>
           <div className="version-source-control">
             <label>
@@ -550,6 +594,7 @@ export function VersionManagementPage() {
               disabled={versionSourceSaving || appUpdateTask.running || installing}
               onClick={() => {
                 setVersionSourceError('');
+                setMirrorScope('computer');
                 setCustomMirrorDialogOpen(true);
               }}
             >
@@ -558,12 +603,63 @@ export function VersionManagementPage() {
           </div>
         </div>
 
+        {remoteHost ? <div id="host-download-source" className="version-source-row" aria-label={hostSourceTitle}>
+          <div className="version-source-copy">
+            <div className="version-card-top"><strong>{hostSourceTitle}</strong><ScopeLabel scope="host" /></div>
+            <span>{coreVersionsUnavailable || hostSourceError || t('connection.hostDownloadSourceHint')}</span>
+            {hostSource?.gitcodeAvailable === false ? (
+              <span>{t('kernel.versions.gitcodeUnavailable')}</span>
+            ) : null}
+          </div>
+          <div className="version-source-control">
+            <label>
+              <span className="sr-only">{hostSourceTitle}</span>
+              <Select
+                value={hostSource?.source ?? DEFAULT_VERSION_DOWNLOAD_SOURCE}
+                disabled={
+                  !hostSource
+                  || Boolean(coreVersionsUnavailable)
+                  || versionSourceSaving
+                  || installing
+                }
+                aria-label={hostSourceTitle}
+                onChange={(event) => void updateHostSource(event.currentTarget.value as VersionDownloadSource)}
+              >
+                <option value="github">{t('kernel.versions.source.github')}</option>
+                <option value="gitcode" disabled={!hostSource?.gitcodeAvailable}>
+                  {t('kernel.versions.source.gitcode')}
+                </option>
+                <option value="gh-proxy">{t('kernel.versions.source.ghProxy')}</option>
+                <option value="gh-fast">{t('kernel.versions.source.ghFast')}</option>
+                {hostSource?.customMirrors.map((url) => (
+                  <option key={url} value={`custom:${url}`}>
+                    {downloadSourceLabel(`custom:${url}`, t)}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <button
+              type="button"
+              className="primary-button version-source-add-button"
+              disabled={!hostSource || Boolean(coreVersionsUnavailable) || versionSourceSaving || installing}
+              onClick={() => {
+                setVersionSourceError('');
+                setMirrorScope('host');
+                setCustomMirrorDialogOpen(true);
+              }}
+            >
+              <span>{t('kernel.versions.customMirrorAdd')}</span>
+            </button>
+          </div>
+        </div> : null}
+
         <FloatingNotice key={feedback.revision} notice={feedback.notice} onDismiss={feedback.clearNotice} />
         <div className="version-card-grid">
         <article className="version-list-item app-module-card">
           <div className="version-item-content">
             <div className="version-card-top">
               <h2>{t('kernel.versions.appCardTitle')}</h2>
+              <ScopeLabel scope="computer" />
               {appVersionStatusLabel ? (
                 <span className={`version-row-status ${appVersionStatusTone}`} title={appUpdateError || appVersionStatusLabel}>
                   {appVersionStatusLabel}
@@ -631,6 +727,7 @@ export function VersionManagementPage() {
           <div className="version-item-content">
             <div className="version-card-top">
               <h2>{t('kernel.versions.coreCardTitle')}</h2>
+              <ScopeLabel scope="core" />
               {coreVersionStatusLabel ? (
                 <span className={`version-row-status ${coreVersionStatusTone}`} title={coreVersionStatusLabel}>
                   {coreVersionStatusLabel}
@@ -647,13 +744,17 @@ export function VersionManagementPage() {
               </div>
               <div className={`surface-section surface-muted version-metric-tile ${coreHasUpdate ? 'has-update' : ''}`}>
                 <dt className="version-metric-label">{t('kernel.versions.latest')}</dt>
-                <dd className="version-metric-value" title={latestVersion || latestError || t('kernel.update.notChecked')}>
-                  {checkingLatest ? t('kernel.update.checking') : (latestVersion || (latestError ? t('common.detectionFailed') : t('kernel.update.notChecked')))}
+                <dd className="version-metric-value" title={coreVersionsUnavailable || latestVersion || latestError || t('kernel.update.notChecked')}>
+                  {coreVersionsUnavailable ? '—' : checkingLatest ? t('kernel.update.checking') : (latestVersion || (latestError ? t('common.detectionFailed') : t('kernel.update.notChecked')))}
                 </dd>
               </div>
             </dl>
 
-            {latestError ? (
+            {remoteHost ? <div className="version-alert-banner neutral">
+              <Info size={14} />
+              <span>{coreVersionsUnavailable || t('connection.versionsRemoteHost')}</span>
+            </div> : null}
+            {latestError && !coreVersionsUnavailable ? (
               <MessageNotice message={latestError} />
             ) : null}
           </div>
@@ -662,7 +763,8 @@ export function VersionManagementPage() {
             <button
               type="button"
               className="secondary-button"
-              disabled={busy}
+              disabled={busy || Boolean(coreVersionsUnavailable)}
+              title={coreVersionsUnavailable || undefined}
               onClick={() => void checkLatest(true)}
             >
               <RefreshCw size={15} className={checkingLatest ? 'spin' : ''} aria-hidden="true" />
@@ -672,19 +774,20 @@ export function VersionManagementPage() {
             <button
               type="button"
               className={latestVersion && (!coreInstalled || coreHasUpdate) ? 'primary-button' : 'secondary-button'}
-              title={latestVersion ? t('kernel.versions.stopAndUpdateVersion', { version: latestVersion }) : t('kernel.versions.installLatest')}
-              disabled={!latestVersion || busy}
+              title={coreVersionsUnavailable || (latestVersion ? t('kernel.versions.stopAndUpdateVersion', { version: latestVersion }) : t('kernel.versions.installLatest'))}
+              disabled={!latestVersion || busy || Boolean(coreVersionsUnavailable)}
               onClick={() => setConfirmUpdateOpen(true)}
             >
               <Download size={15} aria-hidden="true" />
               <span>{!coreInstalled ? t('kernel.versions.installLatestMissing') : t('kernel.versions.installLatest')}</span>
             </button>
 
+            {/* The bundled core ships with this app for this computer; a remote core is installed from releases. */}
             <button
               type="button"
               className="secondary-button"
-              title={bundledCoreError || (bundledCore ? t('kernel.versions.installBundledTitle', { version: bundledCore.version }) : t('kernel.versions.noBundled'))}
-              disabled={!bundledCore || installDisabled}
+              title={remoteHost ? t('connection.remoteBundledCore') : bundledCoreError || (bundledCore ? t('kernel.versions.installBundledTitle', { version: bundledCore.version }) : t('kernel.versions.noBundled'))}
+              disabled={remoteHost || !bundledCore || installDisabled}
               onClick={() => void installCore({ kind: 'bundled' })}
             >
               <Package size={15} aria-hidden="true" />
@@ -718,7 +821,7 @@ export function VersionManagementPage() {
         >
           <div className="install-dialog-heading">
             <div>
-              <span>{t('kernel.versions.downloadSource')}</span>
+              <span>{mirrorScope === 'host' ? hostSourceTitle : t('kernel.versions.downloadSource')}</span>
               <h2 id="custom-mirror-dialog-title">{t('kernel.versions.customMirrorDialogTitle')}</h2>
             </div>
             <button
@@ -745,10 +848,10 @@ export function VersionManagementPage() {
             onChange={(event) => setCustomMirrorDraft(event.currentTarget.value)}
           />
 
-          {versionSource?.customMirrors.length ? (
+          {(mirrorScope === 'host' ? hostSource : versionSource)?.customMirrors.length ? (
             <div className="custom-mirror-dialog-list">
               <span>{t('kernel.versions.customMirrorSaved')}</span>
-              {versionSource.customMirrors.map((url) => (
+              {(mirrorScope === 'host' ? hostSource : versionSource)?.customMirrors.map((url) => (
                 <div key={url}>
                   <span title={url}>{url}</span>
                   <button

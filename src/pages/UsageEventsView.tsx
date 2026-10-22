@@ -1,3 +1,4 @@
+import { useRemoteMode } from '../coreRuntime';
 import { EmptyState } from '../components/EmptyState';
 import { Checkbox } from '../components/Checkbox';
 import { Switch } from '../components/Switch';
@@ -473,6 +474,7 @@ export function EventsView({
   onPageSizeChange: (pageSize: number) => void;
   loading?: boolean;
 }) {
+  const remote = useRemoteMode();
   const { t } = useI18n();
   const privacy = usePrivacyMask();
   const [widths, setWidths] = useState<Record<EventColumnKey, number>>(getInitialColumnWidths);
@@ -679,14 +681,21 @@ export function EventsView({
       });
       if (!path) return;
       const items: UsageRecord[] = [];
-      const pageSize = 5000;
+      const pageSize = remote ? 200 : 5000;
+      let beforeId = Number.MAX_SAFE_INTEGER;
+      let snapshotId: number | undefined;
       for (let page = 1; ; page += 1) {
         const exported = await getUsageEvents({
-          query: { ...query, page, page_size: pageSize },
+          query: { ...query, page: remote ? 1 : page, page_size: pageSize,
+            ...(remote ? { before_id: beforeId, snapshot_id: snapshotId } : {}) },
         });
-        if (exported.page !== page || exported.items.length === 0) break;
+        if ((!remote && exported.page !== page) || exported.items.length === 0) break;
         items.push(...exported.items);
-        if (items.length >= exported.total || page >= exported.totalPages) break;
+        if (remote) {
+          snapshotId = exported.snapshotId;
+          if (!exported.nextCursor || exported.items.length < pageSize) break;
+          beforeId = exported.nextCursor;
+        } else if (items.length >= exported.total || page >= exported.totalPages) break;
       }
       await saveUsageEventsExport({ path, contents: usageEventsCsv(items) });
     } catch (error) {

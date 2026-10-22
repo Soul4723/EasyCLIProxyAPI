@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { singleFlight } from './inFlight';
 import type { ClaudeDesktopModelMapping } from './claudeDesktopModels';
 import type { ModelOption } from './modelService';
 import type { DeepSeekHarnessLaunchOptions } from './deepSeekHarnessLaunch';
@@ -124,8 +125,8 @@ export const deleteAgentConfigBackup = (args: { client: string; id: string; }): 
 export const refreshAgentConfigStatuses = (args: { executableOverrides: AgentExecutablePaths; }): Promise<AgentConfigStatus[]> =>
   invoke<AgentConfigStatus[]>('refresh_agent_config_statuses', args);
 
-export const getAgentConfigStatuses = (args: { executableOverrides: AgentExecutablePaths; }): Promise<AgentConfigStatus[]> =>
-  invoke<AgentConfigStatus[]>('get_agent_config_statuses', args);
+export const getAgentConfigStatuses = singleFlight((args: { executableOverrides: AgentExecutablePaths; }): Promise<AgentConfigStatus[]> =>
+  invoke<AgentConfigStatus[]>('get_agent_config_statuses', args));
 
 export const getDeepSeekHarnessProcessStatus = (): Promise<DeepSeekHarnessProcessStatus> =>
   invoke<DeepSeekHarnessProcessStatus>('get_deepseek_harness_process_status');

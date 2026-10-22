@@ -55,6 +55,7 @@ import {
 import { open } from '../services/platform';
 import {
   AlertTriangle,
+  ArrowRight,
   BadgeCheck,
   Bot,
   Check,
@@ -121,6 +122,7 @@ import { Dialog } from '../components/Dialog';
 import { useConfirmation } from '../components/ConfirmationDialog';
 import { requestAppNavigation } from '../navigation';
 import { Select } from '../components/Select';
+import { ScopeLabel } from '../components/ScopeLabel';
 
 const setupErrors: Record<string, MessageKey> = {
   COPILOT_SETUP_REQUIRED: 'agents.copilotSetup.required',
@@ -1841,6 +1843,12 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
           </div>
         </header>
       ) : null}
+
+      {/* Agent configuration always edits this computer's clients; only the core they are pointed at differs. */}
+      <p className="agent-target-route" title={t('agents.scope.title')}>
+        <span>{t('agents.scope.label')}</span>
+        <ScopeLabel scope="computer" always /><ArrowRight size={14} aria-hidden="true" /><ScopeLabel scope="core" always />
+      </p>
 
       <div className="agent-workbench">
         <AgentClientList clients={agentDefinitions.map((agent) => {

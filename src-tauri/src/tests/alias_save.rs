@@ -252,7 +252,11 @@ impl MockCore {
                 let request_body = &bytes[header_end..header_end + content_length];
                 let mut status = "200 OK";
                 let mut response = "{\"status\":\"ok\"}".to_string();
-                if method == "GET" {
+                if method == "GET" && matches!(path, "/v1/models" | "/models") {
+                    // Public discovery is not a complete routing contract.
+                    // Keep this empty even after a successful alias write.
+                    response = r#"{"data":[]}"#.to_string();
+                } else if method == "GET" {
                     assert_eq!(path, "/v8/management/config.yaml");
                     response = if v8_response {
                         v8_yaml_from_legacy_json(&persisted)
@@ -408,6 +412,28 @@ fn v8_yaml_from_legacy_json(legacy: &serde_json::Value) -> String {
     }
     root.insert("api-keys".into(), serde_json::Value::Object(upstreams));
     serde_norway::to_string(&serde_json::Value::Object(root)).unwrap()
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn desktop_save_does_not_require_routes_to_appear_in_public_discovery() {
+    let initial = "codex-api-key:\n  - api-key: test-upstream\n    models: [{name: model-a}]\n";
+    let core = MockCore::new(initial, Failure::None);
+    assert!(fetch_agent_models(core.config.port, "test-client").await.unwrap().is_empty());
+    let models = super::support::test_agent_models(&["model-a"]);
+    let mappings = ClaudeDesktopModelMappings::all("model-a");
+    let profile = commit_agent_with_core(&core.config, Some(mappings), &models, |mappings| {
+        build_claude_desktop_profile(None, "http://127.0.0.1:8317", "test-client",
+            "model-a", &models, mappings)
+    }).await.unwrap();
+    let profile: serde_json::Value = serde_json::from_str(&profile).unwrap();
+    assert!(!profile["inferenceModels"].as_array().unwrap().is_empty());
+    assert!(fetch_agent_models(core.config.port, "test-client").await.unwrap().is_empty());
+    let (persisted, requests) = core.finish();
+    assert!(persisted["codex-api-key"][0]["models"].as_array().unwrap().iter()
+        .any(|model| model["alias"] == CLAUDE_DESKTOP_SONNET_MODEL_ID));
+    // Only the two explicit reads above; saving must not poll discovery or infer.
+    assert_eq!(requests.iter().filter(|request| *request == "GET /v1/models").count(), 2);
+    assert!(!requests.iter().any(|request| request.contains("/v1/messages")));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1040,4 +1066,90 @@ async fn alias_transaction_checks_core_before_a_local_only_commit() {
     result.unwrap();
     assert!(committed.load(Ordering::SeqCst));
     assert_eq!(core.finish().0, yaml_json(&current));
+}
+
+#[tokio::test]
+async fn oauth_definition_reads_are_bounded_and_keep_channel_order() {
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let config = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: format!("http://{}", listener.local_addr().unwrap()),
+        remote_management_key: "fixture-key".into(),
+        port: 0,
+        ..GuiConfigFile::default()
+    };
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let requests = Arc::new(AtomicUsize::new(0));
+    let counters = (active.clone(), peak.clone(), requests.clone());
+    let server = tokio::spawn(async move {
+        let (active, peak, requests) = counters;
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (active, peak, requests) = (active.clone(), peak.clone(), requests.clone());
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let mut bytes = [0; 2048];
+                    let count = socket.read(&mut bytes).await.unwrap();
+                    if count == 0 { return; }
+                    request.extend_from_slice(&bytes[..count]);
+                }
+                let request = String::from_utf8_lossy(&request);
+                assert!(request.contains("Bearer fixture-key"));
+                requests.fetch_add(1, Ordering::SeqCst);
+                let path = request.split_whitespace().nth(1).unwrap();
+                let channel = path.rsplit('/').next().unwrap();
+                let (status, body) = if channel == "credentials" || channel == "meta" {
+                    (500, "{}".to_string())
+                } else {
+                    peak.fetch_max(active.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                    // The first channel finishes last; output must still follow channel order.
+                    tokio::time::sleep(Duration::from_millis(if channel == "vertex" { 120 } else { 60 })).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    (200, format!("{{\"models\":[{{\"id\":\"{channel}-model\"}}]}}"))
+                };
+                let response = format!("HTTP/1.1 {status} OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                socket.write_all(response.as_bytes()).await.unwrap();
+            });
+        }
+    });
+    let started = std::time::Instant::now();
+    let definitions = fetch_oauth_model_definitions(&config).await;
+    println!("OAuth fixture: {} requests, peak {}, elapsed {:?}", requests.load(Ordering::SeqCst), peak.load(Ordering::SeqCst), started.elapsed());
+    assert_eq!(requests.load(Ordering::SeqCst), 10);
+    assert_eq!(peak.load(Ordering::SeqCst), 3);
+    assert_eq!(definitions.iter().map(|definition| definition.channel.key).collect::<Vec<_>>(),
+        OAUTH_ALIAS_CHANNELS.iter().filter(|channel| channel.key != "meta").map(|channel| channel.key).collect::<Vec<_>>());
+    assert!(definitions.iter().all(|definition| definition.models[0].id == format!("{}-model", definition.channel.key)));
+    server.abort();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn desktop_additional_api_channels_save_and_rollback_without_changing_credentials() {
+    for section in ["xai-api-key", "meta-api-key", "vertex-api-key", "interactions-api-key"] {
+        for fail in [false, true] {
+            let initial = format!("{section}:\n  - api-key: preserved-secret\n    base-url: https://provider.test\n    models: [{{name: model-a}}]\n");
+            let core = MockCore::new(&initial, Failure::None);
+            let result = commit_agent_with_core(
+                &core.config,
+                Some(ClaudeDesktopModelMappings::all("model-a")),
+                &super::support::test_agent_models(&["model-a"]),
+                |_| if fail { Err("local write rejected".into()) } else { Ok(()) },
+            ).await;
+            let (persisted, _) = core.finish();
+            if fail {
+                assert!(result.is_err());
+                assert_eq!(persisted, yaml_json(&initial));
+            } else {
+                result.unwrap();
+                assert_eq!(persisted[section][0]["api-key"], "preserved-secret");
+                assert_eq!(persisted[section][0]["base-url"], "https://provider.test");
+                assert!(persisted[section][0]["models"].as_array().unwrap().iter()
+                    .any(|entry| entry["alias"] == CLAUDE_DESKTOP_SONNET_MODEL_ID));
+            }
+        }
+    }
 }

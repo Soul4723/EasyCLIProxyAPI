@@ -144,6 +144,11 @@
   line-height: 16px;
 }
 
+.sidebar-brand-text .scope-label {
+  justify-self: start;
+  margin-top: 2px;
+}
+
 /* ---------- Rows (nav items and footer links share one style) ---------- */
 
 .nav-section {

@@ -2,16 +2,25 @@ import { useEffect, useId, useState } from 'react';
 import { Check, Eye, EyeOff, Link2, LoaderCircle, PlugZap, X } from 'lucide-react';
 import { Dialog } from '../components/Dialog';
 import { Notice } from '../components/Notice';
+import { ScopeLabel } from '../components/ScopeLabel';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { useCoreRuntime } from '../coreRuntime';
 import { useI18n } from '../i18n';
 import {
-  canSaveConnection, getCoreConnection, isCompleteRemoteDraft, isInsecureRemoteOrigin, isValidRemoteOrigin,
-  saveCoreConnection, testCoreConnection, type ConnectionTestResult, type CoreConnection,
+  canSaveConnection, getCoreConnection, hasHostControl, hostControlDraftProblem, isCompleteRemoteDraft, isInsecureRemoteOrigin,
+  isValidRemoteOrigin, saveCoreConnection, testCoreConnection, testHostControl, type ConnectionTestResult, type CoreConnection,
+  type HostControlTestResult,
 } from '../services/coreConnection';
 import './CoreHealthPanel.css';
 import './HomeDashboard.css';
 import './CoreConnectionSettings.css';
+
+const hostProblemMessages = {
+  invalidOrigin: 'connection.hostControl.invalidOrigin',
+  incomplete: 'connection.hostControl.incomplete',
+  sameKey: 'connection.hostControl.sameKey',
+  invalidKey: 'connection.hostControl.invalidKey',
+} as const;
 
 // One implementation for both hosts: the Advanced Features card and the Home dialog. Both read the saved
 // connection from the backend on mount, and every successful save reloads the window, so they cannot drift.
@@ -26,25 +35,38 @@ export function CoreConnectionSettings({ variant = 'card', hidden, onClose }: {
   const [saved, setSaved] = useState<CoreConnection | null>(null);
   const [draft, setDraft] = useState<CoreConnection | null>(null);
   const [showKey, setShowKey] = useState(false);
+  const [showHostKey, setShowHostKey] = useState(false);
   const [busy, setBusy] = useState<'test' | 'save' | null>(null);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ConnectionTestResult | null>(null);
+  const [hostResult, setHostResult] = useState<HostControlTestResult | null>(null);
   const localCoreRunning = Boolean(status?.managed && status.running);
 
   useEffect(() => {
-    void getCoreConnection().then((value) => { setSaved(value); setDraft(value); }).catch((cause) => setError(String(cause)));
+    void getCoreConnection().then((value) => {
+      const connection = { ...value, hostControlOrigin: value.hostControlOrigin ?? '', hostControlKey: value.hostControlKey ?? '' };
+      setSaved(connection); setDraft(connection);
+    }).catch((cause) => setError(String(cause)));
   }, []);
 
   const edit = (change: Partial<CoreConnection>) => {
     setDraft((value) => value && { ...value, ...change });
     setResult(null);
+    setHostResult(null);
     setError('');
   };
+  // Tests the management API and, when entered, remote host control; nothing is saved.
   const test = async () => {
     if (!draft) return;
-    setBusy('test'); setError(''); setResult(null);
-    try { setResult(await testCoreConnection(draft)); }
-    catch (cause) { setError(String(cause)); }
+    setBusy('test'); setError(''); setResult(null); setHostResult(null);
+    try {
+      const [management, host] = await Promise.all([
+        testCoreConnection(draft),
+        hasHostControl(draft) ? testHostControl(draft) : Promise.resolve(null),
+      ]);
+      setResult(management);
+      setHostResult(host);
+    } catch (cause) { setError(String(cause)); }
     finally { setBusy(null); }
   };
   const save = async () => {
@@ -61,6 +83,7 @@ export function CoreConnectionSettings({ variant = 'card', hidden, onClose }: {
 
   const remote = draft?.mode === 'remote';
   const originInvalid = remote && draft.managementOrigin.trim() !== '' && !isValidRemoteOrigin(draft.managementOrigin);
+  const hostProblem = remote ? hostControlDraftProblem(draft) : null;
   const canSave = Boolean(draft && saved && busy === null && canSaveConnection(draft, saved, localCoreRunning));
 
   const form = draft ? <div className="core-connection-form">
@@ -89,11 +112,41 @@ export function CoreConnectionSettings({ variant = 'card', hidden, onClose }: {
         </div>
       </label>
     </div> : null}
+    {remote ? <div className="core-connection-host-control" role="group" aria-labelledby={`${dialogId}-host-control`}>
+      <div>
+        <strong id={`${dialogId}-host-control`}>{t('connection.hostControl.title')}</strong>
+        <p className="core-connection-hint">{t('connection.hostControl.hint')}</p>
+      </div>
+      <div className="core-connection-fields">
+        <label className="config-management-field">
+          <span>{t('connection.hostControl.origin')}</span>
+          <input className="config-dialog-text-input" type="url" inputMode="url" autoComplete="off" spellCheck={false}
+            placeholder={t('connection.hostControl.originPlaceholder')} value={draft.hostControlOrigin} disabled={busy !== null}
+            aria-invalid={hostProblem === 'invalidOrigin'} onChange={(event) => edit({ hostControlOrigin: event.currentTarget.value })} />
+        </label>
+        <label className="config-management-field">
+          <span>{t('connection.hostControl.key')}</span>
+          <div className="config-secret-input">
+            <input type={showHostKey ? 'text' : 'password'} autoComplete="off" spellCheck={false} value={draft.hostControlKey}
+              disabled={busy !== null} aria-invalid={hostProblem === 'sameKey' || hostProblem === 'invalidKey'}
+              onChange={(event) => edit({ hostControlKey: event.currentTarget.value })} />
+            <button type="button" className="icon-button quiet" onClick={() => setShowHostKey((value) => !value)}
+              title={t(showHostKey ? 'config.keys.hide' : 'config.keys.show')} aria-label={t(showHostKey ? 'config.keys.hide' : 'config.keys.show')}>
+              {showHostKey ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+            </button>
+          </div>
+        </label>
+      </div>
+    </div> : null}
     {originInvalid ? <Notice tone="error" variant="text" live={false}>{t('connection.invalidOrigin')}</Notice>
+      : hostProblem ? <Notice tone="error" variant="text" live={false}>{t(hostProblemMessages[hostProblem])}</Notice>
       : isInsecureRemoteOrigin(draft) ? <Notice tone="warn" variant="text">{t('connection.httpWarning')}</Notice> : null}
     {remote && localCoreRunning && saved?.mode !== 'remote' ? <Notice tone="info">{t('connection.stopLocalHint')}</Notice> : null}
     {result ? <Notice tone={result.connected ? 'success' : 'error'} title={t(result.connected ? 'connection.connected' : 'connection.failed')}>
       {result.connected ? result.version || null : result.message}
+    </Notice> : null}
+    {hostResult ? <Notice tone={hostResult.connected ? 'success' : 'error'} title={t(hostResult.connected ? 'connection.hostControl.connected' : 'connection.hostControl.failed')}>
+      {hostResult.connected ? t(hostResult.running ? 'connection.hostControl.coreRunning' : 'connection.hostControl.coreStopped') : hostResult.message}
     </Notice> : null}
     {error ? <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice> : null}
   </div> : error ? <Notice tone="error">{error}</Notice> : null;
@@ -124,7 +177,7 @@ export function CoreConnectionSettings({ variant = 'card', hidden, onClose }: {
 
   return <section id="config-core-connection" tabIndex={-1} hidden={hidden} className="panel surface-card core-connection-card" aria-labelledby="core-connection-title">
     <div className="config-panel-heading">
-      <div className="config-heading-title"><Link2 size={18} aria-hidden="true" /><h2 id="core-connection-title">{t('connection.title')}</h2></div>
+      <div className="config-heading-title"><Link2 size={18} aria-hidden="true" /><h2 id="core-connection-title">{t('connection.title')}</h2><ScopeLabel scope="computer" /></div>
     </div>
     {form}
     <div className="config-settings-save-row core-connection-footer">{footnote}{actions}</div>

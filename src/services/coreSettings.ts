@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { singleFlight } from './inFlight';
 
 export type SensitiveWordsSettings = {
   antigravitySensitiveWords: string[];
@@ -63,14 +64,14 @@ export const getCoreSensitiveWordsSettings = (): Promise<SensitiveWordsSettings>
 export const saveCoreSensitiveWordsSettings = (args: { settings: SensitiveWordsSettings; }): Promise<SensitiveWordsSettings> =>
   invoke<SensitiveWordsSettings>('save_core_sensitive_words_settings', args);
 
-export const getCoreConfigSettings = (): Promise<CoreConfigSettings> =>
-  invoke<CoreConfigSettings>('get_core_config_settings');
+export const getCoreConfigSettings = singleFlight((): Promise<CoreConfigSettings> =>
+  invoke<CoreConfigSettings>('get_core_config_settings'));
 
-export const getSoftwareSettings = (): Promise<SoftwareSettings> =>
-  invoke<SoftwareSettings>('get_software_settings');
+export const getSoftwareSettings = singleFlight((): Promise<SoftwareSettings> =>
+  invoke<SoftwareSettings>('get_software_settings'));
 
-export const getCoreTlsSettings = (): Promise<CoreTlsSettings> =>
-  invoke<CoreTlsSettings>('get_core_tls_settings');
+export const getCoreTlsSettings = singleFlight((): Promise<CoreTlsSettings> =>
+  invoke<CoreTlsSettings>('get_core_tls_settings'));
 
 export const setCoreManagementSecretKey = (args: { secretKey: string; }): Promise<CoreConfigSettings> =>
   invoke<CoreConfigSettings>('set_core_management_secret_key', args);
