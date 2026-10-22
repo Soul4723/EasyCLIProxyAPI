@@ -235,16 +235,106 @@ fn remote_tray_never_offers_process_actions() {
     assert!(!presentation.restart_enabled);
 }
 
-#[test]
-fn remote_mode_refuses_local_core_settings_writes() {
+/// A scripted management API: answers each connection with the next `(status, etag, body)` and
+/// returns every request (head and body, lower-cased head) in order.
+fn management_fixture(replies: Vec<(u16, Option<&'static str>, &'static str)>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        replies.into_iter().map(|(status, etag, body)| {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            let head_end = loop {
+                if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") { break end + 4; }
+                let count = socket.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+            };
+            let head = String::from_utf8(request[..head_end].to_vec()).unwrap().to_ascii_lowercase();
+            let length = head.lines()
+                .find_map(|line| line.strip_prefix("content-length: "))
+                .map_or(0, |value| value.trim().parse::<usize>().unwrap());
+            while request.len() < head_end + length {
+                let count = socket.read(&mut buffer).unwrap();
+                request.extend_from_slice(&buffer[..count]);
+            }
+            let etag = etag.map(|etag| format!("ETag: {etag}\r\n")).unwrap_or_default();
+            write!(socket, "HTTP/1.1 {status} Test\r\n{etag}Content-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            head + &String::from_utf8(request[head_end..].to_vec()).unwrap()
+        }).collect()
+    });
+    (origin, server)
+}
+
+const REMOTE_YAML: &str = "config-version: 8\nserver:\n  host: 0.0.0.0\n  port: 8317\nrouting:\n  strategy: round-robin\naccess:\n  api-keys:\n  - client-one\n";
+
+fn remote_state_for(origin: &str) -> tauri::App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
-    app.manage(GuiConfigState::new(remote_config()));
+    app.manage(GuiConfigState::new(GuiConfigFile {
+        remote_management_origin: origin.into(),
+        remote_host_control_origin: String::new(),
+        remote_host_control_key: String::new(),
+        ..remote_config()
+    }));
     app.manage(AgentConfigStatusCache::default());
+    app
+}
+
+#[tokio::test]
+async fn remote_core_settings_are_written_through_the_management_api_with_if_match() {
+    let (origin, server) = management_fixture(vec![
+        (200, Some("\"etag-1\""), REMOTE_YAML),
+        (200, Some("\"etag-2\""), r#"{"status":"ok","config-version":8}"#),
+    ]);
+    let app = remote_state_for(&origin);
+    let view = set_core_routing_strategy(app.state(), "fill-first".into()).await.unwrap();
+    assert_eq!(view.routing_strategy, "fill-first");
+    assert_eq!(view.api_keys.len(), 1);
+    let requests = server.join().unwrap();
+    assert!(requests[0].starts_with("get /v8/management/config.yaml http/1.1"));
+    assert!(requests[1].starts_with("put /v8/management/config.yaml http/1.1"));
+    assert!(requests[1].contains("authorization: bearer test-remote-key\r\n"));
+    assert!(requests[1].contains("if-match: \"etag-1\"\r\n"));
+    assert!(requests[1].contains("strategy: fill-first"));
+    assert!(requests[1].contains("client-one"), "the rest of the document is kept");
+
+    // Another writer saved in between: the core answers 412 and nothing is overwritten.
+    let (origin, server) = management_fixture(vec![
+        (200, Some("\"etag-1\""), REMOTE_YAML),
+        (412, Some("\"etag-3\""), r#"{"error":"precondition_failed"}"#),
+    ]);
+    let app = remote_state_for(&origin);
+    let error = add_core_api_key(app.state(), "client-two".into(), String::new()).await.err().unwrap();
+    assert!(error.contains("changed elsewhere"), "{error}");
+    assert_eq!(server.join().unwrap().len(), 2);
+
+    // A core without ETags is read again just before the write; a difference refuses the save.
+    let (origin, server) = management_fixture(vec![
+        (200, None, REMOTE_YAML),
+        (200, None, "config-version: 8\nrouting:\n  strategy: fill-first\n"),
+    ]);
+    let app = remote_state_for(&origin);
+    let error = delete_core_api_key(app.state(), "client-one".into()).await.err().unwrap();
+    assert!(error.contains("changed elsewhere"), "{error}");
+    assert_eq!(server.join().unwrap().len(), 2);
+
+    // An unchanged value sends no write.
+    let (origin, server) = management_fixture(vec![(200, Some("\"etag-1\""), REMOTE_YAML)]);
+    let app = remote_state_for(&origin);
+    set_core_routing_strategy(app.state(), "round-robin".into()).await.unwrap();
+    assert_eq!(server.join().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn remote_mode_refuses_settings_that_decide_how_this_app_reaches_the_core() {
+    let app = remote_state_for("http://127.0.0.1:1");
     let gui = app.state::<GuiConfigState>();
     let cache = app.state::<AgentConfigStatusCache>();
     let refused = |error: Option<String>| {
-        let error = error.expect("Remote mode must refuse a local core settings write");
-        assert!(error.contains("only available for the local core"), "{error}");
+        let error = error.expect("Remote mode must refuse a connection-defining setting");
+        assert!(error.contains("how this app reaches the remote core"), "{error}");
     };
     refused(
         save_core_tls_settings(
@@ -254,21 +344,35 @@ fn remote_mode_refuses_local_core_settings_writes() {
         )
         .err(),
     );
-    refused(save_core_sensitive_words_settings(gui.clone(), CoreSensitiveWordsSettings::default()).err());
+    refused(set_core_management_secret_key(gui.clone(), "new-management-key".into()).err());
+    refused(clear_core_management_secret_key(gui.clone()).err());
+    refused(save_gui_settings(gui.clone(), cache.clone(), GuiNetworkSettings { port: 9000, allow_lan: false }).err());
+    let change: ExtendedConfigChange = serde_json::from_value(serde_json::json!({
+        "path": ["server", "port"], "value": 9000, "expected": 8317, "expectedExists": true,
+    }))
+    .unwrap();
+    refused(save_extended_core_config(gui.clone(), vec![change]).await.err());
+
+    // Changing the remote core's port through the network card is refused before anything is written.
+    let (origin, server) = management_fixture(vec![(200, Some("\"etag-1\""), REMOTE_YAML)]);
+    let app = remote_state_for(&origin);
     refused(
         save_network_endpoint_settings(
-            gui.clone(),
-            cache.clone(),
-            GuiNetworkEndpointSettings { host: "127.0.0.1".into(), port: 9000, proxy_url: None, proxy_override: None },
+            app.state(),
+            app.state(),
+            GuiNetworkEndpointSettings { host: "0.0.0.0".into(), port: 9000, proxy_url: None, proxy_override: None },
         )
+        .await
         .err(),
     );
-    refused(set_core_plugins_enabled(gui.clone(), true).err());
-    refused(set_core_request_log(gui.clone(), true).err());
-    refused(set_core_proxy_url(gui.clone(), String::new()).err());
-    refused(delete_core_api_key(gui.clone(), "client-key".into()).err());
-    refused(clear_core_management_secret_key(gui.clone()).err());
-    refused(save_extended_core_config(gui.clone(), Vec::new()).err());
-    refused(tauri::async_runtime::block_on(delete_thinking_alias(gui.clone(), "alias".into(), None, None)).err());
-    refused(tauri::async_runtime::block_on(delete_speed_alias(gui.clone(), "alias".into(), None, None)).err());
+    assert_eq!(server.join().unwrap().len(), 1);
+}
+
+#[test]
+fn emptying_an_indentationless_sequence_keeps_valid_yaml() {
+    for content in [REMOTE_YAML, "config-version: 8\naccess:\n  api-keys:\n    - a\n"] {
+        let updated = patch_core_api_keys_yaml(content, &[]).unwrap();
+        let document: serde_norway::Value = serde_norway::from_str(&updated).unwrap();
+        assert_eq!(document["access"]["api-keys"], serde_norway::Value::Sequence(Vec::new()), "{updated}");
+    }
 }

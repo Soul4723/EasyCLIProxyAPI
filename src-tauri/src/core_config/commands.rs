@@ -1,5 +1,33 @@
 use super::*;
 
+fn remote_mode(state: &GuiConfigState) -> Result<bool, String> {
+    Ok(state.snapshot()?.connection_mode == CoreConnectionMode::Remote)
+}
+
+/// Remote mode: the same YAML patch as Local, applied to the remote core through its management API.
+async fn save_remote_core_settings(
+    state: &GuiConfigState,
+    patch: impl FnOnce(&str) -> Result<Option<String>, String>,
+) -> Result<CoreConfigView, String> {
+    crate::core_connection::edit_remote_core_config(state, |content| {
+        let updated = patch(content)?;
+        let view = crate::core_connection::remote_config_view_of(updated.as_deref().unwrap_or(content))?;
+        Ok((updated, view))
+    })
+    .await
+}
+
+/// Settings that decide how this app reaches a remote core stay with the core's computer.
+const REMOTE_CONNECTION_SETTING: &str =
+    "This setting decides how this app reaches the remote core. Change it on the core's computer, then update Core connection";
+
+fn require_local_connection_setting(state: &GuiConfigState) -> Result<(), String> {
+    if remote_mode(state)? {
+        return Err(REMOTE_CONNECTION_SETTING.into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn get_lan_ipv4() -> Option<String> {
     detect_lan_ipv4().map(|address| address.to_string())
@@ -21,8 +49,7 @@ pub(crate) fn save_core_tls_settings(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: CoreTlsSettings,
 ) -> Result<CoreTlsSettings, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    require_local_connection_setting(&gui_config_state)?;
     let settings = normalize_core_tls_settings(settings)?;
     patch_core_tls_settings(&settings)?;
     cache.clear()?;
@@ -40,13 +67,17 @@ pub(crate) async fn get_core_sensitive_words_settings(
 }
 
 #[tauri::command]
-pub(crate) fn save_core_sensitive_words_settings(
+pub(crate) async fn save_core_sensitive_words_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     settings: CoreSensitiveWordsSettings,
 ) -> Result<CoreSensitiveWordsSettings, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let normalized = normalize_core_sensitive_words_settings(settings);
+    if remote_mode(&gui_config_state)? {
+        return crate::core_connection::edit_remote_core_config(&gui_config_state, |content| {
+            Ok((patch_core_sensitive_words_yaml(content, &normalized)?, normalized.clone()))
+        })
+        .await;
+    }
     patch_core_sensitive_words_settings(&normalized)?;
     Ok(normalized)
 }
@@ -78,8 +109,8 @@ pub(crate) fn save_gui_settings(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: GuiNetworkSettings,
 ) -> Result<GuiSettings, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    // The listen address of a remote core is changed on its computer.
+    require_local_connection_setting(&gui_config_state)?;
     if settings.port == 0 {
         return Err("Port must be between 1 and 65535".to_string());
     }
@@ -128,8 +159,8 @@ pub(crate) fn save_network_routing_settings(
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: GuiNetworkRoutingSettings,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    // The listen address of a remote core is changed on its computer.
+    require_local_connection_setting(&gui_config_state)?;
     if settings.port == 0 {
         return Err("Port must be between 1 and 65535".to_string());
     }
@@ -179,17 +210,41 @@ pub(crate) fn save_network_routing_settings(
 }
 
 #[tauri::command]
-pub(crate) fn save_network_endpoint_settings(
+pub(crate) async fn save_network_endpoint_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     cache: tauri::State<'_, AgentConfigStatusCache>,
     settings: GuiNetworkEndpointSettings,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     if settings.port == 0 {
         return Err("Port must be between 1 and 65535".to_string());
     }
     let host = normalize_optional_config_string(settings.host, "Listen IP")?;
+    if remote_mode(&gui_config_state)? {
+        // Only the proxy changes remotely. This computer's system proxy means nothing to the remote
+        // core, so the given URL is written as is (empty: direct).
+        let proxy_url = settings
+            .proxy_url
+            .as_deref()
+            .map(network_proxy::normalize_optional_proxy_url)
+            .transpose()?;
+        let port = settings.port;
+        return save_remote_core_settings(&gui_config_state, |content| {
+            let current = crate::core_connection::remote_config_view_of(content)?;
+            if current.port != port || current.host.trim() != host {
+                return Err(REMOTE_CONNECTION_SETTING.into());
+            }
+            let Some(proxy_url) = proxy_url else { return Ok(None) };
+            patch_core_yaml_document(content, |document| {
+                set_core_yaml_schema_value(
+                    document,
+                    &["proxy-url"],
+                    &["requests", "proxy-url"],
+                    serde_norway::Value::String(proxy_url),
+                )
+            })
+        })
+        .await;
+    }
     if !host.is_empty() && !host.eq_ignore_ascii_case("localhost") && host.parse::<IpAddr>().is_err() {
         return Err("Listen address must be empty, localhost, or a valid IPv4 or IPv6 address".to_string());
     }
@@ -233,12 +288,10 @@ pub(crate) fn save_network_endpoint_settings(
 }
 
 #[tauri::command]
-pub(crate) fn save_retry_settings(
+pub(crate) async fn save_retry_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     settings: GuiRetrySettings,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let previous = gui_config_state.snapshot()?;
     let mut next = previous.clone();
     next.disable_cooling = settings.disable_cooling;
@@ -246,6 +299,9 @@ pub(crate) fn save_retry_settings(
     next.max_retry_credentials = settings.max_retry_credentials;
     next.max_retry_interval = settings.max_retry_interval;
     next.streaming_bootstrap_retries = settings.streaming_bootstrap_retries;
+    if previous.connection_mode == CoreConnectionMode::Remote {
+        return save_remote_core_settings(&gui_config_state, |content| patch_core_retry_yaml(content, &next)).await;
+    }
     patch_core_retry_settings(&next)?;
     let config = match gui_config_state.update_retry_settings(&next) {
         Ok(config) => config,
@@ -258,17 +314,21 @@ pub(crate) fn save_retry_settings(
 }
 
 #[tauri::command]
-pub(crate) fn save_session_routing_settings(
+pub(crate) async fn save_session_routing_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     settings: GuiSessionRoutingSettings,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let ttl = normalize_session_affinity_ttl(settings.routing_session_affinity_ttl)?;
     let previous = gui_config_state.snapshot()?;
     let mut next = previous.clone();
     next.routing_session_affinity = settings.routing_session_affinity;
     next.routing_session_affinity_ttl = ttl;
+    if previous.connection_mode == CoreConnectionMode::Remote {
+        return save_remote_core_settings(&gui_config_state, |content| {
+            patch_core_session_routing_yaml(content, &next)
+        })
+        .await;
+    }
     patch_core_session_routing_settings(&next)?;
     let config = match gui_config_state.update_session_routing(&next) {
         Ok(config) => config,
@@ -297,14 +357,28 @@ pub(crate) async fn get_core_config_settings(
 }
 
 #[tauri::command]
-pub(crate) fn save_core_logging_settings(
+pub(crate) async fn save_core_logging_settings(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     settings: CoreLoggingSettingsInput,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     if !(1..=3600).contains(&settings.redis_usage_queue_retention_seconds) {
         return Err("Redis usage queue retention must be between 1 and 3600 seconds".to_string());
+    }
+    if remote_mode(&gui_config_state)? {
+        return save_remote_core_settings(&gui_config_state, |content| {
+            patch_core_yaml_document(content, |document| {
+                let mut next = core_config_settings_from_value(document)?;
+                next.debug = settings.debug;
+                next.commercial_mode = settings.commercial_mode;
+                next.logging_to_file = settings.logging_to_file;
+                next.logs_max_total_size_mb = settings.logs_max_total_size_mb;
+                next.error_logs_max_files = settings.error_logs_max_files;
+                next.usage_statistics_enabled = settings.usage_statistics_enabled;
+                next.redis_usage_queue_retention_seconds = settings.redis_usage_queue_retention_seconds;
+                apply_core_logging_settings(document, &next)
+            })
+        })
+        .await;
     }
 
     let previous = current_core_config_settings(gui_config_state.inner())?;
@@ -328,18 +402,41 @@ pub(crate) fn save_core_logging_settings(
     Ok(CoreConfigView::from(&config))
 }
 
+async fn save_remote_core_api_keys(
+    state: &GuiConfigState,
+    change: impl FnOnce(&mut Vec<String>) -> Result<(), String>,
+) -> Result<CoreConfigView, String> {
+    save_remote_core_settings(state, |content| {
+        let document = serde_norway::from_str(content)
+            .map_err(|error| format!("Failed to parse the remote core configuration: {error}"))?;
+        let mut api_keys = core_config_settings_from_value(&document)?.api_keys;
+        change(&mut api_keys)?;
+        Ok(Some(patch_core_api_keys_yaml(content, &api_keys)?))
+    })
+    .await
+}
+
 #[tauri::command]
-pub(crate) fn add_core_api_key(
+pub(crate) async fn add_core_api_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     api_key: String,
     remark: String,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let api_key = api_key.trim().to_string();
     let remark = remark.trim().to_string();
     validate_core_api_key(&api_key)?;
     validate_api_key_remark(&remark)?;
+    if remote_mode(&gui_config_state)? {
+        // Remarks are this computer's notes on its own core's keys; a remote key has none.
+        return save_remote_core_api_keys(&gui_config_state, |api_keys| {
+            if api_keys.contains(&api_key) {
+                return Err("This authentication key already exists".to_string());
+            }
+            api_keys.push(api_key);
+            Ok(())
+        })
+        .await;
+    }
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     if settings
         .api_keys
@@ -391,14 +488,12 @@ pub(crate) fn remove_core_api_key_value(
 }
 
 #[tauri::command]
-pub(crate) fn update_core_api_key(
+pub(crate) async fn update_core_api_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     original_api_key: String,
     api_key: String,
     remark: String,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let original_api_key = original_api_key.trim();
     let api_key = api_key.trim().to_string();
     let remark = remark.trim().to_string();
@@ -407,6 +502,12 @@ pub(crate) fn update_core_api_key(
     }
     validate_core_api_key(&api_key)?;
     validate_api_key_remark(&remark)?;
+    if remote_mode(&gui_config_state)? {
+        return save_remote_core_api_keys(&gui_config_state, |api_keys| {
+            replace_core_api_key_value(api_keys, original_api_key, api_key)
+        })
+        .await;
+    }
 
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     replace_core_api_key_value(&mut settings.api_keys, original_api_key, api_key.clone())?;
@@ -422,15 +523,19 @@ pub(crate) fn update_core_api_key(
 }
 
 #[tauri::command]
-pub(crate) fn delete_core_api_key(
+pub(crate) async fn delete_core_api_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     api_key: String,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let api_key = api_key.trim();
     if api_key.is_empty() {
         return Err("The authentication key to delete cannot be empty".to_string());
+    }
+    if remote_mode(&gui_config_state)? {
+        return save_remote_core_api_keys(&gui_config_state, |api_keys| {
+            remove_core_api_key_value(api_keys, api_key)
+        })
+        .await;
     }
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     remove_core_api_key_value(&mut settings.api_keys, api_key)?;
@@ -444,8 +549,8 @@ pub(crate) fn set_core_management_secret_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     secret_key: String,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    // This app reaches a remote core with its management key, so it is changed on the core's computer.
+    require_local_connection_setting(&gui_config_state)?;
     let secret_key = normalize_management_secret_key(secret_key)?;
     let previous = gui_config_state.snapshot()?;
     patch_core_management_secret_key(&secret_key)?;
@@ -464,8 +569,8 @@ pub(crate) fn set_core_management_secret_key(
 pub(crate) fn clear_core_management_secret_key(
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    // This app reaches a remote core with its management key, so it is changed on the core's computer.
+    require_local_connection_setting(&gui_config_state)?;
     let previous = gui_config_state.snapshot()?;
     patch_core_management_secret_key("")?;
     let config = match gui_config_state.set_management_secret_key(String::new()) {
@@ -480,12 +585,16 @@ pub(crate) fn clear_core_management_secret_key(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_plugins_enabled(
+pub(crate) async fn set_core_plugins_enabled(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    if remote_mode(&gui_config_state)? {
+        return save_remote_core_settings(&gui_config_state, |content| {
+            patch_core_yaml_document(content, |document| set_core_yaml_nested_value(document, "plugins", "enabled", serde_norway::Value::Bool(enabled)))
+        })
+        .await;
+    }
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     settings.plugins_enabled = enabled;
     patch_core_plugins_enabled(settings.plugins_enabled)?;
@@ -494,12 +603,16 @@ pub(crate) fn set_core_plugins_enabled(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_request_log(
+pub(crate) async fn set_core_request_log(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    if remote_mode(&gui_config_state)? {
+        return save_remote_core_settings(&gui_config_state, |content| {
+            patch_core_yaml_document(content, |document| set_core_yaml_schema_value(document, &["request-log"], &["observability", "logs", "request-log"], serde_norway::Value::Bool(enabled)))
+        })
+        .await;
+    }
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     let previous_enabled = settings.request_log;
     settings.request_log = enabled;
@@ -515,13 +628,17 @@ pub(crate) fn set_core_request_log(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_routing_strategy(
+pub(crate) async fn set_core_routing_strategy(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     strategy: String,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     validate_routing_strategy(&strategy)?;
+    if remote_mode(&gui_config_state)? {
+        return save_remote_core_settings(&gui_config_state, |content| {
+            patch_core_yaml_document(content, |document| set_core_yaml_nested_value(document, "routing", "strategy", serde_norway::Value::String(strategy)))
+        })
+        .await;
+    }
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     settings.routing_strategy = strategy;
     patch_core_routing_strategy(&settings.routing_strategy)?;
@@ -530,23 +647,34 @@ pub(crate) fn set_core_routing_strategy(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_proxy_url(
+pub(crate) async fn set_core_proxy_url(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     proxy_url: String,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    if remote_mode(&gui_config_state)? {
+        let proxy_url = network_proxy::normalize_optional_proxy_url(&proxy_url)?;
+        return save_remote_core_settings(&gui_config_state, |content| {
+            patch_core_yaml_document(content, |document| {
+                set_core_yaml_schema_value(document, &["proxy-url"], &["requests", "proxy-url"], serde_norway::Value::String(proxy_url))
+            })
+        })
+        .await;
+    }
     network_proxy::set_manual(gui_config_state.inner(), proxy_url)?;
     Ok(CoreConfigView::from(&gui_config_state.snapshot()?))
 }
 
 #[tauri::command]
-pub(crate) fn set_core_session_affinity(
+pub(crate) async fn set_core_session_affinity(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    if remote_mode(&gui_config_state)? {
+        return save_remote_core_settings(&gui_config_state, |content| {
+            patch_core_yaml_document(content, |document| set_core_yaml_nested_value(document, "routing", "session-affinity", serde_norway::Value::Bool(enabled)))
+        })
+        .await;
+    }
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     let previous_enabled = settings.routing_session_affinity;
     settings.routing_session_affinity = enabled;
@@ -562,12 +690,19 @@ pub(crate) fn set_core_session_affinity(
 }
 
 #[tauri::command]
-pub(crate) fn set_core_session_affinity_ttl(
+pub(crate) async fn set_core_session_affinity_ttl(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     ttl: String,
 ) -> Result<CoreConfigView, String> {
-    // Local core only: Remote mode shows the remote core's settings read-only.
-    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
+    if remote_mode(&gui_config_state)? {
+        let ttl = normalize_session_affinity_ttl(ttl)?;
+        return save_remote_core_settings(&gui_config_state, |content| {
+            patch_core_yaml_document(content, |document| {
+                set_core_yaml_nested_value(document, "routing", "session-affinity-ttl", serde_norway::Value::String(ttl))
+            })
+        })
+        .await;
+    }
     let ttl = normalize_session_affinity_ttl(ttl)?;
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     let previous_ttl = settings.routing_session_affinity_ttl.clone();

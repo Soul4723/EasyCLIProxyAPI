@@ -75,8 +75,12 @@ pub(crate) fn require_local(config: &GuiConfigFile) -> Result<(), String> {
     }
 }
 
+type RemoteConfigSnapshot = (CoreConnection, Instant, Result<serde_norway::Value, String>);
+static REMOTE_CONFIG_CACHE: tokio::sync::Mutex<Option<RemoteConfigSnapshot>> =
+    tokio::sync::Mutex::const_new(None);
+
 /// The remote core's configuration, read through the management API. `None` in Local mode, where callers
-/// read the local config.yaml as before. Remote values are shown read-only; nothing is written back.
+/// read the local config.yaml as before. Remote edits go through `edit_remote_core_config`.
 pub(crate) async fn remote_core_config_document(
     config: &GuiConfigFile,
 ) -> Result<Option<serde_norway::Value>, String> {
@@ -86,10 +90,8 @@ pub(crate) async fn remote_core_config_document(
     // One short-lived snapshot for simultaneous settings getters and model probes. Holding the
     // async lock across the read coalesces in-flight requests; credentials are part of the target.
     // Cache failures too, so a failing target is not read again by every queued caller.
-    type Snapshot = (CoreConnection, Instant, Result<serde_norway::Value, String>);
-    static CACHE: tokio::sync::Mutex<Option<Snapshot>> = tokio::sync::Mutex::const_new(None);
     let target = CoreConnection::from(config);
-    let mut cache = CACHE.lock().await;
+    let mut cache = REMOTE_CONFIG_CACHE.lock().await;
     if let Some((cached_target, fetched_at, document)) = cache.as_ref() {
         if *cached_target == target && fetched_at.elapsed() < Duration::from_secs(5) {
             return document.clone().map(Some);
@@ -102,6 +104,83 @@ pub(crate) async fn remote_core_config_document(
     };
     *cache = Some((target, Instant::now(), document.clone()));
     document.map(Some)
+}
+
+/// Remote mode only: applies `edit` to the remote core's config.yaml through its management API. `edit`
+/// is the same YAML patch Local mode applies to the local file; it returns the patched content (`None`
+/// when nothing changes) and the command's result. The document is read with its ETag and written back
+/// whole with `If-Match` (core 8.0.31+), so a save by anyone else in between is refused (412), never
+/// overwritten. A core without ETags gets a second read just before the write instead, which narrows
+/// but cannot close that window. Nothing is sent if the connection changed meanwhile.
+pub(crate) async fn edit_remote_core_config<T>(
+    state: &GuiConfigState,
+    edit: impl FnOnce(&str) -> Result<(Option<String>, T), String>,
+) -> Result<T, String> {
+    let config = state.snapshot()?;
+    if config.connection_mode != CoreConnectionMode::Remote {
+        return Err("The core connection changed; reload before saving".into());
+    }
+    let (content, etag) = fetch_remote_config_yaml(&config).await?;
+    let (updated, result) = edit(&content)?;
+    let Some(updated) = updated.filter(|updated| *updated != content) else {
+        return Ok(result);
+    };
+    if etag.is_none() && fetch_remote_config_yaml(&config).await?.0 != content {
+        return Err(REMOTE_CONFIG_CHANGED.into());
+    }
+    if CoreConnection::from(&state.snapshot()?) != CoreConnection::from(&config) {
+        return Err("The core connection changed; reload before saving".into());
+    }
+    let mut request = crate::management_api::management_http_client_for(&config)?
+        .put(crate::management_api::management_endpoint(&config, "config.yaml")?)
+        .header("Authorization", crate::management_api::management_authorization(&config)?)
+        .header(reqwest::header::CONTENT_TYPE, "application/yaml")
+        .body(updated);
+    if let Some(etag) = etag {
+        request = request.header(reqwest::header::IF_MATCH, etag);
+    }
+    let response = request.send().await.map_err(|error| {
+        crate::management_api::format_management_request_error(
+            "Failed to save the remote core configuration; reload to see whether it applied",
+            &error,
+        )
+    });
+    // Whatever happened, the next read must come from the core.
+    *REMOTE_CONFIG_CACHE.lock().await = None;
+    let response = response?;
+    if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+        return Err(REMOTE_CONFIG_CHANGED.into());
+    }
+    crate::management_api::read_management_text(response).await?;
+    Ok(result)
+}
+
+const REMOTE_CONFIG_CHANGED: &str =
+    "The remote core's configuration was changed elsewhere since it was read. Nothing was saved; reload and try again";
+
+async fn fetch_remote_config_yaml(config: &GuiConfigFile) -> Result<(String, Option<String>), String> {
+    let response = crate::management_api::management_http_client_for(config)?
+        .get(crate::management_api::management_endpoint(config, "config.yaml")?)
+        .header("Authorization", crate::management_api::management_authorization(config)?)
+        .header(reqwest::header::ACCEPT, "application/yaml,text/yaml,text/plain")
+        .send()
+        .await
+        .map_err(|error| {
+            crate::management_api::format_management_request_error("Failed to read the remote core configuration", &error)
+        })?;
+    let etag = response
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    Ok((crate::management_api::read_management_text(response).await?, etag))
+}
+
+/// Settings view of the remote core after an edit (or unchanged).
+pub(crate) fn remote_config_view_of(content: &str) -> Result<CoreConfigView, String> {
+    let document = serde_norway::from_str(content)
+        .map_err(|error| format!("Failed to parse the remote core configuration: {error}"))?;
+    Ok(remote_config_view(crate::core_config::core_config_settings_from_value(&document)?))
 }
 
 /// Settings view of a remote core. Key remarks are GUI metadata of this computer, so none are shown.

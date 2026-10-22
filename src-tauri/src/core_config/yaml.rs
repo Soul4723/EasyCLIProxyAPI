@@ -1140,6 +1140,11 @@ pub(crate) fn replace_yaml_sequence_value(
         let serialized = serde_norway::to_string(value)
             .map_err(|err| format!("Failed to serialize kernel configuration sequence: {err}"))?;
         let serialized = serialized.trim_end_matches(['\r', '\n']);
+        // An emptied sequence becomes `[]` on the item's own line. Items may sit at their key's
+        // indentation (`key:\n- item`), so indent it further to keep it the key's value.
+        if serialized == "[]" {
+            return Ok(format!("{}  []{}{}", &content[..start], &original[trimmed_end..], &content[end..]));
+        }
         let mut indented = String::with_capacity(serialized.len() + prefix.len() * 2);
         for (index, line) in serialized.split('\n').enumerate() {
             if index > 0 {
