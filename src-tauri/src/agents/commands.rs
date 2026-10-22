@@ -102,11 +102,11 @@ pub(crate) fn inspect_agent_config_statuses_with_overrides(
                         AgentStatusDetectionTarget::Client(client) => {
                             let (executable_override, desktop_override) =
                                 agent_executable_overrides(executable_overrides, client);
-                            inspect_agent_config_with_executables(client, home, &config, api_key,
+                            inspect_agent_config_with_executables(client, home, config, api_key,
                                 executable_override, desktop_override)
                         }
                         AgentStatusDetectionTarget::PiProvider => {
-                            inspect_pi_provider_status_with_executable(home, &config, api_key,
+                            inspect_pi_provider_status_with_executable(home, config, api_key,
                                 executable_overrides.get(PI_AGENT_ID).map(Path::new))
                         }
                     };
@@ -1066,7 +1066,7 @@ fn sync_prepared_codex_model_catalog(
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let changed = sync_codex_model_catalog_if_configured(
         &home,
-        &config,
+        config,
         &agent_client_api_key_blocking(config)?,
         &prepared.models,
         catalog,

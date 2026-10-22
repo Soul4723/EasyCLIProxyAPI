@@ -154,7 +154,7 @@ async fn prepare_template_plan(
             .lock()
             .map_err(|_| "Configuration file lock is poisoned")?;
         let before = config_images(&paths)?;
-        let updates = build_pi_template_updates(home, &config, api_key, &model)?;
+        let updates = build_pi_template_updates(home, config, api_key, &model)?;
         let after = prepare_config_updates(client, &paths, &before, &updates, true)?;
         (model, None, before, after, None)
     } else {
