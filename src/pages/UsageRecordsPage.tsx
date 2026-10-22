@@ -276,7 +276,8 @@ export function UsageRecordsPage() {
         const previous = lastRemoteLoad.current;
         if (remote && quiet && nextCollectorStatus?.revision && previous.revision === nextCollectorStatus.revision
           && previous.scope === scope && Date.now() - previous.at < 60_000) {
-          if (requestId === requestIdRef.current) setStatus(nextCollectorStatus);
+          if (requestId === requestIdRef.current) setStatus((current) =>
+            JSON.stringify(current) === JSON.stringify(nextCollectorStatus) ? current : nextCollectorStatus);
           return;
         }
         const filtersChanged = loadedFilterScopeKeyRef.current !== filterScopeKey;
