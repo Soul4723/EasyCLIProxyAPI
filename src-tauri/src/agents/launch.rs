@@ -119,7 +119,7 @@ pub(crate) fn normalize_agent_terminal(value: &str) -> String {
 }
 
 #[tauri::command]
-pub(crate) fn launch_agent(
+pub(crate) async fn launch_agent(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
     deepseek_process_state: tauri::State<'_, DeepSeekHarnessProcessState>,
@@ -135,6 +135,7 @@ pub(crate) fn launch_agent(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    let api_key = agent_client_api_key(&config).await?;
     let terminal = normalize_agent_terminal(&config.default_terminal);
     let requested_target = target
         .as_deref()
@@ -150,7 +151,7 @@ pub(crate) fn launch_agent(
             return Err("Pi supports only CLI launch mode".to_string());
         }
         let executable_override = executable_path.as_deref().map(Path::new);
-        let status = inspect_pi_provider_status_with_executable(&home, config.port, effective_agent_api_key(&config), executable_override);
+        let status = inspect_pi_provider_status_with_executable(&home, &config, &api_key, executable_override);
         if !status.installed {
             return Err("Pi CLI was not detected. Install Pi and detect it again".to_string());
         }
@@ -175,7 +176,7 @@ pub(crate) fn launch_agent(
     }
     let executable_override = executable_path.as_deref().map(Path::new);
     let desktop_override = desktop_executable_path.as_deref().map(Path::new);
-    let status = inspect_agent_config_with_executables(client, &home, config.port, effective_agent_api_key(&config), executable_override, desktop_override);
+    let status = inspect_agent_config_with_executables(client, &home, &config, &api_key, executable_override, desktop_override);
     if !status.installed {
         return Err(format!("{} was not detected. Install it and detect it again", client.name()));
     }

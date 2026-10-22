@@ -174,6 +174,9 @@ reason; this computer's local data is never shown as the remote core's.
 - **Management-API pages:** credentials, OAuth (with manual callback submission
   where needed), Vertex import, API providers with model discovery, plugin
   management, and plugin pages served by the remote core.
+- **Agents, Beginner Mode and Codex sessions:** this computer's agent clients,
+  pointed at the remote core. See
+  [Agent clients on this computer](#agent-clients-on-this-computer).
 
 ## Editing the remote core's settings
 
@@ -214,6 +217,21 @@ Also different from Local:
   keys have none, so the remark field is disabled.
 - **Folder pickers** (for example the credentials folder) are disabled: folders
   are on the core's computer, so type the path.
+
+## Agent clients on this computer
+
+Agent configuration is about the computer the GUI runs on, so **Agents**,
+**Beginner Mode** and the Codex session tools work in Remote mode as in Local:
+they configure, back up, launch and manage the agent clients installed on this
+computer. In Remote mode the clients are pointed at the remote core's client API:
+the management origin (the core serves `/v1` on the same origin) and the remote
+core's first client API key. The management key and this computer's local core
+key are never used as a client key; if the remote core has no client key, the
+action fails with that reason instead of falling back to Local. Model lists for
+agents and model aliases come from the remote core. Switching modes and applying
+a client again points it at the selected core. Restoring a backup whose managed
+credentials belong to the other target is refused; configure the client again
+instead.
 
 ## Not available remotely
 

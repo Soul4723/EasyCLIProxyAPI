@@ -982,6 +982,9 @@ export function createBrowserMockRuntime(
     connectionMode: 'remote', remoteOrigin: coreConnection.managementOrigin,
     hostControl: remoteHostControl ? { reachable: true, message: 'Browser Mock host core is running' } : undefined,
   });
+  if (coreConnection.mode === 'remote') {
+    state.harnessCatalog.baseUrl = `${coreConnection.managementOrigin.replace(/\/$/, '')}/v1`;
+  }
   let remoteStartCoreOnLaunch = true;
   const hostControlStorageKey = 'browser-mock.host-control';
   let hostControlSettings: { enabled: boolean; address: string; key: string } = {

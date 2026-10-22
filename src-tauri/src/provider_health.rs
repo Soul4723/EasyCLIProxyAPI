@@ -342,7 +342,7 @@ async fn fetch_core_models(config: &GuiConfigFile) -> Result<Vec<CoreHealthModel
 /// The core's client API for Home's model list and health checks: the managed loopback core in Local
 /// mode, or the remote origin with the remote core's first client key in Remote mode. The management
 /// key is never used as a client key.
-async fn core_client_target(
+pub(crate) async fn core_client_target(
     config: &GuiConfigFile,
     timeout: Duration,
 ) -> Result<(reqwest::Client, String, String), String> {

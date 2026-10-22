@@ -41,18 +41,18 @@ pub(crate) fn build_codex_template_auth(home: &Path) -> Result<AgentFileUpdate, 
 
 pub(crate) fn build_pi_template_updates(
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
 ) -> Result<Vec<AgentFileUpdate>, String> {
-    if port == 0 || api_key.trim().is_empty() {
+    if port.validate_client_origin().is_err() || api_key.trim().is_empty() {
         return Err("Invalid CPA address or key".into());
     }
     let settings = serde_json::json!({"packages": [PI_CLIPROXYAPI_PACKAGE]}).to_string();
     Ok(vec![
         AgentFileUpdate {
             path: pi_provider_config_path(home),
-            after: build_pi_provider_config(None, &managed_core_loopback_origin(port), api_key)?,
+            after: build_pi_provider_config(None, &port.client_origin(), api_key)?,
         },
         AgentFileUpdate {
             path: pi_provider_settings_path(home),
@@ -147,14 +147,14 @@ async fn prepare_template_plan(
 ) -> Result<TemplatePlan, String> {
     if client == "codex" { ensure_codex_cpa_mode(home)?; }
     let paths = config_paths(client, home)?;
-    let api_key = effective_agent_api_key(config);
+    let api_key = &agent_client_api_key(config).await?;
     let (model, mappings, before, after, core) = if client == PI_AGENT_ID {
         let model = resolve_pi_default_model(config, model).await?;
         let _guard = AGENT_CONFIG_FILE_LOCK
             .lock()
             .map_err(|_| "Configuration file lock is poisoned")?;
         let before = config_images(&paths)?;
-        let updates = build_pi_template_updates(home, config.port, api_key, &model)?;
+        let updates = build_pi_template_updates(home, &config, api_key, &model)?;
         let after = prepare_config_updates(client, &paths, &before, &updates, true)?;
         (model, None, before, after, None)
     } else {
@@ -188,7 +188,7 @@ async fn prepare_template_plan(
         let updates = build_agent_template_updates(AgentDefaultConfiguration {
             client: parsed,
             home,
-            port: config.port,
+            port: &config,
             api_key,
             model: &model,
             models: &prepared.models,

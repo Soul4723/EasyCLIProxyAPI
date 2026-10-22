@@ -4,7 +4,7 @@ use super::*;
 pub(crate) fn build_agent_updates(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
     models: &[AgentModelOption],
@@ -29,7 +29,7 @@ pub(crate) fn build_agent_updates(
 pub(crate) fn build_agent_updates_with_oauth(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
     api_key: &str,
     model: &str,
     options: AgentConfigurationOptions<'_>,
@@ -41,8 +41,9 @@ pub(crate) fn build_agent_updates_with_oauth(
         claude_code_model_mappings,
         claude_desktop_model_mappings,
     } = options;
+    port.validate_client_origin()?;
     let paths = agent_config_paths(client, home);
-    let root_base = managed_core_loopback_origin(port);
+    let root_base = port.client_origin();
     let openai_base = format!("{root_base}/v1");
     match client {
         AgentClient::ClaudeCode => {
@@ -1078,7 +1079,7 @@ pub(crate) fn repair_claude_desktop_meta_names(root: &mut serde_json::Map<String
 pub(crate) fn clear_agent_managed_configuration(
     client: AgentClient,
     home: &Path,
-    port: u16,
+    port: impl AgentClientOrigin,
 ) -> Result<AgentConfigActionResult, String> {
     if client == AgentClient::Codex {
         return close_codex_configuration(home);
@@ -1746,11 +1747,11 @@ pub(crate) fn prepare_hermes_managed_removal(paths: &[PathBuf]) -> Result<Images
 pub(crate) fn prepare_agent_managed_removal(
     client: AgentClient,
     paths: &[PathBuf],
-    port: u16,
+    port: impl AgentClientOrigin,
 ) -> Result<Images, String> {
     match client {
         AgentClient::ClaudeCode => {
-            prepare_claude_code_managed_removal(paths, &managed_core_loopback_origin(port))
+            prepare_claude_code_managed_removal(paths, &port.client_origin())
         }
         AgentClient::ClaudeDesktop => prepare_claude_desktop_managed_removal(paths),
         AgentClient::Codex => prepare_codex_managed_removal(paths),

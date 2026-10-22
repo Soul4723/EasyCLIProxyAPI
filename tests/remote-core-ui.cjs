@@ -127,12 +127,25 @@ const path = require('node:path');
     assert.equal(await dialog.getByRole('button', { name: 'Save & connect', exact: true }).isDisabled(), true, 'unchanged Remote cannot be saved');
     await page.keyboard.press('Escape');
 
-    await page.waitForFunction(() => document.querySelector('.sidebar-easy-entry')?.disabled);
-    for (const name of ['Agent Configuration', 'Usage', 'Version Management']) {
+    await page.waitForFunction(() => document.querySelector('.sidebar-easy-entry')?.disabled === false);
+    assert.equal(await nav('Agent Configuration').isEnabled(), true, 'local agent clients available against the remote core');
+    for (const [name, reason] of [
+      ['Usage', 'Reading usage from a remote core would empty its usage queue, so Remote mode does not collect usage.'],
+      ['Version Management', 'Set up remote host control in Core connection to check and install core versions on the remote host.'],
+    ]) {
       assert.equal(await nav(name).isDisabled(), true, `${name} locked remotely`);
-      assert.equal(await nav(name).getAttribute('title'), 'Not available in Remote mode yet');
+      assert.equal(await nav(name).getAttribute('title'), reason);
     }
     await page.locator('#nav-plugin-children').waitFor();
+
+    // Agents and Codex sessions belong to this computer, even with a remote core.
+    await page.evaluate(() => localStorage.setItem('cpa-gui.agent-selected-client.v1', 'codex'));
+    await nav('Agent Configuration').click();
+    await page.locator('#agent-subpage-tab-sessions').click();
+    await page.locator('#agent-subpage-panel-sessions').waitFor({ state: 'visible' });
+    await page.locator('.sidebar-easy-entry').click();
+    await page.locator('.simple-mode-topbar').waitFor({ state: 'visible' });
+    await page.locator('.simple-mode-exit-btn').click();
 
     // Advanced Features keeps every category and search and edits the remote core's settings, except
     // those that decide how this app reaches it (address, port, TLS, management key).

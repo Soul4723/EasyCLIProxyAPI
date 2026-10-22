@@ -59,9 +59,10 @@ import {
   type PluginNavOverride,
 } from './services/pluginNavigation';
 import { languageOptions, useI18n } from './i18n';
+import type { MessageKey } from './i18n/resources';
 import { AppUpdateDialog, AppUpdateProvider, useAppUpdate } from './appUpdate';
 import { appUpdateIndicatorState } from './appUpdateModel';
-import { canOpenAppPage, isRemoteDisabledPage, requestAppNavigation } from './navigation';
+import { canOpenAppPage, isRemoteDisabledPage, remoteDisabledReason, requestAppNavigation } from './navigation';
 import { useThemePreference } from './theme';
 import { usePrivacyMode } from './privacy';
 import { Dialog } from './components/Dialog';
@@ -404,7 +405,7 @@ function AppContent() {
                       .join(' ')}
                     aria-current={page.id === active ? 'page' : undefined}
                     disabled={locked}
-                    title={remoteDisabled(page.id) ? t('connection.remoteDisabledTitle') : locked ? t('app.nav.lockedHint') : undefined}
+                    title={remoteDisabled(page.id) ? t(remoteDisabledReason(page.id)) : locked ? t('app.nav.lockedHint') : undefined}
                     onClick={() => select(page.id)}
                   >
                     <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -456,8 +457,6 @@ function AppContent() {
                 <button
                   type="button"
                   className="sidebar-link sidebar-easy-entry"
-                  disabled={localBlocked}
-                  title={localBlocked ? t('connection.remoteDisabledTitle') : undefined}
                   onClick={() => select('easy')}
                 >
                   <Sprout size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -558,7 +557,7 @@ function AppContent() {
         <div className="workspace">
           <main className="content">
             {remoteDisabled(active) ? (
-              <RemoteUnavailablePage />
+              <RemoteUnavailablePage reason={remoteDisabledReason(active)} />
             ) : !canOpenAppPage(active, coreReady) ? (
               <CoreLockedPage />
             ) : pluginEntry ? (
@@ -653,12 +652,12 @@ function AppContent() {
   );
 }
 
-function RemoteUnavailablePage() {
+function RemoteUnavailablePage({ reason }: { reason: MessageKey }) {
   const { t } = useI18n();
   return (
     <section className="page core-locked-page">
       <EmptyState variant="box" icon={<Unplug size={26} />} title={t('connection.remoteDisabledTitle')}>
-        {t('connection.remoteDisabled')}
+        {t(reason)}
       </EmptyState>
     </section>
   );
