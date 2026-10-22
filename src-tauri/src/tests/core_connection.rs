@@ -235,6 +235,35 @@ fn remote_tray_never_offers_process_actions() {
     assert!(!presentation.restart_enabled);
 }
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[test]
+fn remote_tray_deduplication_tracks_presentation_not_poll_metadata() {
+    let connection = CoreConnection::from(&remote_config());
+    let mut status = crate::core_connection::remote_status(
+        &connection,
+        crate::core_connection::CoreConnectionTestResult {
+            connected: true,
+            version: Some("v8.0.35".into()),
+            message: "Connected".into(),
+        },
+    );
+    status.installed = true;
+    status.running = true;
+    status.host_control = Some(crate::host_control::HostControlView {
+        reachable: true,
+        message: "Running".into(),
+    });
+    let presentation = windows_tray_presentation(&status, false, "en");
+    status.process_id = Some(123);
+    status.current_version = Some("v8.0.36".into());
+    status.message = "Updated status metadata".into();
+    assert_eq!(presentation, windows_tray_presentation(&status, false, "en"));
+    assert_ne!(presentation, windows_tray_presentation(&status, true, "en"));
+    assert_ne!(presentation, windows_tray_presentation(&status, false, "ja"));
+    status.host_control.as_mut().unwrap().reachable = false;
+    assert_ne!(presentation, windows_tray_presentation(&status, false, "en"));
+}
+
 /// A scripted management API: answers each connection with the next `(status, etag, body)` and
 /// returns every request (head and body, lower-cased head) in order.
 fn management_fixture(replies: Vec<(u16, Option<&'static str>, &'static str)>) -> (String, std::thread::JoinHandle<Vec<String>>) {
