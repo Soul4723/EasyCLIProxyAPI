@@ -167,7 +167,7 @@ const path = require('node:path');
     await page.getByRole('region', { name: 'Plugins' }).waitFor();
     const install = page.getByRole('button', { name: 'Install local plugin' });
     assert.equal(await install.isDisabled(), true, 'local plugin install shown but disabled remotely');
-    assert.equal(await install.getAttribute('title'), 'Not available in Remote mode yet');
+    assert.equal(await install.getAttribute('title'), "The plugin file is on this computer. Install it on the core's computer, or from the store.");
 
     // Remote host control: optional URL and key, validated, tested next to the management API, then saved.
     await nav('Home').click();
@@ -223,7 +223,7 @@ const path = require('node:path');
     assert.equal(await page.getByRole('button', { name: 'Add Custom Source' }).isDisabled(), true, 'local download source is not used remotely');
     const bundled = page.getByRole('button', { name: 'Install Bundled Core' });
     assert.equal(await bundled.isDisabled(), true);
-    assert.equal(await bundled.getAttribute('title'), 'Not available in Remote mode yet');
+    assert.equal(await bundled.getAttribute('title'), 'The bundled core is for this computer. Install a version for the remote host from the list.');
     assert.equal(await page.getByRole('button', { name: 'Stop and Update' }).isEnabled(), true, 'the remote core can be updated');
     assert.deepEqual(errors, []);
     console.log('PASS: one connection component on Home and in Advanced Features; Remote keeps the Local layout with remote values, editable remote settings and in-place disabled local actions; Silent Launch hidden; remote host control hosts locally and drives Start/Stop/Restart remotely.');

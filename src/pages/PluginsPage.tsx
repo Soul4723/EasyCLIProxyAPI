@@ -218,7 +218,7 @@ export function PluginsPage() {
         </div>
         {tab === 'store' && <Select aria-label={pt('store')} value={filter} onChange={e => setFilter(e.target.value)}>{['all', 'installed', 'updates'].map(value => <option key={value} value={value}>{pt(value as 'all' | 'installed' | 'updates')}</option>)}</Select>}
         </>}
-        {supported === true && <button type="button" className="secondary-button plugin-development-guide" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteDisabledTitle') : undefined} onClick={() => void installLocal()}><Download size={16} aria-hidden="true" />{pt('localInstall')}</button>}
+        {supported === true && <button type="button" className="secondary-button plugin-development-guide" disabled={locked || remoteMode} title={remoteMode ? t('connection.remotePluginFile') : undefined} onClick={() => void installLocal()}><Download size={16} aria-hidden="true" />{pt('localInstall')}</button>}
         <button type="button" className="secondary-button plugin-development-guide" onClick={() => void openExternalUrl({ url: 'https://help.router-for.me/cn/plugin/development.html' }).catch(reason => { if (mounted.current) setError(message(reason)); })}><ExternalLink size={16} aria-hidden="true" />{pt('developmentGuide')}</button>
         <button className="secondary-button plugin-refresh" disabled={locked} onClick={() => void load(tabRef.current, true)}><RefreshCw size={16} aria-hidden="true" />{t('common.refresh')}</button>
       </div>
@@ -249,7 +249,7 @@ export function PluginsPage() {
             {plugin.effectiveEnabled && plugin.supportsOAuth && plugin.oauthProvider && <button className="secondary-button compact-button" disabled={locked} onClick={() => setOAuthPlugin(plugin)}><LogIn size={15} />{pt('oauth')}</button>}
               {installed ? <button className="secondary-button compact-button" disabled={locked} onClick={() => void toggle(plugin)}>{pt(plugin.enabled ? 'disabled' : 'enabled')}</button> : <button className="secondary-button compact-button" disabled={locked} onClick={() => { setSearch(plugin.id); setFilter('all'); setTab('store'); }}><Download size={15} />{pt('findInStore')}</button>}
               <button className="secondary-button compact-button" disabled={locked} onClick={() => setConfigPlugin(plugin)}><Settings2 size={15} />{pt('configure')}</button>
-              {status === 'notLoaded' && <button className="secondary-button compact-button" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteDisabledTitle') : undefined} onClick={() => void openCoreLogsDirectory().catch(reason => { if (mounted.current) setError(message(reason)); })}><Folder size={15} />{pt('openLogs')}</button>}
+              {status === 'notLoaded' && <button className="secondary-button compact-button" disabled={locked || remoteMode} title={remoteMode ? t('connection.remoteLocalFolder') : undefined} onClick={() => void openCoreLogsDirectory().catch(reason => { if (mounted.current) setError(message(reason)); })}><Folder size={15} />{pt('openLogs')}</button>}
               <button className="icon-button danger plugin-delete" disabled={locked} aria-label={removeLabel} title={removeLabel} onClick={() => void remove(plugin)}><Trash2 size={16} /></button>
             </div>
           </article>; })}</div> : <>

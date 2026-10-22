@@ -139,7 +139,7 @@ describe('home overview loading', () => {
     const overview = await loadHomeOverview(true, Date.now(), true);
     expect(calls).not.toContain('get_usage_overview');
     expect(overview.usage).toBeNull();
-    expect(overview.errors.usage).toBe('Not available in Remote mode yet');
+    expect(overview.errors.usage).toBe('Reading usage from a remote core would empty its usage queue, so Remote mode does not collect usage.');
     expect(overview.models).toEqual([{ name: 'remote-model' }]);
   });
 

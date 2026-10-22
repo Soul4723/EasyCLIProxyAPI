@@ -697,7 +697,7 @@ export function VersionManagementPage() {
             <button
               type="button"
               className="secondary-button"
-              title={remoteHost ? t('connection.remoteDisabledTitle') : bundledCoreError || (bundledCore ? t('kernel.versions.installBundledTitle', { version: bundledCore.version }) : t('kernel.versions.noBundled'))}
+              title={remoteHost ? t('connection.remoteBundledCore') : bundledCoreError || (bundledCore ? t('kernel.versions.installBundledTitle', { version: bundledCore.version }) : t('kernel.versions.noBundled'))}
               disabled={remoteHost || !bundledCore || installDisabled}
               onClick={() => void installCore({ kind: 'bundled' })}
             >

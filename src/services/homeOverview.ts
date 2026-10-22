@@ -131,7 +131,7 @@ export async function loadHomeOverview(coreReady: boolean, nowMs = Date.now(), r
   const [usage, credentials, providerKeys, models] = await Promise.allSettled([
     // Usage is stored locally and remains meaningful while the core is stopped. It is not collected
     // from a remote core, so this computer's history is never shown as the remote core's.
-    remote ? Promise.reject(new Error(translate(getCurrentLocale(), 'connection.remoteDisabledTitle')))
+    remote ? Promise.reject(new Error(translate(getCurrentLocale(), 'connection.remoteUsage')))
       : invoke<unknown>('get_usage_overview', { query }).then(summarizeHomeUsage),
     coreReady ? managementApi.get('/credentials').then(summarizeHomeCredentials) : Promise.resolve(null),
     coreReady ? loadProviderKeys() : Promise.resolve(null),
