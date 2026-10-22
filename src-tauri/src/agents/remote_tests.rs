@@ -74,6 +74,10 @@ async fn remote_agents_write_detect_and_fetch_using_only_remote_client_credentia
         for update in updates { write_bytes_directly(&update.path, update.after.as_bytes()).unwrap(); }
         assert!(inspect_agent_managed_config(client, &paths, &local, "local-client-key").unwrap().0);
         assert!(!inspect_agent_managed_config(client, &paths, &remote, &key).unwrap().0);
+        // Local restores accept this computer's core with any key, and refuse a backup made remotely.
+        let local_images = config_images(&config_paths(client.id(), &home).unwrap()).unwrap();
+        backups::validate_restore_target(&local, client.id(), &local_images, "rotated-key").unwrap();
+        assert!(backups::validate_restore_target(&local, client.id(), &images, "local-client-key").is_err());
     }
     assert_eq!(fetch_agent_models(&remote, &key).await.unwrap()[0].name, "fixture-model");
     assert_eq!(fetch_codex_runtime_models(&remote, &key).await.unwrap()[0].slug, "fixture-model");
@@ -109,4 +113,25 @@ fn remote_codex_controls_recognize_only_the_selected_origin() {
     cache.replace(&remote, "key", vec![]).unwrap();
     assert!(cache.get(&remote, "key").unwrap().is_some());
     assert!(cache.get(54321, "key").unwrap().is_none());
+}
+
+#[test]
+fn deepseek_harness_backups_expect_the_writers_base_url() {
+    let remote = GuiConfigFile {
+        connection_mode: CoreConnectionMode::Remote,
+        remote_management_origin: "https://core.example:9443".into(),
+        ..GuiConfigFile::default()
+    };
+    let backup = |api: &str, url: &str| -> Images {
+        let settings = format!("llm-pi-ai:\n  providers:\n    {DEEPSEEK_HARNESS_PROVIDER_ID}:\n      api: {api}\n      baseURL: {url}\n");
+        let secrets = serde_json::json!({ DEEPSEEK_HARNESS_CREDENTIAL: "client-key" }).to_string();
+        vec![
+            (PathBuf::from("settings.yaml"), Some(settings.into_bytes())),
+            (PathBuf::from("secrets.json"), Some(secrets.into_bytes())),
+        ]
+    };
+    for (api, url) in [("anthropic-messages", "https://core.example:9443"), ("openai-completions", "https://core.example:9443/v1")] {
+        backups::validate_restore_target(&remote, "deepseek-harness", &backup(api, url), "client-key").unwrap();
+    }
+    assert!(backups::validate_restore_target(&remote, "deepseek-harness", &backup("anthropic-messages", "https://core.example:9443/v1"), "client-key").is_err());
 }

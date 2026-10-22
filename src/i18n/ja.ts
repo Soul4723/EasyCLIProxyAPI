@@ -1107,6 +1107,7 @@ export const jaOverrides = {
   'config.diagnostics.save': 'ログ設定を保存',
   'config.diagnostics.openLogs': 'ログフォルダーを開く',
   'config.diagnostics.notice.saved': 'ログと診断の設定を保存しました',
+  'config.diagnostics.notice.savedRestartRemote': 'リモートコアに保存しました。商用モードはリモートコアの再起動後に適用されます。',
   'config.diagnostics.notice.savedAndRestarted': 'ログと診断の設定を保存し、CPA を再起動しました',
   'config.diagnostics.error.nonNegativeInteger': 'ログサイズと保持数には 0 以上の整数を入力してください',
   'config.diagnostics.error.redisRetention': '使用量キュー保持時間には 1～3600 の整数を入力してください',

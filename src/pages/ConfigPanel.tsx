@@ -58,7 +58,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useCoreRuntime } from '../coreRuntime';
+import { useCoreRuntime, useRemoteHostControl } from '../coreRuntime';
 import { CoreConnectionSettings } from './CoreConnectionSettings';
 import { HostControlSettings } from './HostControlSettings';
 import { RemoteStartCoreOnLaunchSwitch } from './RemoteStartCoreOnLaunch';
@@ -143,6 +143,7 @@ export function ConfigPanelPage() {
 
 // In Remote mode the core categories show and edit the remote core's settings.
 function ConfigPanelContent({ remote }: { remote: boolean }) {
+  const remoteHostControl = useRemoteHostControl();
   const { t, locale } = useI18n();
   const { askConfirmation, confirmationDialog } = useConfirmation();
   const { status: coreStatus, publishStatus, refreshStatus } = useCoreRuntime();
@@ -607,10 +608,16 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
       });
       loggingDraftDirtyRef.current = false;
       applySettings(result, 'preserve');
-      if (commercialModeChanged && coreStatus?.running) {
-        const status = await restartCoreProcess();
-        publishStatus(status);
-        loggingFeedback.showNotice({ key: 'config.diagnostics.notice.savedAndRestarted' }, 'success');
+      if (commercialModeChanged && coreStatus?.running && remote && !remoteHostControl) {
+        loggingFeedback.showNotice({ key: 'config.diagnostics.notice.savedRestartRemote' }, 'success');
+      } else if (commercialModeChanged && coreStatus?.running) {
+        try {
+          publishStatus(await restartCoreProcess());
+          loggingFeedback.showNotice({ key: 'config.diagnostics.notice.savedAndRestarted' }, 'success');
+        } catch (error) {
+          void refreshStatus();
+          loggingFeedback.showNotice({ key: 'config.error.networkRestartFailed', variables: { error: String(error) } }, 'error');
+        }
       } else {
         loggingFeedback.showNotice({ key: 'config.diagnostics.notice.saved' }, 'success');
       }

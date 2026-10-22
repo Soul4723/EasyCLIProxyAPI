@@ -75,6 +75,48 @@ pub(crate) fn require_local(config: &GuiConfigFile) -> Result<(), String> {
     }
 }
 
+/// Changes in flight that are aimed at the selected core: remote settings writes and agent client changes.
+/// A connection change is refused while any runs, so a change started against one core never lands after
+/// a switch to another.
+static TARGET_WRITES: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+pub(crate) struct TargetWriteGuard;
+
+impl Drop for TargetWriteGuard {
+    fn drop(&mut self) {
+        if let Ok(mut writes) = TARGET_WRITES.lock() {
+            *writes -= 1;
+        }
+    }
+}
+
+/// Starts a change aimed at `config`'s core; fails if the connection changed since `config` was read.
+pub(crate) fn begin_target_write(
+    state: &GuiConfigState,
+    config: &GuiConfigFile,
+) -> Result<TargetWriteGuard, String> {
+    let mut writes = TARGET_WRITES
+        .lock()
+        .map_err(|_| "Core target lock is poisoned".to_string())?;
+    if CoreConnection::from(&state.snapshot()?) != CoreConnection::from(config) {
+        return Err("The core connection changed; reload before saving".into());
+    }
+    *writes += 1;
+    Ok(TargetWriteGuard)
+}
+
+/// Refuses a connection change while a change aimed at the current core runs; the returned guard keeps new
+/// ones from starting until the switch is saved.
+pub(crate) fn lock_target_writes_for_switch() -> Result<std::sync::MutexGuard<'static, usize>, String> {
+    let writes = TARGET_WRITES
+        .lock()
+        .map_err(|_| "Core target lock is poisoned".to_string())?;
+    if *writes > 0 {
+        return Err("A change to the core is still being saved. Try again when it finishes".into());
+    }
+    Ok(writes)
+}
+
 type RemoteConfigSnapshot = (CoreConnection, Instant, Result<serde_norway::Value, String>);
 static REMOTE_CONFIG_CACHE: tokio::sync::Mutex<Option<RemoteConfigSnapshot>> =
     tokio::sync::Mutex::const_new(None);
@@ -111,7 +153,7 @@ pub(crate) async fn remote_core_config_document(
 /// when nothing changes) and the command's result. The document is read with its ETag and written back
 /// whole with `If-Match` (core 8.0.31+), so a save by anyone else in between is refused (412), never
 /// overwritten. A core without ETags gets a second read just before the write instead, which narrows
-/// but cannot close that window. Nothing is sent if the connection changed meanwhile.
+/// but cannot close that window. The connection cannot change while the edit runs.
 pub(crate) async fn edit_remote_core_config<T>(
     state: &GuiConfigState,
     edit: impl FnOnce(&str) -> Result<(Option<String>, T), String>,
@@ -120,6 +162,7 @@ pub(crate) async fn edit_remote_core_config<T>(
     if config.connection_mode != CoreConnectionMode::Remote {
         return Err("The core connection changed; reload before saving".into());
     }
+    let _target = begin_target_write(state, &config)?;
     let (content, etag) = fetch_remote_config_yaml(&config).await?;
     let (updated, result) = edit(&content)?;
     let Some(updated) = updated.filter(|updated| *updated != content) else {
@@ -127,9 +170,6 @@ pub(crate) async fn edit_remote_core_config<T>(
     };
     if etag.is_none() && fetch_remote_config_yaml(&config).await?.0 != content {
         return Err(REMOTE_CONFIG_CHANGED.into());
-    }
-    if CoreConnection::from(&state.snapshot()?) != CoreConnection::from(&config) {
-        return Err("The core connection changed; reload before saving".into());
     }
     let mut request = crate::management_api::management_http_client_for(&config)?
         .put(crate::management_api::management_endpoint(
@@ -266,6 +306,8 @@ pub(crate) fn save_core_connection(
     crate::host_control::ensure_no_remote_install()?;
     let process = app.state::<crate::CoreProcessState>();
     let _operation = crate::lock_core_operation(process.inner())?;
+    // Held until the switch is saved, so no change aimed at the old core can start meanwhile.
+    let _writes = lock_target_writes_for_switch()?;
     if connection.mode == CoreConnectionMode::Remote {
         // Includes adopted processes, matching the managed flag the UI checks.
         if process.managed_pid().is_some() {

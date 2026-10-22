@@ -1138,6 +1138,7 @@ export const en: Record<MessageKey, string> = {
   'config.diagnostics.save': 'Save logging settings',
   'config.diagnostics.openLogs': 'Open Log Folder',
   'config.diagnostics.notice.saved': 'Logging and diagnostics settings saved',
+  'config.diagnostics.notice.savedRestartRemote': 'Saved on the remote core. Commercial mode applies after the remote core restarts.',
   'config.diagnostics.notice.savedAndRestarted': 'Logging and diagnostics settings saved; CPA restarted',
   'config.diagnostics.error.nonNegativeInteger': 'Log size and error log retention must be non-negative integers',
   'config.diagnostics.error.redisRetention': 'Usage queue retention must be an integer between 1 and 3600',

@@ -197,7 +197,9 @@ pub(crate) fn validate_restore_target(
                     .or_else(|| secrets.get(DEEPSEEK_HARNESS_CREDENTIAL))
                     .unwrap_or(&empty);
                 let pair = serde_json::json!({"url": node["baseURL"], "key": secret});
-                add(&pair, "url", "key", &openai)?;
+                // The writer drops `/v1` for the Anthropic Messages API.
+                let api = node["api"].as_str() == Some("anthropic-messages");
+                add(&pair, "url", "key", if api { &origin } else { &openai })?;
             }
         }
         PI_AGENT_ID
@@ -205,6 +207,23 @@ pub(crate) fn validate_restore_target(
             add(root, "baseUrl", "apiKey", &origin)?;
         }
         _ => {}
+    }
+    if config.local_client() {
+        // A Local backup must point at this computer's core (any loopback name). Its key is not
+        // checked, so a backup taken before a key rotation still restores, as before.
+        let local = |url: &str, expected: &str| {
+            let (Ok(url), Ok(expected)) = (reqwest::Url::parse(url), reqwest::Url::parse(expected)) else {
+                return false;
+            };
+            url.scheme() == expected.scheme()
+                && url.port_or_known_default() == expected.port_or_known_default()
+                && url.path() == expected.path()
+                && url.host_str().is_some_and(crate::core_config::is_loopback_host)
+        };
+        if credentials.iter().all(|(url, _, expected)| url.as_deref().is_some_and(|url| local(url, expected))) {
+            return Ok(());
+        }
+        return Err(MISMATCH.into());
     }
     if !credentials.is_empty() {
         config

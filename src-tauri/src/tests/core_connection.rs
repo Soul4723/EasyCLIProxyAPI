@@ -376,3 +376,20 @@ fn emptying_an_indentationless_sequence_keeps_valid_yaml() {
         assert_eq!(document["access"]["api-keys"], serde_norway::Value::Sequence(Vec::new()), "{updated}");
     }
 }
+
+#[test]
+fn a_connection_change_waits_for_changes_aimed_at_the_current_core() {
+    let app = remote_state_for("http://127.0.0.1:1");
+    let state = app.state::<GuiConfigState>();
+    let config = state.snapshot().unwrap();
+    let guard = crate::core_connection::begin_target_write(&state, &config).unwrap();
+    let error = crate::core_connection::lock_target_writes_for_switch().err().unwrap();
+    assert!(error.contains("still being saved"), "{error}");
+    drop(guard);
+    let switch = crate::core_connection::lock_target_writes_for_switch().unwrap();
+    drop(switch);
+    // A change prepared against the old core cannot start after the switch.
+    state.update(|config| { config.connection_mode = CoreConnectionMode::Local; Ok(()) }).unwrap();
+    let error = crate::core_connection::begin_target_write(&state, &config).err().unwrap();
+    assert!(error.contains("connection changed"), "{error}");
+}

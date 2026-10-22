@@ -1123,6 +1123,7 @@ export const zhCN = {
   'config.diagnostics.save': '保存日志设置',
   'config.diagnostics.openLogs': '打开日志文件',
   'config.diagnostics.notice.saved': '日志与诊断设置已保存',
+  'config.diagnostics.notice.savedRestartRemote': '已保存到远程内核。商业模式将在远程内核重启后生效。',
   'config.diagnostics.notice.savedAndRestarted': '日志与诊断设置已保存，CPA 内核已重启',
   'config.diagnostics.error.nonNegativeInteger': '日志容量和错误日志保留数必须是非负整数',
   'config.diagnostics.error.redisRetention': '用量队列保留时间必须是 1 到 3600 之间的整数',

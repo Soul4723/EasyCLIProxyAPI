@@ -173,10 +173,8 @@ pub(crate) async fn prepare_restore_plan(
     id: &str,
 ) -> Result<RestorePlan, String> {
     let mut plan = local_restore_plan(client, home, id)?;
-    if config.connection_mode == CoreConnectionMode::Remote {
-        let key = agent_client_api_key(config).await?;
-        super::target::validate_restore_target(config, client, &plan.after, &key)?;
-    }
+    let key = agent_client_api_key(config).await?;
+    super::target::validate_restore_target(config, client, &plan.after, &key)?;
     if let Some((mappings, models)) = desktop_restore_configuration(&plan)? {
         let before = fetch_management_config_yaml(config)
             .await
@@ -266,6 +264,7 @@ pub(crate) async fn restore_agent_config_backup(
 ) -> Result<AgentConfigActionResult, String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;
+    let _target = crate::core_connection::begin_target_write(&app.state::<GuiConfigState>(), &config)?;
     let plan = prepare_restore_plan(&config, &client, &home, &id).await?;
     let result = execute_restore_plan(&config, plan, &revision).await?;
     app.state::<AgentConfigStatusCache>().clear()?;

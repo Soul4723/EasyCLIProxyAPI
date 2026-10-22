@@ -263,6 +263,7 @@ pub(crate) async fn install_pi_provider(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    let _target = crate::core_connection::begin_target_write(&gui_config_state, &config)?;
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref());
     if executable.is_none()
         && !inspect_pi_provider_status_with_executable(
@@ -304,6 +305,7 @@ pub(crate) async fn update_pi_provider(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    let _target = crate::core_connection::begin_target_write(&gui_config_state, &config)?;
     let executable = resolve_pi_executable(&home, executable_overrides.as_ref())
         .ok_or_else(|| "Pi CLI was not detected. Install Pi and ensure the pi command is in PATH".to_string())?;
     let model = resolve_pi_default_model(&config, &model).await?;
@@ -330,6 +332,7 @@ pub(crate) async fn repair_pi_provider(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    let _target = crate::core_connection::begin_target_write(&gui_config_state, &config)?;
     let model = resolve_pi_default_model(&config, &model).await?;
     let api_key = agent_client_api_key(&config).await?;
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -676,6 +679,7 @@ pub(crate) async fn create_thinking_alias(
     original_entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target = crate::core_connection::begin_target_write(&gui_config_state, &config)?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
         return Err("Select the source model first".to_string());
@@ -754,6 +758,7 @@ pub(crate) async fn delete_thinking_alias(
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<ThinkingAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target = crate::core_connection::begin_target_write(&gui_config_state, &config)?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
     let updated = match entry.as_ref() {
@@ -800,6 +805,7 @@ pub(crate) async fn create_speed_alias(
     alias: String,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target = crate::core_connection::begin_target_write(&gui_config_state, &config)?;
     let source_id = source_id.trim().to_string();
     if source_id.is_empty() {
         return Err("Select the source model first".to_string());
@@ -838,6 +844,7 @@ pub(crate) async fn delete_speed_alias(
     entry: Option<ThinkingAliasEntry>,
 ) -> Result<Vec<SpeedAliasEntry>, String> {
     let config = gui_config_state.snapshot()?;
+    let _target = crate::core_connection::begin_target_write(&gui_config_state, &config)?;
     let alias = existing_thinking_alias_model_id(&alias, "Alias model")?;
     let content = fetch_management_config_yaml(&config).await?;
     let updated = match entry.as_ref() {
@@ -1288,6 +1295,7 @@ pub(crate) async fn apply_agent_config(
         .home_dir()
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     let config = gui_config_state.snapshot()?;
+    let _target = crate::core_connection::begin_target_write(&gui_config_state, &config)?;
     let api_key = &agent_client_api_key(&config).await?;
     if client == AgentClient::Codex && oauth_configuration {
         validate_codex_oauth_login(&home)?;
@@ -1363,6 +1371,7 @@ pub(crate) async fn set_agent_config_enabled(
         .map_err(|error| format!("Failed to get user directory: {error}"))?;
     if enabled {
         let config = gui_config_state.snapshot()?;
+        let _target = crate::core_connection::begin_target_write(&gui_config_state, &config)?;
         let port = &config;
         let api_key = &agent_client_api_key(&config).await?;
         validate_agent_can_enable(client, &home, port, api_key, executable_overrides.as_ref())?;
