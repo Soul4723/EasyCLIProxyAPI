@@ -6,66 +6,69 @@ import { I18nProvider } from '../src/i18n';
 import { templateText } from '../src/i18n/templateConfig';
 import { createBrowserMockRuntime } from '../src/mocks/browserMockRuntime';
 import { routingTemplateGroups } from '../src/services/generalTemplateFields';
-import { applyTemplateChanges, draftTemplateField, readTemplatePath, templateFieldValidation } from '../src/services/templateConfig';
+import { applyTemplateChanges, draftTemplateField, readTemplatePath, templateSwitchChange, templateSwitchChecked } from '../src/services/templateConfig';
 
 const group = routingTemplateGroups.find(item => item.id === 'routing-advanced')!;
 const index = group.fields.findIndex(item => item.path.join('.') === 'routing.cooldown.quota-response-mode');
 const field = group.fields[index];
+const neighbour = group.fields.find(item => item.path.join('.') === 'routing.cooldown.save-cooldown-status')!;
 const path = ['routing', 'cooldown', 'quota-response-mode'];
 const stored = (value: string) => ({ routing: { cooldown: { 'disable-cooling': false, 'quota-response-mode': value } } });
+const toggle = (config: Record<string, unknown>, checked: boolean) => {
+  const next = templateSwitchChange(field, checked);
+  return draftTemplateField(field, config, undefined, next.value, next.remove);
+};
 
-describe('quota response mode setting', () => {
-  test('offers the two core values with retryable as the default', () => {
-    expect(field).toMatchObject({ type: 'segmented', defaultValue: 'retryable', removeWhenDefault: true });
-    expect(field.options?.map(option => option.value)).toEqual(['retryable', 'usage-limit']);
-    expect(templateFieldValidation(field, 'usage-limit')).toBeNull();
-    expect(templateFieldValidation(field, 'retryable')).toBeNull();
-    for (const value of ['usage_limit', '', true, null]) expect(templateFieldValidation(field, value)).not.toBeNull();
+describe('quota response mode toggle', () => {
+  test('is an ordinary switch that is off unless usage-limit is stored', () => {
+    expect(field).toMatchObject({ type: 'boolean', defaultValue: false, checkedValue: 'usage-limit' });
+    expect(templateSwitchChecked(field, false)).toBe(false);
+    expect(templateSwitchChecked(field, 'retryable')).toBe(false);
+    expect(templateSwitchChecked(field, 'usage-limit')).toBe(true);
+    // Plain boolean neighbours keep their true/false behaviour.
+    expect(templateSwitchChecked(neighbour, true)).toBe(true);
+    expect(templateSwitchChange(neighbour, false)).toEqual({ value: false, remove: false });
   });
 
-  test('writes the key only for usage-limit and removes it when retryable is chosen', () => {
-    expect(draftTemplateField(field, {}, undefined, 'retryable')).toBeUndefined();
-    expect(draftTemplateField(field, {}, undefined, 'usage-limit')).toEqual({ value: 'usage-limit', remove: false, expectedExists: false, expected: null });
-    const removal = draftTemplateField(field, stored('usage-limit'), undefined, 'retryable');
-    expect(removal).toEqual({ value: 'retryable', remove: true, expectedExists: true, expected: 'usage-limit' });
+  test('on writes usage-limit and off removes the key', () => {
+    expect(toggle({}, true)).toEqual({ value: 'usage-limit', remove: false, expectedExists: false, expected: null });
+    expect(toggle({}, false)).toBeUndefined();
+    const removal = toggle(stored('usage-limit'), false);
+    expect(removal).toEqual({ value: null, remove: true, expectedExists: true, expected: 'usage-limit' });
     const saved = applyTemplateChanges(stored('usage-limit'), [{ ...removal!, path }]);
     expect(readTemplatePath(saved, path).exists).toBe(false);
     expect(readTemplatePath(saved, ['routing', 'cooldown', 'disable-cooling']).value).toBe(false);
-    // An explicit retryable written by hand or by another tool is cleaned up the same way.
-    expect(draftTemplateField(field, stored('retryable'), undefined, 'retryable')).toMatchObject({ remove: true, expectedExists: true });
-    expect(draftTemplateField(field, stored('usage-limit'), undefined, 'usage-limit')).toBeUndefined();
+    expect(toggle(stored('retryable'), false)).toMatchObject({ remove: true, expectedExists: true });
+    expect(toggle(stored('usage-limit'), true)).toBeUndefined();
   });
 
   test('round-trips through the browser mock configuration', async () => {
     const runtime = createBrowserMockRuntime('running');
-    const draft = draftTemplateField(field, await runtime.invoke('get_extended_core_config') as Record<string, unknown>, undefined, 'usage-limit')!;
-    const result = await runtime.invoke('save_extended_core_config', { changes: [{ ...draft, path }] }) as { config: Record<string, unknown>; restartRequired: boolean };
+    const on = toggle(await runtime.invoke('get_extended_core_config') as Record<string, unknown>, true)!;
+    const result = await runtime.invoke('save_extended_core_config', { changes: [{ ...on, path }] }) as { config: Record<string, unknown>; restartRequired: boolean };
     expect(result.restartRequired).toBe(false);
     expect(readTemplatePath(result.config, path).value).toBe('usage-limit');
-    const removal = draftTemplateField(field, result.config, undefined, 'retryable')!;
-    await runtime.invoke('save_extended_core_config', { changes: [{ ...removal, path, value: null }] });
+    const off = toggle(result.config, false)!;
+    await runtime.invoke('save_extended_core_config', { changes: [{ ...off, path }] });
     expect(readTemplatePath(await runtime.invoke('get_extended_core_config'), path).exists).toBe(false);
   });
 
-  test('renders a labelled two-option control with plain explanations', () => {
+  test('renders like the neighbouring toggles', () => {
     const html = renderToStaticMarkup(<I18nProvider><CoreRuntimeProvider><TemplateConfigSection groups={[group]} /></CoreRuntimeProvider></I18nProvider>);
     const id = `template-${group.id}-${index}`;
-    expect(html).toContain(`<span id="${id}-label">When all credentials are out of quota</span>`);
-    expect(html).not.toContain(`for="${id}"`);
-    expect(html).toMatch(new RegExp(`id="${id}" class="routing-segmented template-config-segmented-control" aria-labelledby="${id}-label" aria-describedby="${id}-notes" role="radiogroup"`));
-    expect(html).toMatch(/role="radio" aria-checked="true"[^>]*data-value="retryable"[^>]*>Retry later \(default\)</);
-    expect(html).toMatch(/role="radio" aria-checked="false"[^>]*data-value="usage-limit"[^>]*>Report usage limit</);
-    for (const option of field.options!) expect(html).toContain(templateText(option.description, 'en'));
-    expect(html).toContain('<p data-selected="true"><strong>Retry later (default)</strong>');
-    expect(html).toContain('The setting is written only when Report usage limit is selected');
+    expect(html).toContain(`id="template-field-${group.id}-${index}" data-field-type="boolean" tabindex="-1" class="template-config-field template-config-toggle"`);
+    expect(html).toContain(`<label for="${id}">Report usage limit on quota exhaustion</label>`);
+    const input = (fieldId: string) => html.match(new RegExp(`<input[^>]*id="${fieldId}"[^>]*>`))?.[0];
+    const neighbourId = `template-${group.id}-${group.fields.indexOf(neighbour)}`;
+    expect(input(id)).toBe(input(neighbourId)!.replace(neighbourId, id));
+    expect(input(id)).toContain('type="checkbox" role="switch"');
+    expect(input(id)).not.toContain('checked');
   });
 
-  test('shows the explanations in every shipped language', () => {
+  test('has short text in every shipped language', () => {
     for (const locale of ['zh-CN', 'zh-TW', 'ja', 'en'] as const) {
-      for (const text of [field.label, field.note, ...field.options!.flatMap(option => [option.label, option.description])]) {
-        expect(templateText(text, locale).length).toBeGreaterThan(0);
-      }
+      for (const text of [field.label, field.description]) expect(templateText(text, locale).length).toBeGreaterThan(0);
     }
-    expect(templateText(field.options![1].label, 'zh-TW')).toBe('報告用量上限');
+    expect(templateText(field.description, 'en')).toContain('Needs a core that supports it.');
   });
 });
