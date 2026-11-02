@@ -303,7 +303,7 @@ const viewports = [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 },
         await tab('general');
         assert.equal(await page.locator('.config-settings-views').count(), 0, `${label}: secondary pagination is removed`);
         await tab('routing');
-        const routingOptions = await page.locator('.routing-segmented').evaluate(group => {
+        const routingOptions = await page.locator('.config-network-routing-field > .routing-segmented').evaluate(group => {
           const container = group.getBoundingClientRect();
           return [...group.querySelectorAll('button')].map(button => {
             const bounds = button.getBoundingClientRect();

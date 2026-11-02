@@ -4,11 +4,15 @@ import type { ReactNode } from 'react';
 export type TemplateText = string | { zh: string; en: string; ja?: string };
 export type TemplateConfigField = {
   path: readonly string[];
-  type: 'boolean' | 'string' | 'number' | 'select' | 'string-list' | 'json' | 'custom';
+  type: 'boolean' | 'string' | 'number' | 'select' | 'segmented' | 'string-list' | 'json' | 'custom';
   label: TemplateText;
   description?: TemplateText;
   defaultValue?: unknown;
-  options?: readonly { value: string | number | boolean; label: TemplateText }[];
+  options?: readonly { value: string | number | boolean; label: TemplateText; description?: TemplateText }[];
+  /** Short text shown under the control, for limits the user should see without opening help. */
+  note?: TemplateText;
+  /** Choosing the default value removes the key instead of writing it, for keys older cores reject. */
+  removeWhenDefault?: boolean;
   min?: number;
   max?: number;
   step?: number;
@@ -81,6 +85,7 @@ export function applyTemplateChanges(config: Record<string, unknown>, changes: r
 }
 
 export function draftTemplateField(field: TemplateConfigField, config: Record<string, unknown>, previous: TemplateConfigDraft | undefined, value: unknown, remove = false): TemplateConfigDraft | undefined {
+  if (field.removeWhenDefault && !remove && sameTemplateValue(value, field.defaultValue)) remove = true;
   const original = previous ? { exists: previous.expectedExists, value: previous.expected } : readTemplatePath(config, field.path);
   if (remove ? !original.exists : original.exists && sameTemplateValue(original.value, value)) return undefined;
   return { value, remove, expectedExists: original.exists, expected: original.value ?? null };
@@ -90,7 +95,7 @@ export function templateFieldValidation(field: TemplateConfigField, value: unkno
   if (field.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value) || ((field.step ?? 1) === 1 && !Number.isInteger(value)) || (field.min !== undefined && value < field.min) || (field.max !== undefined && value > field.max))) {
     return { zh: `请输入有效数值${field.min !== undefined ? `，最小 ${field.min}` : ''}${field.max !== undefined ? `，最大 ${field.max}` : ''}`, en: `Enter a valid number${field.min !== undefined ? `, minimum ${field.min}` : ''}${field.max !== undefined ? `, maximum ${field.max}` : ''}`, ja: `有効な数値を入力してください${field.min !== undefined ? `（最小 ${field.min}）` : ''}${field.max !== undefined ? `（最大 ${field.max}）` : ''}` };
   }
-  if (field.type === 'select' && !field.options?.some((option) => sameTemplateValue(option.value, value))) return { zh: '请选择有效选项', en: 'Select a valid option', ja: '有効な項目を選択してください' };
+  if ((field.type === 'select' || field.type === 'segmented') && !field.options?.some((option) => sameTemplateValue(option.value, value))) return { zh: '请选择有效选项', en: 'Select a valid option', ja: '有効な項目を選択してください' };
   if (field.type === 'json' && typeof value === 'string') {
     try { JSON.parse(value); } catch { return { zh: '请输入有效 JSON', en: 'Enter valid JSON', ja: '有効な JSON を入力してください' }; }
   }

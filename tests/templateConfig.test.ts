@@ -14,7 +14,7 @@ const change = (path: string[], value: unknown, expected: unknown = null, expect
 describe('template configuration drafts', () => {
   test('all general settings labels and help messages include Japanese', () => {
     const groups = [...generalTemplateGroups, ...requestTemplateGroups, ...routingTemplateGroups];
-    const messages = [...Object.values(templateMessages), ...groups.flatMap((group) => [group.title, group.description, ...group.fields.flatMap((item) => [item.label, item.description, ...item.options?.map((option) => option.label) ?? []])])].filter((value) => value !== undefined);
+    const messages = [...Object.values(templateMessages), ...groups.flatMap((group) => [group.title, group.description, ...group.fields.flatMap((item) => [item.label, item.description, item.note, ...item.options?.flatMap((option) => [option.label, option.description]) ?? []])])].filter((value) => value !== undefined);
     for (const message of messages) {
       expect(typeof message).toBe('object');
       expect((message as { ja: string }).ja.length).toBeGreaterThan(0);

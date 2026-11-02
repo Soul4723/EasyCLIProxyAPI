@@ -41,6 +41,14 @@ export const routingTemplateGroups: readonly TemplateConfigGroup[] = [
       field('routing.force-model-prefix', 'boolean', '强制模型前缀匹配', 'Enforce model prefix matching', 'モデル接頭辞の一致を必須にする', false, text('无前缀模型请求只使用无前缀凭据，前缀等于模型名的情况除外。', 'Unprefixed requests only use credentials without a prefix, except when prefix equals model name.', '接頭辞のないモデル要求には接頭辞のない認証情報のみを使用します。接頭辞とモデル名が一致する場合を除きます。')),
       field('routing.cooldown.save-cooldown-status', 'boolean', '持久保存冷却状态', 'Persist cooldown status', 'クールダウン状態を永続化', false, text('将凭据冷却状态保存到认证文件旁的 .cds 文件。', 'Save per-credential cooldown state in .cds files next to auth files.', '認証情報ごとのクールダウン状態を認証ファイルと同じ場所の .cds ファイルに保存します。')),
       field('routing.cooldown.transient-error-cooldown-seconds', 'number', '瞬时错误冷却秒数', 'Transient error cooldown (seconds)', '一時的なエラーのクールダウン秒数', 0, text('0 沿用 60 秒；-1 禁用瞬时错误冷却。', 'Zero uses the legacy 60 seconds; -1 disables transient error cooldown.', '0 は従来の 60 秒を使用し、-1 は一時的なエラーのクールダウンを無効化します。'), { min: -1, max: 2147483647 }),
+      field('routing.cooldown.quota-response-mode', 'segmented', '全部凭据额度用尽时', 'When all credentials are out of quota', 'すべての認証情報のクォータが尽きたとき', 'retryable', text('仅当该模型的所有凭据额度都已用尽、且最早重置时间在 5 分钟以后时生效；其他错误仍按可重试处理。修改后无需重启内核。', 'Applies only when every credential for the model is out of quota and the earliest reset is more than 5 minutes away. Other errors keep the retryable answer. Takes effect without a core restart.', 'モデルのすべての認証情報のクォータが尽き、最も早いリセットが 5 分以上先の場合にのみ適用します。その他のエラーは再試行可能な応答のままです。コアの再起動は不要です。'), {
+        removeWhenDefault: true,
+        options: [
+          { value: 'retryable', label: text('稍后重试（默认）', 'Retry later (default)', '後で再試行（既定）'), description: text('按原方式返回 429 和 Retry-After，客户端会自行等待并重试。', 'Answer 429 with Retry-After, as before. Clients wait and retry on their own.', '従来どおり 429 と Retry-After を返します。クライアントは自分で待って再試行します。') },
+          { value: 'usage-limit', label: text('报告用量上限', 'Report usage limit', '使用量上限を通知'), description: text('返回最终的用量上限和重置时间，Codex、T3 Code 等客户端会暂停，并在重置时继续，而不是反复重试。', 'Answer with a final usage limit and the reset time, so clients such as Codex and T3 Code pause and resume at the reset instead of retrying.', '最終的な使用量上限とリセット時刻を返します。Codex や T3 Code などのクライアントは再試行せずに一時停止し、リセット時に再開します。') },
+        ],
+        note: text('需要支持 quota-response-mode 的内核。仅在选择“报告用量上限”时写入配置；选择“稍后重试”会删除该项，旧版内核不受影响。', 'Needs a core with quota-response-mode support. The setting is written only when Report usage limit is selected; choosing Retry later removes it, so older cores keep working.', 'quota-response-mode に対応したコアが必要です。「使用量上限を通知」を選んだときだけ設定に書き込みます。「後で再試行」を選ぶと項目を削除するため、古いコアも引き続き動作します。'),
+      }),
     ],
   },
 ];

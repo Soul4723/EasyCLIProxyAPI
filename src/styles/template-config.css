@@ -47,6 +47,13 @@
 .template-config-card .compact-button { margin-top: 0; }
 .template-config-card :is(button, summary):focus-visible { outline: 2px solid var(--primary-color); outline-offset: 3px; }
 .template-config-field small.template-config-error { color: var(--danger-color); overflow-wrap: anywhere; }
+.template-config-segmented { display: grid; gap: 10px; width: 100%; min-width: 0; }
+.template-config-segmented > .routing-segmented.template-config-segmented-control { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; max-width: 540px; }
+.template-config-option-notes { display: grid; gap: 6px; min-width: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+.template-config-option-notes > p { margin: 0; overflow-wrap: anywhere; }
+.template-config-option-notes > p > strong { color: var(--text-primary); font-weight: 600; }
+.template-config-option-notes > p[data-selected='true'] > strong { color: var(--primary-color); }
+.template-config-option-notes > .template-config-note { color: var(--text-tertiary); font-size: 12px; overflow-wrap: anywhere; }
 @media (max-width: 680px) {
   .template-config-card { padding: 16px; }
   .template-config-heading-main { flex-basis: 180px; }
