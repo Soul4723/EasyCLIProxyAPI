@@ -87,7 +87,7 @@ function StackedQuotaGrid({ layout, heights, children }: { layout: keyof typeof 
     const element = container.current;
     if (!element) return;
     const { minWidth, gap } = stackedColumns[layout];
-    const measure = () => setColumnCount(Math.max(1, Math.floor((element.clientWidth + gap) / (minWidth + gap))));
+    const measure = () => setColumnCount(Math.max(1, Math.floor((element.getBoundingClientRect().width + gap) / (minWidth + gap))));
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
@@ -281,7 +281,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset, glance, onToggleGla
           {glance && quota.plan ? planBadge : null}
           <div><strong title={name}>{name}</strong></div>
           {glance !== undefined ? <button type="button" className="secondary-button tiny-button quota-glance-toggle" onClick={onToggleGlance} aria-expanded={!glance}
-            aria-label={t(glance ? 'quota.details.show' : 'quota.details.hide')} title={t(glance ? 'quota.details.show' : 'quota.details.hide')}>
+            aria-label={`${t(glance ? 'quota.details.show' : 'quota.details.hide')}: ${name}`} title={t(glance ? 'quota.details.show' : 'quota.details.hide')}>
             <ChevronDown size={14} aria-hidden="true" />
           </button> : null}
         </div>
