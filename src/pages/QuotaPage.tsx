@@ -40,7 +40,7 @@ import {
   useQuotaCache,
 } from '../services/quotaCache';
 import { dedupeAuthFiles, sortAuthFilesByPriority } from '../services/authFiles';
-import { estimateQuotaCardHeight, stackQuotaColumns } from '../services/quotaLayout';
+import { estimateQuotaCardHeight, quotaPlanTier, stackQuotaColumns } from '../services/quotaLayout';
 import { useI18n } from '../i18n';
 import { usePrivacyMask } from '../privacy';
 import './QuotaPage.css';
@@ -271,11 +271,13 @@ export function QuotaCard({ file, quota, onRefresh, onReset, glance, onToggleGla
     if (minutes >= 60) return t('quota.service.relative.hoursMinutes', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
     return t('quota.service.relative.minutes', { minutes });
   };
+  const planBadge = <strong className="quota-plan-badge" data-tier={quotaPlanTier(provider, quota.plan)} title={`${t('quota.planLabel')}: ${quota.plan}`}>{quota.plan}</strong>;
   return (
     <article className="panel real-quota-card surface-card" data-glance={glance ? '' : undefined}>
       <div className="real-quota-card-header">
         <div className="quota-identity">
           {provider === 'plugin' && String(file.provider ?? file.type).toLowerCase() !== 'gemini' ? <Gauge size={24} aria-hidden="true" /> : <img src={provider === 'plugin' && String(file.provider ?? file.type).toLowerCase() === 'gemini' ? geminiIcon : provider ? providerMeta[provider].icon : geminiIcon} alt="" className="quota-account-icon" />}
+          {glance && quota.plan ? planBadge : null}
           <div><strong title={name}>{name}</strong></div>
           {glance !== undefined ? <button type="button" className="secondary-button tiny-button quota-glance-toggle" onClick={onToggleGlance} aria-expanded={!glance}
             aria-label={t(glance ? 'quota.details.show' : 'quota.details.hide')} title={t(glance ? 'quota.details.show' : 'quota.details.hide')}>
@@ -283,7 +285,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset, glance, onToggleGla
           </button> : null}
         </div>
         {quota.plan || quota.subscriptionActiveUntil ? <div className="quota-plan">
-          {quota.plan ? <span>{t('quota.planLabel')} <strong>{quota.plan}</strong></span> : null}
+          {quota.plan ? <span>{t('quota.planLabel')} {planBadge}</span> : null}
           {quota.subscriptionActiveUntil ? <span>{t('quota.expiresAt', { time: formatQuotaTimestamp(quota.subscriptionActiveUntil, locale) })}</span> : null}
         </div> : null}
       </div>

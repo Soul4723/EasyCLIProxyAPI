@@ -111,7 +111,37 @@
 }
 .quota-page .quota-plan { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .quota-page .quota-plan span { color: var(--text-tertiary); font-size: 12px; }
-.quota-page .quota-plan strong { margin-left: 4px; font-size: 12px; font-weight: 500; }
+/* Plan badge: tiers follow the Management Center web panel (standard, premium = paid personal plans, flagship = each provider's top plan). */
+.quota-page strong.quota-plan-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  max-width: 14em;
+  margin-left: 4px;
+  padding: 1px 8px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.quota-page .quota-plan-badge[data-tier='premium'] {
+  border-color: color-mix(in srgb, var(--color-warning) 60%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 20%, var(--bg-card));
+}
+.quota-page .quota-plan-badge[data-tier='flagship'] {
+  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--ui-accent) 22%, var(--bg-card));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-accent) 20%, transparent);
+}
+.quota-page .quota-identity strong.quota-plan-badge { margin-left: 0; }
 .quota-page .quota-row-list { display: grid; gap: 12px; }
 .quota-page .quota-model-group { display: grid; gap: 8px; min-width: 0; }
 .quota-page .quota-model-group + .quota-model-group { border-top: 1px dashed var(--border-color); padding-top: 12px; }
