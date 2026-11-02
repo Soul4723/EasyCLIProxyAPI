@@ -5,8 +5,8 @@ import { SegmentedControl } from '../components/SegmentedControl';
 import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ResetCreditExpiries } from '../components/ResetCreditExpiries';
 import { MessageNotice } from '../appNotice';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Gauge, ListRestart, LoaderCircle, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AlertCircle, Gauge, LayoutDashboard, LayoutGrid, ListRestart, LoaderCircle, RefreshCw, Rows3 } from 'lucide-react';
 import { useConfirmation } from '../components/ConfirmationDialog';
 import { OAuthPageToolbar } from '../components/OAuthPageToolbar';
 import { QuotaActionFeedback } from '../components/QuotaActionFeedback';
@@ -40,6 +40,7 @@ import {
   useQuotaCache,
 } from '../services/quotaCache';
 import { dedupeAuthFiles, sortAuthFilesByPriority } from '../services/authFiles';
+import { estimateQuotaCardHeight, stackQuotaColumns } from '../services/quotaLayout';
 import { useI18n } from '../i18n';
 import { usePrivacyMask } from '../privacy';
 import './QuotaPage.css';
@@ -58,6 +59,46 @@ const providerMeta: Record<QuotaDisplayProvider, { label: string; icon: string }
 const providerOrder: QuotaDisplayProvider[] = ['claude', 'antigravity', 'codex', 'xai', 'kimi', 'devin', 'meta', 'plugin'];
 const REFRESH_CONCURRENCY = 4;
 
+type QuotaLayout = 'grid' | 'even' | 'stacked';
+const QUOTA_LAYOUT_KEY = 'cpa-gui.quota-layout.v1';
+const quotaLayouts: readonly QuotaLayout[] = ['grid', 'even', 'stacked'];
+const quotaLayoutIcons: Record<QuotaLayout, ReactNode> = {
+  grid: <LayoutGrid size={16} aria-hidden="true" />,
+  even: <Rows3 size={16} aria-hidden="true" />,
+  stacked: <LayoutDashboard size={16} aria-hidden="true" />,
+};
+// Matches .real-quota-grid: minmax(min(300px, 100%), 1fr) columns with a 12px gap.
+const QUOTA_CARD_MIN_WIDTH = 300;
+const QUOTA_GRID_GAP = 12;
+
+function readQuotaLayout(): QuotaLayout {
+  try {
+    const stored = window.localStorage.getItem(QUOTA_LAYOUT_KEY);
+    return quotaLayouts.find((layout) => layout === stored) ?? 'grid';
+  } catch {
+    return 'grid';
+  }
+}
+
+function StackedQuotaGrid({ heights, children }: { heights: readonly number[]; children: readonly ReactNode[] }) {
+  const container = useRef<HTMLDivElement>(null);
+  const [columnCount, setColumnCount] = useState(1);
+  useLayoutEffect(() => {
+    const element = container.current;
+    if (!element) return;
+    const measure = () => setColumnCount(Math.max(1, Math.floor((element.clientWidth + QUOTA_GRID_GAP) / (QUOTA_CARD_MIN_WIDTH + QUOTA_GRID_GAP))));
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const columns = stackQuotaColumns(heights, columnCount);
+  return <div ref={container} className="real-quota-grid" data-layout="stacked">
+    {columns.map((items, column) => <div className="quota-stack-column" key={column}>{items.map((index) => children[index])}</div>)}
+  </div>;
+}
+
 export function QuotaPage() {
   const { t } = useI18n();
   const { askConfirmation, confirmationDialog } = useConfirmation();
@@ -67,6 +108,11 @@ export function QuotaPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [category, setCategory] = useState<'all' | QuotaDisplayProvider>('all');
+  const [layout, setLayoutState] = useState<QuotaLayout>(readQuotaLayout);
+  const setLayout = useCallback((next: QuotaLayout) => {
+    setLayoutState(next);
+    try { window.localStorage.setItem(QUOTA_LAYOUT_KEY, next); } catch { /* Layout is a display preference. */ }
+  }, []);
   const querying = Object.values(quotas).some((quota) => quota.status === 'loading');
 
   const loadFiles = useCallback(async () => {
@@ -150,6 +196,7 @@ export function QuotaPage() {
   const activeCategory = category !== 'all' && grouped.some(([provider]) => provider === category) ? category : 'all';
   const visibleItems = (activeCategory === 'all' ? grouped : grouped.filter(([provider]) => provider === activeCategory))
     .flatMap(([provider, items]) => items.map((item) => ({ provider, ...item })));
+  const cards = visibleItems.map(({ provider, file, quota }) => <QuotaCard key={quotaKey(file)} file={file} quota={quota} onRefresh={() => void refreshOne(file)} onReset={provider === 'codex' || provider === 'claude' ? () => void resetQuota(file, quota) : undefined} />);
 
   return (
     <section className="page management-page quota-page" aria-label={t('quota.title')}>
@@ -172,15 +219,21 @@ export function QuotaPage() {
         <EmptyState className="management-empty" icon={<AlertCircle size={24} />} title={t('quota.empty.title')}>{t('quota.empty.description')}</EmptyState>
       ) : (
         <>
-          <SegmentedControl className="quota-category-filter" aria-label={t('quota.filter.label')} value={activeCategory} onChange={setCategory}
-            items={([['all', files.length] as const, ...grouped.map(([provider, items]) => [provider, items.length] as const)]).map(([provider, count]) => {
-              const label = provider === 'all' ? t('quota.filter.all') : provider === 'plugin' ? t('quota.pluginCategory') : providerMeta[provider].label;
-              return { value: provider, 'aria-label': `${label}, ${t(count === 1 ? 'quota.credentials.one' : 'quota.credentials.other', { count })}`, label: <>
-                {provider === 'all' ? null : provider === 'plugin' ? <Gauge size={18} aria-hidden="true" /> : <img src={providerMeta[provider].icon} alt="" className={provider === 'devin' ? 'provider-logo devin-logo' : 'provider-logo'} />}
-                <span>{label}</span><span className="quota-filter-count">{count}</span>
-              </> };
-            })} />
-          <div className="real-quota-grid">{visibleItems.map(({ provider, file, quota }) => <QuotaCard key={quotaKey(file)} file={file} quota={quota} onRefresh={() => void refreshOne(file)} onReset={provider === 'codex' || provider === 'claude' ? () => void resetQuota(file, quota) : undefined} />)}</div>
+          <div className="quota-view-bar">
+            <SegmentedControl className="quota-category-filter" aria-label={t('quota.filter.label')} value={activeCategory} onChange={setCategory}
+              items={([['all', files.length] as const, ...grouped.map(([provider, items]) => [provider, items.length] as const)]).map(([provider, count]) => {
+                const label = provider === 'all' ? t('quota.filter.all') : provider === 'plugin' ? t('quota.pluginCategory') : providerMeta[provider].label;
+                return { value: provider, 'aria-label': `${label}, ${t(count === 1 ? 'quota.credentials.one' : 'quota.credentials.other', { count })}`, label: <>
+                  {provider === 'all' ? null : provider === 'plugin' ? <Gauge size={18} aria-hidden="true" /> : <img src={providerMeta[provider].icon} alt="" className={provider === 'devin' ? 'provider-logo devin-logo' : 'provider-logo'} />}
+                  <span>{label}</span><span className="quota-filter-count">{count}</span>
+                </> };
+              })} />
+            <SegmentedControl className="routing-segmented quota-layout-switch" aria-label={t('quota.layout.label')} value={layout} onChange={setLayout}
+              items={quotaLayouts.map((value) => ({ value, title: t(`quota.layout.${value}`), 'aria-label': t(`quota.layout.${value}`), label: quotaLayoutIcons[value] }))} />
+          </div>
+          {layout === 'stacked'
+            ? <StackedQuotaGrid heights={visibleItems.map(({ provider, quota }) => estimateQuotaCardHeight(quota, provider))}>{cards}</StackedQuotaGrid>
+            : <div className="real-quota-grid" data-layout={layout}>{cards}</div>}
         </>
       )}
     </section>
