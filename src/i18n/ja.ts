@@ -646,6 +646,7 @@ export const jaOverrides = {
   'quota.layout.grid': 'グリッド',
   'quota.layout.even': '高さを揃える',
   'quota.layout.stacked': '積み重ね',
+  'quota.layout.compact': 'コンパクト',
   'quota.filter.all': 'すべて',
   'quota.readList': '一覧を更新',
   'quota.planLabel': 'プラン',

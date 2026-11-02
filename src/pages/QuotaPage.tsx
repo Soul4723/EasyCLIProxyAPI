@@ -6,7 +6,7 @@ import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ResetCreditExpiries } from '../components/ResetCreditExpiries';
 import { MessageNotice } from '../appNotice';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertCircle, Gauge, LayoutDashboard, LayoutGrid, ListRestart, LoaderCircle, RefreshCw, Rows3 } from 'lucide-react';
+import { AlertCircle, Gauge, Grid3x3, LayoutDashboard, LayoutGrid, ListRestart, LoaderCircle, RefreshCw, Rows3 } from 'lucide-react';
 import { useConfirmation } from '../components/ConfirmationDialog';
 import { OAuthPageToolbar } from '../components/OAuthPageToolbar';
 import { QuotaActionFeedback } from '../components/QuotaActionFeedback';
@@ -59,17 +59,17 @@ const providerMeta: Record<QuotaDisplayProvider, { label: string; icon: string }
 const providerOrder: QuotaDisplayProvider[] = ['claude', 'antigravity', 'codex', 'xai', 'kimi', 'devin', 'meta', 'plugin'];
 const REFRESH_CONCURRENCY = 4;
 
-type QuotaLayout = 'grid' | 'even' | 'stacked';
+type QuotaLayout = 'grid' | 'even' | 'stacked' | 'compact';
 const QUOTA_LAYOUT_KEY = 'cpa-gui.quota-layout.v1';
-const quotaLayouts: readonly QuotaLayout[] = ['grid', 'even', 'stacked'];
+const quotaLayouts: readonly QuotaLayout[] = ['grid', 'even', 'stacked', 'compact'];
 const quotaLayoutIcons: Record<QuotaLayout, ReactNode> = {
   grid: <LayoutGrid size={16} aria-hidden="true" />,
   even: <Rows3 size={16} aria-hidden="true" />,
   stacked: <LayoutDashboard size={16} aria-hidden="true" />,
+  compact: <Grid3x3 size={16} aria-hidden="true" />,
 };
-// Matches .real-quota-grid: minmax(min(300px, 100%), 1fr) columns with a 12px gap.
-const QUOTA_CARD_MIN_WIDTH = 300;
-const QUOTA_GRID_GAP = 12;
+// Column width and gap: Stacked matches .real-quota-grid (minmax(min(300px, 100%), 1fr), 12px gap); Compact uses narrower columns and the 8px gap in QuotaPage.css.
+const stackedColumns = { stacked: { minWidth: 300, gap: 12 }, compact: { minWidth: 240, gap: 8 } } as const;
 
 function readQuotaLayout(): QuotaLayout {
   try {
@@ -80,21 +80,22 @@ function readQuotaLayout(): QuotaLayout {
   }
 }
 
-function StackedQuotaGrid({ heights, children }: { heights: readonly number[]; children: readonly ReactNode[] }) {
+function StackedQuotaGrid({ layout, heights, children }: { layout: keyof typeof stackedColumns; heights: readonly number[]; children: readonly ReactNode[] }) {
   const container = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(1);
   useLayoutEffect(() => {
     const element = container.current;
     if (!element) return;
-    const measure = () => setColumnCount(Math.max(1, Math.floor((element.clientWidth + QUOTA_GRID_GAP) / (QUOTA_CARD_MIN_WIDTH + QUOTA_GRID_GAP))));
+    const { minWidth, gap } = stackedColumns[layout];
+    const measure = () => setColumnCount(Math.max(1, Math.floor((element.clientWidth + gap) / (minWidth + gap))));
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [layout]);
   const columns = stackQuotaColumns(heights, columnCount);
-  return <div ref={container} className="real-quota-grid" data-layout="stacked">
+  return <div ref={container} className="real-quota-grid" data-layout={layout}>
     {columns.map((items, column) => <div className="quota-stack-column" key={column}>{items.map((index) => children[index])}</div>)}
   </div>;
 }
@@ -231,8 +232,8 @@ export function QuotaPage() {
             <SegmentedControl className="routing-segmented quota-layout-switch" aria-label={t('quota.layout.label')} value={layout} onChange={setLayout}
               items={quotaLayouts.map((value) => ({ value, title: t(`quota.layout.${value}`), 'aria-label': t(`quota.layout.${value}`), label: quotaLayoutIcons[value] }))} />
           </div>
-          {layout === 'stacked'
-            ? <StackedQuotaGrid heights={visibleItems.map(({ provider, quota }) => estimateQuotaCardHeight(quota, provider))}>{cards}</StackedQuotaGrid>
+          {layout === 'stacked' || layout === 'compact'
+            ? <StackedQuotaGrid layout={layout} heights={visibleItems.map(({ provider, quota }) => estimateQuotaCardHeight(quota, provider))}>{cards}</StackedQuotaGrid>
             : <div className="real-quota-grid" data-layout={layout}>{cards}</div>}
         </>
       )}
@@ -285,7 +286,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset }: { file: AuthFile;
         <MessageNotice message={quota.resetCreditsError ? name + ': ' + t('quota.resetCreditsWarning', { error: quota.resetCreditsError }) : null} />
       </div> : null}
       {quota.status === 'success' ? <div className="quota-row-list">{groups.map((group, groupIndex) => <section className="quota-model-group" key={groupIndex}>
-        {group.label ? <div className="quota-model-heading"><h3>{group.label}</h3>{group.description ? <p>{group.description}</p> : null}</div> : null}
+        {group.label ? <div className="quota-model-heading" title={group.description}><h3>{group.label}</h3>{group.description ? <p>{group.description}</p> : null}</div> : null}
         {group.rows.map((row, index) => {
           const reset = countdown(row);
           const percent = row.remainingPercent !== null && Number.isFinite(row.remainingPercent)

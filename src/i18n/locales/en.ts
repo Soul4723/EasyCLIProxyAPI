@@ -629,6 +629,7 @@ export const en: Record<MessageKey, string> = {
   'quota.layout.grid': 'Grid',
   'quota.layout.even': 'Even rows',
   'quota.layout.stacked': 'Stacked',
+  'quota.layout.compact': 'Compact',
   'quota.filter.all': 'All',
   'quota.readList': 'Refresh List',
   'quota.planLabel': 'Plan',

@@ -126,13 +126,18 @@
 .quota-page .real-quota-track span { background: var(--color-success); }
 .quota-page .quota-card-actions { display: flex; order: 4; align-items: center; justify-content: flex-end; gap: 16px; margin-top: auto; }
 
-/* Card layout: Grid keeps each card at its own height; Even rows stretches cards to the row's tallest; Stacked packs cards into columns. */
+/* Card layout: Grid keeps each card at its own height; Even rows stretches cards to the row's tallest; Stacked packs cards into columns; Compact packs narrower, denser cards. */
 .quota-page .quota-view-bar { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .quota-page .quota-view-bar .quota-category-filter { flex: 1 1 auto; }
-.quota-page .quota-layout-switch { flex: none; grid-template-columns: repeat(3, 36px); }
+.quota-page .quota-layout-switch { flex: none; grid-template-columns: repeat(4, 36px); }
 .quota-page .quota-layout-switch svg { display: block; margin: auto; }
 .quota-page .real-quota-grid[data-layout='even'] { align-items: stretch; }
-.quota-page .real-quota-grid[data-layout='stacked'] { display: flex; align-items: flex-start; }
+.quota-page .real-quota-grid:is([data-layout='stacked'], [data-layout='compact']) { display: flex; align-items: flex-start; }
 .quota-page .quota-stack-column { display: flex; flex: 1 1 0; flex-direction: column; gap: 12px; min-width: 0; }
+.quota-page .real-quota-grid[data-layout='compact'] { gap: 8px; }
+.quota-page .real-quota-grid[data-layout='compact'] .quota-stack-column { gap: 8px; }
+.quota-page .real-quota-grid[data-layout='compact'] .real-quota-card { gap: 8px; padding: 10px 12px; }
+.quota-page .real-quota-grid[data-layout='compact'] .quota-row-list { gap: 6px; }
+.quota-page .real-quota-grid[data-layout='compact'] .quota-model-heading p { display: none; }
 
 }
