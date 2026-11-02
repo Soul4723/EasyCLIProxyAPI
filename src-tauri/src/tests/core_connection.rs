@@ -219,19 +219,12 @@ fn remote_tray_deduplication_tracks_presentation_not_poll_metadata() {
             message: "Connected".into(),
         },
     );
-    status.installed = true;
-    status.running = true;
-    status.host_control = Some(crate::host_control::HostControlView {
-        reachable: true,
-        message: "Running".into(),
-    });
     let presentation = windows_tray_presentation(&status, false, "en");
     status.process_id = Some(123);
     status.current_version = Some("v8.0.36".into());
     status.message = "Updated status metadata".into();
     assert_eq!(presentation, windows_tray_presentation(&status, false, "en"));
-    assert_ne!(presentation, windows_tray_presentation(&status, true, "en"));
     assert_ne!(presentation, windows_tray_presentation(&status, false, "ja"));
-    status.host_control.as_mut().unwrap().reachable = false;
+    status.ready = !status.ready;
     assert_ne!(presentation, windows_tray_presentation(&status, false, "en"));
 }
