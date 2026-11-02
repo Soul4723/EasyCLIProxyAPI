@@ -175,7 +175,7 @@
 .quota-page .quota-stack-column { display: flex; flex: 1 1 0; flex-direction: column; gap: 12px; min-width: 0; }
 .quota-page .real-quota-grid[data-layout='compact'] { gap: 8px; }
 .quota-page .real-quota-grid[data-layout='compact'] .quota-stack-column { gap: 8px; }
-.quota-page .quota-glance-toggle { margin-left: auto; }
+.quota-page .quota-glance-toggle { flex: none; width: auto; margin-left: auto; }
 .quota-page .quota-glance-toggle[aria-expanded='true'] svg { transform: rotate(180deg); }
 /* Compact glance: name, group names and one line per quota (label, remaining, bar); the rest appears when a card is expanded. */
 .quota-page .real-quota-card[data-glance] { gap: 6px; padding: 8px 10px; }

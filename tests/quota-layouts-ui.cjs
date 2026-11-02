@@ -79,6 +79,7 @@ const layouts = [['grid', 'Grid'], ['even', 'Even rows'], ['stacked', 'Stacked']
             const toggle = card.querySelector('.quota-glance-toggle');
             const found = [];
             if (!toggle || !visible(toggle)) found.push(`glance card ${index}: no visible details toggle`);
+            else if (toggle.getBoundingClientRect().width > 48) found.push(`glance card ${index}: details toggle stretches to ${Math.round(toggle.getBoundingClientRect().width)}px`);
             if (badge && logo && visible(badge)) {
               const a = badge.getBoundingClientRect(); const b = logo.getBoundingClientRect();
               if (Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) > 4) found.push(`glance card ${index}: plan badge not level with the logo`);
