@@ -1,7 +1,21 @@
 import type { QuotaDisplayProvider, QuotaState } from './quotaService';
 
-/** Rough card height in row units, from the data the card shows rather than its measured size, so cards keep their column when a refresh changes their height. */
-export function estimateQuotaCardHeight(quota: QuotaState, provider: QuotaDisplayProvider | null | undefined): number {
+/**
+ * Rough card height in row units, from the data the card shows rather than its measured size, so cards keep their column when a refresh changes their height.
+ * `glance` estimates the Compact summary, which shows only the name, group names and one line per quota.
+ */
+export function estimateQuotaCardHeight(quota: QuotaState, provider: QuotaDisplayProvider | null | undefined, glance = false): number {
+  if (glance) {
+    if (quota.status !== 'success') return 2.5;
+    let group: string | undefined;
+    let height = 1.5;
+    for (const row of quota.rows) {
+      if (row.groupLabel && row.groupLabel !== group) height += 1;
+      group = row.groupLabel;
+      height += 1;
+    }
+    return height;
+  }
   let height = 3;
   if (quota.plan || quota.subscriptionActiveUntil) height += 1;
   if (quota.status !== 'success') return height + (quota.status === 'error' ? 2 : 1);

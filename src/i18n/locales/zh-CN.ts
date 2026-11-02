@@ -615,6 +615,8 @@ export const zhCN = {
   'quota.layout.even': '等高行',
   'quota.layout.stacked': '堆叠',
   'quota.layout.compact': '紧凑',
+  'quota.details.show': '显示详情',
+  'quota.details.hide': '隐藏详情',
   'quota.filter.all': '全部',
   'quota.readList': '刷新列表',
   'quota.planLabel': '套餐',

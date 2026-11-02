@@ -630,6 +630,8 @@ export const en: Record<MessageKey, string> = {
   'quota.layout.even': 'Even rows',
   'quota.layout.stacked': 'Stacked',
   'quota.layout.compact': 'Compact',
+  'quota.details.show': 'Show details',
+  'quota.details.hide': 'Hide details',
   'quota.filter.all': 'All',
   'quota.readList': 'Refresh List',
   'quota.planLabel': 'Plan',
