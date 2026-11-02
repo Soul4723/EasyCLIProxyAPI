@@ -15,7 +15,7 @@ test('plan badges are named without the provider and coloured by the nearest pri
     ['codex', 'free', 'Free', 'free'], ['codex', 'go', 'Go', '10'], ['codex', 'plus', 'Plus', '20'], ['codex', 'team', 'Team', '30'],
     ['codex', 'prolite', 'Pro 100', '100'], ['codex', 'pro', 'Pro 200', 'top'], ['codex', 'promax', 'Pro 500', 'top'],
     ['claude', 'Pro', 'Pro', '20'], ['claude', 'Max', 'Max', '100'], ['claude', 'Team', 'Team', '30'],
-    ['antigravity', 'Pro', 'Pro', '20'], ['antigravity', 'Ultra', 'Ultra', '100'], ['antigravity', 'Ultra Lite', 'Ultra Lite', 'unknown'],
+    ['antigravity', 'Plus', 'Plus', '3'], ['antigravity', 'Google AI Plus', 'Plus', '3'], ['antigravity', 'Pro', 'Pro', '20'], ['antigravity', 'Ultra', 'Ultra', '100'], ['antigravity', 'Ultra Lite', 'Ultra Lite', 'unknown'],
     ['kimi', 'Kimi Code Pro', 'Pro', '30'], ['kimi', 'Moderato', 'Moderato', '20'], ['kimi', 'Allegro', 'Allegro', '100'], ['kimi', 'Vivace', 'Vivace', 'top'],
     ['xai', 'Paid', 'API', 'top'], ['xai', 'SuperGrok', 'SuperGrok', '30'], ['xai', 'SuperGrok Heavy', 'SuperGrok Heavy', 'top'], ['xai', 'Plus', 'Plus', '10'],
     ['devin', 'Devin Pro', 'Pro', '20'], ['devin', 'Teams', 'Teams', '80'], ['devin', 'Max', 'Max', 'top'],

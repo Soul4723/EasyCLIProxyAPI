@@ -60,14 +60,15 @@ export function quotaPlanLabel(provider: QuotaDisplayProvider | null | undefined
 /**
  * Monthly USD list price (billed monthly) by provider and plan label, checked 2026-11-02 on the providers' pages:
  * claude.com/pricing, kimi.ai/help/membership/membership-pricing, devin.ai/desktop, x.ai/pricing.
- * shortcut: OpenAI (help.openai.com Pro tiers, openai.com/business/pricing) and Google AI plan prices could not be read directly
- * (blocked or loaded by script) and come from a research pass; recheck them when prices change.
+ * OpenAI and Google pages could not be read directly; their US prices come from a research pass and match the Australian prices
+ * the owner read off the pages on 2026-11-02 at about A$1.50 per US$1 (ChatGPT Free A$0, Go A$13, Plus A$30, Pro from A$155 with
+ * 100/200/500 tiers; Google AI Plus A$7.99, Ultra from A$149.99). Google AI Plus has no US price here: A$7.99 is about US$5.
  * Team plans use the standard seat. "api" is the xAI paid API. Unknown plans return undefined.
  */
 const planPrices: Partial<Record<QuotaDisplayProvider, Record<string, number | 'api'>>> = {
   codex: { free: 0, go: 8, plus: 20, 'pro 100': 100, 'pro 200': 200, 'pro 500': 500, team: 25, business: 25 },
   claude: { free: 0, pro: 20, max: 100, 'max 5x': 100, 'max 20x': 200, ultra: 200, team: 25 },
-  antigravity: { free: 0, pro: 19.99, ultra: 99.99 },
+  antigravity: { free: 0, plus: 5, pro: 19.99, ultra: 99.99 },
   // Kimi's old level names map to the current plans in order: Moderato = Plus, Allegretto = Pro, Allegro = Max, Vivace = Ultra.
   kimi: { free: 0, plus: 19, moderato: 19, pro: 39, allegretto: 39, max: 99, allegro: 99, ultra: 199, vivace: 199 },
   xai: { free: 0, plus: 8, premium: 30, supergrok: 30, super: 100, ultra: 200, 'supergrok heavy': 300, api: 'api' },
