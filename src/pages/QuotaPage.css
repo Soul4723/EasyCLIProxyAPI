@@ -101,7 +101,7 @@
 .quota-page .quota-card-error small { overflow-wrap: anywhere; font-size: 11px; }
 
 /* Compact grouped quota layout, shared by light and dark themes. */
-.quota-page .quota-identity strong {
+.quota-page .quota-identity strong:not(.plan-chip) {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -111,46 +111,7 @@
 }
 .quota-page .quota-plan { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .quota-page .quota-plan span { color: var(--text-tertiary); font-size: 12px; }
-/* Plan badge: a small tinted label like the app's status chips; the tint of the theme's planBadge colour deepens with the plan's
-   monthly price (quotaPlanTier), from neutral for free to planBadgeTop with an outline for $200, $500 and paid API plans. */
-.quota-page strong.quota-plan-badge {
-  --plan-tint: 0%;
-  display: inline-block;
-  flex: none;
-  height: 18px;
-  max-width: 14em;
-  margin-left: 4px;
-  padding: 0 6px;
-  overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--theme-plan-badge) var(--plan-tint), var(--bg-tertiary));
-  color: color-mix(in srgb, var(--theme-plan-badge) calc(var(--plan-tint) * 1.8), var(--text-primary));
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .01em;
-  line-height: 16px;
-  text-overflow: ellipsis;
-  vertical-align: middle;
-  white-space: nowrap;
-}
-.quota-page strong.quota-plan-badge:is([data-tier='free'], [data-tier='unknown']) { color: var(--text-secondary); }
-.quota-page strong.quota-plan-badge[data-tier='unknown'] { border-color: var(--border-color); border-style: dashed; background: transparent; }
-.quota-page strong.quota-plan-badge[data-tier='3'] { --plan-tint: 5%; }
-.quota-page strong.quota-plan-badge[data-tier='10'] { --plan-tint: 8%; }
-.quota-page strong.quota-plan-badge[data-tier='20'] { --plan-tint: 11%; }
-.quota-page strong.quota-plan-badge[data-tier='30'] { --plan-tint: 14%; }
-.quota-page strong.quota-plan-badge[data-tier='50'] { --plan-tint: 17%; }
-.quota-page strong.quota-plan-badge[data-tier='80'] { --plan-tint: 20%; }
-.quota-page strong.quota-plan-badge[data-tier='100'] { --plan-tint: 24%; }
-.quota-page strong.quota-plan-badge[data-tier='top'] {
-  border-color: color-mix(in srgb, var(--theme-plan-badge-top) 45%, transparent);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--theme-plan-badge-top) 34%, var(--bg-card)), color-mix(in srgb, var(--theme-plan-badge-top) 16%, var(--bg-card)));
-  color: color-mix(in srgb, var(--theme-plan-badge-top) 55%, var(--text-primary));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-plan-badge-top) 25%, transparent);
-}
-.quota-page .quota-identity strong.quota-plan-badge { margin-left: 0; }
+.quota-page .quota-plan .plan-chip { margin-left: 4px; }
 .quota-page .quota-row-list { display: grid; gap: 12px; }
 .quota-page .quota-model-group { display: grid; gap: 8px; min-width: 0; }
 .quota-page .quota-model-group + .quota-model-group { border-top: 1px dashed var(--border-color); padding-top: 12px; }
@@ -165,16 +126,9 @@
 .quota-page .real-quota-track span { background: var(--color-success); }
 .quota-page .quota-card-actions { display: flex; order: 4; align-items: center; justify-content: flex-end; gap: 16px; margin-top: auto; }
 
-/* Card layout: Grid keeps each card at its own height; Even rows stretches cards to the row's tallest; Stacked packs cards into columns; Compact packs narrower, denser cards. */
+/* Card layouts come from components/CardLayout; this page adds the view bar and the Compact glance card. */
 .quota-page .quota-view-bar { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .quota-page .quota-view-bar .quota-category-filter { flex: 1 1 auto; }
-.quota-page .quota-layout-control { flex: none; grid-template-columns: repeat(4, 36px); }
-.quota-page .quota-layout-control svg { display: block; margin: auto; }
-.quota-page .real-quota-grid[data-layout='even'] { align-items: stretch; }
-.quota-page .real-quota-grid:is([data-layout='stacked'], [data-layout='compact']) { display: flex; align-items: flex-start; }
-.quota-page .quota-stack-column { display: flex; flex: 1 1 0; flex-direction: column; gap: 12px; min-width: 0; }
-.quota-page .real-quota-grid[data-layout='compact'] { gap: 8px; }
-.quota-page .real-quota-grid[data-layout='compact'] .quota-stack-column { gap: 8px; }
 .quota-page .quota-glance-toggle { flex: none; width: auto; margin-left: auto; }
 .quota-page .quota-glance-toggle[aria-expanded='true'] svg { transform: rotate(180deg); }
 /* Compact glance: name, group names and one line per quota (label, remaining, bar); the rest appears when a card is expanded. */

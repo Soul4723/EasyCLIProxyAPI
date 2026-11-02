@@ -5,8 +5,8 @@ import { SegmentedControl } from '../components/SegmentedControl';
 import { commitFetchedQuota } from '../services/quotaEnrichment';
 import { ResetCreditExpiries } from '../components/ResetCreditExpiries';
 import { MessageNotice } from '../appNotice';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertCircle, ChevronDown, Gauge, Grid3x3, LayoutDashboard, LayoutGrid, ListRestart, LoaderCircle, RefreshCw, Rows3 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertCircle, ChevronDown, Gauge, ListRestart, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useConfirmation } from '../components/ConfirmationDialog';
 import { OAuthPageToolbar } from '../components/OAuthPageToolbar';
 import { QuotaActionFeedback } from '../components/QuotaActionFeedback';
@@ -40,7 +40,9 @@ import {
   useQuotaCache,
 } from '../services/quotaCache';
 import { dedupeAuthFiles, sortAuthFilesByPriority } from '../services/authFiles';
-import { estimateQuotaCardHeight, quotaPlanLabel, quotaPlanTier, stackQuotaColumns } from '../services/quotaLayout';
+import { estimateQuotaCardHeight } from '../services/quotaLayout';
+import { CardLayoutGrid, CardLayoutSwitch, useCardLayout, useExpandedCards, type StackedColumns } from '../components/CardLayout';
+import { PlanChip } from '../components/PlanChip';
 import { useI18n } from '../i18n';
 import { usePrivacyMask } from '../privacy';
 import './QuotaPage.css';
@@ -59,46 +61,8 @@ const providerMeta: Record<QuotaDisplayProvider, { label: string; icon: string }
 const providerOrder: QuotaDisplayProvider[] = ['claude', 'antigravity', 'codex', 'xai', 'kimi', 'devin', 'meta', 'plugin'];
 const REFRESH_CONCURRENCY = 4;
 
-type QuotaLayout = 'grid' | 'even' | 'stacked' | 'compact';
-const QUOTA_LAYOUT_KEY = 'cpa-gui.quota-layout.v1';
-const quotaLayouts: readonly QuotaLayout[] = ['grid', 'even', 'stacked', 'compact'];
-const quotaLayoutIcons: Record<QuotaLayout, ReactNode> = {
-  grid: <LayoutGrid size={16} aria-hidden="true" />,
-  even: <Rows3 size={16} aria-hidden="true" />,
-  stacked: <LayoutDashboard size={16} aria-hidden="true" />,
-  compact: <Grid3x3 size={16} aria-hidden="true" />,
-};
-// Column width and gap: Stacked matches .real-quota-grid (minmax(min(300px, 100%), 1fr), 12px gap); Compact uses narrower columns and the 8px gap in QuotaPage.css.
-const stackedColumns = { stacked: { minWidth: 300, gap: 12 }, compact: { minWidth: 240, gap: 8 } } as const;
-
-function readQuotaLayout(): QuotaLayout {
-  try {
-    const stored = window.localStorage.getItem(QUOTA_LAYOUT_KEY);
-    return quotaLayouts.find((layout) => layout === stored) ?? 'grid';
-  } catch {
-    return 'grid';
-  }
-}
-
-function StackedQuotaGrid({ layout, heights, children }: { layout: keyof typeof stackedColumns; heights: readonly number[]; children: readonly ReactNode[] }) {
-  const container = useRef<HTMLDivElement>(null);
-  const [columnCount, setColumnCount] = useState(1);
-  useLayoutEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    const { minWidth, gap } = stackedColumns[layout];
-    const measure = () => setColumnCount(Math.max(1, Math.floor((element.getBoundingClientRect().width + gap) / (minWidth + gap))));
-    measure();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [layout]);
-  const columns = stackQuotaColumns(heights, columnCount);
-  return <div ref={container} className="real-quota-grid" data-layout={layout}>
-    {columns.map((items, column) => <div className="quota-stack-column" key={column}>{items.map((index) => children[index])}</div>)}
-  </div>;
-}
+// Stacked matches .real-quota-grid (minmax(min(300px, 100%), 1fr), 12px gap); Compact uses narrower columns and 8px gaps.
+const quotaColumns: StackedColumns = { stacked: { minWidth: 300, gap: 12 }, compact: { minWidth: 240, gap: 8 } };
 
 export function QuotaPage() {
   const { t } = useI18n();
@@ -109,17 +73,8 @@ export function QuotaPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [category, setCategory] = useState<'all' | QuotaDisplayProvider>('all');
-  const [layout, setLayoutState] = useState<QuotaLayout>(readQuotaLayout);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
-  const toggleExpanded = useCallback((key: string) => setExpanded((current) => {
-    const next = new Set(current);
-    if (!next.delete(key)) next.add(key);
-    return next;
-  }), []);
-  const setLayout = useCallback((next: QuotaLayout) => {
-    setLayoutState(next);
-    try { window.localStorage.setItem(QUOTA_LAYOUT_KEY, next); } catch { /* Layout is a display preference. */ }
-  }, []);
+  const [layout, setLayout] = useCardLayout('cpa-gui.quota-layout.v1');
+  const [expanded, toggleExpanded] = useExpandedCards();
   const querying = Object.values(quotas).some((quota) => quota.status === 'loading');
 
   const loadFiles = useCallback(async () => {
@@ -237,12 +192,10 @@ export function QuotaPage() {
                   <span>{label}</span><span className="quota-filter-count">{count}</span>
                 </> };
               })} />
-            <SegmentedControl className="routing-segmented quota-layout-control" aria-label={t('quota.layout.label')} value={layout} onChange={setLayout}
-              items={quotaLayouts.map((value) => ({ value, title: t(`quota.layout.${value}`), 'aria-label': t(`quota.layout.${value}`), label: quotaLayoutIcons[value] }))} />
+            <CardLayoutSwitch className="quota-layout-control" value={layout} onChange={setLayout} />
           </div>
-          {layout === 'stacked' || layout === 'compact'
-            ? <StackedQuotaGrid layout={layout} heights={visibleItems.map(({ provider, file, quota }) => estimateQuotaCardHeight(quota, provider, glance(file)))}>{cards}</StackedQuotaGrid>
-            : <div className="real-quota-grid" data-layout={layout}>{cards}</div>}
+          <CardLayoutGrid layout={layout} className="real-quota-grid" columns={quotaColumns}
+            heights={visibleItems.map(({ provider, file, quota }) => estimateQuotaCardHeight(quota, provider, glance(file)))}>{cards}</CardLayoutGrid>
         </>
       )}
     </section>
@@ -271,14 +224,13 @@ export function QuotaCard({ file, quota, onRefresh, onReset, glance, onToggleGla
     if (minutes >= 60) return t('quota.service.relative.hoursMinutes', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
     return t('quota.service.relative.minutes', { minutes });
   };
-  const planLabel = quota.plan ? quotaPlanLabel(provider, quota.plan) : '';
-  const planBadge = <strong className="quota-plan-badge" data-tier={quotaPlanTier(provider, quota.plan)} title={`${t('quota.planLabel')}: ${quota.plan}`}>{planLabel}</strong>;
+  const planBadge = quota.plan ? <PlanChip provider={provider} plan={quota.plan} /> : null;
   return (
     <article className="panel real-quota-card surface-card" data-glance={glance ? '' : undefined}>
       <div className="real-quota-card-header">
         <div className="quota-identity">
           {provider === 'plugin' && String(file.provider ?? file.type).toLowerCase() !== 'gemini' ? <Gauge size={24} aria-hidden="true" /> : <img src={provider === 'plugin' && String(file.provider ?? file.type).toLowerCase() === 'gemini' ? geminiIcon : provider ? providerMeta[provider].icon : geminiIcon} alt="" className="quota-account-icon" />}
-          {glance && quota.plan ? planBadge : null}
+          {glance ? planBadge : null}
           <div><strong title={name}>{name}</strong></div>
           {glance !== undefined ? <button type="button" className="secondary-button tiny-button quota-glance-toggle" onClick={onToggleGlance} aria-expanded={!glance}
             aria-label={`${t(glance ? 'quota.details.show' : 'quota.details.hide')}: ${name}`} title={t(glance ? 'quota.details.show' : 'quota.details.hide')}>
@@ -286,7 +238,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset, glance, onToggleGla
           </button> : null}
         </div>
         {quota.plan || quota.subscriptionActiveUntil ? <div className="quota-plan">
-          {quota.plan ? <span>{t('quota.planLabel')} {planBadge}</span> : null}
+          {planBadge ? <span>{t('quota.planLabel')} {planBadge}</span> : null}
           {quota.subscriptionActiveUntil ? <span>{t('quota.expiresAt', { time: formatQuotaTimestamp(quota.subscriptionActiveUntil, locale) })}</span> : null}
         </div> : null}
       </div>

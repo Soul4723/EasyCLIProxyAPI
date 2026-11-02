@@ -62,7 +62,7 @@ const layouts = [['grid', 'Grid'], ['even', 'Even rows'], ['stacked', 'Stacked']
               const b = rects[other];
               if (Math.min(rect.right, b.right) - Math.max(rect.left, b.left) > 1 && Math.min(rect.bottom, b.bottom) - Math.max(rect.top, b.top) > 1) issues.push(`cards ${index} and ${other} overlap`);
             }
-            for (const part of cards[index].querySelectorAll('.quota-identity > *, .quota-plan-badge, .quota-glance-toggle, .real-quota-row, .quota-card-actions > *, .quota-card-message, .quota-card-error')) {
+            for (const part of cards[index].querySelectorAll('.quota-identity > *, .plan-chip, .quota-glance-toggle, .real-quota-row, .quota-card-actions > *, .quota-card-message, .quota-card-error')) {
               if (!visible(part)) continue;
               const box = part.getBoundingClientRect();
               if (box.left < rect.left - 1 || box.right > rect.right + 1 || box.bottom > rect.bottom + 1) issues.push(`card ${index}: ${part.className} spills out of the card`);
@@ -74,7 +74,7 @@ const layouts = [['grid', 'Grid'], ['even', 'Even rows'], ['stacked', 'Stacked']
           rects.forEach(rect => rows.set(Math.round(rect.top), [...(rows.get(Math.round(rect.top)) ?? []), Math.round(rect.height)]));
           const glance = cards.filter(card => card.hasAttribute('data-glance'));
           const glanceIssues = glance.flatMap((card, index) => {
-            const badge = card.querySelector('.quota-identity .quota-plan-badge');
+            const badge = card.querySelector('.quota-identity .plan-chip');
             const logo = card.querySelector('.quota-account-icon, .quota-identity > svg');
             const toggle = card.querySelector('.quota-glance-toggle');
             const found = [];
