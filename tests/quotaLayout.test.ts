@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { quotaPlanLabel, quotaPlanTier, stackQuotaColumns } from '../src/services/quotaLayout';
+import { resolveClaudePlan } from '../src/services/quotaService';
 
 test('stacked layout puts each card in the shortest column, keeping order within columns', () => {
   // Worked by hand: 10 -> col 0; 2, 2, 2 -> col 1 (2, 4, 6); 8 -> col 1 (6 < 10, now 14); 1 -> col 0 (10 < 14).
@@ -14,7 +15,7 @@ test('plan badges are named without the provider and coloured by the nearest pri
   const cases: [Parameters<typeof quotaPlanTier>[0], string, string, string][] = [
     ['codex', 'free', 'Free', 'free'], ['codex', 'go', 'Go', '10'], ['codex', 'plus', 'Plus', '20'], ['codex', 'team', 'Team', '30'],
     ['codex', 'prolite', 'Pro 100', '100'], ['codex', 'pro', 'Pro 200', 'top'], ['codex', 'promax', 'Pro 500', 'top'],
-    ['claude', 'Pro', 'Pro', '20'], ['claude', 'Max', 'Max', '100'], ['claude', 'Team', 'Team', '30'],
+    ['claude', 'Pro', 'Pro', '20'], ['claude', 'Max', 'Max', '100'], ['claude', 'Ultra', 'Ultra', 'top'], ['codex', 'self_serve_business_prolite', 'Business Premium', '100'], ['claude', 'Team', 'Team', '30'],
     ['antigravity', 'Plus', 'Plus', '3'], ['antigravity', 'Google AI Plus', 'Plus', '3'], ['antigravity', 'Pro', 'Pro', '20'], ['antigravity', 'Ultra', 'Ultra', '100'], ['antigravity', 'Ultra Lite', 'Ultra Lite', 'unknown'],
     ['kimi', 'Kimi Code Pro', 'Pro', '30'], ['kimi', 'Moderato', 'Moderato', '20'], ['kimi', 'Allegro', 'Allegro', '100'], ['kimi', 'Vivace', 'Vivace', 'top'],
     ['xai', 'Paid', 'API', 'top'], ['xai', 'SuperGrok', 'SuperGrok', '30'], ['xai', 'SuperGrok Heavy', 'SuperGrok Heavy', 'top'], ['xai', 'Plus', 'Plus', '10'],
@@ -24,4 +25,12 @@ test('plan badges are named without the provider and coloured by the nearest pri
   for (const [provider, plan, label, tier] of cases) {
     expect([provider, plan, plan ? quotaPlanLabel(provider, plan) : '', quotaPlanTier(provider, plan)]).toEqual([provider, plan, label, tier]);
   }
+});
+
+test('Claude Max and Ultra are told apart by the organization rate-limit tier', () => {
+  // Field names and values as documented in the Management Center web panel (providers/claude/data.ts at f154fa93).
+  expect(resolveClaudePlan({ account: { has_claude_max: true }, organization: { rate_limit_tier: 'default_claude_max_20x' } })).toBe('Ultra');
+  expect(resolveClaudePlan({ account: { has_claude_max: true }, organization: { rate_limit_tier: 'default_claude_max_5x' } })).toBe('Max');
+  expect(resolveClaudePlan({ account: { has_claude_max: true }, organization: {} })).toBe('Max');
+  expect(resolveClaudePlan({ account: { has_claude_pro: true }, organization: { rate_limit_tier: 'default_claude_ai' } })).toBe('Pro');
 });

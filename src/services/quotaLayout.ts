@@ -51,7 +51,7 @@ export function quotaPlanLabel(provider: QuotaDisplayProvider | null | undefined
   const value = words(stripped);
   if (provider === 'xai' && value === 'paid') return 'API';
   if (provider === 'codex') {
-    const codex: Record<string, string> = { pro: 'Pro 200', prolite: 'Pro 100', 'pro lite': 'Pro 100', promax: 'Pro 500', 'pro max': 'Pro 500', 'self serve business prolite': 'Business' };
+    const codex: Record<string, string> = { pro: 'Pro 200', prolite: 'Pro 100', 'pro lite': 'Pro 100', promax: 'Pro 500', 'pro max': 'Pro 500', 'self serve business prolite': 'Business Premium' };
     if (codex[value]) return codex[value];
   }
   return stripped === stripped.toLowerCase() ? titleCase(stripped.replace(/[_-]+/g, ' ')) : stripped;
@@ -63,10 +63,10 @@ export function quotaPlanLabel(provider: QuotaDisplayProvider | null | undefined
  * OpenAI and Google pages could not be read directly; their US prices come from a research pass and match the Australian prices
  * the owner read off the pages on 2026-11-02 at about A$1.50 per US$1 (ChatGPT Free A$0, Go A$13, Plus A$30, Pro from A$155 with
  * 100/200/500 tiers; Google AI Plus A$7.99, Ultra from A$149.99). Google AI Plus has no US price here: A$7.99 is about US$5.
- * Team plans use the standard seat. "api" is the xAI paid API. Unknown plans return undefined.
+ * Team plans use the standard seat, except ChatGPT Business Premium (plan type self_serve_business_prolite); the app cannot tell Claude Team seat types apart. "api" is the xAI paid API. Unknown plans return undefined.
  */
 const planPrices: Partial<Record<QuotaDisplayProvider, Record<string, number | 'api'>>> = {
-  codex: { free: 0, go: 8, plus: 20, 'pro 100': 100, 'pro 200': 200, 'pro 500': 500, team: 25, business: 25 },
+  codex: { free: 0, go: 8, plus: 20, 'pro 100': 100, 'pro 200': 200, 'pro 500': 500, team: 25, business: 25, 'business premium': 125 },
   claude: { free: 0, pro: 20, max: 100, 'max 5x': 100, 'max 20x': 200, ultra: 200, team: 25 },
   antigravity: { free: 0, plus: 5, pro: 19.99, ultra: 99.99 },
   // Kimi's old level names map to the current plans in order: Moderato = Plus, Allegretto = Pro, Allegro = Max, Vivace = Ultra.
