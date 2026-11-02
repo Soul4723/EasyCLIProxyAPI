@@ -317,6 +317,14 @@
           "type": "string",
           "pattern": "^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
         },
+        "planBadge": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "planBadgeTop": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
         "primaryButtonBackground": {
           "type": "string",
           "pattern": "^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"

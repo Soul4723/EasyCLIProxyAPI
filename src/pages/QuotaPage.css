@@ -111,41 +111,44 @@
 }
 .quota-page .quota-plan { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .quota-page .quota-plan span { color: var(--text-tertiary); font-size: 12px; }
-/* Plan badge: one shape for every plan; the colour deepens with the plan's monthly price (quotaPlanTier), from grey for free to a gradient for $200, $500 and paid API plans. */
+/* Plan badge: a small tinted label like the app's status chips; the tint of the theme's planBadge colour deepens with the plan's
+   monthly price (quotaPlanTier), from neutral for free to planBadgeTop with an outline for $200, $500 and paid API plans. */
 .quota-page strong.quota-plan-badge {
   --plan-tint: 0%;
-  display: inline-flex;
+  display: inline-block;
   flex: none;
-  align-items: center;
+  height: 18px;
   max-width: 14em;
   margin-left: 4px;
-  padding: 1px 8px;
+  padding: 0 6px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-warning) calc(var(--plan-tint) * 1.6), var(--border-color));
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--color-warning) var(--plan-tint), var(--bg-tertiary));
-  color: var(--text-primary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--theme-plan-badge) var(--plan-tint), var(--bg-tertiary));
+  color: color-mix(in srgb, var(--theme-plan-badge) calc(var(--plan-tint) * 1.8), var(--text-primary));
   font-family: inherit;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  line-height: 1.5;
+  letter-spacing: .01em;
+  line-height: 16px;
   text-overflow: ellipsis;
+  vertical-align: middle;
   white-space: nowrap;
 }
 .quota-page strong.quota-plan-badge:is([data-tier='free'], [data-tier='unknown']) { color: var(--text-secondary); }
-.quota-page strong.quota-plan-badge[data-tier='unknown'] { border-style: dashed; }
-.quota-page strong.quota-plan-badge[data-tier='3'] { --plan-tint: 6%; }
-.quota-page strong.quota-plan-badge[data-tier='10'] { --plan-tint: 11%; }
-.quota-page strong.quota-plan-badge[data-tier='20'] { --plan-tint: 16%; }
-.quota-page strong.quota-plan-badge[data-tier='30'] { --plan-tint: 22%; }
-.quota-page strong.quota-plan-badge[data-tier='50'] { --plan-tint: 28%; }
-.quota-page strong.quota-plan-badge[data-tier='80'] { --plan-tint: 34%; }
-.quota-page strong.quota-plan-badge[data-tier='100'] { --plan-tint: 42%; font-weight: 700; }
+.quota-page strong.quota-plan-badge[data-tier='unknown'] { border-color: var(--border-color); border-style: dashed; background: transparent; }
+.quota-page strong.quota-plan-badge[data-tier='3'] { --plan-tint: 5%; }
+.quota-page strong.quota-plan-badge[data-tier='10'] { --plan-tint: 8%; }
+.quota-page strong.quota-plan-badge[data-tier='20'] { --plan-tint: 11%; }
+.quota-page strong.quota-plan-badge[data-tier='30'] { --plan-tint: 14%; }
+.quota-page strong.quota-plan-badge[data-tier='50'] { --plan-tint: 17%; }
+.quota-page strong.quota-plan-badge[data-tier='80'] { --plan-tint: 20%; }
+.quota-page strong.quota-plan-badge[data-tier='100'] { --plan-tint: 24%; }
 .quota-page strong.quota-plan-badge[data-tier='top'] {
-  --plan-tint: 55%;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-warning) 30%, var(--bg-card)), color-mix(in srgb, var(--color-warning) 70%, var(--bg-card)));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning) 25%, transparent), 0 0 8px color-mix(in srgb, var(--color-warning) 35%, transparent);
-  font-weight: 700;
+  border-color: color-mix(in srgb, var(--theme-plan-badge-top) 45%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--theme-plan-badge-top) 34%, var(--bg-card)), color-mix(in srgb, var(--theme-plan-badge-top) 16%, var(--bg-card)));
+  color: color-mix(in srgb, var(--theme-plan-badge-top) 55%, var(--text-primary));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-plan-badge-top) 25%, transparent);
 }
 .quota-page .quota-identity strong.quota-plan-badge { margin-left: 0; }
 .quota-page .quota-row-list { display: grid; gap: 12px; }

@@ -70,6 +70,8 @@ export const themeTokenDefinitions = {
   meterLow: color(['--theme-meter-low']),
   meterMedium: color(['--theme-meter-medium']),
   meterHigh: color(['--theme-meter-high']),
+  planBadge: color(['--theme-plan-badge']),
+  planBadgeTop: color(['--theme-plan-badge-top']),
   primaryButtonBackground: color(['--theme-primary-button-background']),
   primaryButtonHoverBackground: color(['--theme-primary-button-hover-background']),
   primaryButtonText: color(['--theme-primary-button-text']),
