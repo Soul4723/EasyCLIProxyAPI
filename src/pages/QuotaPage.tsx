@@ -40,7 +40,7 @@ import {
   useQuotaCache,
 } from '../services/quotaCache';
 import { dedupeAuthFiles, sortAuthFilesByPriority } from '../services/authFiles';
-import { estimateQuotaCardHeight, quotaPlanTier, stackQuotaColumns } from '../services/quotaLayout';
+import { estimateQuotaCardHeight, quotaPlanLabel, quotaPlanTier, stackQuotaColumns } from '../services/quotaLayout';
 import { useI18n } from '../i18n';
 import { usePrivacyMask } from '../privacy';
 import './QuotaPage.css';
@@ -271,7 +271,8 @@ export function QuotaCard({ file, quota, onRefresh, onReset, glance, onToggleGla
     if (minutes >= 60) return t('quota.service.relative.hoursMinutes', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
     return t('quota.service.relative.minutes', { minutes });
   };
-  const planBadge = <strong className="quota-plan-badge" data-tier={quotaPlanTier(provider, quota.plan)} title={`${t('quota.planLabel')}: ${quota.plan}`}>{quota.plan}</strong>;
+  const planLabel = quota.plan ? quotaPlanLabel(provider, quota.plan) : '';
+  const planBadge = <strong className="quota-plan-badge" data-tier={quotaPlanTier(provider, quota.plan)} title={`${t('quota.planLabel')}: ${quota.plan}`}>{planLabel}</strong>;
   return (
     <article className="panel real-quota-card surface-card" data-glance={glance ? '' : undefined}>
       <div className="real-quota-card-header">

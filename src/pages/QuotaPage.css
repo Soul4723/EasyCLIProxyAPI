@@ -111,8 +111,9 @@
 }
 .quota-page .quota-plan { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .quota-page .quota-plan span { color: var(--text-tertiary); font-size: 12px; }
-/* Plan badge: tiers follow the Management Center web panel (standard, premium = paid personal plans, flagship = each provider's top plan). */
+/* Plan badge: one shape for every plan; the colour deepens with the plan's monthly price (quotaPlanTier), from grey for free to a gradient for $200, $500 and paid API plans. */
 .quota-page strong.quota-plan-badge {
+  --plan-tint: 0%;
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -120,26 +121,31 @@
   margin-left: 4px;
   padding: 1px 8px;
   overflow: hidden;
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--color-warning) calc(var(--plan-tint) * 1.6), var(--border-color));
   border-radius: var(--radius-full);
-  background: var(--bg-tertiary);
+  background: color-mix(in srgb, var(--color-warning) var(--plan-tint), var(--bg-tertiary));
   color: var(--text-primary);
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
   line-height: 1.5;
   text-overflow: ellipsis;
-  text-transform: capitalize;
   white-space: nowrap;
 }
-.quota-page .quota-plan-badge[data-tier='premium'] {
-  border-color: color-mix(in srgb, var(--color-warning) 60%, transparent);
-  background: color-mix(in srgb, var(--color-warning) 20%, var(--bg-card));
-}
-.quota-page .quota-plan-badge[data-tier='flagship'] {
-  border-color: color-mix(in srgb, var(--ui-accent) 65%, transparent);
-  background: color-mix(in srgb, var(--ui-accent) 22%, var(--bg-card));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-accent) 20%, transparent);
+.quota-page strong.quota-plan-badge:is([data-tier='free'], [data-tier='unknown']) { color: var(--text-secondary); }
+.quota-page strong.quota-plan-badge[data-tier='unknown'] { border-style: dashed; }
+.quota-page strong.quota-plan-badge[data-tier='3'] { --plan-tint: 6%; }
+.quota-page strong.quota-plan-badge[data-tier='10'] { --plan-tint: 11%; }
+.quota-page strong.quota-plan-badge[data-tier='20'] { --plan-tint: 16%; }
+.quota-page strong.quota-plan-badge[data-tier='30'] { --plan-tint: 22%; }
+.quota-page strong.quota-plan-badge[data-tier='50'] { --plan-tint: 28%; }
+.quota-page strong.quota-plan-badge[data-tier='80'] { --plan-tint: 34%; }
+.quota-page strong.quota-plan-badge[data-tier='100'] { --plan-tint: 42%; font-weight: 700; }
+.quota-page strong.quota-plan-badge[data-tier='top'] {
+  --plan-tint: 55%;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-warning) 30%, var(--bg-card)), color-mix(in srgb, var(--color-warning) 70%, var(--bg-card)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning) 25%, transparent), 0 0 8px color-mix(in srgb, var(--color-warning) 35%, transparent);
+  font-weight: 700;
 }
 .quota-page .quota-identity strong.quota-plan-badge { margin-left: 0; }
 .quota-page .quota-row-list { display: grid; gap: 12px; }
