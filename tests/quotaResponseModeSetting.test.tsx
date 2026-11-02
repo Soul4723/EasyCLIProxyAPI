@@ -69,6 +69,6 @@ describe('quota response mode toggle', () => {
     for (const locale of ['zh-CN', 'zh-TW', 'ja', 'en'] as const) {
       for (const text of [field.label, field.description]) expect(templateText(text, locale).length).toBeGreaterThan(0);
     }
-    expect(templateText(field.description, 'en')).toContain('Needs a core that supports it.');
+    expect(templateText(field.description, 'en')).toBe('When every credential is out of quota, tell clients the reset time so they pause and resume instead of retrying.');
   });
 });
