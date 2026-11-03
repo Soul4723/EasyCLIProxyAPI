@@ -17,7 +17,8 @@ import {
   type PluginStoreResponse,
 } from "../services/plugins";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, ExternalLink, Folder, LogIn, Puzzle, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
+import { ChevronDown, Download, ExternalLink, Folder, LogIn, Puzzle, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
+import { CardLayoutGrid, CardLayoutSwitch, useCardLayout, useExpandedCards, type StackedColumns } from "../components/CardLayout";
 import { useI18n } from "../i18n";
 import { pluginText } from "../i18n/plugins";
 import { FloatingNotice, useAppNotice } from "../appNotice";
@@ -35,6 +36,9 @@ import { GitHubTokenHint, isGitHubRateLimit } from "./PluginRateLimitHint";
 import { PluginSettingsPanel } from "./PluginSettingsPanel";
 import { Select } from "../components/Select";
 import "./PluginsPage.css";
+
+// Stacked matches .plugin-grid (330px minimum, 16px gap); Compact packs narrower glance cards.
+const pluginColumns: StackedColumns = { stacked: { minWidth: 330, gap: 16 }, compact: { minWidth: 260, gap: 8 } };
 
 type Tab = "installed" | "store" | "settings";
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -54,6 +58,9 @@ export function PluginsPage() {
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState("all");
+  // Even rows is the page's look before the switch existed, so it stays the default.
+  const [layout, setLayout] = useCardLayout("cpa-gui.plugins-layout.v1", "even");
+  const [openGlances, toggleGlance] = useExpandedCards();
   const [configPlugin, setConfigPlugin] = useState<PluginListEntry | null>(null);
   const [installEntry, setInstallEntry] = useState<PluginStoreEntry | null>(null);
   const [oauthPlugin, setOAuthPlugin] = useState<PluginListEntry | null>(null);
@@ -356,7 +363,7 @@ export function PluginsPage() {
         items={(["installed", "store", "settings"] as const).map(value => ({ value, id: `plugin-tab-${value}`, panelId: "plugin-tab-panel", label: pt(value === "installed" ? "local" : value) }))} />}
       <div className="plugin-toolbar">
         {supported === true && tab !== "settings" && <>
-        <div className="plugin-search search-control" data-size="default">
+        <div className="plugin-search search-control" data-size="compact">
           <Search size={17} aria-hidden="true" />
           <input ref={searchRef} type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder={pt("search")} aria-label={pt("search")} />
           <button type="button" className="icon-button quiet ghost tiny-button plugin-search-clear" disabled={!search} aria-label={t("common.clear")} title={t("common.clear")}
@@ -364,14 +371,18 @@ export function PluginsPage() {
         </div>
         {tab === "store" && <Select aria-label={pt("store")} value={filter} onChange={e => setFilter(e.target.value)}>{["all", "installed", "updates"].map(value => <option key={value} value={value}>{pt(value as "all" | "installed" | "updates")}</option>)}</Select>}
         {tab === "installed" && <>
-          <button type="button" className="secondary-button plugin-check-updates" disabled={locked || !installedPlugins.length} onClick={() => void load("installed", true, true)}><RefreshCw size={16} aria-hidden="true" />{pt("checkUpdates")}</button>
-          <button type="button" className={`${updatablePlugins.length > 0 ? "primary-button" : "secondary-button"} plugin-update-all`} disabled={locked || !installedPlugins.length || (localUpdates !== null && updatablePlugins.length === 0)} onClick={() => void updateAll()}><Download size={16} aria-hidden="true" />{updatablePlugins.length > 0 ? `${pt("updateAll")} (${updatablePlugins.length})` : pt("updateAll")}</button>
+          <button type="button" className="secondary-button small-button plugin-check-updates" disabled={locked || !installedPlugins.length} onClick={() => void load("installed", true, true)}><RefreshCw size={16} aria-hidden="true" />{pt("checkUpdates")}</button>
+          <button type="button" className={`${updatablePlugins.length > 0 ? "primary-button" : "secondary-button"} small-button plugin-update-all`} disabled={locked || !installedPlugins.length || (localUpdates !== null && updatablePlugins.length === 0)} onClick={() => void updateAll()}><Download size={16} aria-hidden="true" />{updatablePlugins.length > 0 ? `${pt("updateAll")} (${updatablePlugins.length})` : pt("updateAll")}</button>
         </>}
-        {tab === "store" && <button type="button" className="secondary-button plugin-check-updates" disabled={locked} onClick={() => void load("store", true, true)}><RefreshCw size={16} aria-hidden="true" />{pt("checkUpdates")}</button>}
+        {tab === "store" && <button type="button" className="secondary-button small-button plugin-check-updates" disabled={locked} onClick={() => void load("store", true, true)}><RefreshCw size={16} aria-hidden="true" />{pt("checkUpdates")}</button>}
+        <CardLayoutSwitch className="plugin-layout-control" value={layout} onChange={setLayout} />
         </>}
-        {supported === true && <button type="button" className="secondary-button plugin-development-guide" disabled={locked || remoteMode} title={remoteMode ? t("connection.remoteDisabledTitle") : undefined} onClick={() => void installLocal()}><Download size={16} aria-hidden="true" />{pt("localInstall")}</button>}
-        <button type="button" className="secondary-button plugin-development-guide" onClick={() => void openExternalUrl({ url: "https://help.router-for.me/cn/plugin/development.html" }).catch(reason => { if (mounted.current) setError(message(reason)); })}><ExternalLink size={16} aria-hidden="true" />{pt("developmentGuide")}</button>
-        <button className="secondary-button plugin-refresh" disabled={locked} onClick={() => void load(tabRef.current, tabRef.current === "installed")}><RefreshCw size={16} aria-hidden="true" />{t("common.refresh")}</button>
+        {/* Secondary actions as icon buttons keep the toolbar on one row; each names itself for tooltips and assistive tech. */}
+        <span className="plugin-toolbar-icons">
+        {supported === true && <button type="button" className="icon-button quiet small-button plugin-local-install" disabled={locked || remoteMode} title={remoteMode ? t("connection.remoteDisabledTitle") : pt("localInstall")} aria-label={pt("localInstall")} onClick={() => void installLocal()}><Folder size={16} aria-hidden="true" /></button>}
+        <button type="button" className="icon-button quiet small-button plugin-development-guide" title={pt("developmentGuide")} aria-label={pt("developmentGuide")} onClick={() => void openExternalUrl({ url: "https://help.router-for.me/cn/plugin/development.html" }).catch(reason => { if (mounted.current) setError(message(reason)); })}><ExternalLink size={16} aria-hidden="true" /></button>
+        <button type="button" className="icon-button quiet small-button plugin-refresh" disabled={locked} title={t("common.refresh")} aria-label={t("common.refresh")} onClick={() => void load(tabRef.current, tabRef.current === "installed")}><RefreshCw size={16} aria-hidden="true" /></button>
+        </span>
       </div>
     </div>
     <div className="plugin-tab-panel" id="plugin-tab-panel" role={supported === true ? "tabpanel" : undefined} aria-labelledby={supported === true ? `plugin-tab-${tab}` : undefined}>
@@ -383,7 +394,8 @@ export function PluginsPage() {
         {tab === "settings" ? <PluginSettingsPanel onSaved={() => { notice.showNotice(pt("saved")); void load(); }} globalControl={<label className="plugin-global-toggle"><Switch checked={data?.pluginsEnabled ?? false} disabled={locked || !data} onChange={e => { const enabled = e.target.checked; void mutate(() => pluginsApi.updateSettings({ enabled }), pt("saved")); }} />{pt("global")}</label>} /> : <>
           {sourceErrors.length ? <details className="plugin-source-errors surface-frame"><summary>{pt("sourceErrors")}</summary>{sourceErrors.map((entry, index) => <p key={index}>{entry.sourceName || entry.sourceId || entry.sourceUrl}: {entry.message}</p>)}{sourceErrors.some(entry => isGitHubRateLimit(entry.message)) ? <GitHubTokenHint /> : null}</details> : null}
           {loading && <p className="plugin-loading" role="status">{t("common.loading")}…</p>}
-          {tab === "installed" ? <div className="plugin-grid">{plugins.map(plugin => {
+          {tab === "installed" ? <CardLayoutGrid layout={layout} className="plugin-grid" columns={pluginColumns}
+            heights={plugins.map(plugin => layout === "compact" && !openGlances.has(plugin.id) ? 2 : 6 + (collectPluginResourceEntries([plugin]).length ? 1 : 0) + (getPluginStatus(plugin, data?.pluginsEnabled ?? false) === "notLoaded" ? 2 : 0))}>{plugins.map(plugin => {
             const status = getPluginStatus(plugin, data?.pluginsEnabled ?? false);
             const installed = isPluginInstalled(plugin);
             const storeEntry = localUpdates?.plugins.find(entry => entry.id === plugin.id);
@@ -392,32 +404,51 @@ export function PluginsPage() {
             const versionText = update
               ? `${update.installedVersion || currentVersion} → ${update.version}`
               : [currentVersion, storeEntry?.version && !storeEntry.updateAvailable ? pt("upToDate") : undefined].filter(Boolean).join(" · ");
-            const meta = [versionText, plugin.metadata?.author || storeEntry?.author].filter(Boolean).join(" · ");
+            const author = plugin.metadata?.author || storeEntry?.author;
             const removeLabel = `${pt(installed ? "remove" : "removeConfig")} ${getPluginTitle(plugin)}`;
-            return <article className="surface-card plugin-card plugin-local-card" key={plugin.id}>
-            <div className="plugin-card-title"><span className="plugin-icon"><Puzzle size={23} /></span><div><h2>{getPluginTitle(plugin)}</h2>{getPluginTitle(plugin) !== plugin.id && <code>{plugin.id}</code>}</div><span className={`plugin-badge ${status === "active" ? "active" : status === "missingFile" || status === "notLoaded" ? "warning" : ""}`}>{pt(status)}</span></div>
-            {meta && <p className="plugin-meta">{meta}</p>}
+            const glance = layout === "compact" && !openGlances.has(plugin.id);
+            return <article className="surface-card plugin-card plugin-local-card" key={plugin.id} data-glance={glance ? "" : undefined}>
+            <div className="plugin-card-title"><span className="plugin-icon"><Puzzle size={23} /></span><div><h2 title={getPluginTitle(plugin)}>{getPluginTitle(plugin)}</h2>{getPluginTitle(plugin) !== plugin.id && <code>{plugin.id}</code>}</div>
+              <span className="plugin-card-status"><span className={`plugin-badge ${status === "active" ? "active" : status === "missingFile" || status === "notLoaded" ? "warning" : ""}`}>{pt(status)}</span>
+              {layout === "compact" ? <GlanceToggle glance={glance} name={getPluginTitle(plugin)} onToggle={() => toggleGlance(plugin.id)} /> : null}</span></div>
+            {versionText || author ? <p className="plugin-chips">
+              {update ? <span className="plugin-badge warning" title={pt("update")}>{versionText}</span> : currentVersion ? <span className="plugin-badge">{currentVersion}</span> : null}
+              {!update && storeEntry?.version ? <span className="plugin-badge active">{pt("upToDate")}</span> : null}
+              {author ? <span className="plugin-chip-text">{author}</span> : null}
+            </p> : null}
             {plugin.path ? <p className="plugin-path">{plugin.path}</p> : <p className="plugin-card-description">{pt("missingFileHint")}</p>}
             {status === "notLoaded" && <p className="plugin-card-description">{pt("notLoadedHint")}</p>}
             {collectPluginResourceEntries([plugin]).length > 0 && <div className="plugin-menus">{collectPluginResourceEntries([plugin]).map(entry => <button key={entry.menuIndex} title={entry.description} className="secondary-button small-button" disabled={locked} onClick={() => openResource(entry)}><ExternalLink size={14} />{entry.label}</button>)}</div>}
             <div className="plugin-card-actions">
               {installed && (update
-                ? <button className="primary-button compact-button" disabled={locked || (update.authRequired && !update.authConfigured)} onClick={() => setInstallEntry(update)}><Download size={15} />{pt(update.authRequired && !update.authConfigured ? "authMissing" : "update")}</button>
-                : <button className="secondary-button compact-button" disabled={locked} onClick={() => void checkSingleUpdate(plugin)}><RefreshCw size={15} />{pt("checkUpdate")}</button>)}
-              {plugin.effectiveEnabled && plugin.supportsOAuth && plugin.oauthProvider && <button className="secondary-button compact-button" disabled={locked} onClick={() => setOAuthPlugin(plugin)}><LogIn size={15} />{pt("oauth")}</button>}
-              {installed ? <button className="secondary-button compact-button" disabled={locked} onClick={() => void toggle(plugin)}>{pt(plugin.enabled ? "disabled" : "enabled")}</button> : <button className="secondary-button compact-button" disabled={locked} onClick={() => { setSearch(plugin.id); setFilter("all"); setTab("store"); }}><Download size={15} />{pt("findInStore")}</button>}
-              <button className="secondary-button compact-button" disabled={locked} onClick={() => setConfigPlugin(plugin)}><Settings2 size={15} />{pt("configure")}</button>
-              {status === "notLoaded" && <button className="secondary-button compact-button" disabled={locked || remoteMode} title={remoteMode ? t("connection.remoteDisabledTitle") : undefined} onClick={() => void openCoreLogsDirectory().catch(reason => { if (mounted.current) setError(message(reason)); })}><Folder size={15} />{pt("openLogs")}</button>}
-              <button className="icon-button danger plugin-delete" disabled={locked} aria-label={removeLabel} title={removeLabel} onClick={() => void remove(plugin)}><Trash2 size={16} /></button>
+                ? <button className="primary-button small-button" disabled={locked || (update.authRequired && !update.authConfigured)} onClick={() => setInstallEntry(update)}><Download size={15} />{pt(update.authRequired && !update.authConfigured ? "authMissing" : "update")}</button>
+                : <button className="secondary-button small-button" disabled={locked} onClick={() => void checkSingleUpdate(plugin)}><RefreshCw size={15} />{pt("checkUpdate")}</button>)}
+              {plugin.effectiveEnabled && plugin.supportsOAuth && plugin.oauthProvider && <button className="secondary-button small-button" disabled={locked} onClick={() => setOAuthPlugin(plugin)}><LogIn size={15} />{pt("oauth")}</button>}
+              {installed ? <button className="secondary-button small-button" disabled={locked} onClick={() => void toggle(plugin)}>{pt(plugin.enabled ? "disabled" : "enabled")}</button> : <button className="secondary-button small-button" disabled={locked} onClick={() => { setSearch(plugin.id); setFilter("all"); setTab("store"); }}><Download size={15} />{pt("findInStore")}</button>}
+              <button className="secondary-button small-button" disabled={locked} onClick={() => setConfigPlugin(plugin)}><Settings2 size={15} />{pt("configure")}</button>
+              {status === "notLoaded" && <button className="secondary-button small-button" disabled={locked || remoteMode} title={remoteMode ? t("connection.remoteDisabledTitle") : undefined} onClick={() => void openCoreLogsDirectory().catch(reason => { if (mounted.current) setError(message(reason)); })}><Folder size={15} />{pt("openLogs")}</button>}
+              <button className="icon-button danger small-button plugin-delete" disabled={locked} aria-label={removeLabel} title={removeLabel} onClick={() => void remove(plugin)}><Trash2 size={16} /></button>
             </div>
-          </article>; })}</div> : <>
-            <div className="plugin-grid">{storePlugins.map(entry => <article className="surface-card plugin-card" key={entry.storeId}>
-              <div className="plugin-card-title"><span className="plugin-icon"><Puzzle size={23} /></span><div><h2>{entry.name || entry.id}</h2><code>{entry.id}</code></div><span className={`plugin-badge ${isDefaultPluginStoreSource(entry) ? "active" : ""}`}>{pt(isDefaultPluginStoreSource(entry) ? "officialStore" : "additionalStore")}</span></div>
-              <p className="plugin-card-description">{entry.description}</p><p className="plugin-meta">{[entry.installedVersion && entry.updateAvailable ? `${entry.installedVersion} → ${entry.version}` : entry.installedVersion || entry.version, entry.author, entry.license].filter(Boolean).join(" · ")}</p><p className="plugin-meta">{pt("storeSource")}: {isDefaultPluginStoreSource(entry) ? pt("officialStore") : entry.sourceName || entry.sourceId}</p>
+          </article>; })}</CardLayoutGrid> : <>
+            <CardLayoutGrid layout={layout} className="plugin-grid" columns={pluginColumns}
+              heights={storePlugins.map(entry => layout === "compact" && !openGlances.has(entry.storeId) ? 2 : 7 + (entry.repository ? 1 : 0) + (entry.platforms.length ? 1 : 0) + Math.ceil((entry.description?.length ?? 0) / 60))}>{storePlugins.map(entry => {
+              const glance = layout === "compact" && !openGlances.has(entry.storeId);
+              return <article className="surface-card plugin-card" key={entry.storeId} data-glance={glance ? "" : undefined}>
+              <div className="plugin-card-title"><span className="plugin-icon"><Puzzle size={23} /></span><div><h2 title={entry.name || entry.id}>{entry.name || entry.id}</h2><code>{entry.id}</code></div>
+                <span className="plugin-card-status"><span className={`plugin-badge ${isDefaultPluginStoreSource(entry) ? "active" : ""}`}>{pt(isDefaultPluginStoreSource(entry) ? "officialStore" : "additionalStore")}</span>
+                {layout === "compact" ? <GlanceToggle glance={glance} name={entry.name || entry.id} onToggle={() => toggleGlance(entry.storeId)} /> : null}</span></div>
+              <p className="plugin-card-description">{entry.description}</p>
+              <p className="plugin-chips">
+                <span className={`plugin-badge ${entry.installedVersion && entry.updateAvailable ? "warning" : ""}`}>{entry.installedVersion && entry.updateAvailable ? `${entry.installedVersion} → ${entry.version}` : entry.installedVersion || entry.version}</span>
+                {entry.installed ? <span className="plugin-badge active">{pt(entry.updateAvailable ? "updates" : "installed")}</span> : null}
+                {entry.license ? <span className="plugin-badge">{entry.license}</span> : null}
+                {entry.author ? <span className="plugin-chip-text">{entry.author}</span> : null}
+              </p>
+              <p className="plugin-meta">{pt("storeSource")}: {isDefaultPluginStoreSource(entry) ? pt("officialStore") : entry.sourceName || entry.sourceId}</p>
               {entry.repository && <p className="plugin-meta plugin-repository" title={entry.repository}>{pt("repository")}: <span>{getPluginRepositorySlug(entry.repository) || entry.repository}</span></p>}
-              {entry.platforms.length > 0 && <p className="plugin-meta">{entry.platforms.map(platform => `${platform.goos}/${platform.goarch}`).join(" · ")}</p>}
-              <div className="plugin-card-actions">{entry.installed && <span className="plugin-badge">{pt(entry.updateAvailable ? "updates" : "installed")}</span>}<button className="primary-button compact-button" disabled={locked || (entry.authRequired && !entry.authConfigured)} onClick={() => setInstallEntry(entry)}><Download size={15} />{pt(entry.authRequired && !entry.authConfigured ? "authMissing" : !entry.installed ? "install" : entry.updateAvailable ? "update" : "reinstall")}</button></div>
-            </article>)}</div>
+              {entry.platforms.length > 0 && <p className="plugin-chips plugin-platforms">{entry.platforms.map(platform => <span className="plugin-badge" key={`${platform.goos}/${platform.goarch}`}>{platform.goos}/{platform.goarch}</span>)}</p>}
+              <div className="plugin-card-actions"><button className="primary-button small-button" disabled={locked || (entry.authRequired && !entry.authConfigured)} onClick={() => setInstallEntry(entry)}><Download size={15} />{pt(entry.authRequired && !entry.authConfigured ? "authMissing" : !entry.installed ? "install" : entry.updateAvailable ? "update" : "reinstall")}</button></div>
+            </article>; })}</CardLayoutGrid>
           </>}
           {!loading && !error && (tab === "installed" ? !plugins.length : !storePlugins.length) && <EmptyState className="plugin-empty" icon={<Puzzle size={36} />} title={pt(search || filter !== "all" ? "noMatches" : "empty")} action={tab === "installed" && !search ? <button className="primary-button" onClick={() => setTab("store")}>{pt("store")}</button> : undefined}>{tab === "installed" && !search ? pt("emptyHint") : null}</EmptyState>}
         </>}
@@ -429,4 +460,12 @@ export function PluginsPage() {
     {oauthPlugin && <PluginOAuthDialog plugin={oauthPlugin} onClose={() => setOAuthPlugin(null)} onCompleted={() => { notice.showNotice(pt("authorized")); void load(); }} />}
     {confirmationDialog}<FloatingNotice notice={notice.notice} onDismiss={notice.clearNotice} />
   </div>;
+}
+
+function GlanceToggle({ glance, name, onToggle }: { glance: boolean; name: string; onToggle: () => void }) {
+  const { t } = useI18n();
+  const label = t(glance ? "cardLayout.details.show" : "cardLayout.details.hide");
+  return <button type="button" className="secondary-button tiny-button plugin-glance-toggle" onClick={onToggle} aria-expanded={!glance} aria-label={`${label}: ${name}`} title={label}>
+    <ChevronDown size={14} aria-hidden="true" />
+  </button>;
 }
