@@ -51,7 +51,7 @@ export function useExpandedCards(): [ReadonlySet<string>, (key: string) => void]
 
 export function CardLayoutSwitch({ value, onChange, className = '' }: { value: CardLayout; onChange: (layout: CardLayout) => void; className?: string }) {
   const { t } = useI18n();
-  return <SegmentedControl className={`routing-segmented card-layout-switch ${className}`.trim()} aria-label={t('cardLayout.label')} value={value} onChange={onChange}
+  return <SegmentedControl className={`routing-segmented card-layout-control ${className}`.trim()} aria-label={t('cardLayout.label')} value={value} onChange={onChange}
     items={cardLayouts.map((layout) => ({ value: layout, title: t(`cardLayout.${layout}`), 'aria-label': t(`cardLayout.${layout}`), label: icons[layout] }))} />;
 }
 

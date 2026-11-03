@@ -53,7 +53,7 @@ const layouts = [['grid', 'Grid'], ['even', 'Even rows'], ['stacked', 'Stacked']
           }
           const switcher = document.querySelector('.quota-layout-control').getBoundingClientRect();
           if (switcher.left < -1 || switcher.right > innerWidth + 1) issues.push('layout switch outside the window');
-          if (new Set([...document.querySelectorAll('.quota-layout-switch button')].map(button => Math.round(button.getBoundingClientRect().top))).size !== 1) issues.push('layout switch buttons not in one row');
+          if (new Set([...document.querySelectorAll('.quota-layout-control button')].map(button => Math.round(button.getBoundingClientRect().top))).size !== 1) issues.push('layout switch buttons not in one row');
           const grid = document.querySelector('.real-quota-grid').getBoundingClientRect();
           const cards = [...document.querySelectorAll('.quota-page .real-quota-card')];
           const rects = cards.map(card => card.getBoundingClientRect());
