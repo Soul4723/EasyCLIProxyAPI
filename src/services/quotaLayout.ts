@@ -29,6 +29,31 @@ export function estimateQuotaCardHeight(quota: QuotaState, provider: QuotaDispla
   return height;
 }
 
+/** The quota row with the least remaining share, for a one-line summary; null until quota has loaded or when no row has a percentage. */
+export function lowestQuotaRow(quota: QuotaState): QuotaState['rows'][number] | null {
+  if (quota.status !== 'success') return null;
+  let lowest: QuotaState['rows'][number] | null = null;
+  for (const row of quota.rows) {
+    if (row.remainingPercent === null || !Number.isFinite(row.remainingPercent)) continue;
+    if (!lowest || row.remainingPercent < (lowest.remainingPercent ?? Infinity)) lowest = row;
+  }
+  return lowest;
+}
+
+/**
+ * Relative height of a credential card on the Authentication Files page, in rows, for Stacked and Compact packing.
+ * Full cards share a fixed frame (header, recent requests, usage, actions) and grow with tags, cooldowns, open details and quota rows
+ * (two per line in the dense quota panel); glance cards are the header plus one quota line.
+ */
+export function estimateCredentialCardHeight({ quota, tags, cooldown, expanded, glance }: {
+  quota: QuotaState; tags: boolean; cooldown: boolean; expanded: boolean; glance: boolean;
+}): number {
+  if (glance) return 3 + (tags ? 1 : 0);
+  let height = 9 + (tags ? 1 : 0) + (cooldown ? 1.5 : 0) + (expanded ? 6 : 0);
+  height += quota.status === 'success' ? Math.ceil(quota.rows.length / 2) * 1.5 : 1;
+  return height;
+}
+
 /** Places each item, in order, into the column with the least estimated height so far; ties go to the leftmost column. */
 export function stackQuotaColumns(heights: readonly number[], columnCount: number): number[][] {
   const columns = Array.from({ length: Math.max(1, columnCount) }, () => ({ height: 0, items: [] as number[] }));

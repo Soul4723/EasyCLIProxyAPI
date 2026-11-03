@@ -21,14 +21,14 @@ const icons: Record<CardLayout, ReactNode> = {
   compact: <Grid3x3 size={16} aria-hidden="true" />,
 };
 
-/** The page's chosen layout, kept in localStorage under `storageKey` like other page preferences; Grid when unset or unreadable. */
-export function useCardLayout(storageKey: string): [CardLayout, (layout: CardLayout) => void] {
+/** The page's chosen layout, kept in localStorage under `storageKey` like other page preferences; `fallback` (Grid unless given) when unset or unreadable. */
+export function useCardLayout(storageKey: string, fallback: CardLayout = 'grid'): [CardLayout, (layout: CardLayout) => void] {
   const [layout, setLayoutState] = useState<CardLayout>(() => {
     try {
       const stored = window.localStorage.getItem(storageKey);
-      return cardLayouts.find((candidate) => candidate === stored) ?? 'grid';
+      return cardLayouts.find((candidate) => candidate === stored) ?? fallback;
     } catch {
-      return 'grid';
+      return fallback;
     }
   });
   const setLayout = useCallback((next: CardLayout) => {
@@ -60,20 +60,23 @@ export function CardLayoutSwitch({ value, onChange, className = '' }: { value: C
  * Stacked and Compact render columns whose count follows the container width (`columns` gives each layout's minimum card width
  * and gap), placing each card in the column with the least estimated height (`heights`, one per child).
  */
-export function CardLayoutGrid({ layout, className, columns, heights, children }: {
+export function CardLayoutGrid({ layout, className, columns, heights, children, ...list }: {
   layout: CardLayout;
   className: string;
   columns: StackedColumns;
   heights: readonly number[];
   children: readonly ReactNode[];
+  role?: 'list';
+  'aria-label'?: string;
 }) {
   if (layout === 'stacked' || layout === 'compact') {
-    return <StackedGrid layout={layout} className={className} columns={columns[layout]} heights={heights}>{children}</StackedGrid>;
+    return <StackedGrid layout={layout} className={className} columns={columns[layout]} heights={heights} list={list}>{children}</StackedGrid>;
   }
-  return <div className={`${className} card-layout-grid`} data-layout={layout}>{children}</div>;
+  return <div className={`${className} card-layout-grid`} data-layout={layout} {...list}>{children}</div>;
 }
 
-function StackedGrid({ layout, className, columns: { minWidth, gap }, heights, children }: {
+function StackedGrid({ layout, className, columns: { minWidth, gap }, heights, children, list }: {
+  list: Readonly<{ role?: 'list'; 'aria-label'?: string }>;
   layout: 'stacked' | 'compact';
   className: string;
   columns: Readonly<{ minWidth: number; gap: number }>;
@@ -93,7 +96,8 @@ function StackedGrid({ layout, className, columns: { minWidth, gap }, heights, c
     observer.observe(element);
     return () => observer.disconnect();
   }, [minWidth, gap]);
-  return <div ref={container} className={`${className} card-layout-grid`} data-layout={layout} style={{ '--card-layout-gap': `${gap}px` } as React.CSSProperties}>
-    {stackQuotaColumns(heights, columnCount).map((items, column) => <div className="card-layout-column" key={column}>{items.map((index) => children[index])}</div>)}
+  return <div ref={container} className={`${className} card-layout-grid`} data-layout={layout} style={{ '--card-layout-gap': `${gap}px` } as React.CSSProperties} {...list}>
+    {/* Columns are layout only: role none keeps list items direct children of the list for assistive tech. */}
+    {stackQuotaColumns(heights, columnCount).map((items, column) => <div className="card-layout-column" role="none" key={column}>{items.map((index) => children[index])}</div>)}
   </div>;
 }

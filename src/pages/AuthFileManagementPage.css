@@ -109,17 +109,38 @@
 .auth-file-card > .auth-credential-row { flex: 1 0 auto; grid-template-rows: auto auto auto auto 1fr auto; }
 /* An expanded cooldown list grows its card; do not stretch the neighbours' main rows with it. */
 .auth-file-card-grid:has(.auth-file-health-compact > details[open]) .auth-file-card > .auth-credential-row { flex: none; }
+/* Card layouts (components/CardLayout): Even rows above is the default; Grid lets each card keep its own height, and only Even rows
+   lines the action rows up across a row. */
+.auth-file-card-grid[data-layout='grid'] { align-items: start; }
+.auth-file-card-grid:not([data-layout='even']) .auth-file-card > .auth-credential-row { flex: none; }
+.auth-file-card-grid[data-layout='compact'] .auth-file-card { padding: 10px 12px; }
+/* Compact glance card: logo, name, plan chip and the lowest quota, with status; the rest opens from the toggle. */
+.auth-file-card[data-glance] > .auth-credential-row { grid-template-areas: "identity status"; grid-template-rows: auto; }
+.auth-file-card[data-glance] :is(.auth-list-plan, .auth-list-recent, .auth-list-usage, .auth-list-quota, .auth-card-actions, .auth-list-status small, .auth-card-filename, .auth-card-provider),
+.auth-file-card[data-glance] > :not(.auth-credential-row) { display: none; }
+.auth-file-card[data-glance] .auth-card-header .provider-logo { width: 28px; height: 28px; }
+.auth-file-card[data-glance] .auth-card-identity { gap: 4px; }
+.auth-card-glance-line { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--auth-muted); font-size: 12px; line-height: 18px; white-space: nowrap; }
+.auth-card-glance-line > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.auth-card-glance-line:empty { display: none; }
+.auth-list-status .auth-card-glance-toggle { flex: none; width: auto; margin-top: 4px; }
+.auth-file-card[data-glance] .auth-list-status { flex-direction: row; align-items: center; gap: 6px; }
+.auth-file-card[data-glance] .auth-list-status .auth-card-glance-toggle { margin-top: 0; }
+.auth-file-card[data-glance] .auth-status-badge { padding: 1px 6px; font-size: 11px; }
+.auth-card-glance-toggle svg { transition: transform .15s ease; }
+.auth-card-glance-toggle[aria-expanded='true'] svg { transform: rotate(180deg); }
+.auth-files-toolbar .auth-files-layout-control { margin-left: auto; }
 /* The enable switch sits beside small buttons, so it uses their height instead of the 34px compact size. */
 .auth-list-main-actions .auth-card-toggle { min-height: auto; margin-top: 0; padding: 5px 10px; }
 .auth-card-header { display: flex; gap: 10px; align-items: center; min-width: 0; }
 .auth-card-header .provider-logo { width: 35px; height: 35px; object-fit: contain; flex-shrink: 0; }
 [data-theme="dark"] .auth-card-header .provider-logo[data-provider="xai"] { filter: invert(1); }
 .auth-card-identity { min-width: 0; flex: 1; display: grid; gap: 5px; }
-.auth-card-identity strong { color: var(--auth-text); font-size: 14px; font-weight: 750; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-card-identity strong:not(.plan-chip) { color: var(--auth-text); font-size: 14px; font-weight: 750; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-card-filename, .auth-card-provider { color: var(--auth-muted); font-size: 12px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-list-plan, .auth-list-status { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; }
 .auth-list-plan { flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 8px; text-align: left; }
-.auth-list-plan:not(:has(span, small)) { display: none; }
+.auth-list-plan:not(:has(span, small, .plan-chip)) { display: none; }
 .auth-list-status { align-items: flex-end; justify-self: end; text-align: right; gap: 2px; }
 .auth-list-plan > span { max-width: 100%; color: var(--auth-text); font-size: 13px; font-weight: 600; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-list-plan small, .auth-list-status small { color: var(--auth-muted); font-size: 12px; line-height: 1.3; }
@@ -152,7 +173,10 @@
 .auth-list-usage .auth-file-usage-metric strong { font-size: 13px; line-height: 1.2; font-weight: 750; }
 .auth-list-usage .auth-file-usage-scope { display: none; }
 .auth-card-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; min-width: 0; padding-top: 8px; border-top: 1px solid var(--auth-border); }
-.auth-list-icon-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; min-width: max-content; }
+/* The action group keeps one row while it fits and wraps its buttons inside the card when it does not (phones, Compact). */
+.auth-list-icon-actions { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 6px; min-width: 0; }
+/* The phone rule in styles.css stretches every button to full width; card actions stay sized to their labels. */
+.auth-card-actions :is(.auth-list-icon-actions, .auth-list-main-actions) > button { width: auto; }
 .auth-list-icon-actions > button { flex: none; }
 .auth-list-main-actions { display: flex; align-items: center; justify-content: flex-end; flex: none; gap: 8px; margin-left: auto; padding-left: 0; border-left: 0; }
 .auth-list-details-button { min-width: 52px; }

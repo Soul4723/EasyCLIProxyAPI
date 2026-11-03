@@ -10,6 +10,9 @@ import { QuotaActionFeedback } from '../components/QuotaActionFeedback';
 import { AuthFileQuotaPanel } from '../components/AuthFileQuotaPanel';
 import { AuthFileSettingsDialog } from '../components/AuthFileSettingsDialog';
 import { useQuotaReset } from '../components/useQuotaReset';
+import { CardLayoutGrid, CardLayoutSwitch, useCardLayout, useExpandedCards, type StackedColumns } from '../components/CardLayout';
+import { PlanChip } from '../components/PlanChip';
+import { estimateCredentialCardHeight, lowestQuotaRow } from '../services/quotaLayout';
 import './AuthFileManagementPage.css';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
 import { AuthFileModelsDialog } from '../components/AuthFileModelsDialog';
@@ -19,6 +22,7 @@ import { AuthFileUsageSummary } from '../components/AuthFileUsageSummary';
 import { Dialog } from '../components/Dialog';
 import {
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileDown,
@@ -130,6 +134,9 @@ const fileName = authFileName;
 const isRuntimeOnly = isRuntimeOnlyAuthFile;
 const hasQuota = (file: AuthFile) => Boolean(quotaProviderForFile(file));
 
+// Stacked matches .auth-file-card-grid (420px minimum, 12px gap); Compact packs narrower glance cards.
+const credentialColumns: StackedColumns = { stacked: { minWidth: 420, gap: 12 }, compact: { minWidth: 280, gap: 8 } };
+
 export function AuthFileManagementPage({ initialProvider }: { initialProvider?: string } = {}) {
   const remoteMode = useRemoteMode();
   const { t } = useI18n();
@@ -148,6 +155,9 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() => new Set());
+  // Even rows is the page's look before the switch existed, so it stays the default.
+  const [layout, setLayout] = useCardLayout('cpa-gui.auth-files-layout.v1', 'even');
+  const [openGlances, toggleGlance] = useExpandedCards();
   const [providerFilter, setProviderFilter] = useState(() => (
     initialProvider ? providerName({ provider: initialProvider }) : 'all'
   ));
@@ -564,6 +574,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
             <option value="runtime">{t('authFiles.filter.runtime')}</option>
           </Select>
           </div>
+          <CardLayoutSwitch className="auth-files-layout-control" value={layout} onChange={setLayout} />
         </div>
 
         {loading ? (
@@ -579,7 +590,14 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
             <span>{t('authFiles.list.quota')}</span>
             <span>{t('authFiles.list.actions')}</span>
           </div>
-          <div className="auth-file-card-grid" role="list" aria-label={t('authFiles.title')}>
+          <CardLayoutGrid layout={layout} className="auth-file-card-grid" role="list" aria-label={t('authFiles.title')} columns={credentialColumns}
+            heights={pageFiles.map((file) => estimateCredentialCardHeight({
+              quota: quotas[quotaKey(file)] ?? idleQuota(),
+              tags: normalizeAuthFileTags(file.tags).length > 0,
+              cooldown: Boolean(normalizeAuthFileCooldowns(file.cooldowns, receivedAtMs, observedAt)?.records?.length),
+              expanded: expandedFiles.has(quotaKey(file)),
+              glance: layout === 'compact' && !openGlances.has(quotaKey(file)),
+            }))}>
             {pageFiles.map((file) => {
               const name = fileName(file);
               const key = quotaKey(file);
@@ -605,13 +623,17 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
               const detailsId = `auth-file-details-${encodeURIComponent(key)}`;
               const cooldownResetIndex = authFileCooldownResetIndex(file);
               const resettingCooldown = Boolean(cooldownResetIndex && cooldownResetting.has(cooldownResetIndex));
+              const glance = layout === 'compact' && !openGlances.has(key);
+              const lowest = glance ? lowestQuotaRow(quota) : null;
+              const planChip = plan ? <PlanChip provider={quotaProvider} plan={plan} /> : null;
               return (
-                <article className={`auth-file-card surface-card ${disabled ? 'is-disabled' : ''}`} key={key} role="listitem" aria-label={identity || displayName}>
+                <article className={`auth-file-card surface-card ${disabled ? 'is-disabled' : ''}`} key={key} role="listitem" aria-label={identity || displayName} data-glance={glance ? '' : undefined}>
                   <div className="auth-credential-row">
                   <header className={`auth-card-header auth-list-cell ${identity ? '' : 'filename-only'}`}>
                     <img src={icon} alt="" data-provider={providerKey(file)} className={providerKey(file) === 'devin' ? 'provider-logo devin-logo' : 'provider-logo'} />
                     <div className="auth-card-identity">
                       <strong title={identity || displayName}>{identity || displayName}</strong>
+                      {glance ? <span className="auth-card-glance-line">{planChip}{lowest ? <span title={`${lowest.label} · ${t('authFiles.settings.quotaRemaining')}`}>{lowest.label} {Math.round(Math.max(0, Math.min(100, lowest.remainingPercent ?? 0)))}%</span> : null}</span> : null}
                       <span className="auth-card-filename" title={displayName}>{identity ? displayName : providerName(file)}</span>
                       {normalizeAuthFileTags(file.tags).length > 0 ? <div className="auth-card-tags-container">
                         <div className="auth-file-tags" role="group" aria-label={t("authFiles.tags.label")}>
@@ -638,12 +660,16 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
                     </div>
                   </header>
                   <div className="auth-list-cell auth-list-plan" data-label={t('authFiles.list.plan')}>
-                    {plan ? <span title={plan}>{plan}</span> : null}
+                    {planChip}
                     {expiryMs !== undefined ? <small title={t('authFiles.list.expiry', { time: formatDate(new Date(expiryMs).toISOString()) })}>{expiryMs <= now ? t('authFiles.list.expired') : t('authFiles.list.daysRemaining', { count: Math.ceil((expiryMs - now) / 86_400_000) })}</small> : null}
                   </div>
                   <div className="auth-list-cell auth-list-status" data-label={t('authFiles.list.status')}>
                     <span className={`auth-status-badge ${hasCooldown && !health.disabled ? 'warning' : health.tone}`} title={statusLabel}>{statusLabel}</span>
                     <small>{t('authFiles.priority.button', { priority })}</small>
+                    {layout === 'compact' ? <button type="button" className="secondary-button tiny-button auth-card-glance-toggle" onClick={() => toggleGlance(key)} aria-expanded={!glance}
+                      aria-label={`${t(glance ? 'cardLayout.details.show' : 'cardLayout.details.hide')}: ${identity || displayName}`} title={t(glance ? 'cardLayout.details.show' : 'cardLayout.details.hide')}>
+                      <ChevronDown size={14} aria-hidden="true" />
+                    </button> : null}
                   </div>
                   <div className="auth-list-cell auth-list-recent" data-label={t('authFiles.list.recent')}><AuthFileRequestStatus file={file} compact /></div>
                   <div className="auth-list-cell auth-list-usage" data-label={t('authFiles.usage.title')}><AuthFileUsageSummary file={file} /></div>
@@ -684,7 +710,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
                 </article>
               );
             })}
-          </div>
+          </CardLayoutGrid>
           </div>
         )}
         {!loading && visibleFiles.length > 0 && files.length > 10 ? <nav className="auth-list-pagination" aria-label={t('authFiles.title')}>

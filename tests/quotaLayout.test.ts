@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { quotaPlanLabel, quotaPlanTier, stackQuotaColumns } from '../src/services/quotaLayout';
+import { estimateCredentialCardHeight, lowestQuotaRow, quotaPlanLabel, quotaPlanTier, stackQuotaColumns } from '../src/services/quotaLayout';
+import type { QuotaState } from '../src/services/quotaService';
 import { resolveClaudePlan } from '../src/services/quotaService';
 
 test('stacked layout puts each card in the shortest column, keeping order within columns', () => {
@@ -33,4 +34,22 @@ test('Claude Max and Ultra are told apart by the organization rate-limit tier', 
   expect(resolveClaudePlan({ account: { has_claude_max: true }, organization: { rate_limit_tier: 'default_claude_max_5x' } })).toBe('Max');
   expect(resolveClaudePlan({ account: { has_claude_max: true }, organization: {} })).toBe('Max');
   expect(resolveClaudePlan({ account: { has_claude_pro: true }, organization: { rate_limit_tier: 'default_claude_ai' } })).toBe('Pro');
+});
+
+test('the credential glance line shows the quota row with the least remaining share', () => {
+  const rows = [{ label: '5h', remainingPercent: 62 }, { label: 'Week', remainingPercent: null }, { label: 'Opus', remainingPercent: 18 }, { label: 'Month', remainingPercent: 40 }];
+  expect(lowestQuotaRow({ status: 'success', rows } as QuotaState)?.label).toBe('Opus');
+  expect(lowestQuotaRow({ status: 'success', rows: [{ label: 'Week', remainingPercent: null }] } as QuotaState)).toBeNull();
+  expect(lowestQuotaRow({ status: 'loading', rows } as QuotaState)).toBeNull();
+});
+
+test('credential card heights grow with what the card shows, and glance cards are short', () => {
+  const quota = (count: number) => ({ status: 'success', rows: Array.from({ length: count }, (_, index) => ({ label: String(index), remainingPercent: 50 })) }) as QuotaState;
+  const base = { quota: quota(2), tags: false, cooldown: false, expanded: false, glance: false };
+  // Two quota rows share a line in the dense panel: 9 + 1 line x 1.5.
+  expect(estimateCredentialCardHeight(base)).toBe(10.5);
+  expect(estimateCredentialCardHeight({ ...base, quota: quota(3) })).toBe(12);
+  expect(estimateCredentialCardHeight({ ...base, tags: true, cooldown: true, expanded: true })).toBe(19);
+  expect(estimateCredentialCardHeight({ ...base, glance: true, expanded: true })).toBe(3);
+  expect(estimateCredentialCardHeight({ ...base, glance: true, tags: true })).toBe(4);
 });

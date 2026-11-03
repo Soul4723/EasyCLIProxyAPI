@@ -233,7 +233,7 @@ export function QuotaCard({ file, quota, onRefresh, onReset, glance, onToggleGla
           {glance ? planBadge : null}
           <div><strong title={name}>{name}</strong></div>
           {glance !== undefined ? <button type="button" className="secondary-button tiny-button quota-glance-toggle" onClick={onToggleGlance} aria-expanded={!glance}
-            aria-label={`${t(glance ? 'quota.details.show' : 'quota.details.hide')}: ${name}`} title={t(glance ? 'quota.details.show' : 'quota.details.hide')}>
+            aria-label={`${t(glance ? 'cardLayout.details.show' : 'cardLayout.details.hide')}: ${name}`} title={t(glance ? 'cardLayout.details.show' : 'cardLayout.details.hide')}>
             <ChevronDown size={14} aria-hidden="true" />
           </button> : null}
         </div>
