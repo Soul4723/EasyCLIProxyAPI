@@ -237,7 +237,7 @@ export function QuotaPage() {
                   <span>{label}</span><span className="quota-filter-count">{count}</span>
                 </> };
               })} />
-            <SegmentedControl className="routing-segmented quota-layout-switch" aria-label={t('quota.layout.label')} value={layout} onChange={setLayout}
+            <SegmentedControl className="routing-segmented quota-layout-control" aria-label={t('quota.layout.label')} value={layout} onChange={setLayout}
               items={quotaLayouts.map((value) => ({ value, title: t(`quota.layout.${value}`), 'aria-label': t(`quota.layout.${value}`), label: quotaLayoutIcons[value] }))} />
           </div>
           {layout === 'stacked' || layout === 'compact'

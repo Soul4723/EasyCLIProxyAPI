@@ -168,8 +168,8 @@
 /* Card layout: Grid keeps each card at its own height; Even rows stretches cards to the row's tallest; Stacked packs cards into columns; Compact packs narrower, denser cards. */
 .quota-page .quota-view-bar { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .quota-page .quota-view-bar .quota-category-filter { flex: 1 1 auto; }
-.quota-page .quota-layout-switch { flex: none; grid-template-columns: repeat(4, 36px); }
-.quota-page .quota-layout-switch svg { display: block; margin: auto; }
+.quota-page .quota-layout-control { flex: none; grid-template-columns: repeat(4, 36px); }
+.quota-page .quota-layout-control svg { display: block; margin: auto; }
 .quota-page .real-quota-grid[data-layout='even'] { align-items: stretch; }
 .quota-page .real-quota-grid:is([data-layout='stacked'], [data-layout='compact']) { display: flex; align-items: flex-start; }
 .quota-page .quota-stack-column { display: flex; flex: 1 1 0; flex-direction: column; gap: 12px; min-width: 0; }

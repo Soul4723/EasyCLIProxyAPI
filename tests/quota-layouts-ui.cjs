@@ -51,7 +51,7 @@ const layouts = [['grid', 'Grid'], ['even', 'Even rows'], ['stacked', 'Stacked']
           for (const node of [document.documentElement, document.body, document.querySelector('.content'), document.querySelector('.content > .page')].filter(Boolean)) {
             if (node.scrollWidth > node.clientWidth + 1) issues.push(`page scrolls sideways (${node.className || node.tagName}: ${node.scrollWidth} > ${node.clientWidth})`);
           }
-          const switcher = document.querySelector('.quota-layout-switch').getBoundingClientRect();
+          const switcher = document.querySelector('.quota-layout-control').getBoundingClientRect();
           if (switcher.left < -1 || switcher.right > innerWidth + 1) issues.push('layout switch outside the window');
           const grid = document.querySelector('.real-quota-grid').getBoundingClientRect();
           const cards = [...document.querySelectorAll('.quota-page .real-quota-card')];
