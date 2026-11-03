@@ -1,0 +1,40 @@
+@layer components {
+/* Plan badge: a small tinted label like the app's status chips; the tint of the theme's planBadge colour deepens with the plan's
+   monthly price (quotaPlanTier), from neutral for free to planBadgeTop with an outline for $200, $500 and paid API plans. */
+strong.plan-chip {
+  --plan-tint: 0%;
+  display: inline-block;
+  flex: none;
+  height: 18px;
+  max-width: 14em;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--theme-plan-badge) var(--plan-tint), var(--bg-tertiary));
+  color: color-mix(in srgb, var(--theme-plan-badge) calc(var(--plan-tint) * 1.8), var(--text-primary));
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+strong.plan-chip:is([data-tier='free'], [data-tier='unknown']) { color: var(--text-secondary); }
+strong.plan-chip[data-tier='unknown'] { border-color: var(--border-color); border-style: dashed; background: transparent; }
+strong.plan-chip[data-tier='3'] { --plan-tint: 5%; }
+strong.plan-chip[data-tier='10'] { --plan-tint: 8%; }
+strong.plan-chip[data-tier='20'] { --plan-tint: 11%; }
+strong.plan-chip[data-tier='30'] { --plan-tint: 14%; }
+strong.plan-chip[data-tier='50'] { --plan-tint: 17%; }
+strong.plan-chip[data-tier='80'] { --plan-tint: 20%; }
+strong.plan-chip[data-tier='100'] { --plan-tint: 24%; }
+strong.plan-chip[data-tier='top'] {
+  border-color: color-mix(in srgb, var(--theme-plan-badge-top) 45%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--theme-plan-badge-top) 34%, var(--bg-card)), color-mix(in srgb, var(--theme-plan-badge-top) 16%, var(--bg-card)));
+  color: color-mix(in srgb, var(--theme-plan-badge-top) 55%, var(--text-primary));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-plan-badge-top) 25%, transparent);
+}
+}

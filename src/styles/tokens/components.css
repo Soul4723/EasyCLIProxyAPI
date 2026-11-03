@@ -2,6 +2,8 @@
   --theme-meter-low: var(--color-danger);
   --theme-meter-medium: var(--color-warning);
   --theme-meter-high: var(--color-success);
+  --theme-plan-badge: var(--color-warning);
+  --theme-plan-badge-top: var(--theme-plan-badge);
   --usage-result-failed-text: #b91c1c;
   --button-danger-soft-bg: #fff1f2;
   --button-danger-soft-border: #fecdd3;

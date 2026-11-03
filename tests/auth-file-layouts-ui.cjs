@@ -74,7 +74,7 @@ const openPage = async (page, base) => {
               if (Math.min(rect.right, b.right) - Math.max(rect.left, b.left) > 1 && Math.min(rect.bottom, b.bottom) - Math.max(rect.top, b.top) > 1) issues.push(`cards ${index} and ${other} overlap`);
             }
             // Only the layouts' own elements; the card action buttons are not checked here.
-            for (const part of cards[index].querySelectorAll('.auth-card-glance-toggle, .auth-card-glance-plan, .auth-status-badge, .auth-card-identity > *')) {
+            for (const part of cards[index].querySelectorAll('.auth-card-glance-toggle, .plan-chip, .auth-status-badge, .auth-card-identity > *')) {
               if (!visible(part)) continue;
               const box = part.getBoundingClientRect();
               if (box.left < rect.left - 1 || box.right > rect.right + 1 || box.bottom > rect.bottom + 1) issues.push(`card ${index}: ${part.className || part.tagName} spills out of the card`);

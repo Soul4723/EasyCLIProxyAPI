@@ -67,7 +67,7 @@ const layouts = [['even', 'Even rows'], ['stacked', 'Stacked'], ['compact', 'Com
               const b = rects[other];
               if (Math.min(rect.right, b.right) - Math.max(rect.left, b.left) > 1 && Math.min(rect.bottom, b.bottom) - Math.max(rect.top, b.top) > 1) issues.push(`cards ${index} and ${other} overlap`);
             }
-            for (const part of cards[index].querySelectorAll('.quota-identity > *, .quota-glance-plan, .quota-glance-toggle, .real-quota-row, .quota-card-actions > *, .quota-card-message, .quota-card-error')) {
+            for (const part of cards[index].querySelectorAll('.quota-identity > *, .plan-chip, .quota-glance-toggle, .real-quota-row, .quota-card-actions > *, .quota-card-message, .quota-card-error')) {
               if (!visible(part)) continue;
               const box = part.getBoundingClientRect();
               if (box.left < rect.left - 1 || box.right > rect.right + 1 || box.bottom > rect.bottom + 1) issues.push(`card ${index}: ${part.className} spills out of the card`);
@@ -79,7 +79,7 @@ const layouts = [['even', 'Even rows'], ['stacked', 'Stacked'], ['compact', 'Com
           rects.forEach(rect => rows.set(Math.round(rect.top), [...(rows.get(Math.round(rect.top)) ?? []), Math.round(rect.height)]));
           const glance = cards.filter(card => card.hasAttribute('data-glance'));
           const glanceIssues = glance.flatMap((card, index) => {
-            const badge = card.querySelector('.quota-identity .quota-glance-plan');
+            const badge = card.querySelector('.quota-identity .plan-chip');
             const logo = card.querySelector('.quota-account-icon, .quota-identity > svg');
             const toggle = card.querySelector('.quota-glance-toggle');
             const found = [];
@@ -87,7 +87,7 @@ const layouts = [['even', 'Even rows'], ['stacked', 'Stacked'], ['compact', 'Com
             else if (toggle.getBoundingClientRect().width > 48) found.push(`glance card ${index}: details toggle stretches to ${Math.round(toggle.getBoundingClientRect().width)}px`);
             if (badge && logo && visible(badge)) {
               const a = badge.getBoundingClientRect(); const b = logo.getBoundingClientRect();
-              if (Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) > 4) found.push(`glance card ${index}: plan text not level with the logo`);
+              if (Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) > 4) found.push(`glance card ${index}: plan badge not level with the logo`);
             }
             return found;
           });

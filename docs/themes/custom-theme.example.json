@@ -92,6 +92,8 @@
     "meterLow": "#38BDF8",
     "meterMedium": "#FBBF24",
     "meterHigh": "#F87171",
+    "planBadge": "#FBBF24",
+    "planBadgeTop": "#F59E0B",
     "primaryButtonBackground": "#2DD4BF",
     "primaryButtonHoverBackground": "#5EEAD4",
     "primaryButtonText": "#04201C",

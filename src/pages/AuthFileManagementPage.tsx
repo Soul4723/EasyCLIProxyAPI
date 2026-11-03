@@ -11,6 +11,7 @@ import { AuthFileQuotaPanel } from '../components/AuthFileQuotaPanel';
 import { AuthFileSettingsDialog } from '../components/AuthFileSettingsDialog';
 import { useQuotaReset } from '../components/useQuotaReset';
 import { CardLayoutGrid, CardLayoutSwitch, useCardLayout, useExpandedCards, useSettledHeights, type StackedColumns } from '../components/CardLayout';
+import { PlanChip } from '../components/PlanChip';
 import { estimateCredentialCardHeight, lowestQuotaRow } from '../services/quotaLayout';
 import './AuthFileManagementPage.css';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
@@ -628,6 +629,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
               const resettingCooldown = Boolean(cooldownResetIndex && cooldownResetting.has(cooldownResetIndex));
               const glance = layout === 'compact' && !openGlances.has(key);
               const lowest = glance ? lowestQuotaRow(quota) : null;
+              const planChip = plan ? <PlanChip provider={quotaProvider} plan={plan} /> : null;
               return (
                 <article className={`auth-file-card surface-card ${disabled ? 'is-disabled' : ''}`} key={key} role="listitem" aria-label={identity || displayName} data-glance={glance ? '' : undefined}>
                   <div className="auth-credential-row">
@@ -637,7 +639,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
                       : <PluginLogo src={icon.kind === 'plugin' ? icon.src : ''} size={35} />}
                     <div className="auth-card-identity">
                       <strong title={identity || displayName}>{identity || displayName}</strong>
-                      {glance ? <span className="auth-card-glance-line">{plan ? <span className="auth-card-glance-plan" title={plan}>{plan}</span> : null}{lowest ? <span title={`${lowest.label} · ${t('authFiles.settings.quotaRemaining')}`}>{lowest.label} {Math.round(Math.max(0, Math.min(100, lowest.remainingPercent ?? 0)))}%</span> : null}</span> : null}
+                      {glance ? <span className="auth-card-glance-line">{planChip}{lowest ? <span title={`${lowest.label} · ${t('authFiles.settings.quotaRemaining')}`}>{lowest.label} {Math.round(Math.max(0, Math.min(100, lowest.remainingPercent ?? 0)))}%</span> : null}</span> : null}
                       <span className="auth-card-filename" title={displayName}>{identity ? displayName : providerName(file)}</span>
                       {normalizeAuthFileTags(file.tags).length > 0 ? <div className="auth-card-tags-container">
                         <div className="auth-file-tags" role="group" aria-label={t("authFiles.tags.label")}>
@@ -664,7 +666,7 @@ export function AuthFileManagementPage({ initialProvider }: { initialProvider?: 
                     </div>
                   </header>
                   <div className="auth-list-cell auth-list-plan" data-label={t('authFiles.list.plan')}>
-                    {plan ? <span title={plan}>{plan}</span> : null}
+                    {planChip}
                     {expiryMs !== undefined ? <small title={t('authFiles.list.expiry', { time: formatDate(new Date(expiryMs).toISOString()) })}>{expiryMs <= now ? t('authFiles.list.expired') : t('authFiles.list.daysRemaining', { count: Math.ceil((expiryMs - now) / 86_400_000) })}</small> : null}
                   </div>
                   <div className="auth-list-cell auth-list-status" data-label={t('authFiles.list.status')}>
