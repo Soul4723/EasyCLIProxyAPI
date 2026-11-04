@@ -340,7 +340,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
   };
 
   const selectProxyFile = async (target: 'cert' | 'key') => {
-    if (controlsDisabled || proxyAction !== null || proxyFileSelecting !== null) return;
+    if (proxyControlsDisabled || proxyAction !== null || proxyFileSelecting !== null) return;
     setProxyFileSelecting(target);
     try {
       const selected = await open({
@@ -1041,6 +1041,8 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
   const controlsDisabled = loading || settings === null || busyAction !== null;
   // A remote core's settings are shown read-only.
   const editsDisabled = controlsDisabled || remote;
+  // The reverse proxy runs on this computer and forwards to a local core.
+  const proxyControlsDisabled = controlsDisabled || remote;
   const networkSettingsDirty = Boolean(settings) && (
     hostDraft.trim() !== settings?.host
     || portDraft !== String(settings?.port)
@@ -1677,6 +1679,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
             </div>
           ) : (
             <div className="config-tls-content">
+              {remote ? <Notice tone="info" className="config-remote-notice">{st('reverseProxyRemoteNotice')}</Notice> : null}
               {backendNotReady ? (
                 <Notice tone="warn" className="config-reverse-proxy-backend-notice">
                   {st('reverseProxyBackendNotReady')}
@@ -1704,7 +1707,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                   aria-label={st('reverseProxyEnable')}
                   aria-checked={proxyDraft.enabled}
                   checked={proxyDraft.enabled}
-                  disabled={controlsDisabled || proxyAction !== null}
+                  disabled={proxyControlsDisabled || proxyAction !== null}
                   onChange={(event) => {
                     setProxyDraft(prev => ({ ...prev, enabled: event.currentTarget.checked }));
                     setProxyDirty(true);
@@ -1723,7 +1726,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                     className="config-network-input"
                     type="text"
                     value={proxyDraft.listenHost}
-                    disabled={controlsDisabled || proxyAction !== null}
+                    disabled={proxyControlsDisabled || proxyAction !== null}
                     placeholder="0.0.0.0"
                     onChange={(event) => {
                       setProxyDraft(prev => ({ ...prev, listenHost: event.currentTarget.value }));
@@ -1744,7 +1747,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                     min={1}
                     max={65535}
                     value={proxyDraft.listenPort || ''}
-                    disabled={controlsDisabled || proxyAction !== null}
+                    disabled={proxyControlsDisabled || proxyAction !== null}
                     placeholder="443"
                     onChange={(event) => {
                       const val = parseInt(event.currentTarget.value, 10);
@@ -1766,7 +1769,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                     min={1}
                     max={65535}
                     value={proxyDraft.targetPort || ''}
-                    disabled={controlsDisabled || proxyAction !== null}
+                    disabled={proxyControlsDisabled || proxyAction !== null}
                     placeholder={String(settings?.port ?? 8317)}
                     onChange={(event) => {
                       const val = parseInt(event.currentTarget.value, 10);
@@ -1787,7 +1790,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                       className="config-network-input"
                       type="text"
                       value={proxyDraft.certPath}
-                      disabled={controlsDisabled || proxyAction !== null || proxyFileSelecting !== null}
+                      disabled={proxyControlsDisabled || proxyAction !== null || proxyFileSelecting !== null}
                       placeholder={st('reverseProxyCertPlaceholder')}
                       onChange={(event) => {
                         setProxyDraft(prev => ({ ...prev, certPath: event.currentTarget.value }));
@@ -1797,7 +1800,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                     <button
                       type="button"
                       className="secondary-button compact-button config-tls-browse-button"
-                      disabled={controlsDisabled || proxyAction !== null || proxyFileSelecting !== null}
+                      disabled={proxyControlsDisabled || proxyAction !== null || proxyFileSelecting !== null}
                       title={st('reverseProxySelectCertTitle')}
                       onClick={() => void selectProxyFile('cert')}
                     >
@@ -1818,7 +1821,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                       className="config-network-input"
                       type="text"
                       value={proxyDraft.keyPath}
-                      disabled={controlsDisabled || proxyAction !== null || proxyFileSelecting !== null}
+                      disabled={proxyControlsDisabled || proxyAction !== null || proxyFileSelecting !== null}
                       placeholder={st('reverseProxyKeyPlaceholder')}
                       onChange={(event) => {
                         setProxyDraft(prev => ({ ...prev, keyPath: event.currentTarget.value }));
@@ -1828,7 +1831,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
                     <button
                       type="button"
                       className="secondary-button compact-button config-tls-browse-button"
-                      disabled={controlsDisabled || proxyAction !== null || proxyFileSelecting !== null}
+                      disabled={proxyControlsDisabled || proxyAction !== null || proxyFileSelecting !== null}
                       title={st('reverseProxySelectKeyTitle')}
                       onClick={() => void selectProxyFile('key')}
                     >
@@ -1896,7 +1899,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
             <button
               type="button"
               className="secondary-button compact-button"
-              disabled={controlsDisabled || proxyAction !== null || proxyInitialLoading || proxyState?.running}
+              disabled={proxyControlsDisabled || proxyAction !== null || proxyInitialLoading || proxyState?.running}
               onClick={() => void handleProxyStart()}
             >
               <Power size={16} aria-hidden="true" />
@@ -1905,7 +1908,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
             <button
               type="button"
               className="secondary-button compact-button"
-              disabled={controlsDisabled || proxyAction !== null || proxyInitialLoading || !proxyState?.running}
+              disabled={proxyControlsDisabled || proxyAction !== null || proxyInitialLoading || !proxyState?.running}
               onClick={() => void handleProxyStop()}
             >
               <Power size={16} aria-hidden="true" />
@@ -1914,7 +1917,7 @@ function ConfigPanelContent({ remote }: { remote: boolean }) {
             <button
               type="button"
               className="primary-button compact-button"
-              disabled={controlsDisabled || proxyAction !== null || proxyInitialLoading || !proxyDirty}
+              disabled={proxyControlsDisabled || proxyAction !== null || proxyInitialLoading || !proxyDirty}
               onClick={() => void handleProxySave()}
             >
               <Check size={16} aria-hidden="true" />
