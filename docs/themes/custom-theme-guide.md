@@ -62,6 +62,7 @@ themes/
 | 侧栏边框 / 选中边框 | `sidebarBorder` / `sidebarSelectedBorder` |
 | 弹窗底色 / 次级底色 / 悬停底色 | `popoverBackground` / `overlaySoftSurface` / `overlayHoverBackground` |
 | 用量仪表的低 / 中 / 高颜色 | `meterLow` / `meterMedium` / `meterHigh` |
+| 额度页套餐标签的颜色 / 最高档（$200、$500、API）颜色 | `planBadge` / `planBadgeTop` |
 | 遮罩 / 面板阴影色 / 强调阴影色 / 侧栏选中阴影色 | `scrim` / `panelShadow` / `accentShadow` / `sidebarSelectedShadow` |
 
 **改主色时要成组改。** `accent` 不会自动替换所有控件的颜色；完整示例已分别配置按钮、开关和侧栏选中态，需要一起调整。

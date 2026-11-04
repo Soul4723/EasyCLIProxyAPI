@@ -850,11 +850,15 @@ const booleanValue = (value: unknown): boolean | null => {
   return null;
 };
 
-const resolveClaudePlan = (payload: unknown): string | undefined => {
+/** Claude plan name. The account flags only say "Max"; the organization's rate-limit tier separates Max (5x) from Ultra (20x), as in the Management Center web panel. */
+export const resolveClaudePlan = (payload: unknown): string | undefined => {
   if (!isRecord(payload)) return undefined;
   const account = isRecord(payload.account) ? payload.account : null;
   const organization = isRecord(payload.organization) ? payload.organization : null;
-  if (booleanValue(account?.has_claude_max) === true) return 'Max';
+  if (booleanValue(account?.has_claude_max) === true) {
+    const tier = (readString(organization, 'rate_limit_tier') || readString(organization, 'rateLimitTier')).toLowerCase();
+    return tier.endsWith('claude_max_20x') ? 'Ultra' : 'Max';
+  }
   if (booleanValue(account?.has_claude_pro) === true) return 'Pro';
   if (
     readString(organization, 'organization_type').toLowerCase() === 'claude_team'

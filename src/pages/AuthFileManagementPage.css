@@ -112,7 +112,7 @@
 /* Card layouts (components/CardLayout): only Even rows (the default) lines the action rows up across a row. */
 .auth-file-card-grid:not([data-layout='even']) .auth-file-card > .auth-credential-row { flex: none; }
 .auth-file-card-grid[data-layout='compact'] .auth-file-card { padding: 10px 12px; }
-/* Compact glance card: logo, name, plan and the lowest quota, with status; the rest opens from the toggle. */
+/* Compact glance card: logo, name, plan chip and the lowest quota, with status; the rest opens from the toggle. */
 .auth-file-card[data-glance] > .auth-credential-row { grid-template-areas: "identity status"; grid-template-rows: auto; }
 .auth-file-card[data-glance] :is(.auth-list-plan, .auth-list-recent, .auth-list-usage, .auth-list-quota, .auth-card-actions, .auth-list-status small, .auth-card-filename, .auth-card-provider),
 .auth-file-card[data-glance] > :not(.auth-credential-row) { display: none; }
@@ -121,7 +121,6 @@
 .auth-card-glance-line { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--auth-muted); font-size: 12px; line-height: 18px; white-space: nowrap; }
 .auth-card-glance-line > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .auth-card-glance-line:empty { display: none; }
-.auth-card-glance-line > .auth-card-glance-plan { flex: none; max-width: 9em; text-transform: capitalize; }
 .auth-list-status .auth-card-glance-toggle { flex: none; width: auto; margin-top: 4px; }
 .auth-file-card[data-glance] .auth-list-status { flex-direction: row; align-items: center; gap: 6px; }
 .auth-file-card[data-glance] .auth-list-status .auth-card-glance-toggle { margin-top: 0; }
@@ -135,11 +134,11 @@
 .auth-card-header .provider-logo { width: 35px; height: 35px; object-fit: contain; flex-shrink: 0; }
 [data-theme="dark"] .auth-card-header .provider-logo[data-provider="xai"] { filter: invert(1); }
 .auth-card-identity { min-width: 0; flex: 1; display: grid; gap: 5px; }
-.auth-card-identity strong { color: var(--auth-text); font-size: 14px; font-weight: 750; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-card-identity strong:not(.plan-chip) { color: var(--auth-text); font-size: 14px; font-weight: 750; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-card-filename, .auth-card-provider { color: var(--auth-muted); font-size: 12px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-list-plan, .auth-list-status { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; }
 .auth-list-plan { flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 8px; text-align: left; }
-.auth-list-plan:not(:has(span, small)) { display: none; }
+.auth-list-plan:not(:has(span, small, .plan-chip)) { display: none; }
 .auth-list-status { align-items: flex-end; justify-self: end; text-align: right; gap: 2px; }
 .auth-list-plan > span { max-width: 100%; color: var(--auth-text); font-size: 13px; font-weight: 600; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-list-plan small, .auth-list-status small { color: var(--auth-muted); font-size: 12px; line-height: 1.3; }
