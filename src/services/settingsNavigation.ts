@@ -76,6 +76,11 @@ export const settingsMessages = {
   ),
   reverseProxyBackendNotReady: text('反向代理后端服务未就绪。', 'Reverse proxy backend not ready.', 'リバースプロキシのバックエンドが準備できていません。'),
   reverseProxySaved: text('反向代理设置已保存', 'Reverse proxy settings saved', 'リバースプロキシ設定を保存しました'),
+  reverseProxyRemoteNotice: text(
+    '反向代理运行在这台电脑上，并转发到本机内核，因此远程模式下暂不可用。',
+    'The reverse proxy runs on this computer and forwards to a core on this computer, so it is not available in Remote mode yet.',
+    'リバースプロキシはこのコンピューター上で動作し、このコンピューターのコアに転送するため、リモートモードではまだ利用できません。'
+  ),
 } satisfies Record<string, TemplateText>;
 
 // The settings page is mounted only while active, so another page hands over the

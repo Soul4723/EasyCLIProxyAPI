@@ -61,6 +61,18 @@ pub(crate) fn require_local(config: &GuiConfigFile) -> Result<(), String> {
     }
 }
 
+/// The reverse proxy forwards to a core on this computer and its controls are refused in Remote mode,
+/// so switching to Remote while it runs would leave it running with no way to stop it.
+pub(crate) fn require_reverse_proxy_stopped(
+    proxy: &crate::reverse_proxy::ReverseProxyManagerState,
+) -> Result<(), String> {
+    if proxy.get_state()?.running {
+        Err("Stop the reverse proxy before switching to Remote".into())
+    } else {
+        Ok(())
+    }
+}
+
 /// The remote core's configuration, read through the management API. `None` in Local mode, where callers
 /// read the local config.yaml as before. Remote values are shown read-only; nothing is written back.
 pub(crate) async fn remote_core_config_document(
@@ -152,6 +164,7 @@ pub(crate) fn save_core_connection(
         if process.managed_pid().is_some() {
             return Err("Stop the GUI-managed local core before switching to Remote".into());
         }
+        require_reverse_proxy_stopped(app.state::<crate::reverse_proxy::ReverseProxyManagerState>().inner())?;
         process.recovery.cancel();
     }
     let config = gui_config_state.update(|config| {

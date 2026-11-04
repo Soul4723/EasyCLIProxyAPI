@@ -102,7 +102,7 @@ const path = require('node:path');
     await page.keyboard.press('Escape');
 
     await page.waitForFunction(() => document.querySelector('.sidebar-easy-entry')?.disabled);
-    for (const name of ['Agent Configuration', 'Usage', 'Version Management']) {
+    for (const name of ['Agent Configuration', 'MCP & Skills', 'Usage', 'Version Management']) {
       assert.equal(await nav(name).isDisabled(), true, `${name} locked remotely`);
       assert.equal(await nav(name).getAttribute('title'), `${name} — Not available in Remote mode yet`);
     }
@@ -125,6 +125,11 @@ const path = require('node:path');
     assert.equal(await software.getByRole('switch', { name: 'Start Core on Launch' }).isDisabled(), true, 'start core on launch shown but disabled');
     assert.equal(await software.getByText('Silent Launch').count(), 0, 'Silent Launch hidden remotely');
     assert.equal(await card.getByLabel('Management URL').inputValue(), 'https://other.example', 'both hosts show the saved connection');
+    await page.locator('#config-subpage-tab-proxy').click();
+    const reverseProxy = page.locator('#config-native-reverse-proxy');
+    await reverseProxy.getByText(/The reverse proxy runs on this computer/).waitFor();
+    assert.equal(await reverseProxy.getByRole('switch', { name: 'Enable reverse proxy' }).isDisabled(), true, 'reverse proxy switch shown but disabled remotely');
+    for (const name of ['Start', 'Stop']) assert.equal(await reverseProxy.getByRole('button', { name, exact: true }).isDisabled(), true, `reverse proxy ${name} shown but disabled remotely`);
 
     await nav('Plugins').click();
     await page.getByRole('region', { name: 'Plugins' }).waitFor();

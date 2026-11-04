@@ -8,7 +8,8 @@ It does not install, launch, stop, restart, or update that server.
 1. On the server, enable remote management (`remote-management.allow-remote`)
    and set a management key. Use the equivalent management settings for your
    core version, and ensure the management port is reachable.
-2. Stop the GUI-managed local core before switching targets.
+2. Stop the GUI-managed local core, and the reverse proxy under **External
+   access** if it is running, before switching targets.
 3. Open **Core connection** from the gear button on Home's Runtime Control
    card (the same panel is under **Advanced Features → App preferences**),
    choose **Remote core**, and enter the management URL (for example
@@ -50,8 +51,10 @@ These stay visible in place but are disabled, with a short reason:
 
 - Start, Stop and Restart, and Start Core on Launch: the core is managed on the
   remote host.
-- Agent Configuration, Beginner Mode and Codex tools: machine and agent
-  configuration stays local for now.
+- Agent Configuration, MCP & Skills, Beginner Mode and Codex tools: machine
+  and agent configuration stays local for now.
+- The reverse proxy (**External access**): it listens on this computer and
+  forwards to a core on this computer.
 - Version Management: it installs a local core binary.
 - Usage, and the Home success rate: reading usage from a remote core would consume
   its usage queue, so no usage is collected in Remote mode.

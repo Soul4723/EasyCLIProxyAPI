@@ -500,11 +500,15 @@ pub async fn reverse_proxy_get_state(
     state.get_state()
 }
 
+// The proxy listens on this computer and forwards to a core on 127.0.0.1, so it is refused in
+// Remote mode. Reading its state stays open: it only reports this app's own listener.
 #[tauri::command]
 pub async fn reverse_proxy_apply(
     config: ReverseProxyConfig,
     state: tauri::State<'_, ReverseProxyManagerState>,
+    gui_config_state: tauri::State<'_, crate::GuiConfigState>,
 ) -> Result<ReverseProxyState, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     state.apply(config).await
 }
 
@@ -512,14 +516,18 @@ pub async fn reverse_proxy_apply(
 pub async fn reverse_proxy_start(
     config: ReverseProxyConfig,
     state: tauri::State<'_, ReverseProxyManagerState>,
+    gui_config_state: tauri::State<'_, crate::GuiConfigState>,
 ) -> Result<ReverseProxyState, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     state.start(config).await
 }
 
 #[tauri::command]
 pub async fn reverse_proxy_stop(
     state: tauri::State<'_, ReverseProxyManagerState>,
+    gui_config_state: tauri::State<'_, crate::GuiConfigState>,
 ) -> Result<ReverseProxyState, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     state.stop().await
 }
 
@@ -805,6 +813,7 @@ mod tests {
 
         let state = manager.start(config.clone()).await.unwrap();
         assert!(state.running);
+        assert!(crate::core_connection::require_reverse_proxy_stopped(&manager).is_err());
         assert_eq!(state.listening, Some(format!("127.0.0.1:{proxy_port}")));
         assert_eq!(state.target, Some(format!("127.0.0.1:{target_port}")));
 
@@ -836,6 +845,7 @@ mod tests {
         assert_eq!(state.listening, None);
         assert_eq!(state.target, None);
         assert_eq!(state.requests_total, 1);
+        assert!(crate::core_connection::require_reverse_proxy_stopped(&manager).is_ok());
 
         let _ = backend_task.await;
 

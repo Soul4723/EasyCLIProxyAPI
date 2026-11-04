@@ -208,8 +208,15 @@ pub(crate) fn list_mcp_servers_from_path(path: &Path) -> Result<Vec<McpServer>, 
     Ok(servers)
 }
 
+// MCP servers and skills are this computer's agent configuration, which stays local for now:
+// every command that changes files or opens a folder is refused in Remote mode. Listing and
+// exporting only read this computer's files and stay open; the page itself is locked remotely.
 #[tauri::command]
-pub(crate) fn save_mcp_server(server: McpServer) -> Result<McpServer, String> {
+pub(crate) fn save_mcp_server(
+    server: McpServer,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<McpServer, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let path = mcp_servers_file_path()?;
     save_mcp_server_to_path(&path, server)
 }
@@ -226,7 +233,8 @@ pub(crate) fn delete_mcp_server_from_path(path: &Path, id: &str) -> Result<(), S
 }
 
 #[tauri::command]
-pub(crate) fn delete_mcp_server(id: String) -> Result<(), String> {
+pub(crate) fn delete_mcp_server(id: String, gui_config_state: tauri::State<'_, GuiConfigState>) -> Result<(), String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let mut servers = read_servers()?;
     let initial_len = servers.len();
     servers.retain(|s| s.id != id);
@@ -250,7 +258,12 @@ pub(crate) fn set_mcp_server_enabled_at_path(path: &Path, id: &str, enabled: boo
 }
 
 #[tauri::command]
-pub(crate) fn set_mcp_server_enabled(id: String, enabled: bool) -> Result<McpServer, String> {
+pub(crate) fn set_mcp_server_enabled(
+    id: String,
+    enabled: bool,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<McpServer, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let mut servers = read_servers()?;
     let server = servers
         .iter_mut()
@@ -461,13 +474,18 @@ pub(crate) fn import_mcp_servers_json_to_path(path: &Path, raw: String) -> Resul
 }
 
 #[tauri::command]
-pub(crate) fn import_mcp_servers_json(raw: String) -> Result<ImportResult, String> {
+pub(crate) fn import_mcp_servers_json(
+    raw: String,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<ImportResult, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let path = mcp_servers_file_path()?;
     import_mcp_servers_json_to_path(&path, raw)
 }
 
 #[tauri::command]
-pub(crate) fn open_mcp_skills_directory() -> Result<(), String> {
+pub(crate) fn open_mcp_skills_directory(gui_config_state: tauri::State<'_, GuiConfigState>) -> Result<(), String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let path = core_base_dir()?;
     fs::create_dir_all(&path).map_err(|e| format!("Failed to create core directory: {e}"))?;
     super::management_api::open_directory_in_file_manager(&path)

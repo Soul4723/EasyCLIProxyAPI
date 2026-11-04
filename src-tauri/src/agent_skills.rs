@@ -483,8 +483,14 @@ pub(crate) fn get_skill_detail(path: String) -> Result<SkillDetail, String> {
     Ok(SkillDetail { entry, body })
 }
 
+// Refused in Remote mode like the MCP commands; listing and reading skills stay open.
 #[tauri::command]
-pub(crate) fn set_skill_enabled(path: String, enabled: bool) -> Result<SkillEntry, String> {
+pub(crate) fn set_skill_enabled(
+    path: String,
+    enabled: bool,
+    gui_config_state: tauri::State<'_, GuiConfigState>,
+) -> Result<SkillEntry, String> {
+    crate::core_connection::require_local(&gui_config_state.snapshot()?)?;
     let canonical_path = fs::canonicalize(&path)
         .map_err(|error| format!("Failed to canonicalize path '{path}': {error}"))?;
 

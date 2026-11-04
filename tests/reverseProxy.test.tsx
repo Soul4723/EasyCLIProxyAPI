@@ -134,4 +134,21 @@ describe('reverse proxy contract and settings card', () => {
     expect(configPanelSrc).toContain('st(\'reverseProxyBackendNotReady\')');
     expect(configPanelSrc).toContain('config-key-row skeleton');
   });
+
+  it('disables every reverse proxy control in Remote mode with a reason in all locales', () => {
+    const configPanelSrc = readFileSync(join(root, 'src/pages/ConfigPanel.tsx'), 'utf8');
+    expect(configPanelSrc).toContain('const proxyControlsDisabled = controlsDisabled || remote;');
+    const card = configPanelSrc.slice(
+      configPanelSrc.indexOf('id="config-native-reverse-proxy"'),
+      configPanelSrc.indexOf('</section>', configPanelSrc.indexOf('id="config-native-reverse-proxy"')),
+    );
+    const disabledProps = card.match(/disabled=\{[^}]*\}/g) ?? [];
+    expect(disabledProps.length).toBe(11);
+    for (const prop of disabledProps) expect(prop).toContain('proxyControlsDisabled');
+    expect(card).toContain("{remote ? <Notice tone=\"info\" className=\"config-remote-notice\">{st('reverseProxyRemoteNotice')}</Notice> : null}");
+    const notice = settingsMessages.reverseProxyRemoteNotice;
+    expect(notice.zh).toBeTruthy();
+    expect(notice.en).toContain('Remote mode');
+    expect(notice.ja).toBeTruthy();
+  });
 });

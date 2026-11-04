@@ -103,6 +103,113 @@ fn remote_targeting_and_local_lifecycle_refusal() {
         .ends_with(":8317/v8/management/config"));
 }
 
+const LOCAL_ONLY: &str = "This operation is only available for the local core";
+
+fn local_tools_app(config: GuiConfigFile) -> tauri::App<tauri::test::MockRuntime> {
+    let app = tauri::test::mock_app();
+    app.manage(GuiConfigState::new(config));
+    app.manage(crate::reverse_proxy::ReverseProxyManagerState::default());
+    app
+}
+
+fn assert_refused<T: std::fmt::Debug>(name: &str, result: Result<T, String>) {
+    assert_eq!(result.unwrap_err(), LOCAL_ONLY, "{name} must be refused in Remote mode");
+}
+
+fn unnamed_mcp_server() -> crate::mcp_servers::McpServer {
+    crate::mcp_servers::McpServer {
+        id: String::new(),
+        name: String::new(),
+        transport: "stdio".into(),
+        command: Some("echo".into()),
+        args: Vec::new(),
+        env: Default::default(),
+        url: None,
+        headers: Default::default(),
+        enabled: true,
+        description: None,
+    }
+}
+
+fn reverse_proxy_test_config(enabled: bool) -> crate::reverse_proxy::ReverseProxyConfig {
+    let missing = unique_test_temp_path("reverse-proxy-missing");
+    crate::reverse_proxy::ReverseProxyConfig {
+        enabled,
+        listen_host: "127.0.0.1".into(),
+        listen_port: 1,
+        target_port: 1,
+        cert_path: missing.join("cert.pem").to_string_lossy().into_owned(),
+        key_path: missing.join("key.pem").to_string_lossy().into_owned(),
+    }
+}
+
+#[tokio::test]
+async fn remote_mode_refuses_local_reverse_proxy_mcp_and_skill_commands() {
+    use crate::{agent_skills, mcp_servers, reverse_proxy};
+    let app = local_tools_app(remote_config());
+    assert_refused(
+        "reverse_proxy_apply",
+        reverse_proxy::reverse_proxy_apply(reverse_proxy_test_config(false), app.state(), app.state()).await,
+    );
+    assert_refused(
+        "reverse_proxy_start",
+        reverse_proxy::reverse_proxy_start(reverse_proxy_test_config(true), app.state(), app.state()).await,
+    );
+    assert_refused("reverse_proxy_stop", reverse_proxy::reverse_proxy_stop(app.state(), app.state()).await);
+    // Reading the state stays open: it reports this app's own, stopped listener.
+    assert!(!reverse_proxy::reverse_proxy_get_state(app.state()).await.unwrap().running);
+    assert_refused("save_mcp_server", mcp_servers::save_mcp_server(unnamed_mcp_server(), app.state()));
+    assert_refused("delete_mcp_server", mcp_servers::delete_mcp_server("missing".into(), app.state()));
+    assert_refused(
+        "set_mcp_server_enabled",
+        mcp_servers::set_mcp_server_enabled("missing".into(), true, app.state()),
+    );
+    assert_refused(
+        "import_mcp_servers_json",
+        mcp_servers::import_mcp_servers_json("not json".into(), app.state()),
+    );
+    assert_refused("open_mcp_skills_directory", mcp_servers::open_mcp_skills_directory(app.state()));
+    let missing_skill = unique_test_temp_path("skill-missing").join("SKILL.md");
+    assert_refused(
+        "set_skill_enabled",
+        agent_skills::set_skill_enabled(missing_skill.to_string_lossy().into_owned(), true, app.state()),
+    );
+}
+
+// Local inputs are chosen to fail inside each command without writing, binding or opening anything.
+#[tokio::test]
+async fn local_mode_runs_reverse_proxy_mcp_and_skill_commands() {
+    use crate::{agent_skills, mcp_servers, reverse_proxy};
+    let app = local_tools_app(GuiConfigFile::default());
+    let stopped = reverse_proxy::reverse_proxy_apply(reverse_proxy_test_config(false), app.state(), app.state())
+        .await
+        .unwrap();
+    assert!(!stopped.running);
+    let start_error = reverse_proxy::reverse_proxy_start(reverse_proxy_test_config(true), app.state(), app.state())
+        .await
+        .unwrap_err();
+    assert!(start_error.contains("Certificate file does not exist"), "{start_error}");
+    assert!(!reverse_proxy::reverse_proxy_stop(app.state(), app.state()).await.unwrap().running);
+    assert_eq!(
+        mcp_servers::save_mcp_server(unnamed_mcp_server(), app.state()).unwrap_err(),
+        "Server name cannot be empty"
+    );
+    let missing_id = "missing-mcp-server-for-remote-fence-test";
+    assert!(mcp_servers::delete_mcp_server(missing_id.into(), app.state())
+        .unwrap_err()
+        .ends_with("not found"));
+    assert!(mcp_servers::set_mcp_server_enabled(missing_id.into(), true, app.state())
+        .unwrap_err()
+        .ends_with("not found"));
+    assert!(mcp_servers::import_mcp_servers_json("not json".into(), app.state())
+        .unwrap_err()
+        .starts_with("Failed to parse JSON"));
+    let missing_skill = unique_test_temp_path("skill-missing").join("SKILL.md");
+    assert!(agent_skills::set_skill_enabled(missing_skill.to_string_lossy().into_owned(), true, app.state())
+        .unwrap_err()
+        .starts_with("Failed to canonicalize path"));
+}
+
 #[tokio::test]
 async fn connection_test_maps_v8_auth_errors_and_redirects_without_saving() {
     check_connection_responses(true).await;
